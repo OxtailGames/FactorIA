@@ -2422,7 +2422,10 @@ when the user has the hardware and the accounts.
   used by `feel` and every simulation system (a test fails on `std::exp`, `pow`, `sin` or `cos` in simulation sources),
   and game scripts' `Math.*` routed to them; a callback cut by the watchdog fails the run loudly, never as a different
   result. Replay hashes for more scenes (2D and 3D physics, scripts, particles, nav, feel), on Android, iOS and the web
-  as well.
+  as well. Done on branch m91/3-det-math: `det::f64` and the float wrappers, the source scan (file list in
+  engine/core/tests/test_det_scan.cpp), QuickJS `Math` routed to them, the watchdog cut is an invalid run. The hashes are
+  committed from arm64 macOS only; the first CI run on x86-64 Linux/Windows and the Android, iOS and web jobs confirms them
+  (a platform that differs shows its value next to the expected one). Particles and feel hashes are desktop only.
 - M91.4 (L) Audio that never waits: the game talks to the mixer through a lock-free queue; streamed music and long
   sounds decode on the job system into ring buffers ahead of the callback, which takes no lock and allocates nothing;
   voices are stolen by priority and loudness, not age; the music cache evicts the least recently used song and loads on

@@ -10,6 +10,7 @@
 #include <set>
 
 #include "engine_impl.h"
+#include "fa/core/det_math.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
@@ -164,7 +165,7 @@ void register_bones_commands(Engine& engine, Engine::Impl& I) {
               for (std::size_t i = 0; i < count; ++i) {
                   const Vec2 d = pts[i + 1] - pts[i];
                   const float length = std::sqrt(d.x * d.x + d.y * d.y);
-                  const float angle = float(std::atan2(double(d.y), double(d.x)) * 180.0 / std::numbers::pi);
+                  const float angle = float(det::f64::atan2(double(d.y), double(d.x)) * 180.0 / std::numbers::pi);
                   const Entity bone = I.world.create(names[i]);
                   I.world.add<Bone2D>(bone).length = length;
                   I.world.set_parent(bone, previous);

@@ -185,3 +185,62 @@ TEST_CASE("watchdog: a script blocked past the wall-clock cap is stopped") {
     REQUIRE(count_errors(h.scripts, "took too long") == 1);
     CHECK(count_errors(h.scripts, "1.6 s on the clock") == 1);
 }
+
+// M91.3: a cut is never silent. It is counted apart from the script errors (a repeated message or a quiet call can hide
+// those), the count and the list name the script and the callback, and a test during which one happened fails.
+TEST_CASE("watchdog: a cut is counted and names the script and the callback") {
+    TestHost h("watchdog_count");
+    h.file("scripts/spin.js", R"(
+import { Behaviour } from "factoria";
+export default class Spin extends Behaviour {
+  onUpdate() { while (true) {} }
+}
+)");
+    h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("spin", "scripts/spin.js")})).dump());
+    REQUIRE(h.start());
+    h.scripts.set_callback_limit(0.2);
+    CHECK(h.scripts.watchdog_cut_count() == 0);
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(1);
+    REQUIRE(h.scripts.watchdog_cut_count() == 1);
+    REQUIRE(h.scripts.watchdog_cuts().size() == 1);
+    const ScriptWatchdogCut& c = h.scripts.watchdog_cuts()[0];
+    CHECK(c.script == "scripts/spin.js");
+    CHECK(c.callback == "onUpdate");
+    CHECK(c.limit == "> 0.2 s of CPU time");
+    CHECK(c.to_string() == "the script watchdog stopped 'onUpdate' of scripts/spin.js (> 0.2 s of CPU time)");
+}
+
+TEST_CASE("watchdog: a test that ran while a callback was cut fails") {
+    TestHost h("watchdog_test_fails");
+    h.file("scripts/spin.js", R"(
+import { Behaviour } from "factoria";
+export default class Spin extends Behaviour {
+  onUpdate() { while (true) {} }
+}
+)");
+    h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("spin", "scripts/spin.js")})).dump());
+    h.file("tests/spin.test.js", R"(
+import { test, expect, game } from "factoria:test";
+
+test("steps a frame while a behaviour spins", () => {
+  game.step(1);
+  expect(1 + 1).toBe(2);  // passes on its own
+});
+
+test("a test that does not touch the spinning behaviour", () => {
+  expect(2 + 2).toBe(4);
+});
+)");
+    REQUIRE(h.start());
+    h.scripts.set_callback_limit(0.2);
+    h.load_scene_now("scenes/main.scene.json");
+    TestReport rep = h.scripts.run_tests({"tests/spin.test.js"});
+    MESSAGE(rep.summary());
+    CHECK_FALSE(rep.ok());
+    REQUIRE(rep.cases.size() == 2);
+    CHECK_FALSE(rep.cases[0].passed);
+    CHECK(rep.cases[0].message.find("the script watchdog stopped 'onUpdate' of scripts/spin.js") != std::string::npos);
+    CHECK(rep.cases[0].message.find("cannot be trusted") != std::string::npos);
+    CHECK(h.scripts.watchdog_cut_count() >= 1);
+}
