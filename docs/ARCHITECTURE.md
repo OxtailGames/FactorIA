@@ -559,11 +559,25 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
   editor's scene and its Play session) never share it, and `World::clear()` and every scene load empty it. The renderer
   (`renderer.h`) keeps only camera and parallax in `Renderer::update`; `render_world` draws what the world holds.
-  The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the Sprite, SpriteAnimator and ParticleEmitter
-  components of every example scene after 40 frames with a renderer and with `--no-graphics`, and
-  engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame (whole world) for a small project. Three things of
-  the world are still measured by the renderer and make the whole-world hash differ in some example scenes: the size of UI text
-  (a script sizing a Panel from `measure_text`), the Parallax offset and `input.mouse.world`.
+- **Text and cameras without a renderer (M91.1b).** Nothing the simulation reads depends on a GPU. Text is shaped and measured by
+  `FontSet` (render/src/font_set.h: fonts, the fallback chain, HarfBuzz shaping, wrapping, rich text, `textScale`/`uiScale`,
+  `maxTextScale`/`autoShrink`), which has no GPU in it: the renderer's `Fonts::layout` places glyphs on the atlas with what it
+  returns, `Renderer::measure_text` and `fa::TextMeasurer` (`fa/render/text_measure.h`, what the engine owns when there is no
+  renderer, handed to scripts, the UI and `bounds()` as `VisualMeasure.textSize`) only take the size. One implementation, so the
+  sizes are the same numbers with and without a window; `approx_text_size` is left for a built-in font that cannot be loaded, with
+  one warning. The cameras are `fa/scene/camera_geometry.h`: `camera_geometry` builds the view, projection and viewport of a
+  `Camera` for a render target size, `CameraSet` keeps the cameras of the last frame (`refresh`, the renderer's snapshot: queries
+  before the first `render()` see the default camera) and answers `world_to_screen`, `screen_to_world`, `screen_ray` and
+  `camera_at`; `update_parallax` writes `Parallax.offset` from it. The renderer builds its `CameraInfo` from the same function and
+  `Engine::render()` without a renderer refreshes the `CameraSet` from the design size, so `input.mouse.world`,
+  `camera.worldToScreen` and Parallax give the same floats either way (the queries always use the OpenGL depth range, whatever the
+  backend). `world_state_hash` includes the live particles (`ParticleStore`: positions, ages, the emitter clocks).
+  The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the WHOLE world of every scene
+  after 40 frames with a renderer that draws and with `--no-graphics` (first the Sprite, SpriteAnimator and ParticleEmitter
+  components alone, so a failure says whether the animators differ), and
+  engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame for a small project with a moving camera, a Parallax
+  layer, a fitted panel and wrapped Japanese text. engine/render/tests/text_measure_tests.cpp compares `TextMeasurer` with the
+  renderer (Latin, CJK, Arabic, the missing-glyph fallback, wrapping, rich text, the text and interface scales) with `==`.
 Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
