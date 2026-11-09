@@ -17,9 +17,9 @@
     },
     "macos-clang-metal-paravirtual": {
       "frames": 300,
-      "cpuMsAvg": 1.511,
+      "cpuMsAvg": 2.774,
       "cpuMsP95": 2.141,
-      "cpuMsMax": 105.236,
+      "cpuMsMax": 405.44,
       "peakMemoryMB": 72.0,
       "drawCalls": 51,
       "entities": 99,
