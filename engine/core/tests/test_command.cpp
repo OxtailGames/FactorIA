@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -395,4 +396,75 @@ TEST_CASE("close_object_schemas: properties get closed, $defs too, objects witho
     CHECK_FALSE(s["properties"]["c"].contains("additionalProperties"));
     CHECK(s["properties"]["default"]["default"] == Json::parse(R"({"properties":{"k":1}})"));  // data, not a schema
     CHECK(close_object_schemas(Json::object({{"type", "string"}})) == Json::object({{"type", "string"}}));
+}
+
+TEST_CASE("command: the before-call hook runs for the outermost call of a thread only, never for a nested call") {
+    CommandRegistry reg;
+    std::atomic<int> hooks{0};
+    reg.set_before_call([&](std::string_view) { ++hooks; });
+    CommandInfo inner;
+    inner.name = "t.inner";
+    reg.add(inner, [](const Json&) { return Json::object(); });
+    CommandInfo outer;
+    outer.name = "t.outer";
+    reg.add(outer, [&reg](const Json&) {
+        reg.call("t.inner");
+        reg.call("t.inner");
+        return Json::object();
+    });
+    CHECK(reg.call("t.outer").ok);
+    CHECK(hooks == 1);  // the two nested calls did not run it
+    CHECK(reg.call("t.inner").ok);
+    CHECK(hooks == 2);  // the depth went back to 0 after the first call
+
+    // A second registry called from a handler is its own outermost call.
+    CommandRegistry other;
+    std::atomic<int> otherHooks{0};
+    other.set_before_call([&](std::string_view) { ++otherHooks; });
+    CommandInfo plain;
+    plain.name = "t.plain";
+    other.add(plain, [](const Json&) { return Json::object(); });
+    CommandInfo crossing;
+    crossing.name = "t.cross";
+    reg.add(crossing, [&other](const Json&) {
+        other.call("t.plain");
+        return Json::object();
+    });
+    CHECK(reg.call("t.cross").ok);
+    CHECK(otherHooks == 1);
+}
+
+TEST_CASE("command: calls on several threads at once keep their own depth") {
+    CommandRegistry reg;
+    std::atomic<int> hooks{0};
+    std::atomic<int> insideHandlers{0};
+    std::atomic<int> maxInside{0};
+    reg.set_before_call([&](std::string_view) { ++hooks; });
+    CommandInfo inner;
+    inner.name = "t.inner";
+    reg.add(inner, [](const Json&) { return Json::object(); });
+    CommandInfo outer;
+    outer.name = "t.outer";
+    reg.add(outer, [&](const Json&) {
+        int now = ++insideHandlers;
+        int seen = maxInside.load();
+        while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {}
+        // Wait (a bounded spin) until another thread is inside a handler too, so the depths really overlap.
+        for (int i = 0; i < 2000000 && insideHandlers.load() < 2; ++i) std::this_thread::yield();
+        reg.call("t.inner");
+        --insideHandlers;
+        return Json::object();
+    });
+    constexpr int kThreads = 4;
+    constexpr int kCalls = 25;
+    std::atomic<int> failures{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([&] {
+            for (int i = 0; i < kCalls; ++i)
+                if (!reg.call("t.outer").ok) ++failures;
+        });
+    for (auto& th : threads) th.join();
+    CHECK(failures == 0);
+    CHECK(hooks == kThreads * kCalls);  // every outermost call ran the hook once; no nested call did
 }

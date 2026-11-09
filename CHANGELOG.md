@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs (M90.4a):** an entity destroyed this frame refuses a new parent, a new child and a new id: `scene.set_parent`, `setParent` and `World::set_parent` say so (a teaching error, or a warning from C++) instead of leaving ids that disagree with the subtree about to go. Capsule and convex bodies now have the inertia of their solid shape (a capsule of radius r and half segment h: cylinder plus two hemispheres; a hull: its volume integral about the model origin, products of inertia ignored) instead of their bounding box, so a thin capsule spins about its axis faster than across it, as a real one does; boxes and spheres are unchanged. A request the store, ads or http backend never answers is ended by the engine with the error `network` after 30 s (300 s for the calls that wait for the player, the request's `timeout` plus 5 s for `http.fetch`); the fake backend has no deadline. The events a backend sends wait in a queue of at most 1024 (the answers 4096): the oldest are dropped, counted in `platform.state()` (`droppedEvents`) and reported once in the log. docs/PLATFORM.md, "Deadlines".
+- **For engine code (M90.4a):** a `pattern` in a JSON schema is compiled once, in a process-wide thread-safe cache, instead of at every validation; an invalid pattern is still an error at the point it is used, and `check_schema_patterns` (fa/core/json_schema.h) finds one at load: `CommandRegistry::add` logs it. `CommandRegistry`'s nesting depth is kept per thread, so a command called from a job thread no longer sees the main thread's depth; the `set_before_call` hook runs only for the outermost call of a thread, and never on a job worker thread. `World::check_set_parent` says why a re-parent would be refused. `PlatformServices::set_request_timeout`, `set_clock` (tests use a fake clock) and `PlatformBackend::cancel`.
+
 ## 0.19.0
 
 FactorIA 0.19.0 (M70) puts the engine's work on threads and loads games faster. A job system runs the big pieces of a

@@ -322,8 +322,24 @@ the sessions is the order of the pads.
 | `notSignedIn` | The player is not signed in. Every call but `signIn()` needs it. |
 | `notAllowed` | Purchases are disabled or restricted (parental controls). |
 | `unknownId` | The store does not know the id the catalog maps to, or `purchases.finish()` got a transaction this game was not told about. |
-| `network` | The store could not be reached. Offer a retry. |
+| `network` | The store could not be reached, or did not answer before the engine's deadline (below). Offer a retry. |
 | `failed` | Anything else; the message says what. |
+
+**Deadlines.** A request whose backend never answers does not hang the game: the engine answers it itself with the
+error `network` (message: `platform.<method> got no answer from the "<backend>" backend in <N> s, so the engine gave up
+on it`) and tells the backend it may stop (`PlatformBackend::cancel`); an answer that arrives later is ignored. The time
+is **30 s** for most methods, **300 s** for the ones that wait for the player (`purchases.buy`, `purchases.restore`,
+`ads.showRewarded`, `ads.privacyOptions`, `player.signIn`), and for `http.fetch` the request's own `timeout` (default
+15 s, at most 120 s) plus 5 s. A host can change one method's time with `PlatformServices::set_request_timeout` (for `http.fetch` it replaces the 5 s of grace). The
+deadline is IO, not simulation: it reads a monotonic clock once per frame (`PlatformServices::frame`), so the frame in
+which the error arrives depends on the wall clock, never the simulation's state. The fake backend has no deadline (its
+answers are scripted and counted in frames, so a test gives the same result on a slow machine); `platform.state()` shows
+`timedOut`, the number of requests the engine gave up on.
+
+**Queues.** The events a backend sends (`purchase`, `overlay`, `player`, `remotePlay`) wait for the game until the start of
+the next frame. If more than 1024 pile up (a script layer that is not running), the **oldest** are dropped, counted in
+`platform.state().droppedEvents` and reported by one warning in the log. The answers of requests have a cap of 4096 the
+same way.
 
 Achievements, stats and presence are best effort: end those calls with `.catch(() => {})`. Purchases are not: show the
 player what happened (`e.hint`) and grant nothing.

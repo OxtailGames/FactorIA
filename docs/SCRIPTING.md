@@ -141,7 +141,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
 | `destroy()` | deferred to end of frame (children too); leaves physics at once and is not drawn from then on, not even in the frame it is called in (see below) |
-| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
+| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, an index without a parent, a cycle, an entity being destroyed this frame (`destroy()` ran) or a parent being destroyed throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |

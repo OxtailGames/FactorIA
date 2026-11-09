@@ -1,7 +1,10 @@
 #include "fa/core/json_schema.h"
 
 #include <cmath>
+#include <memory>
+#include <mutex>
 #include <regex>
+#include <unordered_map>
 
 #include "fa/core/strings.h"
 
@@ -14,6 +17,29 @@ std::string SchemaError::to_string() const {
 }
 
 namespace {
+
+// Compiled `pattern` regexes, shared by every validation on every thread (validation runs on job threads). A
+// std::regex is only read while it matches, so one compiled object serves any number of threads; the map is guarded.
+// A pattern that does not compile is cached too (null). The cache holds at most kMaxPatterns patterns: past that it
+// starts over, which only costs a recompile and never changes a result.
+constexpr std::size_t kMaxPatterns = 512;
+
+std::shared_ptr<const std::regex> compiled_pattern(const std::string& pattern) {
+    static std::mutex mutex;
+    static std::unordered_map<std::string, std::shared_ptr<const std::regex>> cache;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (auto it = cache.find(pattern); it != cache.end()) return it->second;
+    }
+    std::shared_ptr<const std::regex> re;  // compiled outside the lock: it is the slow part
+    try {
+        re = std::make_shared<const std::regex>(pattern, std::regex::ECMAScript);
+    } catch (const std::regex_error&) {
+    }
+    std::lock_guard<std::mutex> lock(mutex);
+    if (cache.size() >= kMaxPatterns) cache.clear();
+    return cache.emplace(pattern, re).first->second;
+}
 
 struct Ctx {
     const Json& root;
@@ -258,13 +284,14 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
         if (auto it = schema.find("minLength"); it != schema.end() && it->is_number_unsigned() && s.size() < it->get<std::size_t>())
             add(errors, ptr, "string is too short (minimum length " + it->dump() + ")", "Provide at least " + it->dump() + " characters.");
         if (auto it = schema.find("pattern"); it != schema.end() && it->is_string()) {
-            try {
-                std::regex re(it->get<std::string>(), std::regex::ECMAScript);
-                if (!std::regex_search(s, re))
+            const std::string& pattern = it->get_ref<const std::string&>();
+            if (auto re = compiled_pattern(pattern)) {
+                if (!std::regex_search(s, *re))
                     add(errors, ptr, "string " + describe_json_value(value) + " does not match the pattern " + it->dump(),
-                        "Use a value matching /" + it->get<std::string>() + "/.");
-            } catch (const std::regex_error&) {
-                add(errors, ptr, "schema error: invalid pattern " + it->dump());
+                        "Use a value matching /" + pattern + "/.");
+            } else {
+                add(errors, ptr, "schema error: invalid pattern " + it->dump(),
+                    "The pattern must be an ECMAScript regular expression; fix the schema, not the value.");
             }
         }
     }
@@ -309,6 +336,32 @@ void defaults_at(const Json& root, const Json& schemaIn, Json& value, int depth)
 }
 
 }  // namespace
+
+std::vector<SchemaError> check_schema_patterns(const Json& schema) {
+    std::vector<SchemaError> errors;
+    std::vector<std::pair<const Json*, std::string>> todo{{&schema, ""}};
+    // Walk every nested object and array of the schema, so a pattern in a property, in items, in $defs or in a branch is
+    // found; a property that is itself named "pattern" holds a schema (an object), not a string, and is skipped as a regex.
+    while (!todo.empty()) {
+        auto [node, ptr] = todo.back();
+        todo.pop_back();
+        if (node->is_object()) {
+            for (auto it = node->begin(); it != node->end(); ++it) {
+                std::string childPtr = ptr + "/" + escape_token(it.key());
+                if (it.key() == "pattern" && it->is_string()) {
+                    if (!compiled_pattern(it->get_ref<const std::string&>()))
+                        errors.push_back({childPtr, "invalid pattern " + it->dump() + " (not an ECMAScript regular expression)",
+                                          "Fix the regular expression in the schema; every string checked against it would be rejected."});
+                } else if (it.key() != "default" && it.key() != "enum" && it.key() != "const" && it.key() != "examples") {
+                    todo.emplace_back(&*it, std::move(childPtr));  // values (default, enum...) are data, not schemas
+                }
+            }
+        } else if (node->is_array()) {
+            for (std::size_t i = 0; i < node->size(); ++i) todo.emplace_back(&(*node)[i], ptr + "/" + std::to_string(i));
+        }
+    }
+    return errors;
+}
 
 std::vector<SchemaError> validate_json(const Json& schema, const Json& value) {
     std::vector<SchemaError> errors;

@@ -92,6 +92,8 @@ public:
         if (handler) handler(calls.back(), sink);
     }
     void frame() override { ++frames; }
+    std::vector<std::uint64_t> cancelled;
+    void cancel(std::uint64_t id) override { cancelled.push_back(id); }
 };
 
 }  // namespace
@@ -1592,4 +1594,149 @@ TEST_CASE("platform: release is a flag of the run, and a backend without the ads
     REQUIRE(r->answer.has_value());
     CHECK(r->answer->error.code == "unavailable");
     CHECK(has(r->answer->error.message, "does not offer the \"ads\" service"));
+}
+
+// ---------------------------------------------------------------------------------------------------- deadlines ----
+// The tests drive the clock themselves, so no wait depends on the speed of the machine.
+TEST_CASE("platform deadlines: a request nobody answers is answered \"network\" at its deadline, and the backend is told") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    double now = 1000.0;  // seconds on the test's clock
+    ps.set_clock([&] { return now; });
+
+    auto first = ps.start("stats.get", Json::parse(R"({"id":"wins"})"));
+    REQUIRE(first.ok());
+    CHECK_FALSE(first->answer.has_value());
+    CHECK(ps.pending() == 1);
+
+    now += kPlatformDefaultTimeoutSeconds - 1.0;
+    ps.frame();
+    CHECK(ps.pending() == 1);  // not yet
+    CHECK(ps.take_answers().empty());
+
+    now += 1.0;
+    ps.frame();
+    CHECK(ps.pending() == 0);
+    auto answers = ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].id == first->id);
+    CHECK_FALSE(answers[0].ok);
+    CHECK(answers[0].error.code == "network");
+    CHECK(has(answers[0].error.message, "stats.get"));
+    CHECK(has(answers[0].error.message, "30 s"));
+    CHECK_FALSE(answers[0].error.hint.empty());
+    CHECK(backend->cancelled == std::vector<std::uint64_t>{first->id});
+    CHECK(ps.timed_out() == 1);
+    CHECK(ps.info()["timedOut"] == 1);
+
+    // The first answer counts: a backend that answers after the deadline is ignored.
+    backend->kept.complete(first->id, Json::object({{"id", "wins"}, {"value", 3}}));
+    CHECK(ps.take_answers().empty());
+
+    // Answered in time: no timeout.
+    auto second = ps.start("stats.get", Json::parse(R"({"id":"wins"})"));
+    REQUIRE(second.ok());
+    backend->kept.complete(second->id, Json::object({{"id", "wins"}, {"value", 4}}));
+    now += 1000.0;
+    ps.frame();
+    answers = ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].ok);
+    CHECK(ps.timed_out() == 1);
+}
+
+TEST_CASE("platform deadlines: the player's own time, http.fetch's timeout and a per-method override") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    CHECK(ps.request_timeout("stats.get") == doctest::Approx(kPlatformDefaultTimeoutSeconds));
+    CHECK(ps.request_timeout("purchases.buy") == doctest::Approx(kPlatformInteractiveTimeoutSeconds));
+    CHECK(ps.request_timeout("ads.showRewarded") == doctest::Approx(kPlatformInteractiveTimeoutSeconds));
+    CHECK(ps.request_timeout("http.fetch") == doctest::Approx(15.0 + kPlatformHttpGraceSeconds));
+    CHECK(ps.request_timeout("http.fetch", Json::parse(R"({"timeout": 60})")) == doctest::Approx(60.0 + kPlatformHttpGraceSeconds));
+    ps.set_request_timeout("stats.get", 2.5);
+    CHECK(ps.request_timeout("stats.get") == doctest::Approx(2.5));
+    ps.set_request_timeout("stats.get", 0.0);
+    CHECK(ps.request_timeout("stats.get") == doctest::Approx(kPlatformDefaultTimeoutSeconds));
+
+    auto rec = std::make_unique<Recorder>();
+    ps.set_backend(std::move(rec));
+    double now = 0.0;
+    ps.set_clock([&] { return now; });
+    ps.set_request_timeout("stats.get", 2.0);
+    auto quick = ps.start("stats.get", Json::parse(R"({"id":"wins"})"));
+    auto buy = ps.start("purchases.buy", Json::parse(R"({"id":"gems_100"})"));
+    REQUIRE(quick.ok());
+    REQUIRE(buy.ok());
+    now = 2.0;
+    ps.frame();
+    auto answers = ps.take_answers();
+    REQUIRE(answers.size() == 1);  // the override fired, the purchase sheet is still open
+    CHECK(answers[0].id == quick->id);
+    CHECK(has(answers[0].error.message, "2 s"));
+    now = kPlatformInteractiveTimeoutSeconds;
+    ps.frame();
+    answers = ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].id == buy->id);
+    CHECK(answers[0].error.code == "network");
+}
+
+TEST_CASE("platform deadlines: the fake backend has none, and the real clock is only a fallback") {
+    Game g;
+    double now = 0.0;
+    g.ps.set_clock([&] { return now; });
+    g.fake().set_delay_frames(3);
+    auto r = g.ps.start("stats.get", Json::parse(R"({"id":"wins"})"));
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->answer.has_value());
+    now = 1.0e6;  // far past every deadline
+    g.ps.frame();  // releases one frame of the delay; nothing timed out
+    CHECK(g.ps.timed_out() == 0);
+    for (int i = 0; i < 5; ++i) g.ps.frame();
+    auto answers = g.ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].ok);
+
+    // Without set_clock the default clock is the monotonic steady clock: a fresh request is not overdue.
+    PlatformServices real;
+    real.set_catalog(catalog());
+    real.set_backend(std::make_unique<Recorder>());
+    REQUIRE(real.start("stats.get", Json::parse(R"({"id":"wins"})")).ok());
+    real.frame();
+    CHECK(real.pending() == 1);
+}
+
+// ------------------------------------------------------------------------------------------------ event queue ----
+TEST_CASE("platform events: the queue keeps the newest events, counts the dropped ones and warns once") {
+    PlatformServices ps;
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    const int total = int(kPlatformMaxQueuedEvents) + 100;
+    for (int i = 0; i < total; ++i) backend->kept.emit("overlay", Json::object({{"open", true}, {"n", i}}));
+    CHECK(ps.dropped_events() == 100);
+    auto events = ps.take_events();
+    REQUIRE(events.size() == kPlatformMaxQueuedEvents);
+    CHECK(events.front().data["n"] == 100);  // the oldest 100 went
+    CHECK(events.back().data["n"] == total - 1);
+    CHECK(ps.info()["droppedEvents"] == 100);
+    // Taken: the queue starts again, and the count stays.
+    backend->kept.emit("overlay", Json::object({{"open", false}}));
+    CHECK(ps.take_events().size() == 1);
+    CHECK(ps.dropped_events() == 100);
+    ps.reset_session();
+    CHECK(ps.dropped_events() == 0);
+}
+
+TEST_CASE("platform events: an event queue under the cap loses nothing") {
+    PlatformServices ps;
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    for (int i = 0; i < 50; ++i) backend->kept.emit("overlay", Json::object({{"n", i}}));
+    CHECK(ps.dropped_events() == 0);
+    CHECK(ps.take_events().size() == 50);
 }

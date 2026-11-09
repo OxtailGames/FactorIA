@@ -1,5 +1,9 @@
 #include <doctest.h>
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 #include "fa/core/json_schema.h"
 
 using namespace fa;
@@ -117,4 +121,47 @@ TEST_CASE("schema: pointer escaping and defaults") {
     CHECK(v["opts"]["deep"] == true);
     CHECK(v["list"][0]["k"] == "v");
     CHECK(v["list"][1]["k"] == "x");
+}
+
+TEST_CASE("schema: a pattern is compiled once and validation from several threads agrees") {
+    const Json schema = Json::parse(R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[a-z_]+[0-9]*$"}}})");
+    std::atomic<int> wrong{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t)
+        threads.emplace_back([&] {
+            for (int i = 0; i < 200; ++i) {
+                if (!validate_json(schema, Json::parse(R"({"id":"coin_3"})")).empty()) ++wrong;
+                auto bad = validate_json(schema, Json::parse(R"({"id":"Coin 3"})"));
+                if (bad.size() != 1 || bad[0].pointer != "/id") ++wrong;
+            }
+        });
+    for (auto& th : threads) th.join();
+    CHECK(wrong == 0);
+}
+
+TEST_CASE("schema: many different patterns keep giving the right answer (the cache starts over when full)") {
+    for (int i = 0; i < 1500; ++i) {
+        Json schema = Json::object({{"type", "string"}, {"pattern", "^p" + std::to_string(i) + "$"}});
+        CHECK(validate_json(schema, Json("p" + std::to_string(i))).empty());
+        CHECK(validate_json(schema, Json("q" + std::to_string(i))).size() == 1);
+    }
+}
+
+TEST_CASE("schema: an invalid pattern is a teaching error, in the validation and when the schema is checked") {
+    auto e = check(R"({"type":"string","pattern":"([a-z"})", "\"abc\"");
+    REQUIRE(e.size() == 1);
+    CHECK(e[0].message.find("invalid pattern") != std::string::npos);
+    CHECK_FALSE(e[0].hint.empty());
+    // The same answer the second time (the failure is cached too).
+    CHECK(check(R"({"type":"string","pattern":"([a-z"})", "\"abc\"").size() == 1);
+
+    auto bad = check_schema_patterns(Json::parse(R"({"type":"object","properties":{
+        "ok":{"type":"string","pattern":"^a+$"},
+        "name":{"type":"array","items":{"type":"string","pattern":"(unclosed"}}}})"));
+    REQUIRE(bad.size() == 1);
+    CHECK(bad[0].pointer == "/properties/name/items/pattern");
+    CHECK_FALSE(bad[0].hint.empty());
+    CHECK(check_schema_patterns(Json::parse(R"({"type":"string","pattern":"^[a-z]+$"})")).empty());
+    // A property that is named "pattern" is a schema, not a regex.
+    CHECK(check_schema_patterns(Json::parse(R"({"properties":{"pattern":{"type":"string"}}})")).empty());
 }

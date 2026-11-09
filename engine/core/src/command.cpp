@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
@@ -27,6 +28,8 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 }
 
 thread_local CommandProgressSink t_progress_sink;
+// The registries this thread is inside a call() of, outermost first (see call_inner).
+thread_local std::vector<const CommandRegistry*> t_active_calls;
 thread_local CommandCaller t_caller = CommandCaller::User;
 std::atomic<int> g_caller_floor{static_cast<int>(CommandCaller::User)};  // CommandCallerFloor: the process-wide minimum
 
@@ -83,6 +86,10 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
     // describe() and MCP show is the normalised schema, so clients see exactly what call() enforces.
     info.inputSchema = close_object_schemas(std::move(info.inputSchema));
+    // Compiles the schema's `pattern`s now (the validator keeps them): a bad regex is reported when the command is added,
+    // not on every call.
+    for (const SchemaError& e : check_schema_patterns(info.inputSchema))
+        FA_ERROR("command", "{}: inputSchema{}: {} ({})", name, e.pointer, e.message, e.hint);
     commands_[name] = Entry{std::move(info), std::move(handler)};
 }
 
@@ -128,16 +135,21 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
 }
 
 CommandResult CommandRegistry::call_inner(std::string_view name, const Json& argsIn) const {
+    // The depth of nested call()s is per thread (a command can run on a job thread while the main thread runs another)
+    // and per registry (a handler may call into a second registry, whose own outermost call still runs its hook).
     struct DepthGuard {
-        int& d;
-        explicit DepthGuard(int& v) : d(v) { ++d; }
-        ~DepthGuard() { --d; }
+        const CommandRegistry* r;
+        explicit DepthGuard(const CommandRegistry* reg) : r(reg) { t_active_calls.push_back(r); }
+        ~DepthGuard() { t_active_calls.pop_back(); }
     };
-    if (beforeCall_ && callDepth_ == 0) {
-        DepthGuard g(callDepth_);
+    const bool outermost = std::find(t_active_calls.begin(), t_active_calls.end(), this) == t_active_calls.end();
+    // The hook reloads the commands, which is only safe on the engine's own thread between commands: a command that
+    // runs on a job worker never triggers it.
+    if (beforeCall_ && outermost && !jobs::is_worker_thread()) {
+        DepthGuard g(this);
         beforeCall_(name);
     }
-    DepthGuard depth(callDepth_);
+    DepthGuard depth(this);
     auto it = commands_.find(name);
     if (it == commands_.end()) {
         std::vector<std::string> names;
