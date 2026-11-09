@@ -89,6 +89,23 @@ TEST_CASE("MainThreadQueue fails pending calls when closed or cancelled") {
     CHECK(r3.error["code"] == "unavailable");
 }
 
+TEST_CASE("MainThreadQueue: the calling request's cancel drops a job the main thread has not started") {
+    MainThreadQueue q;
+    std::atomic<bool> request{false};
+    CommandResult r;
+    std::thread t([&] {
+        CommandCancelScope scope(&request);  // what the MCP server installs for a request (notifications/cancelled)
+        r = q.call("a.b", Json::object(), nullptr);
+    });
+    while (q.size() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    request = true;
+    t.join();
+    CHECK_FALSE(r.ok);
+    CHECK(r.error["message"] == "cancelled");
+    int ran = q.pump([](const std::string&, const Json&) -> std::optional<CommandResult> { return CommandResult{}; });
+    CHECK(ran == 0);  // the abandoned job is skipped, not run
+}
+
 TEST_CASE("commands that only write files do not count as scene edits") {
     Editor ed{EditorOptions{}};
     CHECK_FALSE(ed.command_edits_scene("prefab.save", Json::object()));

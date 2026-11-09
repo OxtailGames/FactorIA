@@ -46,11 +46,19 @@ struct StdioLoopOptions {
     // Asked when the server is idle (no message being handled, no input held back): true leaves the loop with
     // StdioExit::Restart, right after the answer to the last message was written.
     std::function<bool()> restart_due;
+    // After the end of the input (the client closed stdin: MCP's stdio shutdown) the lines already read are still
+    // handled, but a request still running or queued this long after it is cancelled (McpSession::cancel_all), so a long
+    // tools/call stops instead of running for minutes for a client that is gone.
+    std::chrono::milliseconds eofGrace{10000};
 };
 enum class StdioExit { Eof, Restart };
 
 // Reads messages from `reader`, answers on `out` (flushed per message; notifications of the server and of other threads
-// share the writer). Returns at the end of the input, or when `restart_due` says so; the notification sink is cleared on return.
+// share the writer). Messages are handled one at a time on the calling thread, while a reading thread reads on for the
+// whole loop: it hands a notifications/cancelled to the server at once and queues every other line for its turn. A
+// cancelled request that runs stops; one still queued is skipped (McpSession::expect_request); neither gets an answer.
+// At the end of the input, requests still running or queued `eofGrace` later are cancelled.
+// Returns at the end of the input, or when `restart_due` says so; the notification sink is cleared on return.
 StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& out, const StdioLoopOptions& options = {});
 
 }  // namespace fa

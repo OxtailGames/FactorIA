@@ -78,7 +78,9 @@ int main() {
                 std::getline(std::cin, reply);  // the client's answer to the ping
                 result = text_result(reply.find("srv-1") != std::string::npos ? "pinged" : "no pong");
             } else if (name == "big") {
-                result = text_result(std::string(150000, 'x'));
+                std::string big = "x";  // then 75000 two-byte characters: byte 100000 is inside one
+                for (int i = 0; i < 75000; ++i) big += "\xC3\xA9";
+                result = text_result(big);
             } else {
                 send(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32602}, {"message", "Unknown tool: " + name}})}}));
                 continue;

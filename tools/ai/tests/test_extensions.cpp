@@ -636,13 +636,13 @@ TEST_CASE("claude-code run: the plugins, the private settings file and the skill
     CHECK(argv.find("--plugin-dir\n" + (home.path / "plugins" / "notes").string() + "\n") != std::string::npos);
     CHECK(argv.find("--setting-sources\nproject,local\n") != std::string::npos);
     // the hooks settings file and the generated skills plugin live in the project's .factoria/ai while the run lasts
-    CHECK(argv.find(proj.str() + "/.factoria/ai/settings-claude-code-") != std::string::npos);
-    CHECK(argv.find("--plugin-dir\n" + proj.str() + "/.factoria/ai/ext-skills-claude-code-") != std::string::npos);
+    CHECK(argv.find(proj.str() + "/.factoria/ai/fa-run-settings-claude-code-") != std::string::npos);
+    CHECK(argv.find("--plugin-dir\n" + proj.str() + "/.factoria/ai/fa-run-ext-skills-claude-code-") != std::string::npos);
     // ... and are gone afterwards
     std::size_t leftovers = 0;
     for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) {
         const std::string name = entry.path().filename().string();
-        if (name.rfind("settings-", 0) == 0 || name.rfind("ext-skills-", 0) == 0) ++leftovers;
+        if (name.rfind("fa-run-", 0) == 0) ++leftovers;
     }
     CHECK(leftovers == 0);
 
@@ -700,8 +700,8 @@ TEST_CASE("the run's settings file and skills plugin exist while the CLI runs, h
     REQUIRE(CliAgent(claude).run(withSkills, nullptr, nullptr));
     CHECK(has(read_file(seen), "gdd"));
     CHECK(has(read_file(seen), kSkillsPluginName));
-    // only the shared, keyless MCP config stays (as for every Claude Code run)
-    for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) CHECK(entry.path().filename() == "mcp-claude-code.json");
+    // nothing of the runs stays: the MCP configs, the settings and the plugin are all deleted when a run ends
+    for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) FAIL_CHECK("left behind: " << entry.path().filename().string());
 }
 
 TEST_CASE("codex run: the skills sit in the project's .agents/skills while it runs, git-ignored, and are removed when it ends") {

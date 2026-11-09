@@ -486,3 +486,32 @@ TEST_CASE("command: calls on several threads at once keep their own depth") {
     CHECK(maxInside.load() == kThreads);  // the rendezvous guarantees all four handlers were open at the same time
     CHECK(hooks == kThreads * kCalls);    // every outermost call ran the hook once; no nested call did
 }
+
+TEST_CASE("command: a CommandCancelScope cancels the calls of its thread once its flag is set, and only those") {
+    CommandRegistry reg = make_registry();
+    CHECK_FALSE(command_cancelled());
+    CHECK(command_cancel_flag() == nullptr);
+    std::atomic<bool> flag{false};
+    {
+        CommandCancelScope scope(&flag);
+        CHECK(command_cancel_flag() == &flag);
+        CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);  // not set yet: runs
+        flag = true;
+        CHECK(command_cancelled());
+        const CommandResult refused = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}}));
+        CHECK_FALSE(refused.ok);
+        CHECK(refused.error["code"] == "cancelled");
+        CHECK(refused.error["message"].get<std::string>().find("math.add") != std::string::npos);
+        // another thread has no scope: its calls run
+        bool otherOk = false;
+        std::thread([&] { otherOk = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok; }).join();
+        CHECK(otherOk);
+        {
+            CommandCancelScope inner(nullptr);  // an inner scope replaces the flag while it lives
+            CHECK_FALSE(command_cancelled());
+        }
+        CHECK(command_cancelled());
+    }
+    CHECK_FALSE(command_cancelled());  // the scope ended
+    CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);
+}

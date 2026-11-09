@@ -378,6 +378,8 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
             // cmd.exe cannot pass a multi-line argument). In -p mode Claude Code asks before every MCP tool, so the
             // engine's own tools are allowed up front. `--input-format stream-json` makes stdin one JSON message, which can
             // carry images; `--resume {session}` continues the chat's session (the argument disappears for the first message).
+            // Both built-in CLIs end their options at "--" (with_end_of_options puts one before the {prompt} of a user
+            // template); these templates pass no prompt argument, so nothing in a prompt is ever read as an option.
             return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
                     "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria",
                     "--permission-mode", "acceptEdits"};
