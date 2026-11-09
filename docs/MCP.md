@@ -84,7 +84,8 @@ that.)
 
 ### Tool definitions and Claude Code
 
-The server lists every command (about 190 tools, 320 KB of definitions). Claude Code 2.1.312 does not put them all in the
+The server lists every command (404 tools, about 1 MB of definitions, in a new `2d-empty` project of the 0.19.0 engine,
+counted on 2026-11-09; `factoria commands` prints the list of your version, and the number grows with each one). Claude Code 2.1.312 does not put them all in the
 model's context: it defers the tools of MCP servers behind its own tool search, so the model sees their names and loads a
 definition when it needs it. Checked on 2.1.312 with the FactorIA server and a one-word prompt: the context after the first
 message was 39,920 tokens by default and 78,425 with `ENABLE_TOOL_SEARCH=false` (tool search off, every definition loaded).

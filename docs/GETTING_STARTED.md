@@ -38,9 +38,9 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
    - **Zip or tar.gz:** unpack the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
    - **AppImage:** `chmod +x FactorIA-linux-x64.AppImage`. It runs where the tar.gz does.
 2. Open the editor:
-   - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. Windows
-     SmartScreen may show "Windows protected your PC": it always does for an unsigned release, and for a signed one
-     until enough people have downloaded it. Click **More info**, then **Run anyway**.
+   - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`.
+     The Windows downloads are not code-signed yet (the release workflow has no Windows certificate), so
+     SmartScreen may show "Windows protected your PC". Click **More info**, then **Run anyway**.
    - **macOS:** open Terminal in the folder and run `./factoria editor`. Releases after 0.1.3 are signed and notarized
      by Apple and open without a warning (the very first run needs internet: Gatekeeper looks the notarization up).
      0.1.3 and earlier are not notarized: your browser quarantines the download (unpacking it in Finder or with `tar`
@@ -151,7 +151,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Preset windows-nin
 
 ```bash
 ./scripts/build-ios.sh --simulator    # iOS Simulator; requires full Xcode
-./scripts/build-android.sh            # Android arm64; requires NDK r26 or later and ANDROID_NDK_HOME
+./scripts/build-android.sh            # Android arm64; requires NDK r27 or later (r26's libc++ has no std::format) and ANDROID_NDK_HOME
 ```
 
 ### Presets
@@ -161,11 +161,13 @@ Each build goes to `build/<preset>/`. To see the presets that work on your machi
 | Preset | System | Use |
 |---|---|---|
 | `linux-debug`, `linux-release` | Linux | Development and release |
+| `linux-sniper` | Linux x64 | The release the downloads use (static libstdc++, no tests); `scripts/build-sniper.sh` builds it inside the Steam Runtime "sniper" SDK |
 | `macos-debug`, `macos-release` | macOS | Development and release |
 | `windows-debug`, `windows-release` | Windows (Visual Studio 2022) | Development and release |
 | `windows-ninja-debug` | Windows (Ninja with `cl`) | From Developer PowerShell |
 | `ios`, `ios-simulator` | macOS with Xcode | Device and simulator |
 | `android-arm64`, `android-x86_64` | Any machine with the NDK | Device and emulator |
+| `web-debug`, `web-release` | Any machine with the Emscripten SDK (`EMSDK` set) | The web player (WebAssembly, WebGL2); no tools and no tests |
 
 To build without the scripts:
 
