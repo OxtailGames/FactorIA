@@ -470,7 +470,7 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
 
 ## How the built-in agent behaves (API providers)
 
-* Tools: not every command is sent as a tool on every step (that was about 80k tokens of definitions on each one). The
+* Tools: not every command is sent as a tool on every step (with every command in full, the definitions alone were hundreds of thousands of tokens on each one). The
   built-in agent gets the **core commands** in full (`fs_*`, `docs_*`, the scene commands `scene_spawn`, `scene_set_component`,
   `scene_save`..., `game_step`, `game_input`, `game_click`, `game_screenshot`, `game_state`, `game_logs`, `project_validate`,
   `project_info`, `project_test`, `script_*`, `feedback_report`, `assets_list`, `assets_import`), the commands of the
@@ -511,7 +511,9 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
 ### Tool groups and the catalog
 
 Every command is a tool the model could use, but sending the definitions of all of them (summary, description and input
-schema: 186 commands, about 320 KB) on every step costs about 80k tokens before the model reads a word. The built-in agent
+schema: the 372 commands the agent can call weigh about 870 KB on the 0.19.0 engine, counted on 2026-11-09, and the
+number grows with each version)
+on every step costs more than 200k tokens before the model reads a word. The built-in agent
 offers instead:
 
 * the **core commands** in full (the list above; `is_core_tool` in `tools/ai/include/fa/ai/tool_catalog.h`),

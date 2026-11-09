@@ -273,7 +273,8 @@ factoria call --project games/x play.report '{}'
 | `screenshots` | `false` takes no pictures. |
 
 The hook is the game's own `scripts/autoplay.js` ([SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)); without one a generic explorer presses
-the declared input actions in patterns drawn from `seed`. Never `Math.random` and never the clock: time is game time (fixed steps), and the real
+the declared input actions in patterns drawn from `seed`. Draw from `bot.rng` (not `Math.random`, which would move the
+game's own stream) and never read the clock: time is game time (fixed steps), and the real
 clock only stops a run that takes far longer than any normal one (`aborted` after 800 real seconds, a safety net that no normal run reaches).
 
 The result and the session hold:

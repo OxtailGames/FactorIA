@@ -28,16 +28,14 @@ It builds for Windows, macOS, Linux, iOS and Android from a single codebase.
 
 ## Status
 
-Version 0.1, first milestone complete. All engine modules, the `factoria` CLI, the
-MCP server, the AI hub and the editor work, and seven example games built by AI
-agents through the public interface are part of the test suite. Three of them are complete games. Lantern Keep, a 2D
-desktop platformer: menus, save slots, store services, accessibility options, four languages and store-ready settings.
-Clockwork Courier, a 3D game made for phones first: touch controls, imported CC0 models and sounds, achievements,
-purchases and a rewarded ad, comfort and accessibility options, English, Spanish and Japanese, and exports run on the
-iOS Simulator, an Android emulator, a browser and macOS. Burrow Brigade, a 2D couch co-op game for up to four players
-on the desktop and Steam: mines generated from a seed, enemies that chase through the dug tunnels, versioned save
-slots, leaderboards and online features on test services, English, Russian and Thai, and Windows, Linux and macOS
-exports.
+Version 0.19 (CHANGELOG.md says what each version added). The engine modules, the `factoria` CLI, the MCP server, the AI
+hub and the editor work, and the 11 example games in `examples/` (counted on 2026-11-09) were built by AI agents through
+the public interface; their tests run with the test suite on a Release build (`ctest -L example`). Six are reference
+games: Lantern Keep (a 2D platformer with menus, save slots, store services, accessibility options and four languages),
+Clockwork Courier (a 3D game made for phones first), Burrow Brigade (2D couch co-op for up to four players, for desktop
+and Steam), Tidewater Market (an isometric management game for the web and desktop), Larkspur Lodge (a 3D narrative
+adventure) and Kindlewatch (a small 3D game whose every asset was made with the engine's own commands). The others are
+smaller: Block Push, Ember Descent, Gem Roller, Neon Swarm and Sky Hopper. Each example's README says what it shows.
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
 (MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
@@ -55,8 +53,8 @@ or [AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/F
 installer, or unpack the zip / tar.gz into a folder of your choice, such as `C:\FactorIA` or `~/FactorIA`, and open the
 editor:
 
-- **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. SmartScreen may
-  stop it (always for an unsigned release): click **More info > Run anyway**.
+- **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. The Windows
+  downloads are not code-signed yet (no certificate), so SmartScreen may stop them: click **More info > Run anyway**.
 - **macOS:** run `./factoria editor` in Terminal from the unzipped folder. Releases after 0.1.3 are signed and
   notarized and open without a warning. Gatekeeper blocks 0.1.3 and earlier the first time: remove the download
   quarantine once, `xattr -dr com.apple.quarantine <folder>`, or allow
@@ -116,12 +114,13 @@ tools/       development tools (desktop): CLI, MCP server, AI agent, editor
 cmake/       CMake functions and platform selection
 external/    bundled third-party dependencies (do not edit)
 docs/        documentation in English (included in the binary; AIs read it through MCP)
-scripts/     build and environment setup for each operating system
+scripts/     build, test, CI and packaging scripts for each operating system
 templates/   project templates for `factoria new`
+skills/      the engine's AI skills, baked into the binary
 schemas/     JSON schemas for the project, ENGINE_FEEDBACK and AI configuration
 examples/    example games made by AI agents, also used as integration tests
 feedback/    roadmap built from the examples' ENGINE_FEEDBACK.json files
-platforms/   packaging for Android (Gradle) and iOS
+platforms/   packaging for Android (Gradle), iOS and the web, the store and ads backend plugins, the Windows installer and the AppImage files
 ```
 
 ## Documentation
@@ -167,9 +166,10 @@ commercial, as long as the copyright notice and the license travel with the engi
   needed). An exported game contains the FactorIA runtime, so `factoria export` writes `FACTORIA_NOTICES.txt` with the
   licenses of the engine and the third-party code inside it; keep it in what you ship
   ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices)).
-- **Third-party code** in `external/` keeps its own license ([external/VERSIONS.md](external/VERSIONS.md); all MIT,
-  zlib or public domain). `factoria docs licenses` prints every notice; the downloads ship them as
-  `THIRD_PARTY_NOTICES.txt`.
+- **Third-party code** in `external/` keeps its own license ([external/VERSIONS.md](external/VERSIONS.md) lists each
+  one): mostly MIT, zlib or public domain, and also Apache-2.0 (Basis Universal, SheenBidi, Manifold), BSL-1.0
+  (Clipper2) and BSD-3-Clause (V-HACD, and the encoder extras of Basis Universal). `factoria docs licenses` prints every
+  notice; the downloads ship them as `THIRD_PARTY_NOTICES.txt`.
 - **The name.** The license covers the code, not the FactorIA name or logo. Say that your game is "made with FactorIA";
   a modified or redistributed engine must not present itself as FactorIA, or as endorsed by it, without permission.
 - **Conduct.** Issues, pull requests, discussions and the feedback server follow the

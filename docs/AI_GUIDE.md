@@ -218,7 +218,7 @@ The long guides are **skills** (the Agent Skills format: a folder with a `SKILL.
 | Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down), a chord with modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`; `Ctrl`, `Shift`, `Alt`, `Super` name either side; a plain `Z` bound by another action does not fire while Ctrl+Z is held) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer give each person `input.player(i)`: the same actions read from that person's own pad or key block, with bindings of their own (section 9.28); `input.gamepad(1).down("A")` reads the raw buttons of one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. To create a sprite or other binary file from text tools, call `fs_write` with `"encoding": "base64"` and the base64 of the PNG bytes as `content` (generate the PNG in a JS tool or script, or encode it yourself); the default `"utf8"` is text only. |
-| Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
+| Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. `Math.random` is routed to the same world stream as `rng.float()` (so a run still repeats), but write `rng`: it is the documented API. `Date` is the real wall clock in a game script: never use `Date.now()` or `new Date()`, read the calendar with `game.today()`. |
 | Names | JSON keys are camelCase. Components are PascalCase (`RigidBody2D`). Enum values are lowercase (`"orthographic"`, `"additive"`). Commands are `area.verb_object`. |
 | Secrets | Never put API keys in a project. They belong in `~/.factoria/ai.json` or in environment variables. |
 
@@ -1533,7 +1533,8 @@ assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.an
   one call per sheet: look, then decide); with no provider, tell the user.
 - **Write `progress`-driven frames.** `progress` is `frame / frames` for a looping clip, so the last frame leads into the first;
   do not use `t` for a loop unless the period divides the clip. `rng()` changes every frame (flicker); `rngFor("key")` is the same
-  on every frame (what must stay put). `Math.random` and `Date` are seeded and fixed, never the real ones.
+  on every frame (what must stay put). In an `assets_bake_sheet` module (and only there) `Math.random` is a seeded
+  stream and `Date` a fixed day; in a game script `Date` is the real clock.
 - **Look and fix.** The result has the sheet as an image, the layout and warnings (a frame that draws nothing, shapes on the
   cell edge, a loop that jumps). An error names `art/coin_spin.anim.js:LINE:COL` and the frame; the module sees only the
   language (no engine API, no DOM, no files), so take data from `params`. `clips` makes `idle` and `run` from one module; `pivot`,
@@ -1814,7 +1815,7 @@ export default class Enemy extends Behaviour {
   onUpdate(dt) { this.tree.tick(dt); }
   distanceTo(other) { return other.position.sub(this.entity.position).length(); }
   cellOf(p) {                                   // world position -> { col, row } (the map's top-left corner is its position)
-    const o = this.map.position, t = this.map.component.tileSize;
+    const o = this.map.position, t = this.map.get("Tilemap").tileSize;
     return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
   }
   chase(dt) {
@@ -2175,7 +2176,8 @@ The same format works with `factoria call --input` and `factoria session --input
 - Black or empty screenshot: check for a primary `Camera`, that sprites have a `layer` and a size, that colours are 0..1 (not 0..255), and that world and screen space are not mixed up. A Text or panel in the wrong corner usually has the wrong `anchor` or `pivot` (section 9.4). If the machine has no GPU, the engine runs in logic-only mode and `game_screenshot` says so. Then rely on `game_state` and `game_logs`.
 - Body that does not move: check its `type` (static never moves), that it has a collider, its `layer` and `mask`, and the sign of gravity in `settings.gravity2D`.
 - A patrol or sensor that turns around on its first step: the first physics step has not run yet (section 9.14).
-- Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
+- Results differ between runs: look for `Date.now()` or `new Date()` (the real clock; `Math.random` is routed to the
+  seeded world RNG), or for timing. A script that never reads the real clock repeats exactly.
 - Tool errors: a tool that throws `ToolError` returns `code` `tool_error`, the `message` and the `hint`. The hint is how to fix the data. Extra `data` appears in the JSON error of `factoria session` and `call --batch`, and as `e.data` on the Error that `fa.call` throws inside a script or test; MCP shows only the code, message and hint, so put the facts a fixer needs in the hint.
 
 ### 11.4 REVIEW.md: make the game easy to review
@@ -2223,7 +2225,8 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 ## 12. Common mistakes
 
 - Reading raw keys in gameplay. Declare an action in `factoria.json` and read the action.
-- Using `Math.random` or `Date.now`. Use `rng` and `dt`.
+- Using `Date.now()` or `new Date()` (the real clock) or `Math.random` (it works, drawing from `rng`, but write `rng`).
+  Use `rng`, `dt` and `game.today()`.
 - Writing colours as 0..255. Use 0..1, or `"#rrggbb"`.
 - Expecting +Y to point down in the world. In the world +Y is up. Only screen-space UI has +Y down.
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.

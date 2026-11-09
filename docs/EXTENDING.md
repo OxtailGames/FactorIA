@@ -298,9 +298,12 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 | Project tooling: validation, docs, files, feedback | `tools/common/src/` | `register_tooling_commands(registry, projectDir)` (`tooling.h`) |
 | The built-in AI agent | `tools/ai/src/` | `register_ai_commands` (`commands.h`) |
 
-### B.1 Full example: `scene.find_by_tag`
+### B.1 Full example: `scene.count_by_tag`
 
-The command returns the ids of the entities that carry a tag. It needs the `World`, so it lives in the runtime, which owns the world. Three new files and one call.
+The command returns how many entities carry a tag. It is an exercise: the engine has no `scene.count_by_tag` (to list
+the entities with a tag, use the existing `scene.list_entities` with its `tag` filter), and the files below
+(`scene_commands.h`, `scene_commands.cpp`, `test_scene_commands.cpp`) do not exist either. It needs the `World`, so it
+lives in the runtime, which owns the world. Three new files and one call.
 
 Header, `engine/runtime/include/fa/runtime/scene_commands.h` (new file):
 
@@ -312,7 +315,7 @@ Header, `engine/runtime/include/fa/runtime/scene_commands.h` (new file):
 
 namespace fa {
 
-// Registers scene.find_by_tag. Called from register_builtin_commands().
+// Registers scene.count_by_tag. Called from register_builtin_commands().
 void register_scene_commands(CommandRegistry& registry, World& world);
 
 }  // namespace fa
@@ -327,13 +330,13 @@ namespace fa {
 
 void register_scene_commands(CommandRegistry& registry, World& world) {
     CommandInfo info;
-    info.name = "scene.find_by_tag";
+    info.name = "scene.count_by_tag";
     info.category = "scene";
     info.readOnly = true;
-    info.summary = "List the ids of the entities that have a tag.";
+    info.summary = "Count the entities that have a tag.";
     info.description =
-        "Returns an empty array when no entity has the tag. Example: {\"tag\":\"enemy\"} returns "
-        "{\"ids\":[\"enemy_1\",\"enemy_2\"]}. Pass an id to scene.get_entity to inspect one.";
+        "Returns 0 when no entity has the tag. Example: {\"tag\":\"enemy\"} returns {\"count\":2}. "
+        "Use scene.list_entities with the same tag to get the entities themselves.";
     info.inputSchema = Json::parse(R"({
         "type": "object",
         "properties": {
@@ -347,9 +350,7 @@ void register_scene_commands(CommandRegistry& registry, World& world) {
         const std::string tag = args.at("tag").get<std::string>();
         if (tag.empty())
             throw CommandError("invalid_argument", "The tag is empty.", "Pass a tag such as {\"tag\":\"enemy\"}.");
-        Json ids = Json::array();
-        for (Entity e : world.find_by_tag(tag)) ids.push_back(world.info(e).id);
-        return Json::object({{"ids", ids}});
+        return Json::object({{"count", world.find_by_tag(tag).size()}});
     });
 }
 
@@ -373,7 +374,7 @@ Test, `engine/runtime/tests/test_scene_commands.cpp` (new file). `fa_add_tests(r
 
 using namespace fa;
 
-TEST_CASE("scene.find_by_tag returns the ids of tagged entities") {
+TEST_CASE("scene.count_by_tag counts the entities with a tag") {
     World world;
     world.info(world.create("Grunt", "enemy_1")).tags = {"enemy"};
     world.info(world.create("Coin", "coin_1")).tags = {"pickup"};
@@ -381,15 +382,15 @@ TEST_CASE("scene.find_by_tag returns the ids of tagged entities") {
     CommandRegistry registry;
     register_scene_commands(registry, world);
 
-    CommandResult found = registry.call("scene.find_by_tag", Json::object({{"tag", "enemy"}}));
+    CommandResult found = registry.call("scene.count_by_tag", Json::object({{"tag", "enemy"}}));
     REQUIRE(found.ok);
-    CHECK(found.result["ids"] == Json::array({"enemy_1"}));
+    CHECK(found.result["count"] == 1);
 
-    CommandResult none = registry.call("scene.find_by_tag", Json::object({{"tag", "boss"}}));
+    CommandResult none = registry.call("scene.count_by_tag", Json::object({{"tag", "boss"}}));
     REQUIRE(none.ok);
-    CHECK(none.result["ids"].empty());
+    CHECK(none.result["count"] == 0);
 
-    CommandResult empty = registry.call("scene.find_by_tag", Json::object({{"tag", ""}}));
+    CommandResult empty = registry.call("scene.count_by_tag", Json::object({{"tag", ""}}));
     CHECK_FALSE(empty.ok);
     CHECK(empty.error["code"] == "invalid_argument");
 }
@@ -402,7 +403,9 @@ cmake --build --preset linux-debug --target fa_test_runtime
 ctest --preset linux-debug -R runtime --output-on-failure
 ```
 
-After this change the command is available as MCP tool `scene_find_by_tag`, as `factoria call scene.find_by_tag '{"tag":"enemy"}'`, in scripts as `fa.call("scene.find_by_tag", {tag: "enemy"})`, and to the built-in agent. Nothing else needs to change.
+After this change the command is available as MCP tool `scene_count_by_tag`, as `factoria call scene.count_by_tag
+'{"tag":"enemy"}'`, in scripts as `fa.call("scene.count_by_tag", {tag: "enemy"})`, and to the built-in agent. Nothing
+else needs to change.
 
 ## C. Adding a component
 
@@ -619,7 +622,12 @@ Add `#include "fa/scene/wobble_system.h"` to that file. The system test in secti
 
 ### Naming
 
-- Commands are `area.verb_object` in snake_case: `scene.find_by_tag`, `feedback.report`. Existing areas: `ai`, `api`, `assets`, `docs`, `engine`, `feedback`, `fs`, `game`, `physics`, `project`, `scene`, `script`.
+- Commands are `area.verb_object` in snake_case: `scene.list_entities`, `feedback.report`. Existing areas (the registry
+  of the 0.19.0 engine; `factoria commands` lists the ones of your version, and a new area is a new prefix): `ai`,
+  `anim`, `anim3d`, `api`, `assets`, `audio`, `bones`, `checkpoint`, `docs`, `engine`, `feedback`, `feel`, `fs`, `game`,
+  `i18n`, `ik3d`, `image`, `input`, `jobs`, `load`, `material`, `mesh`, `model`, `music`, `nav`, `perf`, `physics`,
+  `platform`, `play`, `player`, `prefab`, `project`, `publish`, `render`, `review`, `rig`, `scene`, `screen`, `script`,
+  `setup`, `sfx`, `shader`, `sign`, `skills`, `skin`, `skin3d`, `storage`, `tilemap`, `ui`, `vector`, `vfx`.
 - Tool files are snake_case. `tools/spawn_wave.js` becomes `project.spawn_wave`.
 - Components are PascalCase. Fields are camelCase. Enum values are lowercase (`"orthographic"`).
 - C++ functions and variables are snake_case, types are PascalCase, and source files are snake_case (`scene_commands.cpp`).
