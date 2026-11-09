@@ -490,7 +490,8 @@ void register_builtin_components(TypeRegistry& r) {
                     "like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 "
                     "is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the "
                     "drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports "
-                    "where it is drawn. Deterministic: it depends only on the camera position.",
+                    "where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer "
+                    "shifted for itself). Deterministic: it depends only on the camera position.",
                     "2D")
         .field("factor", &Parallax::factor, "[x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).")
         .field("repeatX", &Parallax::repeatX,
@@ -500,7 +501,8 @@ void register_builtin_components(TypeRegistry& r) {
         .field("repeatSize", &Parallax::repeatSize,
                "Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value "
                "to overlap soft edges, a larger one for gaps.")
-        .field("offset", &Parallax::offset, "Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame).")
+        .field("offset", &Parallax::offset, "Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, "
+               "by the renderer or by the simulation when there is no renderer).")
         .runtime_only().read_only();
 
     r.add<Light2D>("Light2D",

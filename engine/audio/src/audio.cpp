@@ -270,14 +270,18 @@ struct Audio::Impl {
     std::recursive_mutex apiMu;
     int depth = 0;                    // nesting of public calls: the outermost one commits what they sent (flush())
     std::uint64_t batchSeq = 0, curBatch = 0, cmdSeq = 0;
-    std::deque<Cmd*> staged;          // sent with a device and not in the mixer's ring yet (kMaxStaged)
+    std::deque<Cmd*> staged;          // sent with a device and not in the mixer's ring yet (kMaxStaged); see stage_*()
+    // What waits in `staged`, kept by stage_push/stage_pop/stage_erase so a full queue of Keep commands (a long stall) is
+    // never walked to find out that it holds nothing to drop, coalesce or take back.
+    std::size_t stagedDroppable = 0, stagedLossy = 0, stagedPlays = 0;
+    std::map<std::uint64_t, std::size_t> stagedKeys;  // coalesceKey -> how many wait
     std::vector<VoiceId> pendingEnds; // voices the mixer ended (or plays that never reached it): process_ends() forgets them
     std::uint64_t commandsDropped = 0, settingsDropped = 0, voicesStolen = 0, voicesRejected = 0;
     std::uint64_t commandsCoalesced = 0;
     bool dropWarned = false, keepWarned = false;
     // Settings a drop left out of step with the mixer: resync_dropped() sends their current state again.
     std::set<VoiceId> resyncVoices;
-    std::set<std::uint32_t> resyncBuses;
+    std::set<std::string> resyncBuses;  // by name: a bus table swap while the queue is stalled moves the indexes
     bool resyncMusic = false;
     std::set<std::string> rejectWarned; // clips whose play a full mixer refused (warned once each; at most 256 names)
 
@@ -412,6 +416,35 @@ struct Audio::Impl {
         return c;
     }
 
+    // The staging queue and its counters (every change to `staged` goes through these).
+    void stage_push(Cmd* c) {
+        staged.push_back(c);
+        if (c->kind == CmdKind::Droppable) ++stagedDroppable;
+        else if (c->kind == CmdKind::Lossy) ++stagedLossy;
+        if (c->play != 0) ++stagedPlays;
+        if (c->coalesceKey != 0) ++stagedKeys[c->coalesceKey];
+    }
+    // `c` leaves the queue (not deleted): counted out.
+    void stage_uncount(const Cmd* c) {
+        if (c->kind == CmdKind::Droppable) --stagedDroppable;
+        else if (c->kind == CmdKind::Lossy) --stagedLossy;
+        if (c->play != 0) --stagedPlays;
+        if (c->coalesceKey != 0) {
+            const auto k = stagedKeys.find(c->coalesceKey);
+            if (k != stagedKeys.end() && --k->second == 0) stagedKeys.erase(k);
+        }
+    }
+    Cmd* stage_pop_front() {
+        Cmd* c = staged.front();
+        staged.pop_front();
+        stage_uncount(c);
+        return c;
+    }
+    void stage_erase(std::deque<Cmd*>::iterator it) {
+        stage_uncount(*it);
+        staged.erase(it);
+    }
+
     // Sends a command; returns its sequence number. Without a device nothing else mixes, so it is applied right here; with
     // one it is staged and committed by the outermost call (flush). `c` belongs to the queue from here on.
     std::uint64_t send(Cmd* c) {
@@ -430,16 +463,17 @@ struct Audio::Impl {
             return seq;
         }
         // A long stall: a Keep command that the new one makes useless is taken back instead of waiting with it.
-        if (c->coalesceKey != 0 && staged.size() >= kCoalesceFrom) {
+        if (c->coalesceKey != 0 && staged.size() >= kCoalesceFrom && stagedKeys.count(c->coalesceKey) != 0) {
             for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
                 if ((*it)->coalesceKey != c->coalesceKey) continue;
-                delete *it;
-                staged.erase(std::next(it).base());
+                Cmd* useless = *it;
+                stage_erase(std::next(it).base());
+                delete useless;
                 ++commandsCoalesced;
                 break;
             }
         }
-        staged.push_back(c);
+        stage_push(c);
         if (staged.size() > kMaxStaged) drop_one();
         return seq;
     }
@@ -451,28 +485,28 @@ struct Audio::Impl {
         auto oldest = [&](CmdKind k) {
             return std::find_if(staged.begin(), staged.end(), [&](const Cmd* c) { return c->kind == k; });
         };
-        auto it = oldest(CmdKind::Droppable);
-        const bool lossy = it == staged.end();
-        if (lossy) it = oldest(CmdKind::Lossy);
-        if (it == staged.end()) {
+        // The counters say what the queue holds, so a queue of Keep commands only is not walked.
+        const bool lossy = stagedDroppable == 0;
+        if (lossy && stagedLossy == 0) {
             if (staged.size() > kKeepWarnAt && !keepWarned) {
                 keepWarned = true;
-                FA_WARN("audio", "the audio device takes no commands (its callback stalls): {} stops, removals and other commands "
-                                 "that must reach it are waiting, and they are all kept (more memory until the device resumes)",
-                        staged.size());
+                FA_WARN("audio", "the audio device takes no commands (its callback stalls): {} stops, removals and other "
+                                 "commands that must reach it are waiting, and they are all kept (more memory until the "
+                                 "device resumes)", staged.size());
             }
             return;
         }
+        const auto it = oldest(lossy ? CmdKind::Lossy : CmdKind::Droppable);
         Cmd* c = *it;
-        staged.erase(it);
+        stage_erase(it);
         if (c->play) pendingEnds.push_back(c->play);  // the voice never starts: it ends on the game side
         switch (c->sync) {
             case SyncTarget::Voice: resyncVoices.insert(c->syncId); break;
             case SyncTarget::Bus:
                 if (c->syncId == kSyncAllBuses) {
-                    for (std::size_t b = 0; b < bus.size(); ++b) resyncBuses.insert(std::uint32_t(b));
+                    for (const GameBus& g : bus) resyncBuses.insert(g.name);
                 } else {
-                    resyncBuses.insert(c->syncId);
+                    resyncBuses.insert(c->syncName);
                 }
                 break;
             case SyncTarget::Music: resyncMusic = true; break;
@@ -496,12 +530,14 @@ struct Audio::Impl {
         curBatch = ++batchSeq;
         std::set<VoiceId> vs;
         vs.swap(resyncVoices);
-        std::set<std::uint32_t> bs;
+        std::set<std::string> bs;
         bs.swap(resyncBuses);
         for (VoiceId id : vs)
             if (GameVoice* gv = live_voice(id)) send_voice_state(id, *gv);
-        for (std::uint32_t b : bs)
-            if (b < bus.size()) send_bus_state(int(b));
+        for (const std::string& name : bs) {
+            const int b = fx_index(name);  // a bus a table swap removed has nothing to send
+            if (b >= 0) send_bus_state(b);
+        }
     }
 
     // Hands the staged commands to the mixer, whole calls at a time while they fit (a call bigger than the ring goes in
@@ -517,10 +553,7 @@ struct Audio::Impl {
                 const std::size_t room = mixer.commands.free_space();
                 if (n > room && room < mixer.commands.capacity()) break;
                 const std::size_t take = std::min(n, room);
-                for (std::size_t i = 0; i < take; ++i) {
-                    mixer.commands.push(staged.front());
-                    staged.pop_front();
-                }
+                for (std::size_t i = 0; i < take; ++i) mixer.commands.push(stage_pop_front());
                 any = any || take > 0;
                 if (take < n || take == 0) break;
             }
@@ -582,10 +615,7 @@ struct Audio::Impl {
     // Nothing mixes any more (shutdown): runs every command still staged or in the ring.
     void settle() {
         for (int guard = 0; guard < 1 << 20 && (!staged.empty() || !mixer.commands.empty()); ++guard) {
-            while (!staged.empty() && mixer.commands.free_space() > 0) {
-                mixer.commands.push(staged.front());
-                staged.pop_front();
-            }
+            while (!staged.empty() && mixer.commands.free_space() > 0) mixer.commands.push(stage_pop_front());
             mixer.commands.commit();
             mixer.apply_commands();
             drain_returns();
@@ -629,7 +659,7 @@ struct Audio::Impl {
             if (b >= 0 && std::size_t(b) < m.table->bus.size()) fn(m, m.table->bus[std::size_t(b)].rt, cmd);
         });
         c->sync = SyncTarget::Bus;
-        c->syncId = std::uint32_t(b);
+        c->syncName = b >= 0 && std::size_t(b) < bus.size() ? bus[std::size_t(b)].name : std::string();
         send(c);
     }
     // The bus gets the reverb it needs the first time one is switched on (made here: the mixer allocates nothing).
@@ -816,12 +846,15 @@ struct Audio::Impl {
         if (noteEnd && gv.notify) note_ended(id);
         gv.stopped = true;
         if (id == musicVoice) musicVoice = 0;
-        for (auto s = staged.begin(); s != staged.end(); ++s) {
-            if ((*s)->play != id) continue;
-            delete *s;
-            staged.erase(s);
-            pendingEnds.push_back(id);
-            return;
+        if (stagedPlays > 0) {
+            for (auto s = staged.begin(); s != staged.end(); ++s) {
+                if ((*s)->play != id) continue;
+                Cmd* taken = *s;
+                stage_erase(s);
+                delete taken;
+                pendingEnds.push_back(id);
+                return;
+            }
         }
         send(make(CmdKind::Keep, [id](Mixer& m, Cmd&) { m.end_voice(id); }));
     }
@@ -2176,7 +2209,9 @@ void Audio::reload_clip(std::string_view pathIn) {
                     if (v.clip != from || v.stream || v.pcm) continue;
                     v.clip = to;
                     // Where the new clip's loop (or its end) is: the loop end can lie before the position the voice had, and
-                    // the clip can be shorter than the old one. A looping voice wraps into the loop, any other ends.
+                    // the clip can be shorter than the old one. A looping voice wraps into the loop, any other ends. A loop
+                    // shorter than one frame is not wrapped into here: the voice keeps its place, between the loop end and
+                    // the end of the clip, and the mixer's own loop handling brings it back on its next frame.
                     const double frames = double(to->frames);
                     const double end = to->loopEnd > 0 ? std::min(double(to->loopEnd), frames) : frames;
                     const double start = std::min(double(to->loopStart), end);
@@ -2683,7 +2718,10 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
 }
 
 // A music setting was dropped (the device stalled): once the queue has emptied every player sends its settings again, the
-// ones music_drive compares with what it last sent (volume, loop, layers, intensity) and its bus.
+// ones music_drive compares with what it last sent (volume, loop, layers, intensity) and its bus. The intensity goes with
+// the component's layerQuantize of that moment (the call that was dropped may have had another). A player that lost its
+// entity (an orphan, fading out) has no component to read: it gets the last values it was sent, the intensity with no
+// quantize.
 void Audio::Impl::music_resync() {
     if (!resyncMusic || staged.size() > kResyncBelow) return;
     resyncMusic = false;
@@ -2695,6 +2733,17 @@ void Audio::Impl::music_resync() {
         rt->intensity = -1.0f;
         rt->resendLoop = true;
         send_channel_bus(rt->ch.get(), rt->bus);
+    }
+    for (auto& rt : musicOrphans) {
+        if (!rt->ch) continue;
+        MusicRt& o = *rt;
+        if (o.volume >= 0.0f) chan_cmd(o, CmdKind::Lossy, [v = o.volume](MusicTransport& tr) { tr.set_volume(v, 0.0f); });
+        chan_cmd(o, CmdKind::Lossy, [loop = o.loop](MusicTransport& tr) { tr.set_loop(loop); });
+        if (o.layerFade >= 0.0f && o.layerRange >= 0.0f)
+            chan_cmd(o, CmdKind::Lossy, [f = o.layerFade, r = o.layerRange](MusicTransport& tr) { tr.set_layer_fade(f, r); });
+        if (o.sent && o.intensity >= 0.0f)
+            chan_cmd(o, CmdKind::Lossy, [i = o.intensity](MusicTransport& tr) { tr.set_intensity(i, MusicQuantize::None); });
+        send_channel_bus(o.ch.get(), o.bus);
     }
 }
 
@@ -3320,6 +3369,23 @@ double AudioTestAccess::voice_position(Audio& audio, VoiceId voice) {
 std::size_t AudioTestAccess::staged_commands(Audio& audio) {
     Audio::Impl::Call call(*audio.impl_);
     return audio.impl_->staged.size();
+}
+
+void AudioTestAccess::stage_keeps(Audio& audio, std::size_t count) {
+    Audio::Impl::Call call(*audio.impl_);
+    for (std::size_t i = 0; i < count; ++i) audio.impl_->send(Audio::Impl::make(CmdKind::Keep, [](Mixer&, Cmd&) {}));
+}
+
+bool AudioTestAccess::music_loop(Audio& audio, World& world, Entity e) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MusicRt* rt = audio.impl_->music_find(world, e);
+    return rt && rt->ch && rt->ch->tr.loop();
+}
+
+int AudioTestAccess::music_channel_bus(Audio& audio, World& world, Entity e) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MusicRt* rt = audio.impl_->music_find(world, e);
+    return rt && rt->ch ? rt->ch->bus : -1;
 }
 
 std::vector<std::pair<std::string, std::size_t>> AudioTestAccess::music_cache(Audio& audio) {

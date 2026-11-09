@@ -211,7 +211,7 @@ Input has two views (`engine/platform/include/fa/platform/input.h`, "TWO VIEWS")
 `onLateUpdate`, timers, Back) and the fixed step's (`onFixedUpdate` and what a step dispatches). Holds are shared; an edge
 (press, release, wheel, mouse motion, text, Back, paste) is kept for each view until it has been read: a frame closes
 the first with `begin_frame()`, and every fixed step closes the second with `end_fixed_step()` (`Engine::run_frame` opens
-an `Input::FixedScope` per step). So an edge reaches exactly one step whether the frame ran 0, 1 or 5, and one that
+an `Input::FixedScope` per step). So an edge is taken by one step whether the frame ran 0, 1 or 5, and one that
 arrives in a frame with no step waits for the next. Every writer (`on_key`, `on_mouse_*`, `on_touch_*`, replays,
 `game.input`) marks both views, so the recorder and replays need no change (`timing` still records `[dt, steps]`).
 A paused engine only redraws and keeps the edges (`discard_idle_motion` drops wheel, motion and text, not presses). A new
@@ -565,8 +565,8 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   picture is drawn (`Engine::Impl::settle_visuals`: a clip a script changed this frame, or a burst, shows in this frame's
   picture and never advances time). A `SpriteAnimator` reads the size of its sheet from the image file or the packed atlas
   (`texture_size`, cached by file name and looked at again once per frame: the end of the `dt` 0 pass starts the next epoch, so the
-  steps of a frame and its settle pass look at a file once; so a platform whose files have no modification time,
-  like an Android APK asset, reads each picture once), never from a GPU texture, so a run with `graphics=false` and one that draws
+  steps of a frame and its settle pass look at a file once. On a platform whose files have no modification time,
+  like an Android APK asset, each picture is read once), never from a GPU texture, so a run with `graphics=false` and one that draws
   give the same `Sprite.region`; the renderer only repeats the region for a texture that exists on the GPU alone
   (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
   editor's scene and its Play session) never share it, and `World::clear()` and every scene load empty it. The renderer
@@ -763,7 +763,7 @@ platform, so replays, `game.state_hash`, lockstep play and `factoria test` resul
   of glibc, Apple's libm, the MSVC CRT and musl (wasm) are each within an ulp of the exact result but round differently.
   `fa/core/det_math.h` has them for `float` (`fa::det::exp(x)`, a frozen API: the float results never change) and for
   `double` (`fa::det::f64::exp(x)`). Both are built only from `+ - * / sqrt` on doubles, and are tested for accuracy against
-  the C library (2 ulp for `exp`/`log`, 3 for `sin`/`cos`, up to 6 for `tan`, `atan`, `atan2` and the hyperbolics, a few for `pow` of a large result; `10^n` and `log10` of it are exact for every `n` a double reaches) and against a table of bit patterns
+  the C library (2 ulp for `exp`/`log`, 3 for `sin`/`cos`, up to 6 for `tan`, `atan`, `atan2`, `expm1`, `log1p` and the hyperbolics, a few for `pow` of a large result; `10^n` is the double nearest to the power for `n` from -307 to 308, and `log10` of it is exactly `n`) and against a table of bit patterns
   (`engine/core/tests/test_det_math_f64.cpp`: a platform that rounds differently fails with the input that differs). The
   float functions compute in double and round to float once.
 - **Game scripts.** QuickJS's `Math.*` calls the C library, so the engine builds QuickJS with a force-included header

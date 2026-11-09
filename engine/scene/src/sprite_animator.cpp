@@ -24,10 +24,11 @@ struct TexDims {
     int w = 1, h = 1;
 };
 
-// Sizes read from files stay until the file (or its .ktx2 twin) changes: stepping an animator must not read a picture every step.
-// The file's stat (time, size) is looked at once per "epoch" (one per frame: the end of update_sprite_animators with dt 0 ends it),
-// not per fixed step and not again in the settle pass. On a platform whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed
-// by the file name and re-read only when the name starts or stops being a file.
+// Sizes read from files stay until the file (or its .ktx2 twin) changes: stepping an animator must not read a picture
+// every step. The file's stat (time, size) is looked at once per "epoch" (one per frame: the end of
+// update_sprite_animators with dt 0 ends it), not per fixed step and not again in the settle pass. On a platform
+// whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed by the file name
+// and re-read only when the name starts or stops being a file.
 struct SizeEntry {
     std::int64_t mtime = -2, size = -2, twinMtime = -2;
     bool exists = false;
@@ -288,7 +289,9 @@ Vec2 sprite_effective_pivot(const Sprite& s, const SpriteAnimator& a, const Spri
 
 void update_sprite_animators(World& world, float dt) {
     // The settle pass (dt 0) ends a frame: it answers from what the frame's steps looked at, and file sizes are looked at again from
-    // the next frame on. So a texture's file is looked at once per frame, however many fixed steps the frame has.
+    // the next frame on. So a texture's file is looked at once per frame, however many fixed steps the frame has. The
+    // settle pass reuses the size this frame's fixed steps cached: a texture a script rewrites in onUpdate shows its new
+    // size next frame.
     struct EndOfFrame {
         bool on;
         ~EndOfFrame() {

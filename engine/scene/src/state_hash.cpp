@@ -143,7 +143,8 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
     for (Entity e : world.entities()) {
         components.clear();
         for (const TypeInfo* t : world.components_of(e)) {
-            if (filtered && std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) == options.onlyComponents.end())
+            if (filtered &&
+                std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) == options.onlyComponents.end())
                 continue;
             if (const void* obj = world.get(e, *t)) components.push_back(ComponentRef{t, obj});
         }
@@ -156,8 +157,9 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
         if (options.perEntity) out.perEntity.push_back(EntityHash{e, world.id_of(e), h});
     }
     if (!filtered) {
-        // The particles are simulation state too (they live in the world's ParticleStore, not in a component): each emitter's live
-        // particles, in birth order, and what the next step depends on (the clock, the random sequence, the emission accumulator). trailSlot is left out: it names a slot of a pool, not a value.
+        // The particles are simulation state too (they live in the world's ParticleStore, not in a component): each
+        // emitter's live particles, in birth order, and what the next step depends on (the clock, the random
+        // sequence, the emission accumulator). trailSlot is left out: it names a slot of a pool, not a value.
         const ParticleStore& store = world.particles();
         for (Entity e : world.entities()) {
             const ParticleEmitterState* st = store.find(e);
@@ -173,7 +175,8 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
             for (const Particle& p : sim.particles) {
                 all.f32(p.pos.x); all.f32(p.pos.y); all.f32(p.pos.z);
                 all.f32(p.vel.x); all.f32(p.vel.y); all.f32(p.vel.z);
-                all.f32(p.age); all.f32(p.life); all.f32(p.rotation); all.f32(p.spin); all.f32(p.sizeScale); all.f32(p.random);
+                all.f32(p.age); all.f32(p.life); all.f32(p.rotation); all.f32(p.spin);
+                all.f32(p.sizeScale); all.f32(p.random);
                 all.u8(p.group);
             }
         }

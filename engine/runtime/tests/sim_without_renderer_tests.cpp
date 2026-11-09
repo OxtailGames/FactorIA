@@ -1,5 +1,6 @@
-// SpriteAnimator and ParticleEmitter advance in the fixed simulation step, whatever the renderer (docs/ARCHITECTURE.md, "Animation"):
-// a run with graphics=false moves them like a run that draws, and the world state is the same frame by frame.
+// SpriteAnimator and ParticleEmitter advance in the fixed simulation step, whatever the renderer
+// (docs/ARCHITECTURE.md, "Animation"): a run with graphics=false moves them like a run that draws, and the world
+// state is the same frame by frame.
 #include <doctest.h>
 
 #include <filesystem>
@@ -26,9 +27,10 @@ const char* kProject = R"({
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 }
 })";
 
-// A looping animator, one that ends, an emitter that bursts once and is destroyed when its particles are gone, and one that waits for a
-// burst; a Parallax layer behind a camera that the test moves; and a panel that fits a button and a label whose size comes from the
-// text shaping (Latin, Japanese, wrapped), which a run with no renderer measures on the CPU.
+// A looping animator, one that ends, an emitter that bursts once and is destroyed when its particles are gone, and
+// one that waits for a burst; a Parallax layer behind a camera that the test moves; and a panel that fits a button
+// and a label whose size comes from the text shaping (Latin, Japanese, wrapped), which a run with no renderer
+// measures on the CPU.
 const char* kScene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -119,7 +121,8 @@ TEST_CASE("sim: with graphics=false the animators advance, a clip ends and a fin
     CHECK(w.get<SpriteAnimator>(once)->ended);
     CHECK(w.get<SpriteAnimator>(once)->frame == 3);
     CHECK(w.get<Sprite>(once)->region.x == doctest::Approx(24.0f));
-    // The emitter that bursts once: its particles were born at once and it was destroyed when the last one died (0.5 s lifetime).
+    // The emitter that bursts once: its particles were born at once and it was destroyed when the last one died (0.5
+    // s lifetime).
     CHECK_FALSE(w.find_by_id("puff"));
     CHECK(w.find_by_id("wait"));
     e.shutdown();
@@ -173,7 +176,8 @@ TEST_CASE("sim: the world state is the same frame by frame with a renderer that 
             hashes[mode].push_back(state_hash_hex(world_state_hash(e.world()).hash));
             particles[mode].push_back(e.world().particles().particle_count());
         }
-        // The things a renderer used to measure: the parallax offset follows the camera, the panel was fitted to the shaped text.
+        // The things a renderer used to measure: the parallax offset follows the camera, the panel was fitted to the
+        // shaped text.
         const Parallax* sky = e.world().get<Parallax>(e.world().find_by_id("sky"));
         const Panel* menu = e.world().get<Panel>(e.world().find_by_id("menu"));
         REQUIRE(sky);
@@ -209,7 +213,8 @@ TEST_CASE("sim: the camera queries of a script answer right after a load, before
     auto after = e.commands().call("script.eval", Json::object({{"code", code}}));
     REQUIRE(after.ok);
     CHECK(before.result == after.result);
-    // The default camera shows the design height (180 units) over 180 pixels: 10 units right of the origin is 10 pixels right of the centre.
+    // The default camera shows the design height (180 units) over 180 pixels: 10 units right of the origin is 10
+    // pixels right of the centre.
     auto point = e.commands().call("script.eval", Json::object({{"code", "camera.worldToScreen([10, 0, 0])"}}));
     REQUIRE(point.ok);
     CHECK(point.result["value"][0].get<double>() == doctest::Approx(170.0).epsilon(0.01));

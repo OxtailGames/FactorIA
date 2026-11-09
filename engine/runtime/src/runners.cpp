@@ -289,8 +289,11 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 st->exitCode = 1;
             }
             if (st->engine.scripts().watchdog_cut_count() > 0) {  // a replay of this run would differ: not a valid run
-                for (const ScriptWatchdogCut& c : st->engine.scripts().watchdog_cuts())
-                    FA_ERROR("player", "run is NOT valid: {}", c.to_string());
+                const auto& cuts = st->engine.scripts().watchdog_cuts();
+                if (st->engine.scripts().watchdog_cut_count() > cuts.size())  // only the latest cuts are kept
+                    FA_ERROR("player", "run is NOT valid: {} cuts in all, the oldest ones are not listed",
+                             st->engine.scripts().watchdog_cut_count());
+                for (const ScriptWatchdogCut& c : cuts) FA_ERROR("player", "run is NOT valid: {}", c.to_string());
                 st->exitCode = 1;
             }
             app_request_quit();
@@ -742,8 +745,9 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         for (const ScriptWatchdogCut& c : engine.scripts().watchdog_cuts()) cutList.push_back(c.to_string());
         report["watchdogCuts"] = cutList;
         replayProblems.push_back(std::format("the script watchdog stopped {} callback(s), so this run is NOT valid and cannot be replayed "
-                                             "to the same result: {}",
+                                             "to the same result ({}{}; watchdogCuts lists the latest cuts)",
                                              engine.scripts().watchdog_cut_count(),
+                                             engine.scripts().watchdog_cut_count() > cutList.size() ? "the oldest one listed: " : "",
                                              cutList.empty() ? std::string() : cutList[0].get<std::string>()));
     }
     Json sceneErrs = Json::array();

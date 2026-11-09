@@ -312,3 +312,97 @@ TEST_CASE("fixed-step view: a view nobody advances stays bounded") {
     in.on_key(Key::Space, true);
     CHECK(in.action_pressed("jump"));  // not left consumed by the earlier releases
 }
+
+TEST_CASE("fixed-step view: discard_pending_edges drops what piled up while no step ran, and keeps what is held") {
+    Input in;
+    in.set_actions(Json::parse(R"({"jump": ["Space"], "fire": ["F"]})"));
+    // An input with no FixedScope ever (the editor outside Play): its fixed view is never closed.
+    in.on_key(Key::Space, true);  // held on
+    in.on_key(Key::F, true);
+    in.on_key(Key::F, false);  // a tap of F
+    in.on_touch_begin(4, {1, 2});
+    in.on_touch_end(4);            // a tap nobody looked at
+    in.on_touch_begin(5, {3, 4});  // a finger that is still down, landed unseen
+    in.on_text('x');
+    in.on_mouse_wheel(2.0f);
+    in.release_all();             // what Editor::stop does: the held key goes up, the fingers lift (still unseen)
+    in.on_key(Key::Space, true);  // and the key is held again when the next session begins
+    CHECK(in.touches_in_view().size() >= 1);
+    in.discard_pending_edges();
+    {
+        Input::FixedScope scope(in);
+        CHECK_FALSE(in.key_pressed(Key::F));
+        CHECK_FALSE(in.key_pressed(Key::Space));
+        CHECK_FALSE(in.action_pressed("fire"));
+        CHECK_FALSE(in.action_pressed("jump"));
+        CHECK(in.touches_in_view().empty());
+        CHECK(in.text_input().empty());
+        CHECK(in.mouse_wheel() == 0.0f);
+        CHECK(in.key_down(Key::Space));  // held stays held
+        in.end_fixed_step();
+    }
+    CHECK_FALSE(in.key_pressed(Key::F));  // the frame view too
+    CHECK(in.touches_in_view().empty());
+    // A new press after it is an ordinary press.
+    in.on_key(Key::F, true);
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.action_pressed("fire"));
+        in.end_fixed_step();
+    }
+    CHECK(in.action_pressed("fire"));
+}
+
+TEST_CASE("fixed-step view: reset_options forgets a tap that is still waiting to be seen") {
+    Input in;
+    in.on_touch_begin(1, {1, 1});
+    in.on_touch_end(1);            // landed and lifted unseen
+    in.on_touch_begin(2, {2, 2});  // still down, unseen
+    in.reset_options();
+    {
+        Input::FixedScope scope(in);
+        const std::vector<Touch> fixed = in.touches_in_view();
+        REQUIRE(fixed.size() == 1);  // the finger that is down, not the tap that ended
+        CHECK(fixed[0].id == 2);
+        CHECK_FALSE(in.touch_pressed(fixed[0]));
+        in.end_fixed_step();
+    }
+    const std::vector<Touch> frame = in.touches_in_view();
+    REQUIRE(frame.size() == 1);
+    CHECK_FALSE(in.touch_pressed(frame[0]));
+}
+
+TEST_CASE("fixed-step view: a step run inside another step leaves the outer step open") {
+    Input in;
+    in.set_actions(Json::parse(R"({"jump": ["Space"]})"));
+    {
+        Input::FixedScope outer(in);
+        in.on_key(Key::Space, true);  // arrives while the outer step runs: readers after it see it, and so does the next step
+        CHECK(in.action_pressed("jump"));
+        {
+            Input::FixedScope inner(in);  // a script that steps the game from onFixedUpdate
+            CHECK(in.action_pressed("jump"));
+            in.end_fixed_step();  // the inner step ends; the outer one is still running
+        }
+        CHECK(in.action_pressed("jump"));
+        in.end_fixed_step();  // the outer step ends
+    }
+    {
+        Input::FixedScope next(in);
+        CHECK(in.action_pressed("jump"));  // the press that arrived during the outer step was not lost by the inner step's end
+        in.end_fixed_step();
+    }
+    {
+        Input::FixedScope after(in);
+        CHECK_FALSE(in.action_pressed("jump"));
+        in.end_fixed_step();
+    }
+}
+
+TEST_CASE("fixed-step view: a text burst past the cap is cut at the cap, in every view") {
+    Input in;
+    for (size_t i = 0; i < Input::kMaxTextPerView + 500; ++i) in.on_text('a');
+    CHECK(in.text_input().size() == Input::kMaxTextPerView);
+    Input::FixedScope scope(in);
+    CHECK(in.text_input().size() == Input::kMaxTextPerView);
+}
