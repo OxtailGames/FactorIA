@@ -566,3 +566,29 @@ TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs 
     CHECK(!fs::is_sharing_violation(std::make_error_code(std::errc::io_error)));
 }
 #endif
+
+TEST_CASE("fs: a path under a folder with accents is found from its UTF-8 text and from path::generic_string()") {
+    // generic_string() gives the ANSI code page on Windows: path_from_utf8 (and so resolve and every fs:: function) reads text
+    // that is not UTF-8 in that code page instead of throwing, so the many callers that still build paths that way keep working.
+    const stdfs::path root = fs::make_temp_dir("fa_fs_accents");
+    const stdfs::path dir = root / stdfs::path(u8"Cañón niño");
+    stdfs::create_directories(dir);
+    const stdfs::path file = dir / "a.txt";
+    REQUIRE(fs::write_text(fs::path_to_utf8(file), "utf8").ok());
+    CHECK(stdfs::exists(file));
+    std::string legacy;
+    try {
+        legacy = file.generic_string();
+    } catch (const std::exception&) {
+        // a name the code page cannot hold: nothing to check for that form
+    }
+    if (!legacy.empty()) {
+        CHECK(fs::path_from_utf8(legacy) == fs::path_from_utf8(fs::path_to_utf8(file)));
+        REQUIRE(fs::write_text(legacy, "legacy").ok());
+        auto back = fs::read_text(fs::path_to_utf8(file));
+        REQUIRE(back.ok());
+        CHECK(back.value() == "legacy");
+    }
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+}

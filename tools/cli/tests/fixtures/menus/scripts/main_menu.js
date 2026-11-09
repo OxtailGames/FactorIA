@@ -24,7 +24,7 @@ export default class MainMenu extends Behaviour {
     // A game with an "analytics" section in factoria.json asks once whether it may count usage; nothing is sent before the answer (docs/ANALYTICS.md).  // @kit:analyticsConsent
     else openAnalyticsConsent(this.menus); // @kit:analyticsConsent
     ui.on("click", "play", () => {
-      session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
+      session.nextScene = this.firstScene; // scenes/loading.scene.json loads it in the background and shows the progress
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));

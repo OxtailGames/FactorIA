@@ -2,8 +2,13 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iterator>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
 #include "fa/scene/animation.h"
@@ -264,6 +269,25 @@ TEST_CASE("lights over the limit: the most relevant ones are kept") {
     CHECK(g.renderer.stats().lightsDropped == 8);
 }
 
+TEST_CASE("lights with a NaN score sort last and the order stays total") {
+    using fa::render::LightData;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<LightData> lights;
+    for (int i = 0; i < 60; ++i) {
+        LightData l;
+        l.score = i % 5 == 0 ? nan : float(i);
+        l.pos.x = float(i);  // names the light
+        lights.push_back(l);
+    }
+    CHECK(fa::render::select_lights(lights, 40) == 20);
+    REQUIRE(lights.size() == 40);
+    // The 48 lights with a real score come first, best first; the NaN ones only fill what is left (none here).
+    for (std::size_t i = 0; i < lights.size(); ++i) {
+        CHECK_FALSE(std::isnan(lights[i].score));
+        if (i > 0) CHECK(lights[i - 1].score >= lights[i].score);
+    }
+}
+
 TEST_CASE("primitives have unit tangents across their normals, with a handedness") {
     for (const char* name : {"cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"}) {
         std::vector<fa::render::MeshVertex> v;
@@ -513,13 +537,31 @@ struct MaterialScope {
     }
 };
 
+// Errors logged while alive. The sink runs on the thread that logs (a job worker too) and may run once after
+// remove_log_sink: it writes a shared, locked buffer; messages() is a copy.
 struct ErrorLog {
-    std::vector<std::string> messages;
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
     int id;
-    ErrorLog() : id(add_log_sink([this](const LogEntry& e) { if (e.level == LogLevel::Error) messages.push_back(e.message); })) {}
+    ErrorLog() : id(add_log_sink([l = shared](const LogEntry& e) {
+        if (e.level != LogLevel::Error) return;
+        std::lock_guard<std::mutex> lk(l->mu);
+        l->lines.push_back(e.message);
+    })) {}
     ~ErrorLog() { remove_log_sink(id); }
+    ErrorLog(const ErrorLog&) = delete;
+    ErrorLog& operator=(const ErrorLog&) = delete;
+    std::vector<std::string> messages() const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        return shared->lines;
+    }
     int count(const std::string& needle) const {
-        return int(std::count_if(messages.begin(), messages.end(), [&](const std::string& m) { return m.find(needle) != std::string::npos; }));
+        const std::vector<std::string> m = messages();
+        return int(std::count_if(m.begin(), m.end(),
+                                 [&](const std::string& x) { return x.find(needle) != std::string::npos; }));
     }
 };
 
@@ -599,7 +641,7 @@ TEST_CASE("materials: a material with an empty surface() renders pixel-identical
     ErrorLog log;
     const Image plain = frame("");
     const Image withMaterial = frame("materials/empty.material.json");
-    CHECK(log.messages.empty());
+    CHECK(log.messages().empty());
     CHECK(g.renderer.stats().materials == 1);
     CHECK(diff_images(plain, withMaterial, 0.0f).maxError == 0.0);
 }
@@ -672,7 +714,7 @@ TEST_CASE("materials: a skinned glTF with a material renders its golden and stil
     };
     ErrorLog log;
     const Image casting = frame(true);
-    CHECK(log.messages.empty());
+    CHECK(log.messages().empty());
     CHECK(g.renderer.stats().materials == 1);
     CHECK(diff_images(casting, frame(false), 4.0f / 255.0f).meanError > 0.0005);
     expect_golden(casting, "3d_material_skinned_glow");
@@ -711,7 +753,7 @@ TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") 
     };
     ErrorLog log;
     const Image cut = frame("materials/cutout.material.json");
-    CHECK(log.messages.empty());
+    CHECK(log.messages().empty());
     const Image solid = frame("");
     CHECK(diff_images(cut, solid, 4.0f / 255.0f).meanError > 0.005);
     expect_golden(cut, "3d_material_cutout");
@@ -744,7 +786,7 @@ TEST_CASE("materials: the alpha of a vertex color cuts a clip material's mesh an
     };
     ErrorLog log;
     const Image cut = frame(true);
-    CHECK(log.messages.empty());
+    CHECK(log.messages().empty());
     CHECK(g.renderer.stats().materials == 1);
     const Image half = frame(false);
     // The same picture as the leaf that only has its right half, shadow included.
@@ -819,7 +861,7 @@ TEST_CASE("materials: hot reload swaps the shader, keeps the last good one on a 
     g.renderer.reload_asset("shaders/hot.txt");
     const Image plain = frame();
     CHECK(diff_images(glowing, plain, 4.0f / 255.0f).meanError > 0.01);
-    CHECK(log.messages.empty());
+    CHECK(log.messages().empty());
 
     REQUIRE(fs::write_text("shaders/hot.txt", "broken").ok());
     g.renderer.reload_asset("shaders/hot.txt");
@@ -834,7 +876,7 @@ TEST_CASE("materials: hot reload swaps the shader, keeps the last good one on a 
     g.renderer.reload_asset("shaders/hot.txt");
     const Image back = frame();
     CHECK(diff_images(glowing, back, 0.0f).maxError == 0.0);
-    CHECK(log.messages.size() == 1);
+    CHECK(log.messages().size() == 1);
     CHECK(g.renderer.asset_report()["failures"].empty());
 }
 
@@ -853,9 +895,9 @@ TEST_CASE("materials: a twin from another factoria version is refused with the r
     add_material_mesh(w, "cube", "materials/old.material.json", {0, 0, 0});
     const Image img = g.render(w);
     CHECK(img.pixel(160, 90).g < 0.1f);  // magenta
-    REQUIRE(log.messages.size() == 1);
-    CHECK(log.messages[0].find("0.0.0") != std::string::npos);
-    CHECK(log.messages[0].find("Export the game again with this factoria version") != std::string::npos);
+    REQUIRE(log.messages().size() == 1);
+    CHECK(log.messages()[0].find("0.0.0") != std::string::npos);
+    CHECK(log.messages()[0].find("Export the game again with this factoria version") != std::string::npos);
     CHECK(g.renderer.stats().materialFallbacks.size() == 1);
 }
 

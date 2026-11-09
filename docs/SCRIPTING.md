@@ -1005,7 +1005,7 @@ the press is released over the same widget; a Slider follows the pointer while p
   `size` or `region` is drawn at and the one `entity.bounds()` uses. A missing or unreadable file gives 32 × 32 (the size
   of the missing-texture checker). It reads the file, so it works headless; the result is cached per file and
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
-- `assets.preload(paths)` → a preload handle (below): reads the files ahead of time, for assets a script uses later.
+- `assets.preload(paths)` → a load handle ("Background loading" below): reads the files ahead of time, for assets a script uses later.
 
 ### Generating a level: `tilemap.generate(options)`
 `tilemap.generate` makes a level from a small example at run time with Wave Function Collapse (the command of the same
@@ -1041,42 +1041,57 @@ job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.p
 - A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
   and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.
 
-### Preloading: `scene.preload(path)`, `assets.preload(paths)`
+### Background loading: `scene.load(path, props, { async: true })`, `scene.preload(path)`, `assets.preload(paths)`
 `scene.load` reads the scene and everything it uses before the frame goes on, so a big level freezes the game for a
-moment. `scene.preload("scenes/level2.scene.json")` returns a handle at once and reads the scene file and what it points
-at (prefabs, materials, textures, models with their `.bin` and images, audio, fonts, and the scripts and files named in
-them) a little every frame, so a loading screen keeps running and drawing. The files then wait in memory: `scene.load` of
-that scene, and the renderer and audio on first use, find them there and read nothing from the disk.
-`assets.preload(["assets/boss.glb", "assets/boss.ogg"])` does the same for a list of files.
+moment. Three calls do that work in the background while frames keep running: an IO thread reads the files, worker threads
+decode them (images, models, fonts, sounds) and each frame uploads a share to the GPU (docs/PERFORMANCE.md, "Background
+loading", has the threads, the budgets and the cost).
+
+- `scene.load(path, props, { async: true })` loads the scene in the background and switches to it at the end of the frame
+  its files are ready; the new scene starts as after a sync load (same world, same `game.sceneProps()`). A newer
+  `scene.load` or `scene.reload()` cancels it: the last request wins, and it never switches. Its handle's `cancel()` stops
+  the switch too, also in the frame its files became ready (the switch happens at the end of that frame). The loading screen
+  of the menu kit (docs/MENUS.md) is built on it.
+- `scene.preload(path)` reads the scene file and what it points at (prefabs, materials, scripts and their imports,
+  textures, models with their `.bin` and images, audio, fonts, and the files named in them) ahead: `scene.load` of that
+  scene, and the renderer and audio on first use, then read nothing from the disk.
+- `assets.preload(["assets/boss.glb", "assets/boss.ogg"])` does the same for a list of files.
 
 ```js
-const job = scene.preload("scenes/level2.scene.json");   // in onStart of the loading scene
+const job = scene.load("scenes/level2.scene.json", { level: 2 }, { async: true });   // in onStart of the loading scene
 // every frame: bar.get("Shape2D").size = [400 * job.progress, 16];
-job.promise.then(() => scene.load("scenes/level2.scene.json"));
+job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/level2.scene.json"); });  // reports the error
 ```
-- The handle has `progress` (0..1, never goes down), `done`, `files` and `bytes` read so far, `error` (`""` or why it
-  failed), `promise` (resolves with `{ files, bytes }`, rejects with an Error that has `.hint`) and `release()`.
-  Its values change between frames only. A script that only polls `done` is not reported for an unhandled rejection.
-- Work is counted in units, one per file; the first unit reads the scene (or the first assets) and finds everything it
-  names, so `progress` is exact from the second frame on. Per frame: **tests, headless runs and replays do exactly four
-  units**, so what a test sees (how many frames it takes, which `progress` values) is the same on every machine; **a game
-  with a window** works until about 4 ms of the frame are used (at least one unit), so the number of frames depends on
-  the machine and the game must not depend on it. A worker thread may do the reading later without changing the handle.
-- A path that does not exist throws at once with a "did you mean" list; a read error (or a scene that is not JSON) sets
-  `error` and rejects the Promise. The loading scene should still call `scene.load` in that case, which reports it.
-- The Promise outlives the scene that asked: a loading scene that is left before it resolves (a test that moves on)
-  sets a flag in `onDestroy` that its callback checks, and calls `release()` there unless its own `scene.load` already ran
-  (releasing then would drop the files the load is about to read). docs/MENUS.md has the recipe.
-- Memory: the files stay for the first scene load after the job finished and are dropped at the second (or by
-  `release()`), so a preload costs about one scene's files beyond the one in use. A file changed on disk since it was read
-  is read again.
+- Each returns a handle at once: `progress` (0..1, never goes down), `done`, `files` (items done) and `total`, `bytes`
+  read and `uploadedBytes` (to the GPU) so far, `error` (`""` or why it failed), `cancelled`, `promise` (resolves with
+  `{ files, bytes, uploadedBytes }`, rejects with an Error that has `.hint`), `cancel()` and `release()`. Its values change
+  between frames only. A script that only polls `done` is not reported for an unhandled rejection.
+- Work is counted in items: the first reads the scene (or the listed files) and finds everything it names, then one item
+  per texture, model, font, sound or other file, so `progress` is exact from the second frame on. Per frame: **tests,
+  headless runs, the editor and replays take exactly four items**, so what a test sees (how many frames it takes, which
+  `progress` values) is the same on every machine and with any `runtime.jobThreads`; **a game with a window** takes the
+  items that are ready within `runtime.loadBudgetMs` (default 4 ms) and `runtime.uploadBudgetMB` (default 16 MB of GPU
+  uploads) and never waits for a file, so the number of frames depends on the machine and the game must not depend on it.
+- A path that does not exist throws at once with a "did you mean" list, and so does an unknown option
+  (`{ asinc: true }`). A read error (or a scene that is not JSON) sets `error` and rejects the Promise; an async scene load
+  then does not switch, so call the sync `scene.load` in that case, which reports it.
+- `cancel()` stops the job: what it decoded is thrown away, the files it read ahead are dropped, and the Promise rejects
+  with "cancelled". `release()` does the same for a running job and drops a finished job's files now.
+- The Promise outlives the scene that asked: a loading scene that is left before its load is ready (a test that moves on)
+  sets a flag in `onDestroy` that its callback checks, and calls `cancel()` there unless `done`. docs/MENUS.md has the
+  recipe. A newer scene load cancels an async one by itself; a preload goes on across scene loads.
+- Memory: the files no cache took stay for the first scene load after the job finished and are dropped at the second (or
+  by `release()`), so a preload costs about one scene's files beyond the one in use. A file changed on disk since it was
+  read is read again.
 - Tests: `game.fileReads()` counts the files read from the disk; compare two values to prove a load read nothing.
+  Commands do the same from tools: `scene.load {"path", "async": true}`, `scene.preload`, `assets.preload`, `load.status`,
+  `load.cancel`.
 
 ### scene / game / storage
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
-- `scene.load(path, props?)` (deferred to frame end) · `scene.reload()` · `scene.current` · `scene.generation` (a counter that changes on every load, a reload of the same scene too) · `game.sceneProps()` (see "Scene props")
+- `scene.load(path, props?, options?)` (deferred to frame end; `{ async: true }` loads in the background, see "Background loading") · `scene.reload()` · `scene.current` · `scene.generation` (a counter that changes on every load, a reload of the same scene too) · `game.sceneProps()` (see "Scene props")
 - `game.today()` (see "The date") · `game.focused` · `game.on("gamepadConnected" | "gamepadDisconnected", fn)` (see "Pads plugged in and out") · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
   app is in the background) · `game.on("quit", fn)`: see "Window close" below

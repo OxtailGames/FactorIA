@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <regex>
 #include <set>
@@ -351,6 +352,119 @@ static std::string report_folder(const std::string& path) {
     return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
 }
 
+// A small reader of JavaScript source for report_tool_only_calls: no regex, so a huge script cannot exhaust the stack of
+// a recursive regex engine (libstdc++). It only skips blanks and matches fixed words; strings and comments are not
+// parsed, which is enough for the literal calls it looks for.
+namespace {
+struct JsScan {
+    const std::string& s;
+    std::size_t i = 0;
+    void blanks() {
+        while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+    }
+    bool word(std::string_view w) {
+        if (s.compare(i, w.size(), w) != 0) return false;
+        i += w.size();
+        return true;
+    }
+    // A quoted string ('...' or "..."), without escapes: the names looked for have none.
+    bool quoted(std::string& out) {
+        if (i >= s.size() || (s[i] != '"' && s[i] != '\'')) return false;
+        const char q = s[i];
+        const std::size_t close = s.find(q, i + 1);
+        if (close == std::string::npos || s.find('\n', i + 1) < close) return false;
+        out = s.substr(i + 1, close - i - 1);
+        i = close + 1;
+        return true;
+    }
+};
+
+bool js_ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
+
+// The name a tool module registers: the first `name: "<text>"` after `export default`, cleaned the way the script
+// module cleans it (every character but letters, digits and '_' becomes '_'). Empty when there is none: the engine
+// does not register such a file either.
+std::string tool_module_name(const std::string& text) {
+    const std::size_t def = text.find("export default");
+    if (def == std::string::npos) return {};
+    JsScan sc{text, def};
+    for (std::size_t at = text.find("name", def); at != std::string::npos; at = text.find("name", at + 4)) {
+        if (at > 0 && js_ident_char(text[at - 1])) continue;
+        sc.i = at + 4;
+        sc.blanks();
+        if (!sc.word(":")) continue;
+        sc.blanks();
+        std::string name;
+        if (!sc.quoted(name)) continue;
+        for (char& c : name)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) c = '_';
+        return name;
+    }
+    return {};
+}
+
+// Every literal `fa.call("project.<name>"` in a script, as <name>.
+std::set<std::string> literal_project_calls(const std::string& text) {
+    std::set<std::string> out;
+    for (std::size_t at = text.find("fa"); at != std::string::npos; at = text.find("fa", at + 2)) {
+        if (at > 0 && js_ident_char(text[at - 1])) continue;
+        JsScan sc{text, at + 2};
+        sc.blanks();
+        if (!sc.word(".")) continue;
+        sc.blanks();
+        if (!sc.word("call")) continue;
+        sc.blanks();
+        if (!sc.word("(")) continue;
+        sc.blanks();
+        std::string target;
+        if (!sc.quoted(target) || target.rfind("project.", 0) != 0) continue;
+        out.insert(target.substr(8));
+    }
+    return out;
+}
+}  // namespace
+
+// The project's own commands (the modules under tools/, subfolders included) are for the people and AIs who work on the
+// game: `factoria export` leaves tools/ out, so a shipped game has no `project.<name>` command and a script that calls
+// one fails when it runs there. Warns, for each shipped script, about every literal `fa.call("project.<name>")` whose
+// command a tool defines (docs/EXPORTING.md).
+static void report_tool_only_calls(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
+    constexpr std::uintmax_t kMaxScriptBytes = 1u << 20;  // a script over 1 MiB is generated code: not scanned
+    std::map<std::string, std::string> toolFile;           // command name -> the tool file that defines it
+    const stdfs::path toolsDir = os_path(p.dir / "tools");
+    std::error_code ec;
+    for (stdfs::recursive_directory_iterator it(toolsDir, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        std::error_code fec;
+        if (!it->is_regular_file(fec) || to_lower(fs::path_to_utf8(it->path().extension())) != ".js") continue;
+        const auto size = it->file_size(fec);
+        if (fec || size > kMaxScriptBytes) continue;
+        const auto text = read_file(it->path());
+        if (!text) continue;
+        const std::string name = tool_module_name(*text);
+        if (name.empty()) continue;
+        toolFile.emplace(name, "tools/" + fs::path_to_utf8(it->path().lexically_relative(toolsDir)));
+    }
+    if (toolFile.empty()) return;
+    for (const std::string& f : files) {
+        if (to_lower(fs::extension(f)) != ".js") continue;
+        std::error_code sec;
+        const auto size = stdfs::file_size(os_path(p.dir / f), sec);
+        if (sec || size > kMaxScriptBytes) continue;
+        const auto text = read_file(p.dir / f);
+        if (!text) continue;
+        for (const std::string& name : literal_project_calls(*text)) {
+            const auto tool = toolFile.find(name);
+            if (tool == toolFile.end()) continue;
+            report.warnings.push_back(
+                f + " calls project." + name + ", the command of " + tool->second + ". tools/ is left out of the export, so in the "
+                "shipped game that call fails (there is no such command). Tools are for working on the game: move what the game "
+                "needs into a module under scripts/ and import it from both the tool and the script (docs/EXPORTING.md, \"What "
+                "is shipped and what is not\")");
+        }
+    }
+}
+
 // What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
 // are almost always material for making the game, never something it loads (docs/EXPORTING.md, "What is shipped").
 static void report_packed_sizes(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
@@ -435,6 +549,64 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     return out;
 }
 
+// Gradle's working folders in an Android export (relative, forward slashes): the Gradle daemon, alive for 15 minutes after
+// a build (platforms/android/gradle.properties), keeps files in them open, which on Windows stops a delete; they also
+// make the next build incremental. An export over an Android export keeps them, and the report does not list them.
+bool gradle_working_dir(const std::string& rel) {
+    if (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build") return true;
+    if (rel.rfind("plugins/", 0) != 0) return false;
+    const std::size_t slash = rel.find('/', 8);  // plugins/<name>/build
+    return slash != std::string::npos && slash > 8 && rel.compare(slash, std::string::npos, "/build") == 0;
+}
+// A folder with a Gradle working folder inside: app, plugins, plugins/<name>.
+bool holds_gradle_working_dir(const std::string& rel) {
+    return rel == "app" || rel == "plugins" || (rel.rfind("plugins/", 0) == 0 && rel.size() > 8 && rel.find('/', 8) == std::string::npos);
+}
+
+// The files a game that runs from an export holds open for as long as it runs, so that Windows refuses to delete them:
+// its executable and libraries (Windows maps them) and its pack. Its loose files are read and closed again.
+bool held_while_running(const std::string& rel) {
+    const std::string ext = to_lower(fs::extension(rel));
+    if (ext == ".exe" || ext == ".dll" || ext == ".pak" || ext == ".so" || ext == ".dylib") return true;
+    if (rel.find(".app/Contents/MacOS/") != std::string::npos) return true;  // a macOS bundle's executable
+    return rel.find('/') == std::string::npos && ext.empty();                // a Linux player at the top
+}
+
+// Deletes the previous export in `outRoot`; an Android one keeps Gradle's working folders (and the folders around them).
+void remove_output(const stdfs::path& outRoot, bool keepGradle, std::error_code& ec) {
+    ec.clear();
+    if (!keepGradle) {
+        fs::remove_tree(outRoot, ec);
+        return;
+    }
+    std::error_code sec;
+    if (!stdfs::is_directory(stdfs::symlink_status(os_path(outRoot), sec))) {
+        fs::remove_tree(outRoot, ec);
+        return;
+    }
+    std::function<void(const stdfs::path&, const std::string&)> clear = [&](const stdfs::path& dir, const std::string& relDir) {
+        std::error_code lec;
+        std::vector<stdfs::path> names;
+        for (stdfs::directory_iterator it(os_path(dir), lec), end; !lec && it != end; it.increment(lec)) names.push_back(it->path().filename());
+        if (lec && !ec) ec = lec;
+        for (const stdfs::path& name : names) {
+            const std::string rel = relDir.empty() ? fs::path_to_utf8(name) : relDir + "/" + fs::path_to_utf8(name);
+            const stdfs::path path = dir / name;
+            std::error_code tec;
+            const bool folder = stdfs::is_directory(stdfs::symlink_status(os_path(path), tec));
+            if (folder && gradle_working_dir(rel)) continue;
+            if (folder && holds_gradle_working_dir(rel)) {
+                clear(path, rel);  // the folder itself stays
+                continue;
+            }
+            std::error_code rec;
+            fs::remove_tree(path, rec);
+            if (rec && !ec) ec = rec;
+        }
+    };
+    clear(outRoot, "");
+}
+
 // The files of an export, relative to its root. An Android export that ran Gradle holds thousands of build products too
 // (.gradle/, build/, app/build/, plugins/<name>/build/): they are not part of the export and are left out.
 std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutput) {
@@ -443,10 +615,7 @@ std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutp
     const stdfs::path osRoot = os_path(root);
     for (stdfs::recursive_directory_iterator it(osRoot, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string rel = generic(it->path().lexically_relative(osRoot));
-        const std::size_t pluginSlash = rel.rfind("plugins/", 0) == 0 ? rel.find('/', 8) : std::string::npos;
-        if (skipGradleOutput && it->is_directory(ec) &&
-            (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build" ||
-             (pluginSlash != std::string::npos && rel.compare(pluginSlash, std::string::npos, "/build") == 0))) {
+        if (skipGradleOutput && it->is_directory(ec) && gradle_working_dir(rel)) {
             it.disable_recursion_pending();
             continue;
         }
@@ -772,6 +941,21 @@ std::vector<std::string> ExportReport::size_lines() const {
         for (const ExportSize& f : largestFolders) line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
         out.push_back(line);
     }
+    if (packBytes > 0) {
+        const double ratio = packFileBytes ? double(packBytes) / double(packFileBytes) : 1.0;
+        std::string line = "Game pack: " + size_text(packBytes) + " for " + size_text(packFileBytes) + " of files (" +
+                           std::to_string(int(std::lround(ratio * 100.0))) + "%)";
+        for (const ExportPackCodec& c : packCodecs)
+            line += "\n  " + c.codec + "  " + std::to_string(c.files) + " files, " + size_text(c.bytes) +
+                    (c.codec == "store" ? std::string() : " -> " + size_text(c.storedBytes));
+        out.push_back(line);
+        if (packOrder == "firstUse")
+            out.push_back("Pack order: first use in play sessions for " + std::to_string(packOrderedFiles) + " of " +
+                          std::to_string(packed.size()) + " files (the rest by path)");
+        else
+            out.push_back("Pack order: by path (no play session recorded the order of first use yet, or export.pack.useLoadOrder "
+                          "is false: play the game once in the editor or with `factoria run`, then export again)");
+    }
     if (!webFiles.empty()) {
         std::string line = "Web download (raw / about gzip):";
         for (const ExportSize& f : webFiles) line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
@@ -795,6 +979,13 @@ Json ExportReport::to_json() const {
     if (!pack.empty()) {
         j["pack"] = pack;
         j["packed"] = packed;
+    }
+    if (packBytes > 0) {
+        Json codecs = Json::array();
+        for (const ExportPackCodec& c : packCodecs)
+            codecs.push_back(Json::object({{"codec", c.codec}, {"files", c.files}, {"bytes", c.bytes}, {"storedBytes", c.storedBytes}}));
+        j["packStats"] = Json::object({{"bytes", packBytes}, {"fileBytes", packFileBytes}, {"codecs", std::move(codecs)},
+                                       {"order", packOrder}, {"orderedFiles", packOrderedFiles}});
     }
     if (!materials.empty()) j["materials"] = materials;
     if (!builtinFonts.empty()) j["builtinFonts"] = builtinFonts;
@@ -899,7 +1090,35 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
-    fs::remove_tree(outRoot, ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
+    // Always a fresh <slug>-<platform> folder; the plan checked that an export wrote it. On Windows a game running from it
+    // holds its exe, its libraries and its pack open, and a delete would stop half-way: look first, and delete nothing
+    // then. An Android export keeps Gradle's working folders (the daemon holds files in them; gradle_working_dir).
+    const bool keepGradle = platform == "android";
+    const auto probed = [keepGradle](const stdfs::path& rel, bool folder) {
+        const std::string r = fs::path_to_utf8(rel);
+        return folder ? !(keepGradle && gradle_working_dir(r)) : held_while_running(r);
+    };
+    bool markLost = false;
+    const stdfs::path busy = fs::find_file_in_use(outRoot, probed, 100000, &markLost);
+    if (!busy.empty() && markLost)
+        return err("export: Windows did not take back the deletion mark that looked whether '" + fs::path_to_utf8(busy) +
+                       "' is open in another program: that file may be deleted now",
+                   "The rest of the previous export in " + fs::path_to_utf8(outRoot) +
+                       " is as it was. Export again: the next export writes all of it.");
+    if (!busy.empty())
+        return err("export: '" + fs::path_to_utf8(busy) + "' is open in another program (the game running from " +
+                       fs::path_to_utf8(outRoot) + "?): close it and export again",
+                   "Windows does not let a program delete or replace a file that is open, and the export replaces that folder. "
+                   "Nothing was deleted: the previous export is as it was.");
+    remove_output(outRoot, keepGradle, ec);
+    if (ec) {
+        const bool held = fs::is_sharing_violation(ec) && ec != std::errc::permission_denied;
+        return err("export: cannot delete the previous export " + fs::path_to_utf8(outRoot) + ": " + ec.message(),
+                   held ? "A file in it is open in another program: close it and export again. Part of the previous export may "
+                          "be gone already; the next export writes all of it."
+                        : "Check that the folder can be written (permissions, a read-only drive or folder), or delete it yourself, "
+                          "then export again.");
+    }
     stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
     if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();
@@ -921,11 +1140,12 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     const SetupContext thisMachine;
     if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine); !assetsReady.ok()) {
-        fs::remove_tree(outRoot, ec);
+        remove_output(outRoot, keepGradle, ec);
         return assetsReady.error();
     }
 
     report_packed_sizes(p, files, report);
+    report_tool_only_calls(p, projectFiles, report);
     Result<void> r;
     bool keepOutput = false;  // a failed Gradle build leaves its project in place, so that it can be opened and fixed
     if (platform == "android" || platform == "ios") {
@@ -950,7 +1170,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
-        if (!keepOutput) fs::remove_tree(outRoot, ec);
+        if (!keepOutput) remove_output(outRoot, keepGradle, ec);
         return r.error();
     }
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too
@@ -985,7 +1205,10 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
         "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole "
         "game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode "
-        "unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake "
+        "unless export.scriptBytecode is false; each file compressed with its type's codec, export.pack.codecs overrides it per "
+        "extension; the files in the order play sessions first read them unless export.pack.useLoadOrder is false) and "
+        "reports it as `pack` with the packed paths in `packed` and `packStats` {bytes, fileBytes, codecs: [{codec, files, "
+        "bytes, storedBytes}], order: \"firstUse\"|\"path\", orderedFiles}. ios: the game plus an Xcode/CMake "
         "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
         "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "

@@ -1,24 +1,24 @@
 // @ts-check
-// scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
-// frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
+// scenes/loading.scene.json: loads the scene the main menu put in session.nextScene in the background
+// (scene.load with { async: true }): the engine reads and decodes its files off the main thread while this scene keeps
+// running (and drawing), and switches to it at the end of the frame its files are ready.
 // A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
 import { Behaviour, i18n, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
   onStart() {
-    this.job = scene.preload(session.nextScene);
-    // A scene that could not be read ahead still loads: scene.load reports what is wrong with it.
-    const go = () => {
-      if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
-      this.loading = true;
+    this.job = scene.load(session.nextScene, null, { async: true });
+    this.job.promise.catch(() => {
+      // This scene was left first (a test that moved on), or another load replaced this one: nothing to do now.
+      if (this.gone || this.job.cancelled) return;
+      // The scene could not be loaded in the background (not valid JSON, say): the sync scene.load reports what is wrong.
       scene.load(session.nextScene);
-    };
-    this.job.promise.then(go, go);
+    });
   }
 
   onDestroy() {
     this.gone = true;
-    if (!this.loading) this.job.release(); // left before the files were in: give them back
+    if (!this.job.done) this.job.cancel(); // left before the next scene was ready: stop reading it
   }
 
   onUpdate() {

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -9,6 +10,7 @@
 #include "fa/core/image_tools.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
+#include "fa/core/jobs.h"
 #include "fa/core/profiler.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
@@ -220,7 +222,10 @@ void Engine::Impl::take_scene_props(bool keepProps) {
     }
 }
 
-bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
+bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps, std::uint64_t traceTag,
+                                   bool hotReload) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);  // a scene's reads are this engine's, whoever asked (fa/core/load_trace.h)
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
         auto n = fs::normalize_checked(path);
@@ -234,6 +239,10 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     refresh_from_disk();
+    // A load the game asked for now replaces the async scene loads asked for before it (the last request wins).
+    if (traceTag == 0 && !hotReload) cancel_background_scene_loads();
+    // Before the scene file is read: it is the first file of its scene. An async load's entry opened when it was asked for.
+    if (loadTrace) loadTrace->scene_started(path, traceTag);
     hasPendingScene = false;
     take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
@@ -261,6 +270,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     apply_localization();  // the first frame (and the first onStart) already read the current language
     if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
     scripts.on_scene_loaded();
+    if (loader) loader->scene_loaded();  // files read ahead for this load are dropped at the next one
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
     // no frame is stepped in between (game.load(...) then game.screenshot(...) in a test).
@@ -273,11 +283,15 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 }
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);
+    cancel_background_scene_loads();
     hasPendingScene = false;
     take_scene_props(false);
     audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
+    if (loadTrace) loadTrace->scene_started(keptPath.empty() ? std::string(sourceName) : keptPath);
     LoadReport report = fa::load_scene(world, scene, sourceName);
     world.set_scene_path(keptPath);
     // The scene path (world + currentScene) is deliberately left alone.
@@ -290,8 +304,82 @@ void Engine::Impl::apply_scene_change() {
     std::string path = pendingScene;
     hasPendingScene = false;
     const bool keep = std::exchange(pendingKeepProps, false);
+    const std::uint64_t tag = std::exchange(pendingTraceTag, 0);  // an async scene load's switch
+    pendingLoadId = 0;
     std::string err;
-    load_scene_impl(path, &err, keep);
+    load_scene_impl(path, &err, keep, tag);
+}
+
+BackgroundLoader::Budget Engine::Impl::load_budget() {
+    BackgroundLoader::Budget b;  // exact, BackgroundLoader::kFixedUnitsPerFrame
+    if (replayLoadUnits) {  // what the recorded frame took
+        b.units = *replayLoadUnits;
+        replayLoadUnits.reset();
+        return b;
+    }
+    if (replaying || !((windowed && !cfg.editorMode) || cfg.timedLoads)) return b;
+    b.exact = false;
+    b.ms = project.loadBudgetMs;
+    b.uploadMB = project.uploadBudgetMB;
+    return b;
+}
+
+void Engine::Impl::tick_background_loads() {
+    if (!loader || !loader->active()) {
+        replayLoadUnits.reset();
+        return;
+    }
+    const bool loading = loader->loading();
+    const BackgroundLoader::Frame f = loader->tick(renderer.get(), &audio, load_budget());
+    if (loading && recorder.recording()) recorder.load_units(frame, f.units);  // a replay takes the same units per frame
+    for (const BackgroundLoader::SceneReady& ready : f.scenes) {  // its files are ready: the switch happens at the end of this frame
+        if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingScene = ready.path;
+        hasPendingScene = true;
+        nextProps = ready.props;
+        pendingKeepProps = false;
+        pendingTraceTag = ready.traceTag;
+        pendingLoadId = ready.id;  // a cancel() later in this frame still stops the switch
+        pendingLoadOrigin = ready.origin;
+    }
+    Json list = Json::array();
+    for (const BackgroundLoader::Update& u : f.updates)
+        if (u.origin == BackgroundLoader::Origin::Script) list.push_back(u.to_json());
+    if (!list.empty()) scripts.deliver_background_loads(list);
+}
+
+void Engine::Impl::cancel_background_scene_loads() {
+    if (loader) loader->cancel_scene_loads(loadTrace.get());
+    if (pendingTraceTag != 0) {  // an async load was about to switch: the newer request wins
+        if (loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingTraceTag = 0;
+    }
+    pendingLoadId = 0;
+}
+
+void Engine::Impl::drop_pending_async_switch() {
+    if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+    hasPendingScene = false;
+    pendingScene.clear();
+    nextProps.reset();
+    pendingKeepProps = false;
+    pendingTraceTag = 0;
+    pendingLoadId = 0;
+}
+
+bool Engine::Impl::cancel_background_load(int id) {
+    bool found = false;
+    if (id != 0 && pendingLoadId == id) {  // its files were ready this frame: the switch at the end of it does not happen
+        drop_pending_async_switch();
+        found = true;
+    }
+    if (loader && loader->cancel(id, loadTrace.get())) found = true;  // running: stops; finished: its files are dropped
+    return found;
+}
+
+void Engine::Impl::cancel_script_background_loads() {
+    if (pendingLoadId != 0 && pendingLoadOrigin == BackgroundLoader::Origin::Script) drop_pending_async_switch();
+    if (loader) loader->cancel_origin(BackgroundLoader::Origin::Script, loadTrace.get());
 }
 
 namespace {
@@ -305,6 +393,9 @@ void update_visuals(R& r, World& w, float dt) {
 
 void Engine::Impl::draw(double dt) {
     if (!renderer) return;
+    // Textures, fonts and meshes load when they are first drawn: a capture or a runner that draws directly reads for
+    // this engine too (fa/core/load_trace.h).
+    const LoadTrace::ReadingFor reading(traceOwner);
     apply_localization();  // entities created or keyed since the frame ended (a paused game, the editor) are drawn translated
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
     renderer->begin_frame();
@@ -372,7 +463,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
                 std::string err;
-                load_scene_impl(p, &err, true);  // the scene file changed: same scene, same props
+                load_scene_impl(p, &err, true, 0, true);  // the scene file changed: same scene, same props
             }
         } else if (renderAsset) {
             // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
@@ -384,6 +475,8 @@ void Engine::Impl::poll_hot_reload(bool force) {
 }
 
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a system or script of this frame queues are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
     const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
     if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
     inFrame = true;
@@ -394,7 +487,12 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
     {
         ProfSystemScope prof(ProfSystem::Platform);
+        if (profiled) {  // results jobs posted for the main thread (fa/core/jobs.h): this engine's, then the shared ones
+            jobOwner.run_main_thread_tasks();
+            jobs::run_main_thread_tasks();
+        }
         platform.frame();
+        tick_background_loads();  // scene.preload / assets.preload / async scene.load: this frame's share, then their handles hear it
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
         scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
@@ -505,7 +603,15 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     ++frame;
     if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
-    if (profiled) Profiler::get().end_frame();
+    if (profiled) {
+        jobs::end_frame(&jobOwner);  // with 0 workers the jobs nobody waited for run here; closes the job statistics
+        Profiler::get().end_frame();
+    }
+    if (profiled && loadTrace) loadTrace->frame_ended();
+    if (profiled && !firstGameFrameMarked) {  // the first frame the game ran, whoever drives it
+        firstGameFrameMarked = true;
+        startup.mark(StartupTimeline::Mark::FirstGameFrame);
+    }
 }
 
 void Engine::Impl::end_of_frame(double dt, bool simulated) {
@@ -526,11 +632,26 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) { impl_->self = this; }
 Engine::~Engine() { shutdown(); }
 
 bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);  // what this engine reads is its load trace's (fa/core/load_trace.h)
     impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
+    I.startup.mark(StartupTimeline::Mark::InitBegin);
+    // Only what THIS call started is undone: a second init of a running engine fails and leaves the pool running.
+    bool startedHere = false;
+    std::optional<jobs::OwnerScope> jobScope;
     auto fail = [&](const std::string& msg) {
         FA_ERROR("engine", "{}", msg);
         if (error) *error = msg;
+        if (startedHere) {  // init failed after the pool started: its jobs end, then its reference goes back
+            if (I.loader) I.loader->stop(nullptr);
+            if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+            I.loader.reset();
+            I.jobOwner.close();
+            jobScope.reset();
+            startedHere = false;
+            I.jobsStarted = false;
+            jobs::stop();
+        }
         return false;
     };
     if (I.initialized) return fail("Engine::init called twice");
@@ -546,10 +667,42 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         dir = abs.generic_string();
         fs::set_project_root(abs);
     }
+    if (config.traceLoads) I.loadTrace = std::make_unique<LoadTrace>(I.traceOwner);  // reads are recorded relative to the root set above
     clear_vfx_cache();  // the effect documents are cached by project-relative path: another project (or root) has other files by that name
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
+    {
+        // The job pool (fa/core/jobs.h): EngineConfig, then FA_JOB_THREADS, then factoria.json runtime.jobThreads, then auto.
+        jobs::Settings threads = jobs::Settings::automatic();
+        I.jobThreadsSource = "default";
+        if (!config.jobThreads.empty()) {
+            auto r = jobs::parse_settings_text(config.jobThreads, "EngineConfig.jobThreads");
+            if (!r) return fail(r.error().to_string());
+            threads = r.value();
+            I.jobThreadsSource = "EngineConfig";
+        } else if (const char* env = std::getenv("FA_JOB_THREADS"); env && *env) {
+            auto r = jobs::parse_settings_text(env, "the FA_JOB_THREADS environment variable");
+            if (r) {
+                threads = r.value();
+                I.jobThreadsSource = "FA_JOB_THREADS";
+            } else {
+                FA_WARN("engine", "{}; using the project setting", r.error().to_string());
+                I.startupProblems.push_back("jobs: " + r.error().to_string());
+            }
+        }
+        if (I.jobThreadsSource == "default" && I.project.jobThreadsSet) {
+            threads = I.project.jobThreads;
+            I.jobThreadsSource = std::string(kProjectFileName);
+        }
+        if (auto r = jobs::start(threads); !r) return fail(r.error().to_string());
+        startedHere = true;
+        I.jobsStarted = true;
+        jobScope.emplace(&I.jobOwner);  // what init queues (a first scene's loads) belongs to this engine
+        I.commands.set_job_owner(&I.jobOwner);
+        // Background loading: its IO thread runs only when the pool has worker threads (fa/core/background_io.h).
+        I.loader = std::make_unique<BackgroundLoader>(&I.jobOwner, I.traceOwner);
+    }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));
     I.projectMtime = fs::modified_time(kProjectFileName);
@@ -611,6 +764,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.designWidth = config.width > 0 ? config.width : I.project.width;
         rd.designHeight = config.height > 0 ? config.height : I.project.height;
         rd.headless = !I.windowed;
+        rd.adoptContext = I.windowed && config.adoptGraphicsContext;
         std::string gerr;
         bool ok = false;
         if (I.windowed) {
@@ -758,13 +912,30 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.nextProps.reset();  // a start scene that could not load takes none
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active
+    I.startup.mark(StartupTimeline::Mark::InitEnd);
     return true;
 }
 
 void Engine::shutdown() {
     Impl& I = *impl_;
+    end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
+    // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
+    // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
+    {
+        const jobs::OwnerScope jobScope(&I.jobOwner);
+        // Background loads stop first: the IO thread lets go of this engine's files, and the decodes still running are
+        // this engine's jobs, which the wait below sees through. Their results are thrown away.
+        if (I.loader) I.loader->stop(nullptr);
+        if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+        I.loader.reset();
+        I.jobOwner.close();
+    }
+    if (I.jobsStarted) {
+        I.jobsStarted = false;
+        jobs::stop();
+    }
     clear_vfx_cache();
     I.scripts.shutdown();
     I.appWindow.reset();
@@ -777,15 +948,71 @@ void Engine::shutdown() {
     I.gpu.reset();
 }
 
+void Engine::begin_load_trace() {
+    end_load_trace();
+    impl_->loadTrace = std::make_unique<LoadTrace>(impl_->traceOwner);
+}
+
+LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
+
+Json Engine::loading_report() const {
+    if (!impl_->loadTrace) return Json();
+    Json report = impl_->loadTrace->report();
+    // An editor engine started once, with the editor: its init numbers say nothing about a Play session, so there is no
+    // "startup" there (docs/PERFORMANCE.md, "Startup"). A player, `factoria run` and `play.auto` start with their session.
+    if (!impl_->cfg.editorMode) report["startup"] = startup_report();
+    return report;
+}
+
+StartupTimeline& Engine::startup_timeline() { return impl_->startup; }
+
+int Engine::warm_step(const GfxSwapchain& swapchain) {
+    Impl& I = *impl_;
+    if (!I.initialized) return 0;
+    const int left = I.windowed && I.renderer ? I.renderer->warm_step(swapchain, I.world) : 0;
+    if (left == 0) I.startup.mark(StartupTimeline::Mark::WarmEnd);
+    return left;
+}
+
+Json Engine::startup_report() const {
+    Json j = impl_->startup.to_json();
+    j["gpu"] = impl_->renderer && impl_->renderer->initialized() ? impl_->renderer->startup_report() : Json();
+    return j;
+}
+
+void Engine::end_load_trace() {
+    Impl& I = *impl_;
+    if (!I.loadTrace) return;
+    std::unique_ptr<LoadTrace> trace = std::move(I.loadTrace);
+    if (I.cfg.loadOrderSink) {
+        LoadOrder order = trace->order();
+        trace.reset();  // stop recording before the sink runs: what it reads is not the game's
+        // It also runs from ~Engine (shutdown), where an exception would end the process: a sink that throws loses
+        // this session's order, nothing else.
+        if (!order.empty()) {
+            try {
+                I.cfg.loadOrderSink(order);
+            } catch (const std::exception& e) {
+                FA_ERROR("engine", "The load order of this session was not recorded: {}", e.what());
+            }
+        }
+    }
+}
+
 void Engine::frame(double dt) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
     dt = std::clamp(dt, 0.0, kMaxFrameDt);
     if (I.paused) {
+        const jobs::OwnerScope jobScope(&I.jobOwner);
         I.inFrame = true;
+        I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
+        jobs::run_main_thread_tasks();
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
+        jobs::end_frame(&I.jobOwner);
         return;
     }
     I.accumulator += dt;
@@ -799,22 +1026,29 @@ void Engine::frame(double dt) {
 }
 
 void Engine::step(int frames) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
     for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
 }
 
-bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+bool Engine::load_scene(std::string_view path, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
+    return impl_->load_scene_impl(std::string(path), error);
+}
 bool Engine::load_scene(std::string_view path, const Json& props, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     if (props.is_object()) impl_->nextProps = props;
     return impl_->load_scene_impl(std::string(path), error);
 }
 
 bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     return impl_->load_scene_json_impl(scene, sourceName, error);
 }
 
 void Engine::render_now() {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.renderer) return;
     if (I.renderStale) I.draw(I.lastRenderDt);
@@ -822,6 +1056,7 @@ void Engine::render_now() {
 bool Engine::render_pending() const { return impl_->renderStale; }
 
 void Engine::reload_scene() {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
     std::string err;
@@ -1190,7 +1425,44 @@ void Engine::drop_script_jobs(const std::vector<int>& jobs) {
     for (int id : jobs) impl_->wfcJobs.erase(id);
 }
 
+void Engine::drop_script_background_loads() { impl_->cancel_script_background_loads(); }
+
+Result<int> Engine::Impl::start_background_load(BackgroundLoader::Kind kind, const std::vector<std::string>& paths,
+                                                std::optional<Json> props, BackgroundLoader::Origin origin) {
+    if (!loader) return make_error("background loading needs a running engine (Engine::init)", "");
+    const LoadTrace::ReadingFor reading(traceOwner);
+    const jobs::OwnerScope jobScope(&jobOwner);
+    auto r = loader->start(kind, paths, std::move(props), origin, loadTrace.get());
+    if (r && kind == BackgroundLoader::Kind::SceneLoad) {
+        // The last request wins: a scene change asked for earlier in this frame does not happen.
+        if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingTraceTag = 0;
+        pendingLoadId = 0;
+        hasPendingScene = false;
+        nextProps.reset();
+        pendingKeepProps = false;
+    }
+    return r;
+}
+
+Result<int> Engine::background_load_start(int kind, const std::vector<std::string>& paths, const Json* props) {
+    const BackgroundLoader::Kind k = kind == 0   ? BackgroundLoader::Kind::ScenePreload
+                                     : kind == 1 ? BackgroundLoader::Kind::Assets
+                                                 : BackgroundLoader::Kind::SceneLoad;
+    std::optional<Json> p;
+    if (props && props->is_object()) p = *props;
+    return impl_->start_background_load(k, paths, std::move(p), BackgroundLoader::Origin::Script);
+}
+
+bool Engine::background_load_cancel(int id) { return impl_->cancel_background_load(id); }
+
+void Engine::background_loads_reset() {
+    if (impl_->pendingLoadId != 0) impl_->drop_pending_async_switch();  // an async load ready this frame does not switch
+    if (impl_->loader) impl_->loader->reset(impl_->loadTrace.get());
+}
+
 void Engine::request_scene_change(std::string_view scenePath) {
+    impl_->cancel_background_scene_loads();  // the last request wins
     impl_->pendingScene = std::string(scenePath);
     impl_->hasPendingScene = true;
     impl_->nextProps.reset();  // the last request wins, props included

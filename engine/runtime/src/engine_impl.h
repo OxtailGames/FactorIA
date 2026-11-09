@@ -9,7 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "background_loader.h"
 #include "fa/core/i18n.h"
+#include "fa/core/jobs.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/rich_text.h"
@@ -84,9 +86,18 @@ private:
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
+    StartupTimeline startup;      // Engine::startup_timeline()
+    bool firstGameFrameMarked = false;
+    std::unique_ptr<LoadTrace> loadTrace;  // EngineConfig::traceLoads / Engine::begin_load_trace; null = not tracing
+    // This engine's token as a reader (fa/core/load_trace.h): never reused, so a loader thread that finishes after the
+    // engine is gone records into no later engine's trace.
+    const LoadTrace::Owner traceOwner = LoadTrace::new_owner();
     std::uint64_t logSeqAtInit = 0;  // state() only reports logs emitted by THIS engine
     ProjectSettings project;
     bool initialized = false;
+    bool jobsStarted = false;      // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
+    std::string jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
+    jobs::Owner jobOwner{"engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
 
     World world;
@@ -126,6 +137,29 @@ struct Engine::Impl {
     double fixedDt = 1.0 / 60.0;
     std::string pendingScene;
     bool hasPendingScene = false;
+    std::uint64_t pendingTraceTag = 0;  // the pending scene change is an async scene load's (its load-trace tag)
+    int pendingLoadId = 0;              // ... and that load's id (0: not an async load's switch)
+    BackgroundLoader::Origin pendingLoadOrigin = BackgroundLoader::Origin::Tool;
+
+    // Background loading (scene.preload, assets.preload, scene.load {async: true}; background_loader.h). Made after the job
+    // pool started (whether its IO thread runs depends on the pool), stopped before the engine waits for its jobs.
+    std::unique_ptr<BackgroundLoader> loader;
+    std::optional<int> replayLoadUnits;  // a replay entry's "loadUnits": the units of the coming frame
+    bool replaying = false;              // a windowed replay runs: frames without "loadUnits" take the fixed budget
+    // Starts a background load (scene.preload, assets.preload, an async scene.load) for a script or a command. An async
+    // scene load replaces a scene change asked for before it in this frame.
+    Result<int> start_background_load(BackgroundLoader::Kind kind, const std::vector<std::string>& paths,
+                                      std::optional<Json> props, BackgroundLoader::Origin origin);
+    BackgroundLoader::Budget load_budget();
+    void tick_background_loads();
+    void cancel_background_scene_loads();  // a scene change was asked for: the async scene loads before it stop
+    // load.cancel / a handle's cancel(): stops a running load, drops a finished one's files, and stops the switch of an
+    // async scene load whose files were ready this frame (it would happen at the end of the frame). False: unknown id.
+    bool cancel_background_load(int id);
+    // The JavaScript context that started them is gone: its loads stop (an async scene load's pending switch too), and
+    // no update of theirs is delivered to the next context.
+    void cancel_script_background_loads();
+    void drop_pending_async_switch();  // forgets the pending scene change of an async load (records it as cancelled)
     std::string currentScene;
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
@@ -153,7 +187,10 @@ struct Engine::Impl {
     void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt, bool simulated = true);  // simulated false: a paused redraw keeps the input edges
-    bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false);
+    // `traceTag`: the switch of an async scene load (its load-trace entry); `hotReload`: the file watcher reloads the scene
+    // (async scene loads asked for keep going). Any other load cancels the async scene loads asked for before it.
+    bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false, std::uint64_t traceTag = 0,
+                         bool hotReload = false);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
     std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
@@ -192,6 +229,7 @@ void register_terrain_commands(Engine& engine, Engine::Impl& impl);  // terrain_
 void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
+void register_background_load_commands(Engine& engine, Engine::Impl& impl);  // background_load_commands.cpp: scene.preload, assets.preload, load.status, load.cancel
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
 void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick

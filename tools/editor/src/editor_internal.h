@@ -1140,6 +1140,7 @@ public:
     // a play session records or the panel is open; profile_tick() runs once per UI frame after the engine frame.
     ProfilerView profView_;
     int profMemoryIn_ = 0;  // frames until the next memory sample
+    bool profShowThreads_ = false;  // select the Profiler's Threads tab on its next draw (autotest)
     void profile_tick(std::uint64_t frameBefore);
 
     // toasts

@@ -508,12 +508,15 @@ void Editor::draw_modeler_params(ModelerModel& m) {
         ImGui::TextDisabled("Every change is a model.edit call and one undo step; a slider shows its value in the view while you drag and writes it when you let go.");
         return;
     }
-    const Json* shown = m.shown_node(u.selected);
-    if (!shown) {
+    const Json* shownPtr = m.shown_node(u.selected);
+    if (!shownPtr) {
         ImGui::TextDisabled("That node is gone.");
         return;
     }
-    const std::string op = shown->value("op", std::string());
+    // A copy: an edit in the loop below (set_values, set_live) replaces the document the pointer points into, and the
+    // next field would read freed memory.
+    const Json shown = *shownPtr;
+    const std::string op = shown.value("op", std::string());
     ImGui::Text("%s", op.c_str());
     ImGui::SameLine();
     ImGui::TextDisabled("%s", u.selected.c_str());
@@ -527,9 +530,9 @@ void Editor::draw_modeler_params(ModelerModel& m) {
         const std::string key = f.value("key", std::string());
         const std::string type = f.value("type", std::string());
         if (key == "id" || key == "children" || key == "op" || key == "enabled") continue;
-        const bool present = shown->contains(key);
+        const bool present = shown.contains(key);
         const Json fallback = f.contains("default") ? f["default"] : Json();
-        const Json& value = present ? (*shown)[key] : fallback;
+        const Json& value = present ? shown[key] : fallback;
         const double lo = f.value("min", -1000.0), hi = f.value("max", 1000.0);
         ImGui::PushID(key.c_str());
         ImGui::AlignTextToFramePadding();

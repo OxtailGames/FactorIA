@@ -74,3 +74,17 @@ TEST_CASE("zlib_compress and zlib_decompress round-trip, and shrink repeated tex
     CHECK(!fa::zlib_decompress(z.substr(0, z.size() / 2)).ok());
     CHECK(!fa::zlib_decompress("not a zlib stream").ok());
 }
+
+TEST_CASE("strings: is_valid_utf8 accepts well-formed UTF-8 only") {
+    CHECK(is_valid_utf8(""));
+    CHECK(is_valid_utf8("plain ascii"));
+    CHECK(is_valid_utf8("Ca\xc3\xb1\xc3\xb3n \xe2\x82\xac \xf0\x9f\x98\x80"));  // Cañón € and an emoji
+    CHECK_FALSE(is_valid_utf8("Ca\xf1\xf3n"));                                 // "Cañón" in Windows-1252
+    CHECK_FALSE(is_valid_utf8("\xc3"));                                        // cut short
+    CHECK_FALSE(is_valid_utf8("\xe2\x82"));                                    // cut short
+    CHECK_FALSE(is_valid_utf8("\x80"));                                        // a continuation byte alone
+    CHECK_FALSE(is_valid_utf8("\xc0\x80"));                                    // overlong
+    CHECK_FALSE(is_valid_utf8("\xe0\x80\x80"));                                // overlong
+    CHECK_FALSE(is_valid_utf8("\xed\xa0\x80"));                                // a surrogate
+    CHECK_FALSE(is_valid_utf8("\xf4\x90\x80\x80"));                            // beyond U+10FFFF
+}

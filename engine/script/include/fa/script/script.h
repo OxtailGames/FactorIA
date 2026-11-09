@@ -123,16 +123,39 @@ public:
         (void)language;
         return "this host has no localization (set_language is not implemented)";
     }
-    // How many milliseconds a frame may spend on scene.preload / assets.preload work, and on all running tilemap.generate jobs together
-    // (shared equally). 0 (the default: tests, headless runs, replays) means a FIXED amount, four files per frame and 500000 units of
-    // generator work (shared equally by the running jobs), so a run
-    // does not depend on how fast the machine is; a game with a window returns a few milliseconds.
+    // How many milliseconds a frame may spend on all running tilemap.generate jobs together (shared equally). 0 (the default:
+    // tests, headless runs, replays) means a FIXED amount, 500000 units of generator work (shared equally by the running jobs),
+    // so a run does not depend on how fast the machine is; a game with a window returns a few milliseconds. (Background
+    // loading has its own budget: background_load_start.)
     virtual double preload_time_budget_ms() const { return 0.0; }
+    // Background loading (scene.preload, assets.preload, scene.load(path, props, {async: true}); docs/PERFORMANCE.md,
+    // "Background loading"). `kind`: 0 a scene and what it uses, 1 the listed files, 2 an async scene load (the host
+    // switches to the scene once its files are ready, with `props` when it is not null). Answers the job id, or the error
+    // (a missing file, with "did you mean") for the script layer to throw. The host hands the jobs' progress to
+    // ScriptSystem::deliver_background_loads every frame. Hosts without background loading keep the defaults.
+    virtual Result<int> background_load_start(int kind, const std::vector<std::string>& paths, const Json* props) {
+        (void)kind;
+        (void)paths;
+        (void)props;
+        return make_error("this host does not load in the background", "Load the scene or the files directly.");
+    }
+    // Stops a job (its handle hears `cancelled` next frame) or gives a finished one's files back; an async scene load whose
+    // files were ready this frame does not switch at its end. False: unknown id.
+    virtual bool background_load_cancel(int id) {
+        (void)id;
+        return false;
+    }
+    // A test file starts: every background job stops and every file read ahead is dropped.
+    virtual void background_loads_reset() {}
     // Forgets the tilemap.generate jobs the script side started (`jobs`: the numbers tilemap.generate_start answered to its calls;
     // frees their solver memory). The script system calls it when its JavaScript context is created or closed: the handles that
     // would cancel those jobs die with the context, and nothing else would ever step them. A job started by the console, the MCP
     // server or the editor is not in the list and is left alone.
     virtual void drop_script_jobs(const std::vector<int>& jobs) { (void)jobs; }
+    // Stops the background loads the script side started (background_load_start), an async scene load's pending switch
+    // included, and drops their updates not delivered yet: the handles that would hear them die with the JavaScript context.
+    // Called with drop_script_jobs, when the context is created or closed. Loads started by a command are left alone.
+    virtual void drop_script_background_loads() {}
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first
@@ -352,6 +375,10 @@ public:
     // Start of every engine frame, before the fixed steps: settles the promises of platform requests that were answered
     // since the last frame, then calls the platform.on listeners for the events that came in, then runs pending jobs.
     void dispatch_platform();
+    // The progress of this frame's background loads the scripts started (ScriptHost::background_load_start), a list of
+    // {id, done, total, bytes, uploadedBytes, finished, cancelled, error, hint}: their handles update, their promises
+    // settle, then pending jobs run. The host calls it once per frame, before dispatch_platform(). Nothing before init.
+    void deliver_background_loads(const Json& updates);
     // The system Back button (Android; Input::on_back): when it arrived since the last frame, calls the input.onBack handlers
     // and, when none consumes it (or there are none), asks the host to quit, which is what Back did before the event
     // existed. Once per frame, with dispatch_platform().

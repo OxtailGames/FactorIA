@@ -13,6 +13,7 @@ struct MeshItem {
     MeshAsset* mesh = nullptr;
     Mat4 model;
     const MeshRenderer* mr = nullptr;
+    Entity entity;                      // the MeshRenderer's entity
     TextureAsset* tex = nullptr;        // MeshRenderer.texture (null = the glTF material's, or white)
     TextureAsset* normalTex = nullptr;  // MeshRenderer.normalMap (null = the glTF material's, or none)
     float dist = 0;                     // distance to the camera (blended meshes are drawn far to near)

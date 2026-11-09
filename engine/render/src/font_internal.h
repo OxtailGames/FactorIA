@@ -28,6 +28,7 @@ struct FontFace {
     bool ok = false;
     int id = 0;
     std::string error, hint;  // why !ok: what is wrong with the file and what to do (teaching text)
+    std::vector<std::string> untraced;  // loaded in the background: its files, reported to the load trace on first use
 
     FontFace() = default;
     FontFace(const FontFace&) = delete;

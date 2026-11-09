@@ -1799,37 +1799,48 @@
     },
   };
 
-  // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
-  // dispatch_platform -> preloadDeliver). The numbers only change between frames, so a script sees the same values in a test
-  // on any machine.
+  // scene.preload / assets.preload / scene.load(path, props, {async: true}): a handle for a background load the engine
+  // advances every frame (engine/runtime/src/background_loader.h; engine.cpp tick_background_loads -> preloadDeliver). The
+  // numbers only change between frames, and a test or headless run takes a fixed share per frame, so a script sees the same
+  // values on any machine.
   const preloadJobs = new Map();  // job id -> handle state
   class Preload {
     constructor(id, label) {
       this.$id = id;
       this.$label = label;
-      this.$progress = 0; this.$done = false; this.$files = 0; this.$bytes = 0; this.$error = "";
+      this.$progress = 0; this.$done = false; this.$files = 0; this.$total = 1; this.$bytes = 0; this.$uploaded = 0;
+      this.$error = ""; this.$cancelled = false;
       this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
       this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
     }
-    /** How much of the work is done, 0..1. Grows by whole files; 1 when `done`. */
+    /** How much of the work is done, 0..1. Never goes down; 1 once `done` without an error. */
     get progress() { return this.$progress; }
-    /** True once everything is read (or the job failed: see `error`). */
+    /** True once everything is loaded, or the job failed (see `error`) or was cancelled (see `cancelled`). */
     get done() { return this.$done; }
-    /** Files read so far (the scene counts as one). */
+    /** Items loaded so far: the scan of the scene (or the listed files) counts as one, then one per texture, model, font, sound or other file. */
     get files() { return this.$files; }
+    /** Items in the job (1 until the scan is done, then the real count). */
+    get total() { return this.$total; }
     /** Bytes read so far. */
     get bytes() { return this.$bytes; }
+    /** Bytes uploaded to the GPU so far (textures and models). */
+    get uploadedBytes() { return this.$uploaded; }
     /** Why the job failed, or "". */
     get error() { return this.$error; }
-    /** Gives the files that nobody has read yet back (and stops a job that is still running; its Promise rejects). */
-    release() {
+    /** True when the job was cancelled (cancel(), release(), or a newer scene load replaced an async one). */
+    get cancelled() { return this.$cancelled; }
+    /** Stops the job now: its Promise rejects with "cancelled" and the files it read ahead are dropped. An async scene load does not switch, also in the frame its files were ready. */
+    cancel() { this.$stop("cancelled"); }
+    /** Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. */
+    release() { this.$stop("released before it finished"); }
+    $stop(why) {
       N.preloadRelease(this.$id);
       preloadJobs.delete(this.$id);
-      if (!this.$done) { this.$done = true; this.$error = "released before it finished"; this.$reject(new Error(`${this.$label}: ${this.$error}`)); }
+      if (!this.$done) { this.$done = true; this.$cancelled = true; this.$error = why; this.$reject(new Error(`${this.$label}: ${why}`)); }
     }
   }
-  function preloadStart(kind, arg, label) {
-    const r = N.preloadStart(kind, arg);
+  function preloadStart(kind, arg, label, props) {
+    const r = N.preloadStart(kind, arg, props);
     if (r.mistake) {
       const e = new Error(r.mistake.message);
       e.hint = r.mistake.hint || "";
@@ -1843,19 +1854,26 @@
     for (const u of updates) {
       const h = preloadJobs.get(u.id);
       if (!h) continue;
-      h.$progress = u.total > 0 ? Math.min(1, u.done / u.total) : 1;
-      h.$files = u.done; h.$bytes = u.bytes;
+      h.$total = u.total;
+      h.$progress = Math.max(h.$progress, u.total > 0 ? Math.min(1, u.done / u.total) : 1);
+      h.$files = u.done; h.$bytes = u.bytes; h.$uploaded = u.uploadedBytes || 0;
       if (!u.finished) continue;
       preloadJobs.delete(u.id);
       h.$done = true;
-      if (u.error) {
+      if (u.cancelled) {
+        h.$cancelled = true;
+        h.$error = u.error || "cancelled";
+        const e = new Error(`${h.$label}: ${h.$error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
+        e.hint = u.hint || "";
+        h.$reject(e);
+      } else if (u.error) {
         h.$error = u.error;
         const e = new Error(`${h.$label} failed: ${u.error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
         e.hint = u.hint || "";
         h.$reject(e);
       } else {
         h.$progress = 1;
-        h.$resolve({ files: h.$files, bytes: h.$bytes });
+        h.$resolve({ files: h.$files, bytes: h.$bytes, uploadedBytes: h.$uploaded });
       }
     }
   }
@@ -2004,8 +2022,26 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
-    load(path, props) { N.requestScene(path, props); },
+    // load(path, props?, options?): props is a plain object the new scene's scripts read with game.sceneProps() from their
+    // first start(). options.async: true reads the scene's files in the background first and switches at the end of the
+    // frame they are ready (a frame never waits for a file); it returns the load's handle (progress, done, cancel(), promise).
+    load(path, props, options) {
+      if (options !== undefined && options !== null) {
+        if (typeof options !== "object" || Array.isArray(options)) throw new Error(`scene.load(path, props, options): \`options\` must be an object such as {async: true}, got ${inspect(options)}`);
+        for (const k of Object.keys(options)) {
+          if (k === "async") continue;
+          const sug = closest(k, ["async"]);
+          throw new Error(`scene.load: \`options.${k}\` is not an option.${sug ? ` Did you mean \`${sug}\`?` : ""} Allowed: async.`);
+        }
+        if (options.async !== undefined && typeof options.async !== "boolean") throw new Error(`scene.load: \`options.async\` must be true or false, got ${inspect(options.async)}`);
+        if (options.async) {
+          if (typeof path !== "string" || path === "") throw new Error(`scene.load(path, props, {async: true}) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
+          if (props !== undefined && props !== null && (typeof props !== "object" || Array.isArray(props))) throw new Error(`scene.load(path, props, {async: true}): \`props\` must be a plain object (or null), got ${inspect(props)}`);
+          return preloadStart(2, path, `scene.load(${JSON.stringify(path)}, {async: true})`, props === undefined || props === null ? undefined : plain(props));
+        }
+      }
+      N.requestScene(path, props);
+    },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
     get generation() { return N.sceneGeneration(); },
@@ -3546,6 +3582,73 @@
         if (r.nearest) { out.nearest = v(r.nearest); out.nearestDistance = r.nearestDistance; }
       }
       return out;
+    },
+    // findPaths(queries, { radius, snap, closest, mesh }): many findPath queries in one call, searched in parallel on the job
+    // threads. queries = [{ from, to, radius?, snap?, closest?, mesh? }]; the options are the defaults of every query. Returns
+    // one result per query in the order you asked, each what findPath returns. Like findPath it never throws for "no route";
+    // a query that cannot be answered (no navmesh, unknown mesh, radius too big) throws, naming its index.
+    findPaths(queries, o) {
+      const label = "nav.findPaths(queries)";
+      if (!Array.isArray(queries)) throw new Error(`${label}: \`queries\` must be an array of { from, to }, but got ${inspect(queries)}`);
+      const args = { queries: queries.map((q, i) => {
+        if (!q || typeof q !== "object") throw new Error(`${label}: queries[${i}] must be { from, to }, but got ${inspect(q)}`);
+        const a = vecArr(q.from, 3, `${label} queries[${i}].from`), b = vecArr(q.to, 3, `${label} queries[${i}].to`);
+        const out = { from: [a[0], a[1], a[2] ?? 0], to: [b[0], b[1], b[2] ?? 0] };
+        for (const k of ["radius", "snap", "closest", "mesh"]) if (q[k] !== undefined) out[k] = q[k];
+        return out;
+      }) };
+      if (o) for (const k of ["radius", "snap", "closest", "mesh"]) if (o[k] !== undefined) args[k] = o[k];
+      const v = (p) => new Vec3(p[0], p[1], p[2]);
+      return N.navFindPaths(args).map((r) => {
+        const out = { found: r.found, points: r.found ? r.points.map(v) : [], length: r.length ?? 0,
+                      complete: r.found ? r.complete : false, mesh: r.mesh };
+        if (!r.found) {
+          out.reason = r.reason; out.message = r.message; out.hint = r.hint;
+          if (r.nearest) { out.nearest = v(r.nearest); out.nearestDistance = r.nearestDistance; }
+        }
+        return out;
+      });
+    },
+    // findTilePaths(map, queries, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): many findTilePath queries on one
+    // map in one call, searched in parallel on the job threads. queries = [{ from, to }] (cells { col, row } or [col, row]);
+    // returns one result per query in the order you asked, each what findTilePath returns.
+    findTilePaths(map, queries, o) {
+      const label = "nav.findTilePaths(map, queries)";
+      if (!Array.isArray(queries)) throw new Error(`${label}: \`queries\` must be an array of { from, to } cells, but got ${inspect(queries)}`);
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const cells = queries.map((q, i) => {
+        if (!q || typeof q !== "object") throw new Error(`${label}: queries[${i}] must be { from, to }, but got ${inspect(q)}`);
+        return { from: cell(q.from, `queries[${i}].from`), to: cell(q.to, `queries[${i}].to`) };
+      });
+      if (map instanceof NavGrid) {
+        const flat = [];
+        for (const q of cells) flat.push(q.from[0], q.from[1], q.to[0], q.to[1]);
+        return N.navGridPaths(map.$h, flat, navTileOpts(o)).map(navPathResult);
+      }
+      const args = { queries: cells };
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id), a grid made by nav.createGrid, or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      return N.navFindTilePaths(args).map(navPathResult);
     },
     // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
     // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").

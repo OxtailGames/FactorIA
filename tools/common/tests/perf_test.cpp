@@ -214,6 +214,16 @@ TEST_CASE("perf.baseline then perf.check on a tiny project (no GPU needed)") {
     CHECK(reg.has("perf.check"));
     CHECK(reg.has("perf.baseline"));
 
+    // A new project ships a perf.json with the perf.startup budget and no runner entry yet.
+    const std::filesystem::path budgetFile = std::filesystem::path(t.str()) / "perf.json";
+    {
+        auto shipped = load_json_file(budgetFile.generic_string());
+        REQUIRE(shipped.ok());
+        CHECK(shipped.value()["budgets"]["maxStartupMs"] == 5000);
+        CHECK_FALSE(shipped.value().contains("runners"));
+        std::filesystem::remove(budgetFile);
+    }
+
     CommandResult none = reg.call("perf.check", Json::object({{"file", "perf.json"}}));
     REQUIRE_FALSE(none.ok);  // no budget file: the error says how to create it
     CHECK(none.error["hint"].get<std::string>().find("perf.baseline") != std::string::npos);
@@ -412,4 +422,84 @@ TEST_CASE("perf.measure counts the Light2D lights of a 2D scene in `lights`, the
     CommandResult over = reg.call("perf.check", Json::object());
     REQUIRE_FALSE(over.ok);
     CHECK(over.error["code"] == "perf_budget_exceeded");
+}
+
+TEST_CASE("perf.startup: the budget rows are timing rows, a baseline without startupMs is not checked for it") {
+    PerfSample m = sample(1, 1, 50, 5, 5);
+    PerfBudgets b;
+    b.maxStartupMs = 2000;
+    CHECK(perf_budget_rows(m, b).empty());  // a sample with no startupMs (-1) has nothing to compare
+    m.startupMs = 1500;
+    auto rows = perf_budget_rows(m, b);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].metric == "maxStartupMs");
+    CHECK(rows[0].timing);
+    CHECK_FALSE(rows[0].exceeded);
+    m.startupMs = 2500;
+    CHECK(perf_budget_rows(m, b)[0].exceeded);
+
+    std::vector<std::string> problems;
+    const PerfBudgets parsed = perf_budgets_from_json(Json::parse(R"({"maxStartupMs":1500,"maxStartup":1})"), &problems);
+    CHECK(parsed.maxStartupMs == doctest::Approx(1500));
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("maxStartupMs") != std::string::npos);  // did you mean
+
+    // Against a baseline: wide limits (ratio 2, slack 500 ms), and only a baseline that recorded startupMs is compared.
+    PerfSample base = sample(1, 1, 50, 5, 5);
+    PerfSample cur = sample(1, 1, 50, 5, 5);
+    cur.startupMs = 5000;
+    CHECK(row(perf_compare(cur, base, PerfTolerance{}, true), "startupMs") == nullptr);
+    base.startupMs = 400;
+    cur.startupMs = 1100;  // limit = max(400 * 3, 400 + 500) = 1200
+    PerfVerdict v = perf_compare(cur, base, PerfTolerance{}, true);
+    REQUIRE(row(v, "startupMs") != nullptr);
+    CHECK(row(v, "startupMs")->timing);
+    CHECK(v.status == "pass");
+    cur.startupMs = 1300;
+    CHECK(perf_compare(cur, base, PerfTolerance{}, true).status == "fail");
+    CHECK(perf_compare(cur, base, PerfTolerance{}, false).status == "warn");  // outside CI a time only warns
+
+    CHECK(perf_sample_from_json(perf_sample_json(cur)).startupMs == doctest::Approx(1300));
+    CHECK(perf_sample_json(sample(1, 1, 50, 5, 5)).contains("startupMs") == false);
+    CHECK(perf_startup_advice().find("docs/PERFORMANCE.md") != std::string::npos);
+}
+
+TEST_CASE("perf.check: the startup budget passes with room, warns outside CI and fails in CI with a message that teaches") {
+    TempDir t;
+    auto made = create_project(t.str(), "2d-empty");
+    REQUIRE(made.ok());
+    const std::filesystem::path root(t.str());
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    CommandResult m = reg.call("perf.measure", Json::object({{"frames", 5}}));
+    REQUIRE_MESSAGE(m.ok, m.error.dump());
+    REQUIRE(m.result["sample"].contains("startupMs"));
+    CHECK(m.result["sample"]["startupMs"].get<double>() >= 0.0);
+
+    // A cap far above any machine: passes (the no-baseline status, since the file has no runners).
+    REQUIRE(fs::write_text((root / "perf.json").generic_string(),
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxStartupMs":600000}})").ok());
+    CommandResult ok = reg.call("perf.check", Json::object({{"strictTime", true}}));
+    REQUIRE_MESSAGE(ok.ok, ok.error.dump());
+    CHECK(ok.result["status"] == "no_baseline");
+    bool sawRow = false;
+    for (const Json& r : ok.result["rows"])
+        if (r["metric"] == "maxStartupMs") sawRow = r["exceeded"] == false;
+    CHECK(sawRow);
+
+    // A cap of 0 ms cannot be met: a warning outside CI...
+    const Json zero = Json::object({{"budgets", Json::object({{"maxStartupMs", 0}})}});
+    CommandResult warn = reg.call("perf.check", Json::object({{"strictTime", false}, {"budgets", zero["budgets"]}}));
+    REQUIRE_MESSAGE(warn.ok, warn.error.dump());
+    CHECK(warn.result["status"] == "warn");
+    CHECK(warn.result["message"].get<std::string>().find("maxStartupMs") != std::string::npos);
+    CHECK(warn.result["message"].get<std::string>().find("docs/PERFORMANCE.md") != std::string::npos);
+    // ...and a failure in CI, naming the number and how to bring it down.
+    CommandResult fail = reg.call("perf.check", Json::object({{"strictTime", true}, {"budgets", zero["budgets"]}}));
+    REQUIRE_FALSE(fail.ok);
+    CHECK(fail.error["code"] == "perf_budget_exceeded");
+    const std::string message = fail.error["message"].get<std::string>() + " " + fail.error["hint"].get<std::string>();
+    CHECK(message.find("maxStartupMs") != std::string::npos);
+    CHECK(message.find("> budget 0") != std::string::npos);
+    CHECK(message.find("scene.preload") != std::string::npos);
 }

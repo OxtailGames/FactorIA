@@ -486,6 +486,18 @@ Answers the review sheet that assets.generate_image {count} made for `slot` (its
 | `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
 | `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
+## `assets.preload` (modifies state)
+
+Since 0.19.0.
+
+Read a list of asset files in the background, ready for their first use.
+
+Starts a background load of the listed files: textures, models, fonts and sounds are decoded into the engine's caches (a .gltf brings its buffers and textures, a .prefab.json or .material.json what it names); any other file is read into memory. Answers at once with `loadId` and the status; it advances in the frames the game runs. A missing file is an error with "did you mean"; a folder is an error too. Example: assets.preload {"paths":["assets/boss.glb","sounds/boss_theme.ogg"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | yes | Project-relative files to read ahead. |
+
 ## `assets.preview_in_scene`
 
 Since 0.16.0.

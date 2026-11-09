@@ -147,9 +147,22 @@ archive (`core/pack.h`) that `fa::fs::mount_pack` mounts, which is how a `--rele
 ([EXPORTING.md](EXPORTING.md#release-build-gamepak)). While a pack is mounted it answers every project-relative path alone
 (`read_*`, `exists`, `is_directory`, `file_size`, `modified_time`, `list`); absolute paths and writes still go to the host.
 So engine code must not open a game file with `std::ifstream` or `std::filesystem` on a path it built from the project
-folder: use `fs::`, or the file will be missing from a packed game. The pack reads positionally (no shared file offset), so
-it is safe from any thread. `script/bytecode.h` compiles scripts for the pack; the module loader reads a compiled script from
-the same `.js` path.
+folder: use `fs::`, or the file will be missing from a packed game. A pack (format 2) holds each file in checksummed blocks of
+256 KiB, each compressed with the file type's codec (`core/compress.h`: store, lz4, zstd). On 64-bit desktops it is
+memory-mapped once; elsewhere (32-bit, web, `FA_PACK_MAP=0`) it reads positionally (no shared file offset), so it is safe from
+any thread either way. `fs::read_view(path)` answers an `fs::FileView` instead of a vector: no copy for a file of a mapped
+pack stored as it is (the view keeps the pack mapped while it lives, also after `unmount_pack`), a warm file or an Android
+APK asset (`AAsset_getBuffer`), and an owned buffer otherwise; the background loader's texture, model and font reads use it,
+and the other loaders still read vectors. A play session's `fa::LoadTrace` (`core/load_trace.h`) hooks into these reads to record each scene's
+first-use order and the `loading` section of `play.report`; with no trace alive the hooks cost one atomic load. A trace
+belongs to its engine, not to a thread: `Engine` marks its entry points with `LoadTrace::ReadingFor(this)`, so two engines in
+one process (the editor's and an in-process `play.auto`) never record each other's reads, the editor's own reads (panels,
+the asset browser, tools) are left out of a Play's trace, and work handed to another thread takes
+`LoadTrace::current_owner()` with it (the music loader does; the M70.3 loader will, per job). `script/bytecode.h` compiles scripts
+for the pack; the module loader reads a compiled script from the same `.js` path.
+
+`fs::cache_dir()` / `fs::set_cache_dir()` is the per-user folder for files the engine can always rebuild (the shader
+cache, [below](#start-up-order-and-the-shader-cache)); the game folder and the save folder never hold them.
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On
@@ -163,10 +176,200 @@ that may be read uses `fs::replace_file` / `fs::remove_file` (they wait for read
 `std::filesystem::last_write_time`, and still reads once more after a change (a time that did not move does not prove the
 file did not change). With the mode off, the registry costs one atomic load per call.
 
+### Block codecs: LZ4 and Zstandard (`core/compress.h`)
+`fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`) are the engine's own
+implementations of two public formats, with no outside library: the LZ4 **block** format (no frame; levels 1 to 12) and
+the Zstandard frame format of RFC 8878 (levels 1 to 19). They are for the game pack (M70.4); `zlib_compress` stays for
+`storage` and the PNG and PSD code. Their files are private (`engine/core/src/`): `lz4_codec.cpp`, `zstd_decode.cpp`
+(every frame the reference tool writes except dictionaries: any window up to 128 MiB, Huffman with 1 or 4 streams and
+treeless literals, predefined, RLE, compressed and repeated FSE tables, skippable and concatenated frames, the XXH64
+checksum), `zstd_encode.cpp` (frames with the content size, Huffman literals, FSE sequences, raw and RLE fallbacks; levels
+1-2 use one hash table, 3-19 hash chains with repeat offsets and lazy matching whose search depth grows with the level),
+`xxh64.cpp`. Both formats are byte-compatible with the reference tools in both directions: `zstd -d` and `lz4 -d` read what
+the engine writes (an LZ4 block wrapped in a frame), and the engine reads what they write (committed fixtures in
+`engine/core/tests/data/codecs/`, README there). Rules the code follows: the output of `compress` is a pure function of
+input and level (integer decisions only, explicit little-endian, no dependence on the width of `size_t`, so a pack built on
+Windows equals one built on macOS); a decoder never trusts its input (every read and write is bounds-checked, memory is
+the caller's `expectedSize` plus one 128 KiB literal buffer, `decompress` refuses a size no block of that length could hold
+before it allocates, a window over 128 MiB or a dictionary is an error that says so); nothing is global, so every call is
+thread-safe. The tests round-trip many inputs at many levels, decode the reference fixtures, cut and flip bits of valid
+blocks and feed garbage (also run under ASan and UBSan while writing them).
+
 ### Game loop
 See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
 `n` fixed frames — deterministic given seed + input.
+
+### Jobs and threads
+See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
+pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,
+`parallel_for(name, count, grain, fn, seed)` splits `[0, count)` into chunks, `parallel_map_chunks` and
+`parallel_reduce` merge per-chunk results, `post_main` hands a task back to the main thread (the engine runs those at
+the start of the next frame). The Engine starts the pool in `init()` and stops it in `shutdown()`; the pool is
+reference counted, so a second engine in the same process (the editor) shares it, with the first one's setting, and
+the last `stop()` joins the workers. `start()` returns a `Result`: it is refused from a thread other than the one that
+started the pool and from inside a job, so an `Engine::init` on another thread fails while the pool runs: create and
+run every engine on the main thread. A second `Engine::init` of the same engine fails without touching the pool.
+
+- **Owners**: each Engine has a `jobs::Owner`. The jobs and main-thread tasks queued while its `OwnerScope` is open
+  (init, each frame, each scene load, each command call) or by one of its jobs belong to it. `Engine::shutdown` waits
+  for its own jobs before its scripts and systems go away and drops its main-thread tasks still queued; a frame runs
+  only its own engine's tasks (and the shared ones, posted with no owner), so the editor and a preview never run each
+  other's results. `Owner::wait` (shutdown) runs only its owner's queued jobs and what they depend on. With several
+  engines, the first one to end a frame closes the job statistics (`jobs.info`), until it closes or its engine stops
+  drawing frames (8 frames of the others without one of its own hand them over).
+
+- **How many threads**: `runtime.jobThreads` in factoria.json: `"auto"` (the default: hardware threads - 1, at most 8
+  on desktop and 4 on phones), an integer 0..32, or `"inline"`, exactly (lowercase, the count not in quotes).
+  `FA_JOB_THREADS` overrides it and `EngineConfig::jobThreads` overrides both; those two are text and accept any case,
+  spaces around and the count as digits. With 0 workers a job runs on the main thread when something waits for it,
+  or at the end of the frame. `"inline"` runs every job at once on the thread that submits it, in submission order: use
+  it to debug a job with a plain call stack. Before the pool starts (tools, tests) jobs also run inline. The web build
+  has no threads (compiled without `-pthread`): every setting gives 0 workers there.
+- **Determinism (the rule every job follows)**: threads never change what the game computes. A job reads shared data
+  and writes only its own slot; it never touches `world.rng()` or the World's entity list. Random numbers come from a
+  seed drawn on the main thread and `Chunk::rng()` (a stream that depends only on the seed and the chunk index). Chunk
+  bounds depend only on `count` and `grain`, and results are merged in chunk order, never in the order chunks finish.
+  `game.state_hash` (one 64-bit hash of every entity, component, field, the clock and the random generator) is how a
+  test checks it: the same game with 0, 1, N threads and inline gives the same hash every frame
+  (engine/runtime/tests/jobs_engine_tests.cpp).
+- **Waiting**: `wait()` on the main thread (or in a job) runs only what the job needs: the job itself and its
+  dependencies (and theirs) while they are still queued; while those run on other threads it sleeps. It never picks up
+  an unrelated job, and `parallel_for` runs only its own chunks on the calling thread (and never returns while one of
+  its chunks still runs elsewhere), so a long background load never lands in the middle of the main thread's frame.
+  With 0 workers a wait still ends (it runs what it needs itself). A wait that can never end returns an error instead
+  of hanging: the job (or one it needs) is running on this thread under the wait, or on another thread that waits,
+  directly or through more waits, for a job running on this thread.
+  Only waits through `wait`, `Group`, `parallel_for` are seen: a job that blocks on its own mutex, condition variable or
+  future can still hang. A job that throws is caught and logged with its name; `wait()` returns the error, and jobs
+  that depend on it do not run and report it.
+- **Logging from jobs**: `FA_LOG` and friends work on any thread. A log sink (`add_log_sink`) runs on the thread that
+  logs, a worker too, and may still run once just after `remove_log_sink`: it locks what it writes and owns it (a
+  `shared_ptr` captured by value), never a reference to a local.
+- **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). A job costs one allocation and
+  one lock; give a parallel_for a grain of at least a few hundred cheap items. Each worker thread is named (`fa-job-1`..)
+  in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
+  Linux): keep big buffers on the heap.
+- **What it reports**: `jobs.info` (workers, mode, the setting and where it came from, jobs run and queued last frame,
+  how busy each thread was, threads waiting now, this engine's unfinished jobs) and, with the profiler on, a `threads` section per thread in `perf.profile` and
+  `play.report` (docs/PERFORMANCE.md) and the Threads tab of the editor's Profiler panel.
+- **Physics, navigation and audio on jobs (M70.2b)**: the results are the same inline and with any number
+  of workers (tests hash a whole simulation with `inline`/1/2/8 threads; `game.state_hash` is the check for a game). All of
+  it is skipped when the work is small (a job costs a few microseconds), by a count of items, never by the clock, so
+  which path runs is the same on every machine.
+  - *2D physics* (`engine/physics/src/physics2d_tasks.cpp`): Box2D's task system (`enqueueTaskCallback`) runs on
+    `fa::jobs`. A step is "wide" when it has at least 1536 awake bodies or 4096 contacts (`physics_job_thresholds()`,
+    measured: below that the jobs cost more than they gain); only then its tasks (broad-phase pairs, contact update, constraint solver, finalize, sensors) are
+    queued; any other step, a step outside the main thread and the `inline` mode run them on the calling thread. The world
+    is always made with the fixed `B2JobTasks::kWorkers = 4`, so a task is cut into at most 4 pieces by item count and
+    minimum range only, never by the pool's size: more than 4 threads are not used by 2D physics. A wide step cuts every task into
+    the same pieces whatever runs them (a stopped pool, `inline`, no workers or a step off the main thread run the pieces one
+    after the other on the calling thread, each with its own worker index), because what each worker finds is merged in
+    worker order: Box2D picks the island to split next among the candidates of the workers, and when two have the same
+    sleep time the winner depends on how the task was cut. A step below the thresholds is one piece, as before. So a world
+    this big (1536 or more awake bodies or 4096 or more contacts) can settle differently than the engine did before M70
+    when islands tie; smaller worlds are unchanged. Box2D merges what its
+    pieces wrote in bit sets (OR), and its solver colours constraints so that no two pieces touch the same body, so the
+    merge order is fixed by the data, not by who finishes first. Joints, the sleeping rules, the callbacks into scripts and
+    the write-back to the components stay on the main thread.
+  - *3D physics* (`physics3d.cpp`): the pair loops are O(n^2) and sequential, because a contact changes the bodies the next
+    pair sees. Two read-only scans run as `parallel_for` jobs when `rows * bodies >= 16384` (about 128 bodies): the
+    rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
+    reads positions and writes its own slots; the main thread then replays the slots in `(chunk, row, k)` order, which is
+    the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
+    character controllers stay sequential.
+  - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
+    more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
+    `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the
+    result, so the answer list is in request order. The NavMesh is picked per query on the main thread first, so every
+    error (with its query number and JSON pointer) comes before any search starts. At most 10000 queries per call.
+    Single `nav.find_path` calls stay on the calling thread.
+  - *Audio*: `render_sfx` renders each layer of a patch as a job when the patch has at least 2 layers and at least 24000
+    samples (`kSfxJobMinSamples`; about half a second at 48 kHz) and the layer buffers fit in 64 MB; the layers are
+    summed in layer order afterwards, so the samples are identical. A noise oscillator draws from a stream keyed by
+    `(seed, layer, oscillator)` rather than `Chunk::rng()`, so the sound does not change with how layers are grouped.
+    The device callback never waits for a job and starts none; the mixer of live voices and `song_preview` stay on their
+    own thread.
+  - What this does not promise: the same results are checked on one machine across thread settings. Floating point can
+    still differ in the last digit between CPU architectures, as it did before jobs.
+
+#### Systems that run as jobs
+
+The per-frame work of these systems is split over the pool with the helpers of `engine/render/src/render_jobs.h`
+(`rjobs::split`, `rjobs::run`, `rjobs::weighted_ranges`, `rjobs::stable_sort`) or `jobs::parallel_for`. Each pass
+below its threshold, and every pass while the pool has no worker thread (stopped, `"inline"`, 0 workers), is one chunk
+on the calling thread: the reference path. The thresholds are counts of items, never times, so where the line falls
+does not depend on the machine:
+
+| Job name | What a chunk does | Runs as jobs from | Chunk |
+| --- | --- | --- | --- |
+| `render.gather_sprites` | the quads of its sprites (matrix, anchor, 9-slice, grid meshes, skinned meshes, flash, parallax repeat) | 512 sprites | 128 sprites |
+| `render.gather_tilemap` | the visible cells of a band of rows of one Tilemap | 16384 visible cells | ~4096 cells |
+| `render.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
+| `render.gather_particles` | the quads of its emitters (particles, trails) | 2048 particles | emitters of ~1024 particles |
+| `render.sort_quads`, `render.flatten_quads` | stable sort of the 2D items; copy of their vertices into the stream | 4096 items; 16384 vertices | 1024 items; 8192 vertices |
+| `render.mesh_matrices`, `render.mesh_cull` | a mesh's matrix, flash and distance; its bounds (skinned too), frustum test and blend flag | 256 meshes | 64 meshes |
+| `render.sort_blended`, `render.sort_meshes` | stable sorts of the blended meshes (back to front) and of the batches (by material) | 1024 items | 256 items |
+| `render.shadow_bounds`, `render.shadow_cull` | the shadow casters' bounds; the test against the light's volume | 256 casters | 64 casters |
+| `scene.animation_poses` | every clip channel sampled, the fade blended, the skinning palettes of its animators | 512 skeleton nodes | 2 animators |
+
+What stays on the main thread: everything that may load or create a GPU resource (`Assets::texture`, `mesh`,
+`material`, fonts), the animator sheets, the camera tag mask cache, the warnings that fire once, the statistics, and
+every sokol_gfx call (the passes build CPU data; the submission comes after them, on the main thread).
+
+The determinism rule, on top of the one for every job: chunk bounds depend only on item counts (and, for particles, on
+particle counts), each chunk writes its own `QuadList` or its own slot of a vector, and the parts are joined in chunk
+order (`QuadList::append` renumbers the items so their order is kept; `add_quads_of` joins the bands of one tilemap
+item). A stable sort has exactly one result, so the chunked sort (each chunk sorted, then pairwise `std::merge`) gives
+the order of `std::stable_sort`, as long as the comparison is a strict weak order: every float a render sort compares
+goes through `rjobs::order_float` (NaN, from a NaN transform or colour, sorts as +infinity). The 3D batches are
+ordered by asset names and entities, never by addresses, which differ from one process to the next. The frame is
+therefore byte-identical with any thread count. engine/render/tests/render_jobs_tests.cpp draws scenes far above every
+threshold (3000 sprites, a 400x200 tilemap, more than 2048 live particles, 820 meshes with shadows and skinned rigs;
+5000 sprites and 2400 meshes with NaN positions and colours) stopped, inline and with 1, 2 and 8 workers, compares
+the pictures and the statistics, and checks on the profiler that each pass was cut into the same chunks with every
+worker count (which thread ran a chunk depends on timing, so the test only reports it).
+engine/scene/tests/test_animation.cpp does the same for 300 animators, and the ctest `example_jobs_same_frames`
+compares example scenes drawn by two processes with `FA_JOB_THREADS=inline` and `8`.
+
+### Background loading
+`scene.preload`, `assets.preload` and `scene.load {async: true}` (docs/PERFORMANCE.md, "Background loading") read and decode
+files while frames run. The pieces and who owns what:
+
+- **`fa::IoQueue`** (`core/background_io.h`): each Engine owns one, made with its `jobs::Owner` and its `LoadTrace` owner. One
+  **IO thread for the whole process** serves every queue in turn (round robin, one file at a time), so two engines that load
+  at once both move on and never see each other's items. It starts with the first item of a threaded queue (the pool has at
+  least one worker) and ends with the last queue; a game that never loads in the background has no IO thread. An item is a
+  READ (on the IO thread, through `fa::fs`) then a DECODE (a job of the queue's owner). Its result waits until the main
+  thread `take()`s it; `take()` of an item the IO thread has not started does it at once on the calling thread, so it never
+  waits behind other files and never deadlocks, also with 0 workers. Without workers there is no IO thread and `take()`
+  does the read and the decode itself: the result is the same either way.
+- **`fa::BackgroundLoader`** (`runtime/src/background_loader.h`, main thread only): the jobs of one Engine. A job's first
+  item (the SCAN) reads the scene and the text files it names into `fs`'s warm set and lists the binary files; then one item
+  per binary file: the renderer decodes a texture, model or font off the main thread (`Renderer::background_*`) and the
+  main thread uploads it; audio decodes a sound (`Audio::decode_clip`) and the main thread adopts it. `tick()` runs once per
+  frame, before the scripts' platform callbacks, and takes items in a fixed order (round after round, one item of each job
+  in start order) within the frame's budget: exactly N items (tests, headless runs, the editor, replays: the same frames on
+  any machine and any pool), or the items that are ready within `loadBudgetMs`/`uploadBudgetMB` (a game with a window: a
+  prefix of the same order, whose length a recording keeps as `"loadUnits"`). An async scene load whose files are ready
+  becomes the frame's pending scene change (`apply_scene_change` at the end of the frame); a scene change asked meanwhile
+  cancels it.
+- **Lifetime**: a cancelled job's queued items become orphans the loader frees once the IO thread let go of them; a decode
+  still running finishes on its worker and is dropped. `Engine::shutdown` stops the loader (`cancel_all`: the IO thread lets
+  go of this engine's files), then waits for its jobs owner (the decodes still running), then destroys the loader; nothing
+  of a load outlives its engine.
+- **The warm set is the process's** (`fs::warm`, keyed by path), and the loaders of every engine count their references
+  to each file in one registry (`background_loader.cpp`): a reference per item that read the file (taken before it is
+  warmed), then one per job or finished load that holds it. `fs::unwarm` runs when the last reference goes, so two engines
+  that load the same file share one copy and one engine's cancel, finish or `background_loads_reset` (a script test file
+  starting afresh) never drops a file the other read ahead.
+- **Script loads die with their context**: `ScriptHost::drop_script_background_loads` (called with `drop_script_jobs` when
+  the JavaScript context is created or closed) cancels the loads a script started, an async scene load's pending switch
+  included, and drops their updates, so none reaches a handle that is gone. A cancel in the frame a load's files became
+  ready still stops its switch: the pending scene change keeps the load's id.
+- **Load trace**: reads run in `LoadTrace::ReadingFor(owner, tag)`, which counts them in the totals and the async load's
+  entry but enters a file into the first-use order only at `LoadTrace::file_used` (a warm file read through `fs`, or the
+  renderer and audio adopting a prepared asset on first use), so an async load records what a sync load records.
 
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
@@ -254,6 +457,47 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
+
+### Start-up order and the shader cache
+A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a windowed `factoria run`) starts in this order, decided by
+`StartupSequence` (`runtime/startup_sequence.h`, one `on_frame()` per window frame):
+
+1. *Frame 1.* The window and the graphics context exist (sokol_app opens them before the first frame callback). The frame
+   presents a clear frame: `Renderer::present_clear`, black = the letterbox colour. `StartupTimeline` records `WindowReady` and
+   `FirstPresent`. sokol_app presents when the callback returns, so this cannot happen inside the init callback: the first
+   frame has to be a frame of its own.
+2. *Frame 2.* `Engine::init` reads the game (scenes, scripts, textures, shaders). It adopts the context frame 1 opened
+   (`EngineConfig::adoptGraphicsContext` -> `RendererDesc::adoptContext`: the renderer does not call `sg_setup` again, does
+   not `sg_shutdown` it, and the runner calls `Renderer::close_context` at the end). A clear frame is presented again.
+3. *Frames 3+.* `Engine::warm_step` -> `Renderer::warm_step` makes pipelines in groups (blit; the 2D quad pipelines; the blend
+   variants; the 3D mesh, sky, skinned and shadow ones when a `MeshRenderer` exists), as many groups per window frame as fit in
+   about 8 ms of wall time (at least one; the time only decides how many frames the warm-up takes, never what it makes: on GL,
+   GLES and WebGL a pipeline links in the driver and costs milliseconds, on Metal microseconds), each frame presenting a clear
+   frame. The groups are fixed lists, not a scan of what the scene draws, so the warm-up also makes pipelines a game may
+   never use (Additive and Multiply sprites, the wire/lines variant, the mesh variants of a scene with one mesh). That is
+   cheap: a pipeline is a small state object (a few KB) made once, the driver's own cache makes a repeat cheap, and the
+   group is skipped for 3D when the scene has no `MeshRenderer`. A frame that draws before the warm-up finished makes a missing pipeline
+   when it needs it, exactly as without the warm-up: pipelines are keyed through `Gpu::find_or_make`, so what is drawn never
+   depends on the warm-up, and `state_hash`, recordings, replays and goldens are the same.
+4. *Then* one game frame per window frame; the first one clamps its `dt` to 1/60 s (the start took longer than the 100 ms the
+   frame-time filter allows).
+
+A host without a window (headless, `perf.measure`, tests) runs none of this: `Engine::init` makes its own context and no
+frame is presented (`firstPresentMs` is `null`). The timeline is recorded in `Engine::startup_timeline()`; the editor sets
+`adoptGraphicsContext = false` (its context is its own).
+
+**The shader cache** (`render/src/shader_cache.cpp`, `core/blob_cache.h`). `sokol-shdc` writes shader SOURCE (HLSL, MSL,
+GLSL) into the committed headers, not compiled code, and sokol_gfx accepts a compiled program only on Direct3D 11
+(`sg_shader_function.bytecode`). So only D3D11 has an engine cache: `make_shader` compiles each stage with `D3DCompile`
+(`d3dcompiler_47.dll` loaded with `LoadLibrary`), stores the DXBC and hands sokol the bytecode next time. The key is
+`d3d11|<engine version>|<flags>|src:<sha-256 of the source>` (DXBC is the same on every driver and card; the driver compiles
+it to machine code), the files are `<cache_dir>/shaders/shader-<program>-<hash>-<stage>-<keyhash>.facache`, where `keyhash` is the first 8 hex characters of the hash of the whole key, so two engine versions or two games with a material of the same path keep separate files (the folder grows by one small file per shader per version; deleting it is safe). GL, GLES and Metal link or build from
+source inside the driver or the OS, which keep their own caches; web has no folder. `BlobCache` is generic: magic `FABC`,
+format version, key, payload size, SHA-256, payload; an unreadable file is reported as `Stale` (other key) or `Damaged`
+(other magic or version, short, too big, bad checksum), logged once under category `cache`, ignored and rebuilt. A store goes
+to a temporary file that `fs::replace_file` renames over the target. The folder is `fs::cache_dir()`, per user and never the game
+folder (`FA_CACHE_DIR` overrides; the Android and iOS players call `fs::set_cache_dir`; empty means no cache). The renderer
+creates all its programs through `make_shader`, which times them: `Renderer::startup_report` gives the counters.
 
 ### Textures
 An export replaces a texture `x.png` by its twin `x.png.ktx2` (Basis Universal, written by `fa_tooling`'s

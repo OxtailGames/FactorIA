@@ -31,6 +31,22 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 | `closest` | boolean | no | When the goal is unreachable, return a path to the reachable point nearest to it (complete=false). |
 | `mesh` | string | no | Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`. |
 
+## `nav.find_paths`
+
+Since 0.19.0.
+
+Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
+
+The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: nav.findPaths(queries, opts). Example: nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},{"from":[2,0,2],"to":[-4,0,6]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `queries` | array | yes | The path queries, at most 10000. |
+| `radius` | number | no | Default agent radius of every query. |
+| `snap` | number | no | Default snap distance of every query. |
+| `closest` | boolean | no | Default for every query. |
+| `mesh` | string | no | Default NavMesh3D entity id of every query. |
+
 ## `nav.find_tile_path`
 
 Since 0.3.0.
@@ -48,6 +64,25 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 | `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}; null or negative blocks, a solid tile listed here is walkable. |
 | `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
 | `maxNodes` | integer | no | Most cells the search expands before it gives up (too_far). Default 100000. |
+| `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
+| `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
+
+## `nav.find_tile_paths`
+
+Since 0.19.0.
+
+Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
+
+The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and `allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths {"tilemap":"ground","queries":[{"from":[0,0],"to":[5,3]},{"from":[1,1],"to":[9,2]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `tilemap` | string | no | Id of the entity with the Tilemap. Give this or `grid`. |
+| `grid` | object | no | A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number \| [w,h]}. |
+| `queries` | array | yes | The path queries, at most 10000. |
+| `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}. |
+| `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
+| `maxNodes` | integer | no | Most cells each search expands before it gives up (too_far). Default 100000. |
 | `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
 | `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
 
