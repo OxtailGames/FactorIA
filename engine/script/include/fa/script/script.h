@@ -528,7 +528,7 @@ public:
     // (errors() and the log list each distinct error one time). A bot reads it to tell an exception loop from one slip.
     std::uint64_t error_events() const;
     // Every cut of the script watchdog since init (a debugger terminate is not one): how many (`watchdog_cut_count`) and the
-    // first 100 (`watchdog_cuts`). Each cut also logs an error naming the script and the callback, even when the same error
+    // latest 100 (`watchdog_cuts`, oldest first; a run with more cuts is invalid anyway). Each cut also logs an error naming the script and the callback, even when the same error
     // was logged before. A run with a count above 0 is invalid: `factoria run --headless` exits 1 and reports
     // "watchdogCuts" and "replayValid": false, `factoria test` fails the test during which it happened.
     std::uint64_t watchdog_cut_count() const;

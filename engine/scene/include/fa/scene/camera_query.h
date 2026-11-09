@@ -35,14 +35,18 @@ struct OrthoView {
     // The conversions map to what the player SEES, so the shake (offset and roll) is in them; the entities' own positions stay the
     // true ones. A world point under a screen point is therefore where the scene says it is, shake or not.
     Vec2 to_screen(Vec3 p) const {
-        const float c = det::cos(roll), s = det::sin(roll);
         const float dx = p.x - position.x, dy = p.y - position.y;
+        // No roll (every camera without a running shake): the turn is the identity, so skip the two trigonometric calls. The
+        // result is the same bits as the general formula for finite numbers (x * 1 + y * 0 is x).
+        if (roll == 0.0f) return {center.x + dx * scale, center.y - dy * scale};
+        const float c = det::cos(roll), s = det::sin(roll);
         // the view's axes are the world's turned by `roll`: view = R(-roll) * delta
         return {center.x + (dx * c + dy * s) * scale, center.y - (dy * c - dx * s) * scale};
     }
     Vec3 to_world(Vec2 s, float z = 0.0f) const {
-        const float c = det::cos(roll), sn = det::sin(roll);
         const float vx = (s.x - center.x) / scale, vy = -(s.y - center.y) / scale;
+        if (roll == 0.0f) return {position.x + vx, position.y + vy, z};  // as to_screen: the same bits without the turn
+        const float c = det::cos(roll), sn = det::sin(roll);
         return {position.x + vx * c - vy * sn, position.y + vx * sn + vy * c, z};
     }
 };

@@ -235,6 +235,13 @@ std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::st
 // What a layer remembers: the state as of its last advance (the "previous" the edges and action edges compare with), the
 // edges since then, the frame deltas and the reads a UI handler took away. Advancing makes the current state the previous
 // one and forgets the rest.
+namespace {
+bool& touch_flag(Touch& t, size_t layer) {  // kFrameLayer, kFixedLayer, kLateLayer
+    return layer == 0 ? t.pressedThisFrame : layer == 1 ? t.pressedThisStep : t.pressedLate;
+}
+bool touch_unseen(const Touch& t) { return t.pressedThisFrame || t.pressedThisStep || t.pressedLate; }
+}  // namespace
+
 void Input::advance(size_t layer) {
     Layer& l = layers_[layer];
     l.prevKeys = keys_;
@@ -245,7 +252,9 @@ void Input::advance(size_t layer) {
     l.mouseReleased.fill(false);
     l.prevTouchDown = touchDown_;
     l.touchPressed = l.touchReleased = false;
-    for (auto& t : touches_) (layer == kFixedLayer ? t.pressedThisStep : t.pressedThisFrame) = false;
+    for (auto& t : touches_) touch_flag(t, layer) = false;
+    for (auto& t : endedTouches_) touch_flag(t, layer) = false;
+    std::erase_if(endedTouches_, [](const Touch& t) { return !touch_unseen(t); });  // every view saw it
     for (Pad& pad : pads_) {
         PadEdges& e = pad.edges[layer];
         e.prevButtons = pad.buttons;
@@ -267,7 +276,49 @@ void Input::advance(size_t layer) {
 
 void Input::begin_frame() { advance(kFrameLayer); }
 
-void Input::end_fixed_step() { advance(kFixedLayer); }
+// A fixed step is a stretch of time: from its first FixedScope to end_fixed_step(). What arrives in it is fed to the late
+// layer too, which starts from the state at the beginning; closing the step makes that layer the fixed-step view, so what
+// the step saw is gone and what arrived during it waits for the next step (with its press edges still edges: the
+// "previous" state is the one from before the step).
+void Input::begin_fixed_step() {
+    if (fixedStepOpen_) return;
+    fixedStepOpen_ = true;
+    advance(kLateLayer);
+}
+
+void Input::end_fixed_step() {
+    if (!fixedStepOpen_) {
+        advance(kFixedLayer);
+        return;
+    }
+    fixedStepOpen_ = false;
+    layers_[kFixedLayer] = layers_[kLateLayer];
+    for (Pad& pad : pads_) pad.edges[kFixedLayer] = pad.edges[kLateLayer];
+    for (Touch& t : touches_) t.pressedThisStep = t.pressedLate;
+    for (Touch& t : endedTouches_) t.pressedThisStep = t.pressedLate;
+    std::erase_if(endedTouches_, [](const Touch& t) { return !touch_unseen(t); });
+}
+
+std::vector<Touch> Input::touches_in_view() const {
+    std::vector<Touch> out = touches_;
+    for (const Touch& t : endedTouches_)
+        if (touch_pressed(t)) out.push_back(t);  // lifted, but this view has not seen it land yet
+    return out;
+}
+
+// The fixed-step view keeps a consumed press until a step takes it, and a later press must not be hidden by it: once the
+// input that was consumed is let go, the consumption is over (the press it hid was already given up).
+void Input::forget_fixed_consumption() {
+    if (layers_[kFixedLayer].consumedActions.empty() && layers_[kLateLayer].consumedActions.empty()) return;
+    const size_t shown = active_;
+    for (size_t v : {kFixedLayer, kLateLayer}) {
+        active_ = v;
+        Layer& l = layers_[v];
+        std::erase_if(l.consumedBindings, [&](const Binding& b) { return binding_value(b, false) < kActionDownThreshold; });
+        std::erase_if(l.consumedActions, [&](const std::string& a) { return !action_down(a); });
+    }
+    active_ = shown;
+}
 
 void Input::discard_idle_motion() {
     for (Layer& l : layers_) {  // nothing runs a fixed step while the game is paused: what piled up there is as stale
@@ -294,6 +345,7 @@ void Input::on_key(Key key, bool down) {
     if (!down && keys_[i])
         for (Layer& l : layers_) l.keyReleased[i] = true;
     keys_[i] = down;
+    if (!down) forget_fixed_consumption();
 }
 
 void Input::on_mouse_move(Vec2 designPos) {
@@ -320,6 +372,7 @@ void Input::on_mouse_button(MouseButton b, bool down) {
     if (!down && mouse_buttons_[i])
         for (Layer& l : layers_) l.mouseReleased[i] = true;
     mouse_buttons_[i] = down;
+    if (!down) forget_fixed_consumption();
 }
 
 void Input::on_mouse_wheel(float dy) {
@@ -347,7 +400,7 @@ void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
             return;
         }
     }
-    touches_.push_back(Touch{id, designPos, true, true});
+    touches_.push_back(Touch{id, designPos, true, true, true});
     if (!touchDown_)
         for (Layer& l : layers_) l.touchPressed = true;
     touchDown_ = true;
@@ -394,6 +447,8 @@ void Input::on_touch_end(std::uint64_t id) {
     auto it = std::find_if(touches_.begin(), touches_.end(), [&](const Touch& t) { return t.id == id; });
     if (it == touches_.end()) return;
     Vec2 last = it->position;
+    if (touch_unseen(*it)) endedTouches_.push_back(*it);  // landed and lifted before every view looked: they still see it land
+    if (endedTouches_.size() > 64) endedTouches_.erase(endedTouches_.begin());
     touches_.erase(it);
     if (touches_.empty() && touchDown_) {
         touchDown_ = false;
@@ -405,6 +460,7 @@ void Input::on_touch_end(std::uint64_t id) {
         on_mouse_button(MouseButton::Left, false);
     }
     lastDevice_ = InputDevice::Touch;
+    forget_fixed_consumption();
 }
 
 Input::TouchControl* Input::touch_control_of(std::uint64_t finger) {
@@ -450,6 +506,7 @@ void Input::update_touch_pad() {
             for (PadEdges& e : pad.edges) e.released[i] = true;
     }
     pad.buttons = buttons;
+    forget_fixed_consumption();
 }
 
 // Something was pressed while modifier keys are held: they are part of a chord, not a binding of their own. A modifier
@@ -479,7 +536,8 @@ bool Input::paste_pressed() const { return L().paste || (!pasteFromEvents_ && ke
 bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
 
 void Input::on_text(std::uint32_t codepoint) {
-    for (Layer& l : layers_) l.text.push_back(char32_t(codepoint));
+    for (Layer& l : layers_)
+        if (l.text.size() < kMaxTextPerView) l.text.push_back(char32_t(codepoint));
 }
 
 std::string Input::text_utf8() const {
@@ -571,6 +629,7 @@ void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
     if (!down && pad.buttons[i])
         for (PadEdges& e : pad.edges) e.released[i] = true;
     pad.buttons[i] = down;
+    if (!down) forget_fixed_consumption();
 }
 
 void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
@@ -584,6 +643,7 @@ void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
     // A poll feeds the same value every frame: only a CHANGE past the deadzone is the player touching the pad.
     if (value != pad.axes[size_t(axis)] && std::fabs(value) > deadzone_) lastDevice_ = InputDevice::Gamepad;
     pad.axes[size_t(axis)] = value;
+    forget_fixed_consumption();
 }
 
 void Input::set_gamepad_type(int index, GamepadType type) {
@@ -616,6 +676,7 @@ void Input::reset_options() {
     }
     padEvents_.clear();
     padSlotMemory_.clear();
+    endedTouches_.clear();
 }
 
 void Input::release_all() {
@@ -634,6 +695,9 @@ void Input::release_all() {
     }
     if (touchDown_)
         for (Layer& l : layers_) l.touchReleased = true;
+    for (const Touch& t : touches_)
+        if (touch_unseen(t)) endedTouches_.push_back(t);
+    if (endedTouches_.size() > 64) endedTouches_.erase(endedTouches_.begin(), endedTouches_.end() - 64);
     touches_.clear();
     touchDown_ = false;
     primaryTouchDown_ = false;  // its mouse button was released above
@@ -1269,13 +1333,15 @@ void Input::consume_action(std::string_view action) {
     all.anyPad = all.pointer = all.keyboard = true;
     const size_t shown = active_;
     for (size_t v = 0; v < layers_.size(); ++v) {
+        if (v == kLateLayer && !fixedStepOpen_) continue;  // only meaningful while a step is open
         active_ = v;
         if (v != shown && !action_pressed(action)) continue;
         Layer& l = layers_[v];
-        l.consumedActions.emplace_back(action);
+        if (std::find(l.consumedActions.begin(), l.consumedActions.end(), action) == l.consumedActions.end())
+            l.consumedActions.emplace_back(action);  // once per action: a view nobody advances stays bounded
         // Only the bindings that went down: a key that is merely held must not silence another action.
         for (const Binding& b : it->second)
-            if (edge_in({b}, all, false)) l.consumedBindings.push_back(b);
+            if (edge_in({b}, all, false) && !binding_consumed(b)) l.consumedBindings.push_back(b);
     }
     active_ = shown;
 }
@@ -1350,6 +1416,7 @@ void Input::set_action_override(std::string_view action, bool down) {
     } else if (was) {
         overrides_.erase(name);
         for (Layer& l : layers_) l.overrideReleased[name] = true;
+        forget_fixed_consumption();
     }
 }
 
@@ -1357,6 +1424,7 @@ void Input::clear_action_overrides() {
     for (const auto& [name, v] : overrides_)
         for (Layer& l : layers_) l.overrideReleased[name] = true;
     overrides_.clear();
+    forget_fixed_consumption();
 }
 
 Json Input::snapshot() const {

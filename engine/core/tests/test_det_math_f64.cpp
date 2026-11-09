@@ -212,6 +212,26 @@ TEST_CASE("det math f64: results that must be exact") {
         CHECK(dm::log10(p) == double(n));
         CHECK(dm::pow(10.0, double(-n)) == 1.0 / p);
     }
+    // Beyond 10^22 a power of ten is not a double: pow and log10 agree on the nearest one (the literal), so the round trip holds.
+    CHECK(dm::pow(10.0, 23.0) == 1e23);
+    CHECK(dm::pow(10.0, 25.0) == 1e25);
+    CHECK(dm::pow(10.0, 300.0) == 1e300);
+    CHECK(dm::pow(10.0, 308.0) == 1e308);
+    CHECK(dm::pow(10.0, -25.0) == 1e-25);
+    CHECK(dm::pow(10.0, -300.0) == 1e-300);
+    CHECK(dm::pow(10.0, -307.0) == 1e-307);
+    CHECK(dm::pow(-10.0, 25.0) == -1e25);
+    CHECK(dm::pow(-10.0, 24.0) == 1e24);
+    CHECK(dm::log10(1e23) == 23.0);
+    CHECK(dm::log10(1e25) == 25.0);
+    CHECK(dm::log10(1e-25) == -25.0);
+    CHECK(dm::log10(1e300) == 300.0);
+    CHECK(dm::log10(1e308) == 308.0);
+    CHECK(dm::log10(1e-307) == -307.0);
+    for (int n = -307; n <= 308; ++n) {
+        INFO("n = " << n);
+        CHECK(dm::log10(dm::pow(10.0, double(n))) == double(n));
+    }
     for (int b = 2; b <= 12; ++b) {
         double p = 1;
         for (int n = 0; n <= 14 && p < 9e15 / b; ++n, p *= b) CHECK(dm::pow(double(b), double(n)) == p);
