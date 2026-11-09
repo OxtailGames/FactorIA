@@ -110,7 +110,7 @@ void spread_step(World& world, const std::vector<Entity>& cells) {
             p.y = p.y * 0.98f + rng.range(-0.5f, 0.5f) + float(i % 7) * 0.01f;
         }
     }, seed);
-    REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     // Partial sums per chunk, combined in chunk order: the float result does not depend on who ran which chunk.
     auto sum = jobs::parallel_reduce<float>(
         "test.sum", cells.size(), 16, 0.0f,
@@ -495,7 +495,7 @@ TEST_CASE("jobs engine: each engine owns its jobs; shutdown waits for them, a fr
 TEST_CASE("jobs engine: runtime.jobThreads round-trips through the project file") {
     TempProject p("roundtrip", R"({ "jobThreads": "inline" })");
     auto loaded = load_project(p.dir.generic_string());
-    REQUIRE_MESSAGE(loaded.ok(), loaded.error().to_string());
+    REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? std::string() : loaded.error().to_string()));
     CHECK(loaded->jobThreadsSet);
     CHECK(loaded->jobThreads == jobs::Settings::inline_jobs());
     Json j = loaded->to_json();

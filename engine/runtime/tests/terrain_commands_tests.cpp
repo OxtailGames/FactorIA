@@ -64,7 +64,9 @@ struct Session {
     }
 };
 
-std::string error_text(const CommandResult& r) { return r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
+std::string error_text(const CommandResult& r) {
+    if (r.ok) return std::string();  // doctest -s builds the message on success too
+    return r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
 bool contains(const std::string& s, const std::string& n) { return s.find(n) != std::string::npos; }
 
 }  // namespace

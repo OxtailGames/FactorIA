@@ -473,7 +473,7 @@ TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file 
     EfficiencyLoadBudget budget;
     budget.total = budget.bytesLeft = size + size / 2;  // room for one of them
     auto first = load_efficiency_session(p.dir.str(), "small-a", &budget);
-    REQUIRE_MESSAGE(first.ok(), first.error().message);
+    REQUIRE_MESSAGE(first.ok(), (first.ok() ? std::string() : first.error().message));
     CHECK(budget.bytesLeft == size / 2);
     auto second = load_efficiency_session(p.dir.str(), "small-b", &budget);
     REQUIRE_FALSE(second.ok());
@@ -532,7 +532,7 @@ TEST_CASE("efficiency: a session named with accented letters is listed, loaded a
     REQUIRE(names.size() == 1);
     CHECK(names[0] == name);  // the id is the same bytes the file name has in UTF-8 on every platform
     auto loaded = load_efficiency_session(p.dir.str(), name);
-    REQUIRE_MESSAGE(loaded.ok(), loaded.error().message);
+    REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? std::string() : loaded.error().message));
     CHECK(loaded->id == name);
     CHECK(loaded->steps.size() == 40);
     CHECK(load_efficiency_session(p.dir.str(), name + ".jsonl").ok());

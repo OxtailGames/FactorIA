@@ -272,7 +272,7 @@ TEST_CASE("tooltips: factoria.json mistakes name the pointer and the fix") {
     CHECK(r.error().message.find("fontSize") != std::string::npos);
     TempProject q("good");
     auto ok = load_project(q.dir.generic_string());
-    REQUIRE_MESSAGE(ok.ok(), ok.error().to_string());
+    REQUIRE_MESSAGE(ok.ok(), (ok.ok() ? std::string() : ok.error().to_string()));
     CHECK(ok->uiTooltip.delay == doctest::Approx(0.5f));
     CHECK(ok->uiTooltip.style.maxWidth == doctest::Approx(240.0f));
 }
