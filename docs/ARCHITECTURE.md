@@ -312,7 +312,7 @@ does not depend on the machine:
 | --- | --- | --- | --- |
 | `render.gather_sprites` | the quads of its sprites (matrix, anchor, 9-slice, grid meshes, skinned meshes, flash, parallax repeat) | 512 sprites | 128 sprites |
 | `render.gather_tilemap` | the visible cells of a band of rows of one Tilemap | 16384 visible cells | ~4096 cells |
-| `render.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
+| `scene.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
 | `render.gather_particles` | the quads of its emitters (particles, trails) | 2048 particles | emitters of ~1024 particles |
 | `render.sort_quads`, `render.flatten_quads` | stable sort of the 2D items; copy of their vertices into the stream | 4096 items; 16384 vertices | 1024 items; 8192 vertices |
 | `render.mesh_matrices`, `render.mesh_cull` | a mesh's matrix, flash and distance; its bounds (skinned too), frustum test and blend flag | 256 meshes | 64 meshes |
@@ -547,6 +547,23 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   culling box is `skinned_bounds` (the bind box carried by every joint, joined).
 - The tween module (`tween`, `ease`) is JavaScript (`factoria.js`), advanced by the script system's update with the scaled `dt`,
   so it shares the game clock with timers.
+- **Sprite animators and particles are simulation too.** `update_sprite_animators(world, dt)` (`fa/scene/sprite_animator.h`) advances
+  every `SpriteAnimator` (frame, `clipEnded`, frame events, `Sprite.region`) and `World::particles().update(world, dt)`
+  (`fa/scene/particle_store.h`) steps every `ParticleEmitter`, runs its `autoDestroy` and spawns the bursts queued by
+  `emitBurst`. Both run in the fixed step right after `update_vfx`, with `fixedDt * time.scale`, and again with `dt` 0 before a
+  picture is drawn (`Engine::Impl::settle_visuals`: a clip a script changed this frame, or a burst, shows in this frame's
+  picture and never advances time). A `SpriteAnimator` reads the size of its sheet from the image file or the packed atlas
+  (`texture_size`, cached by file name and looked at again once per frame, so a platform whose files have no modification time,
+  like an Android APK asset, reads each picture once), never from a GPU texture, so a run with `graphics=false` and one that draws
+  give the same `Sprite.region`; the renderer only repeats the region for a texture that exists on the GPU alone
+  (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
+  editor's scene and its Play session) never share it, and `World::clear()` and every scene load empty it. The renderer
+  (`renderer.h`) keeps only camera and parallax in `Renderer::update`; `render_world` draws what the world holds.
+  The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the Sprite, SpriteAnimator and ParticleEmitter
+  components of every example scene after 40 frames with a renderer and with `--no-graphics`, and
+  engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame (whole world) for a small project. Three things of
+  the world are still measured by the renderer and make the whole-world hash differ in some example scenes: the size of UI text
+  (a script sizing a Panel from `measure_text`), the Parallax offset and `input.mouse.world`.
 Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI

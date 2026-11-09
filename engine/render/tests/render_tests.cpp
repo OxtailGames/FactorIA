@@ -592,7 +592,7 @@ TEST_CASE("Shape2D pivots in world and screen space") {
     expect_golden(img, "2d_shape_pivots");
 }
 
-TEST_CASE("particles: burst fires with emitting=false, emit_burst, autoDestroy") {
+TEST_CASE("particles: burst fires with emitting=false, queue_burst, autoDestroy") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -611,7 +611,7 @@ TEST_CASE("particles: burst fires with emitting=false, emit_burst, autoDestroy")
     Image img;
     for (int i = 0; i < 3; ++i) img = g.render(w, 1.0f / 30.0f);
     CHECK(g.renderer.stats().particles == 60);  // burst fired though emitting=false; manual emitter idle
-    g.renderer.emit_burst(m, 40);
+    w.particles().queue_burst(w, m, 40);
     for (int i = 0; i < 6; ++i) img = g.render(w, 1.0f / 30.0f);
     CHECK(g.renderer.stats().particles == 100);
     expect_golden(img, "2d_particle_burst_idle");
@@ -643,11 +643,11 @@ TEST_CASE("update/draw split: skipping draws gives the same image") {
     w2.each<Sprite>([&](Entity, Sprite& s) { s.texture = sheet; });
     Image a, b;
     g.renderer.clear_asset_cache();
-    for (int i = 0; i < 25; ++i) { g.renderer.update(w1, 1.0f / 60.0f); a = g.render(w1, 1.0f / 60.0f); }
+    for (int i = 0; i < 25; ++i) { g.update(w1, 1.0f / 60.0f); a = g.draw(w1, 1.0f / 60.0f); }
     g.renderer.clear_asset_cache();
     for (int i = 0; i < 25; ++i) {
-        g.renderer.update(w2, 1.0f / 60.0f);
-        if (i == 24) b = g.render(w2, 1.0f / 60.0f);  // only the last frame is drawn
+        g.update(w2, 1.0f / 60.0f);
+        if (i == 24) b = g.draw(w2, 1.0f / 60.0f);  // only the last frame is drawn
     }
     ImageDiff d = diff_images(a, b, 1.0f / 255.0f);
     CHECK(d.meanError < 0.0005);
@@ -808,7 +808,7 @@ TEST_CASE("SpriteAnimator plays a named clip of the sheet entry: padding, pivot 
     auto& a = w.add<SpriteAnimator>(e);
     a.clip = "all";
     g.renderer.clear_asset_cache();
-    g.renderer.update(w, 0.0f);
+    g.update(w, 0.0f);
     CHECK(w.get<Sprite>(e)->region.x == doctest::Approx(1.0f));  // the first cell starts after the gutter
     CHECK(w.get<Sprite>(e)->region.w == doctest::Approx(8.0f));
     Image first = g.render(w, 0.0f);
@@ -816,13 +816,13 @@ TEST_CASE("SpriteAnimator plays a named clip of the sheet entry: padding, pivot 
     CHECK(first.pixel(160, 90 - 4).r > 0.9f);
     CHECK(first.pixel(160, 90 - 4).g < 0.1f);
     CHECK(first.pixel(160, 90 + 4).r < 0.2f);
-    g.renderer.update(w, 0.11f);
+    g.update(w, 0.11f);
     CHECK(w.get<Sprite>(e)->region.x == doctest::Approx(11.0f));
     CHECK(w.get<SpriteAnimator>(e)->frame == 1);
-    g.renderer.update(w, 0.1f);
+    g.update(w, 0.1f);
     CHECK(w.get<SpriteAnimator>(e)->frame == 2);
     CHECK_FALSE(w.get<SpriteAnimator>(e)->ended);
-    g.renderer.update(w, 0.1f);
+    g.update(w, 0.1f);
     CHECK(w.get<SpriteAnimator>(e)->ended);
     int ended = 0;
     for (const GameEvent& ev : w.events().game)
@@ -832,7 +832,7 @@ TEST_CASE("SpriteAnimator plays a named clip of the sheet entry: padding, pivot 
             CHECK(ev.data["id"] == w.id_of(e));
         }
     CHECK(ended == 1);
-    g.renderer.update(w, 0.5f);
+    g.update(w, 0.5f);
     ended = 0;
     for (const GameEvent& ev : w.events().game) ended += ev.name == "clipEnded" ? 1 : 0;
     CHECK(ended == 1);  // once, not once per frame
@@ -845,7 +845,7 @@ TEST_CASE("SpriteAnimator plays a named clip of the sheet entry: padding, pivot 
     REQUIRE(plan.pivot);
     CHECK(plan.pivot->x == doctest::Approx(0.0f));
     CHECK(plan.pivot->y == doctest::Approx(1.0f));  // [0, 0] from the top-left is the top-left corner
-    g.renderer.update(w, 0.0f);
+    g.update(w, 0.0f);
     CHECK(w.get<SpriteAnimator>(e)->frame == 2);
     CHECK(w.get<SpriteAnimator>(e)->playing);
 }

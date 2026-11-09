@@ -132,13 +132,18 @@ std::uint64_t entity_state_hash(Entity entity, const std::string& id, const std:
 StateHash world_state_hash(const World& world, const StateHashOptions& options) {
     StateHash out;
     Fnv all;
-    all.u64(world.frame());
-    all.f64(world.time());
-    all.u64(world.rng().state());
+    const bool filtered = !options.onlyComponents.empty();
+    if (!filtered) {
+        all.u64(world.frame());
+        all.f64(world.time());
+        all.u64(world.rng().state());
+    }
     std::vector<ComponentRef> components;
     for (Entity e : world.entities()) {
         components.clear();
         for (const TypeInfo* t : world.components_of(e)) {
+            if (filtered && std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) == options.onlyComponents.end())
+                continue;
             if (const void* obj = world.get(e, *t)) components.push_back(ComponentRef{t, obj});
         }
         out.components += int(components.size());

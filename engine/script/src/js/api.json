@@ -620,7 +620,7 @@
       },
       {
        "sig": "emitBurst(count?: number): void",
-       "doc": "Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless)."
+       "doc": "Spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). They are born in the next simulation step (or when the frame is drawn, if that comes first), also in a run without graphics. No-op when the entity has no ParticleEmitter."
       },
       {
        "sig": "flash(opts?: FlashOptions): void",
@@ -3178,7 +3178,7 @@
      "members": [
       {
        "sig": "burst(entity: Entity | string, count?: number): void",
-       "doc": "Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer."
+       "doc": "Spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). The particles belong to the world, so it works in a run without graphics too; the burst is born in the next simulation step (or when the frame is drawn, if that comes first) at the emitter position. No-op when the entity has no ParticleEmitter."
       }
      ]
     },

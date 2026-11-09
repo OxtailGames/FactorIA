@@ -8,6 +8,7 @@
 #include "component_pool.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/scene/particle_store.h"
 
 namespace fa {
 
@@ -99,7 +100,7 @@ struct World::Impl {
     }
 };
 
-World::World() : impl_(std::make_unique<Impl>()) {
+World::World() : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()) {
     ensure_builtin_components();
     impl_->infoPool = &impl_->pool(type_of<EntityInfo>());
     impl_->transformPool = &impl_->pool(type_of<Transform>());
@@ -235,6 +236,8 @@ void World::clear() {
     meshes_.clear();
     feel_.clear_scene();
     vfxLive_ = 0;
+    particles_->clear();
+    warnedSpriteClips_.clear();
 }
 
 bool World::active_in_hierarchy(Entity e) const {

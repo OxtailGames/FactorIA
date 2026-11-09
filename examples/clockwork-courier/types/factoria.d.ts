@@ -408,7 +408,7 @@ declare module "factoria" {
      */
     isTouching(direction: Vec3Like, tolerance?: number): boolean;
     /**
-     * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
+     * Spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). They are born in the next simulation step (or when the frame is drawn, if that comes first), also in a run without graphics. No-op when the entity has no ParticleEmitter.
      */
     emitBurst(count?: number): void;
     /**
@@ -3100,7 +3100,7 @@ declare module "factoria" {
    */
   export interface ParticlesAPI {
     /**
-     * Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer.
+     * Spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). The particles belong to the world, so it works in a run without graphics too; the burst is born in the next simulation step (or when the frame is drawn, if that comes first) at the emitter position. No-op when the entity has no ParticleEmitter.
      */
     burst(entity: Entity | string, count?: number): void;
   }
@@ -5699,7 +5699,7 @@ declare module "factoria" {
      */
     texture: string;
     /**
-     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every frame.
+     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every simulation step.
      */
     get region(): Rect;
     set region(value: RectLike);
@@ -5899,7 +5899,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */

@@ -391,7 +391,7 @@ void register_builtin_components(TypeRegistry& r) {
                      "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("region", &Sprite::region,
                "Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size "
-               "means the whole texture. SpriteAnimator overwrites it every frame.")
+               "means the whole texture. SpriteAnimator overwrites it every simulation step.")
         .field("size", &Sprite::size,
                "Size [w, h] in world units. [0, 0] = use the region (or texture) size in pixels.")
         .field("pivot", &Sprite::pivot, "Anchor inside the sprite: [0, 0] bottom-left, [0.5, 0.5] center, [1, 1] top-right.")
@@ -537,7 +537,7 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
-                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a "
+                          "overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a "
                           "named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; "
                           "`assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then "
                           "names only the texture and the clip. The numeric fields override the clip when they differ from their default "

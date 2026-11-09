@@ -149,7 +149,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of a glTF, or keyframed 2D clips (`*.anim.json`), of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time`, and for 2D clips `sample(clip, t)`, `setLayerWeight(layer, w)`, `playLayer(layer, clip, fade?)` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
 | `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `paintTerrain(terrain, cells)`, `eraseTerrain(terrain, cells)`, `retile()`, `terrainAt(col, row)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
-| `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
+| `emitBurst(n)` | spawn `n` particles from this entity's `ParticleEmitter` (works with `emitting` off and in a run without graphics: the particles are born in the next simulation step) |
 | `toJSON()` | entity JSON (as in scene files) |
 
 ### entity.bounds()
@@ -825,8 +825,9 @@ theme.setIntensity(0.8, { quantize: "bar" });
 Tools: `audio.music_state` (what every player does) and `audio.music` (the same calls).
 
 ### particles / ui
-- `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
-  even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
+- `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles from a `ParticleEmitter`, even
+  with `emitting = false`. They are born in the next simulation step (or in the picture drawn before it) and the call works
+  in a run without graphics too; an entity with no emitter is ignored.
 - `ui.overflowed(entityOrId)` → `true` when the text of a `Text` with a box (`maxWidth` / `maxHeight`) or the label of a
   Button, Toggle, Slider or TouchButton still does not fit at the size it is drawn at (after `ui.textScale`,
   `maxTextScale` and `autoShrink`). See [TEXT.md](TEXT.md), "Text that fits".
