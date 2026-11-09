@@ -7,13 +7,14 @@
 
 namespace fa {
 
-std::vector<Entity> rendering_cameras(World& w) {
+std::vector<Entity> rendering_cameras(World& w, std::size_t* total) {
     struct Found { Entity e; int depth; };
     std::vector<Found> found;
     w.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && c.renderTarget.empty() && w.active_in_hierarchy(e)) found.push_back({e, c.depth});
+        if (c.primary && c.renderTarget.empty() && w.active_in_hierarchy(e) && !w.pending_destroy(e)) found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
+    if (total) *total = found.size();
     if (found.size() > 8) found.resize(8);
     std::vector<Entity> out;
     for (const Found& f : found) out.push_back(f.e);

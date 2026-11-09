@@ -162,6 +162,7 @@ void Engine::Impl::apply_project_settings() {
         startupProblems.push_back(problem);
         richStyle = RichTextStyle{};
     }
+    cpuText.set_rich_text_style(richStyle);
     if (renderer) renderer->set_rich_text_style(richStyle);
     // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
     auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
@@ -181,6 +182,17 @@ Vec2 Engine::Impl::design_size() const {
     return {float(cfg.width > 0 ? cfg.width : project.width), float(cfg.height > 0 ? cfg.height : project.height)};
 }
 
+CameraTarget Engine::Impl::camera_target() const {
+    const Vec2 size = design_size();
+    CameraTarget t;
+    t.width = int(size.x);
+    t.height = int(size.y);
+    t.designWidth = cfg.width > 0 ? cfg.width : project.width;
+    t.designHeight = cfg.height > 0 ? cfg.height : project.height;
+    t.expand = project.scaleMode == ScaleMode::Expand;
+    return t;
+}
+
 VisualMeasure Engine::Impl::measure() const {
     VisualMeasure m;
     m.textScale = self->text_scale();
@@ -188,9 +200,9 @@ VisualMeasure Engine::Impl::measure() const {
         const Renderer* r = renderer.get();
         m.textSize = [r](const Text& t) { return r->measure_text(t); };
     } else {
-        // No renderer: the approximation, at the player's text size for screen-space text (as the renderer would), so
-        // autoSize widgets and fit panels grow with ui.textScale in headless runs and tests too.
-        m.textSize = [engine = self](const Text& t) { return approx_text_size(t, engine->text_scale()); };
+        // No renderer: the CPU measurer, which shapes with the very fonts and code the renderer lays text out with, so a run with
+        // no graphics measures every Text (autoSize widgets, fit panels, ui.textScale, autoShrink) to the same size as one with.
+        m.textSize = [measurer = &cpuText](const Text& t) { return measurer->measure_text(t); };
     }
     return m;
 }
@@ -420,7 +432,12 @@ void Engine::Impl::draw(double dt) {
 
 void Engine::Impl::render(double dt) {
     settle_visuals();  // with or without a renderer: the world a frame ends with does not depend on drawing
-    if (!renderer) return;
+    if (!renderer) {
+        // What Renderer::update does without drawing: the cameras the next frame's queries answer with, and the parallax layers.
+        cpuCameras.refresh(world, camera_target());
+        update_parallax(world, cpuCameras.all().front().position.xy());
+        return;
+    }
     ProfSystemScope prof(ProfSystem::Render);
     dt *= scripts.time_scale();
     update_visuals(*renderer, world, float(dt));
@@ -744,6 +761,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             const Entity cam = pointer ? r->camera_at(*pointer) : kNullEntity;
             return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
         }
+        if (!r && !I.cpuCameras.cameras().empty()) {  // no renderer: the very maths of its camera (fa/scene/camera_geometry.h)
+            const Entity cam = pointer ? I.cpuCameras.camera_at(*pointer) : kNullEntity;
+            return I.cpuCameras.world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
+        }
         return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
     });
 
@@ -754,6 +775,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         Entity cam;
         if (r && r->initialized() && !r->cameras().empty()) {
             cam = pointer ? r->camera_at(*pointer) : r->cameras().front();
+        } else if (!r && !I.cpuCameras.cameras().empty()) {
+            cam = pointer ? I.cpuCameras.camera_at(*pointer) : I.cpuCameras.cameras().front();
         } else if (pointer) {
             cam = camera_containing(I.world, I.design_size(), *pointer);
         } else {
@@ -1517,12 +1540,16 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
 }
 
 void Engine::step_frames(int n) { step(n); }
+const TextMeasurer* Engine::text_measurer() const { return &impl_->cpuText; }
+const CameraSet* Engine::camera_set() const { return &impl_->cpuCameras; }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
+    impl_->cpuText.set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
 }
 void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale, the project default) check the range
     ScriptHost::set_ui_scale(scale);
+    impl_->cpuText.set_ui_scale(scale);
     if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
     if (impl_->renderer) impl_->renderStale = true;
 }

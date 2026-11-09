@@ -79,7 +79,10 @@ Result<std::string> Engine::Impl::switch_language(std::string_view requested) {
 // The renderer falls back to the fonts of the language in use, so a Japanese table draws with the Japanese font while every Text
 // keeps `font: ""`. Called when the renderer is created (the start language is chosen before it exists) and on every switch.
 void Engine::Impl::apply_fallback_fonts() {
-    if (renderer && i18n.enabled()) renderer->set_fallback_fonts(project.localization.fallback_fonts_for(i18n.language()));
+    if (!i18n.enabled()) return;
+    const std::vector<std::string> fonts = project.localization.fallback_fonts_for(i18n.language());
+    cpuText.set_fallback_fonts(fonts);
+    if (renderer) renderer->set_fallback_fonts(fonts);
 }
 
 namespace {
