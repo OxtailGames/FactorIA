@@ -2,6 +2,7 @@
 #include <doctest.h>
 
 #include <cmath>
+#include <cstring>
 
 #include "fa/scene/bounds.h"
 #include "fa/scene/camera_query.h"
@@ -316,4 +317,30 @@ TEST_CASE("gameplay never sees the pose, the pointer sees the shaken view") {
     flat.roll = 0.0f;
     const Vec2 a = v.to_screen(p), b = flat.to_screen(p);
     CHECK((std::fabs(a.x - b.x) + std::fabs(a.y - b.y)) > 1e-3f);
+}
+
+// M91.P: without a roll the conversions skip the trigonometry; the bits must be those of the general formula
+// (the view's axes turned by `roll`; the turn by 0 is cos = 1, sin = 0).
+TEST_CASE("OrthoView: the conversions without a roll give the same bits as the turned formula") {
+    OrthoView v;
+    v.position = {12.5f, -3.25f, 0.0f};
+    v.center = {160.0f, 90.0f};
+    v.scale = 32.0f;
+    REQUIRE(v.roll == 0.0f);
+    REQUIRE(det::cos(0.0f) == 1.0f);
+    REQUIRE(det::sin(0.0f) == 0.0f);
+    const float xs[] = {-100.0f, -7.3f, 0.0f, 0.1f, 12.5f, 99.9f};
+    for (float x : xs)
+        for (float y : xs) {
+            const Vec3 p{x, y, 0.0f};
+            const float c = det::cos(v.roll), s = det::sin(v.roll);
+            const float dx = p.x - v.position.x, dy = p.y - v.position.y;
+            const Vec2 want{v.center.x + (dx * c + dy * s) * v.scale, v.center.y - (dy * c - dx * s) * v.scale};
+            const Vec2 got = v.to_screen(p);
+            CHECK(std::memcmp(&got, &want, sizeof(Vec2)) == 0);
+            const float vx = (x - v.center.x) / v.scale, vy = -(y - v.center.y) / v.scale;
+            const Vec3 wantW{v.position.x + vx * c - vy * s, v.position.y + vx * s + vy * c, 0.0f};
+            const Vec3 gotW = v.to_world({x, y});
+            CHECK(std::memcmp(&gotW, &wantW, sizeof(Vec3)) == 0);
+        }
 }

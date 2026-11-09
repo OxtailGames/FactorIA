@@ -71,6 +71,11 @@ TEST_CASE("script Math: sin, cos, exp, pow and the rest are the deterministic fu
     // Exact results stay exact, and the integer cases the games rely on.
     CHECK(eval_number(h, "Math.pow(2, 10)") == 1024.0);
     CHECK(eval_number(h, "10 ** 3") == 1000.0);
+    CHECK(eval_number(h, "10 ** 25") == 1e25);  // not a double 10^25 by multiplying: the nearest one
+    CHECK(eval_number(h, "Math.pow(10, -25)") == 1e-25);
+    CHECK(eval_number(h, "Math.log10(1e25)") == 25.0);
+    CHECK(eval_number(h, "Math.floor(Math.log10(1e23))") == 23.0);
+    CHECK(eval_number(h, "Math.log10(1e-25)") == -25.0);
     CHECK(eval_number(h, "Math.sqrt(2)") == std::sqrt(2.0));  // sqrt is exact in IEEE 754: the C library's is fine
     CHECK(eval_number(h, "Math.sin(0)") == 0.0);
     // Math.random is the world's generator, not a math function (factoria.js).

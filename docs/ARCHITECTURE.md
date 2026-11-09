@@ -763,7 +763,7 @@ platform, so replays, `game.state_hash`, lockstep play and `factoria test` resul
   of glibc, Apple's libm, the MSVC CRT and musl (wasm) are each within an ulp of the exact result but round differently.
   `fa/core/det_math.h` has them for `float` (`fa::det::exp(x)`, a frozen API: the float results never change) and for
   `double` (`fa::det::f64::exp(x)`). Both are built only from `+ - * / sqrt` on doubles, and are tested for accuracy against
-  the C library (about 1 ulp, a few for `pow` of a large result) and against a table of bit patterns
+  the C library (2 ulp for `exp`/`log`, 3 for `sin`/`cos`, up to 6 for `tan`, `atan`, `atan2` and the hyperbolics, a few for `pow` of a large result; `10^n` and `log10` of it are exact for every `n` a double reaches) and against a table of bit patterns
   (`engine/core/tests/test_det_math_f64.cpp`: a platform that rounds differently fails with the input that differs). The
   float functions compute in double and round to float once.
 - **Game scripts.** QuickJS's `Math.*` calls the C library, so the engine builds QuickJS with a force-included header
@@ -791,7 +791,7 @@ platform, so replays, `game.state_hash`, lockstep play and `factoria test` resul
   (`scripts/ios-smoke.sh`) and in headless Chrome for the web export (`scripts/web-smoke.sh`); each prints the line and
   `scripts/det-hash-check.sh` compares it with the expected file. The particle and feel replays are desktop only (a script
   cannot reach them). New scenes for a replay go in `test_det_replay.cpp` or the probe.
-- **The watchdog.** A script callback cut by the watchdog (2 s of CPU time) skips the rest of its code at a point that depends
+- **The watchdog.** A script callback cut by the watchdog (more than 2 s of CPU time) skips the rest of its code at a point that depends
   on the machine, so the run is invalid: `ScriptSystem::watchdog_cut_count()` / `watchdog_cuts()` expose the cuts,
   `run_headless` reports `replayValid: false` and exits 1 (`HeadlessRunOptions::failOnWatchdogCut`, off only for
   `script.trace`), and `factoria test` fails the test that ran with a cut (docs/SCRIPTING.md, "Runtime notes").

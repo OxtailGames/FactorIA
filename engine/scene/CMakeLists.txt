@@ -42,7 +42,8 @@ endif()
 
 fa_add_tests(scene)
 
-# The particle and feel replay hashes on their own, so CI prints them: `ctest -R det_replay_hashes -V` (tests/test_det_replay.cpp).
+# The particle and feel replay hashes (tests/test_det_replay.cpp) run ONLY here, so CI can print them: `ctest -R det_replay_hashes
+# -V`. The cases are marked doctest::skip() so the `scene` test above does not run them a second time; --no-skip runs them.
 if(TARGET fa_test_scene)
-    add_test(NAME det_replay_hashes COMMAND fa_test_scene "-tc=det replay*" WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME det_replay_hashes COMMAND fa_test_scene --no-skip "-tc=det replay*" WORKING_DIRECTORY ${FA_ROOT})
 endif()

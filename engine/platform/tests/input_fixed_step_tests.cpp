@@ -178,3 +178,137 @@ TEST_CASE("fixed-step view: consuming after a step took the press does not silen
     Input::FixedScope scope(in);
     CHECK(in.action_pressed("pause"));
 }
+
+TEST_CASE("fixed-step view: a second press after a consumed one is not silenced when no step ran in between") {
+    Input in;
+    in.set_actions(Json::parse(R"({"pause": ["Escape"], "shoot": ["MouseLeft"]})"));
+    in.on_key(Key::Escape, true);
+    in.on_mouse_button(MouseButton::Left, true);
+    in.consume_action("pause");  // the UI handled the first press; no step ran yet
+    in.begin_frame();
+    in.on_key(Key::Escape, false);
+    in.on_key(Key::Escape, true);  // pressed again before any step took the first
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.action_pressed("pause"));  // the later press is not hidden
+        CHECK(in.action_pressed("shoot"));  // never consumed
+        in.end_fixed_step();
+    }
+    // A press that is consumed and still held stays consumed until it is released.
+    in.on_key(Key::Escape, false);
+    in.on_key(Key::Escape, true);
+    in.consume_action("pause");
+    in.on_mouse_button(MouseButton::Left, false);
+    Input::FixedScope scope(in);
+    CHECK_FALSE(in.action_pressed("pause"));
+    CHECK(in.action_released("shoot"));
+}
+
+TEST_CASE("fixed-step view: an event fed while a step runs reaches the next step, once") {
+    Input in;
+    in.set_actions(Json::parse(R"({"jump": ["Space"]})"));
+    {
+        Input::FixedScope scope(in);
+        CHECK_FALSE(in.key_pressed(Key::Space));
+        in.on_key(Key::Space, true);  // an onFixedUpdate injects a key
+        in.on_mouse_wheel(2.0f);
+        in.on_text('q');
+        in.on_touch_begin(5, {1, 2});
+        in.on_gamepad_button(0, GamepadButton::B, true);
+        in.on_back();
+        in.end_fixed_step();  // the step is over: what it injected is for the next one
+    }
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.key_pressed(Key::Space));
+        CHECK(in.action_pressed("jump"));
+        CHECK(in.mouse_wheel() == doctest::Approx(2.0f));
+        CHECK(in.text_utf8() == "q");
+        REQUIRE(in.touches().size() == 1);
+        CHECK(in.touch_pressed(in.touches()[0]));
+        CHECK(in.gamepad_pressed(0, GamepadButton::B));
+        CHECK(in.back_pressed());
+        in.end_fixed_step();
+    }
+    Input::FixedScope scope(in);
+    CHECK_FALSE(in.key_pressed(Key::Space));
+    CHECK_FALSE(in.action_pressed("jump"));
+    CHECK(in.mouse_wheel() == 0.0f);
+    CHECK(in.text_input().empty());
+    REQUIRE(in.touches().size() == 1);
+    CHECK_FALSE(in.touch_pressed(in.touches()[0]));
+    CHECK_FALSE(in.gamepad_pressed(0, GamepadButton::B));
+    CHECK_FALSE(in.back_pressed());
+    CHECK(in.key_down(Key::Space));
+}
+
+TEST_CASE("fixed-step view: what arrived before a step is taken by it, what arrived during it stays") {
+    Input in;
+    in.set_actions(Json::parse(R"({"jump": ["Space"], "fire": ["F"]})"));
+    in.on_key(Key::Space, true);  // before the step
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.action_pressed("jump"));
+        in.on_key(Key::F, true);  // during it
+        in.end_fixed_step();
+    }
+    Input::FixedScope scope(in);
+    CHECK_FALSE(in.action_pressed("jump"));
+    CHECK(in.action_pressed("fire"));
+}
+
+TEST_CASE("fixed-step view: a tap that lands and lifts between two steps is seen once by each view") {
+    Input in;
+    in.on_touch_begin(9, {5, 6});
+    in.on_touch_end(9);
+    CHECK(in.touches().empty());  // the state: no finger is down
+    {
+        const std::vector<Touch> frame = in.touches_in_view();  // the frame view has not looked yet
+        REQUIRE(frame.size() == 1);
+        CHECK(frame[0].id == 9);
+        CHECK(in.touch_pressed(frame[0]));
+        CHECK(frame[0].position == Vec2{5, 6});
+    }
+    {
+        Input::FixedScope scope(in);
+        const std::vector<Touch> fixed = in.touches_in_view();
+        REQUIRE(fixed.size() == 1);
+        CHECK(in.touch_pressed(fixed[0]));
+        in.end_fixed_step();
+        CHECK(in.touches_in_view().empty());
+    }
+    in.begin_frame();  // the frame view saw it in its own time
+    CHECK(in.touches_in_view().empty());
+
+    // The frame saw the tap and no step has run: the next step still gets it, and the next frame does not.
+    in.on_touch_begin(10, {1, 1});
+    in.on_touch_end(10);
+    CHECK(in.touches_in_view().size() == 1);
+    in.begin_frame();
+    CHECK(in.touches_in_view().empty());
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.touches_in_view().size() == 1);
+        in.end_fixed_step();
+    }
+    {
+        Input::FixedScope scope(in);
+        CHECK(in.touches_in_view().empty());
+    }
+}
+
+TEST_CASE("fixed-step view: a view nobody advances stays bounded") {
+    Input in;
+    in.set_actions(Json::parse(R"({"jump": ["Space"]})"));
+    for (int i = 0; i < 20000; ++i) {
+        in.on_text('a');
+        in.on_key(Key::Space, true);
+        in.consume_action("jump");
+        in.on_key(Key::Space, false);
+    }
+    Input::FixedScope scope(in);
+    CHECK(in.text_input().size() <= Input::kMaxTextPerView);
+    CHECK(in.text_input().size() >= 1000);
+    in.on_key(Key::Space, true);
+    CHECK(in.action_pressed("jump"));  // not left consumed by the earlier releases
+}
