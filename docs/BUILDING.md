@@ -256,8 +256,9 @@ cmake --build --preset web-release         # build/web-release/player/factoria_p
 or `factoria setup webplayer`, which finds or fetches the SDK and runs the two presets (the export prefers this folder).
 
 The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
-and the game's `game.pak`; docs/EXPORTING.md). A release build is about 8 MB of wasm (about 3 MB gzipped, which is what
-a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
+and the game's `game.pak`; docs/EXPORTING.md). A release build was about 8 MB of wasm (about 3 MB gzipped, which is what
+a web server sends) and 150 KB of JS when this was measured (2026-10-26; the sizes table in EXPORTING.md, "Size of the
+player", is dated too). To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
 and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, and `{{favicon}}` replaced by `data:,`, saved as `index.html`) in one
 folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
 check it headless, with a software WebGL2: `node platforms/web/smoke.mjs <folder>` (Node 22+, Chrome, Chromium or Edge; it
@@ -328,6 +329,32 @@ cmake --build build/my-build -j 2
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
+
+## Golden images
+
+Rendering tests compare a headless picture with a committed PNG: `engine/render/tests/golden/*.png` (`expect_golden`), and
+`tools/cli/tests/golden/` for the menus and the mobile-export tests. There is one file per picture for every backend (Metal,
+Direct3D 11, GL on Mesa llvmpipe). The render tests (`fa_test_render`) need a GPU and fail without one, so a host with none runs
+`ctest -LE gpu`; the CLI golden tests (menus, mobile export) skip with a message when there is no GPU.
+
+- **A missing golden fails the test.** The message names the file and says how to create it. A test never writes its own
+  reference: that compared the picture with itself and passed. To make or change a golden, run the test with
+  `FA_UPDATE_GOLDENS=1` (the old spelling `FA_UPDATE_GOLDEN=1` still works), look at the PNG it wrote, and commit it with
+  the change that explains it. In that mode the test passes after writing, so a run that updates also hides a regression:
+  review `git diff --stat` of the golden folders. On a Mac, Linux and Windows the pictures differ a little (below), so
+  update a golden only for a change you meant, and run the test on the other hosts' CI afterwards.
+- **Three limits, all of which must hold** (`engine/core/tests/golden_check.h`): the mean absolute error over all channels
+  (0.004), the share of pixels with a channel more than 4/255 off (8 %) and the largest single-channel error (0.6). The mean
+  alone lets one wrong region pass on a big picture: a missing sprite changes under 1 % of the pixels. The share catches a
+  wrong region and the largest error catches one wrong pixel, except in goldens with text, thin lines or nearest-sampled edges
+  (single pixels flip between ink and background from one GPU to the next): those use `expect_golden_edges`, which allows a
+  largest error of 1.0 and keeps the other two, so there only the mean and the share guard against a missing glyph or edge. The header says where each number
+  comes from; raise a limit only with a measurement of a backend, written there.
+- **Measure on a backend:** `FA_GOLDEN_REPORT=1 fa_test_render` (or `fa_test_cli`) prints `GOLDEN <file> mean=... share=... max=...` for every
+  golden compared. The numbers measured on Metal, llvmpipe and Direct3D 11 (WARP and hardware) are in the header of `golden_check.h`; add a new backend's there.
+- **A failing comparison** writes the picture it got next to the golden as `<name>.actual.png`, or in the temp folder when
+  that folder cannot be written (a read-only checkout); the failure message gives the path. Those files are git-ignored;
+  delete them when done.
 
 ## Headless and GPU notes
 
@@ -405,9 +432,14 @@ set `FA_INSTALLER_VERSION` and `FA_INSTALLER_SOURCE` and run `ISCC /O<dir> platf
 
 ### Code signing
 
-Both are optional and off until the repository secrets exist (Settings > Secrets and variables > Actions): without them
-the signing steps print a notice (`::notice`) and the packages come out unsigned, as before. `scripts/sign-windows.sh`
-and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
+Both are optional and each one is on only while its repository secrets exist (Settings > Secrets and variables >
+Actions): without them the signing step prints a notice (`::notice`) and the packages come out unsigned.
+`scripts/sign-windows.sh` and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
+
+State on 2026-11-09 (`gh secret list`, and the logs of the v0.19.0 release run): the five Apple secrets below are set
+(since 2026-10-16), so the macOS `factoria`, `factoria_player` and `sokol-shdc` are signed and notarized in every
+release from 0.1.4 on; the two Windows secrets are NOT set, so the Windows executables, the zip and the installer are
+unsigned and SmartScreen warns. Linux packages are not signed. The release log says which of the two happened.
 
 **Windows** (signtool, SHA-256, timestamped with DigiCert's server; signs `factoria.exe`, `FactorIA-Editor.exe`,
 `factoria_player.exe` before they go into the zip and the installer, then `FactorIA-windows-x64-setup.exe`; the
@@ -454,8 +486,9 @@ the editor are not quarantined and never show the prompt.
   once the certificate has reputation.
 - macOS: Gatekeeper accepts the executables without the "cannot be opened" dialog (so no right-click > Open, **Open
   Anyway** or `xattr`).
-- When the first signed release is out, drop the SmartScreen and Gatekeeper workarounds from `README.md`, `docs/GETTING_STARTED.md`
-  (and their `i18n` translations).
+- Gatekeeper: `README.md` and `docs/GETTING_STARTED.md` keep the quarantine workaround only for 0.1.3 and earlier,
+  which stay on the Releases page unsigned. SmartScreen: when the first Windows release is signed, drop its warning
+  from `README.md` and `docs/GETTING_STARTED.md` (and the translation of the latter).
 - Games exported from the download copy the signed `factoria_player` (see [EXPORTING.md](EXPORTING.md)).
 
 Pull requests from forks never receive the secrets. A pull request from a branch of this repository does, and the

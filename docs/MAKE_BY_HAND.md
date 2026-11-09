@@ -368,7 +368,8 @@ Things this game does not have yet, good practice for either way of working:
 
 - Walls: the square can leave the window. Ask for (or write) four static walls, or clamp the position in `player.js`.
 - A sound when a gem is collected (`audio.play`, [SCRIPTING.md](SCRIPTING.md)) and a test with `game.audioLog()`.
-- Gems that appear at random places (`world.rng()`, never `Math.random`: runs must repeat exactly).
+- Gems that appear at random places (`rng` from `"factoria"`: it is the seeded stream of the run, so runs repeat
+  exactly).
 
 ## Next steps
 

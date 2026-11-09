@@ -113,9 +113,9 @@ that takes twice the steps in a context twice as large costs four times as much.
   use it when you want everything done by one model.
 - **Effort.** `effort` (`low` to `max`, per role) is how much the model thinks, and thinking is output at $10 per million.
   The defaults are `medium` for the worker and `xhigh` for the orchestrator.
-- **Tool definitions.** Every step also carries the definitions of the tools the model may call. Offering all 186 commands in
-  full was about 320 KB, around 85k tokens, on every step before any conversation: that alone is most of what a short task
-  reads. The built-in agent now sends the commands it needs most in full and lists the rest in one line each (see below).
+- **Tool definitions.** Every step also carries the definitions of the tools the model may call. Offering every command in
+  full is about 870 KB, around 230k tokens, on every step before any conversation (measured on the 372 commands of the test registry of the 0.19.0 engine, 2026-11-09;
+  the agent reaches about 385 and the number grows with each version): that alone is far more than a short task reads. The built-in agent now sends the commands it needs most in full and lists the rest in one line each (see below).
   Claude Code defers tools by itself.
 - **Clear tasks.** "Add a coin counter on screen" costs less than "make it better": a vague task makes the AI read and try
   more before it acts. Point it at the files and the doc to use (`factoria docs read finishing`).
@@ -128,20 +128,22 @@ when it needs it ([AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog)
 list and the catalog do not change while the conversation goes on, so the provider's prompt cache keeps working: the first
 step writes the prefix once, every later step reads it back at the cache price.
 
-Measured with a scripted provider (no model, no money) on the real command registry of a new `2d-empty` project, by the test
-`tool catalog: a scripted task on the real registry...` in `tools/cli/tests/tool_catalog_test.cpp`. The task is five tool
-steps and an answer: `fs_list`, `project_validate`, `scene_list_entities`, then `ui.state`, a command that is not a core tool
-(through `tool_describe` and `tool_call`; one direct call when every tool is in full). Sizes are what the request carries, in
+Measured with a scripted provider (no model, no money) on the real command registry, by the test
+`tool catalog: a scripted task on the real registry...` in `tools/cli/tests/tool_catalog_test.cpp`; run it to get the
+numbers of your version (`fa_test_cli -tc="*catalog*"` prints them). The figures below are an example, taken on
+2026-11-09 with the 0.19.0 engine, and they move with every command added. The task is five tool steps and an answer:
+`fs_list`, `project_validate`, `scene_list_entities`, then `ui.state`, a command that is not a core tool (through
+`tool_describe` and `tool_call`; one direct call when every tool is in full). Sizes are what the request carries, in
 bytes, and tokens are bytes divided by 3.75 (an estimate, not a provider count):
 
 | First step of the task | System prompt | Tool definitions | Conversation | Total |
 |---|---|---|---|---|
-| Every command in full (177 tools) | 3.8 KB (1.0k tokens) | 329.9 KB (88.0k tokens) | 0.03 KB | **333.8 KB (89.0k tokens)** |
-| Core commands + catalog (41 tools, the catalog is about 15.5 KB of the system prompt) | 19.3 KB (5.2k tokens) | 48.6 KB (13.0k tokens) | 0.03 KB | **67.9 KB (18.1k tokens)** |
+| Every command in full (372 tools, the test registry) | 4.0 KB (1.1k tokens) | 847.3 KB (231.4k tokens) | 0.03 KB | **851.4 KB (232.5k tokens)** |
+| Core commands + catalog (41 tools, the catalog is about 37 KB of the system prompt) | 40.7 KB (11.1k tokens) | 59.0 KB (16.1k tokens) | 0.03 KB | **99.7 KB (27.2k tokens)** |
 
-That is 80% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends 417 KB
-(111k tokens) against 1 673 KB (446k tokens) with every tool in full: 75% less. Both figures count a request's size before
-caching, so they say how much is read, not what it costs: read from the cache, the large prefix is cheap, which is why the
+That is 88% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends
+about 608 KB (166k tokens) against about 4 261 KB (1 164k tokens) with every tool in full: 86% less. Both figures count a
+request's size before caching, so they say how much is read, not what it costs: read from the cache, the large prefix is cheap, which is why the
 saving in dollars is smaller than the saving in tokens. What it does change is the size of the prefix that is written to the
 cache once (at 1.25 times the input price on Anthropic) and the room left in the context window.
 

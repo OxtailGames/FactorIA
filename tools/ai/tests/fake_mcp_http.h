@@ -109,6 +109,10 @@ struct FakeHttpServer {
                                                                 Json::object({{"type", "image"}, {"mimeType", "image/tiff"}, {"data", "QUJD"}}),
                                                                 Json::object({{"type", "resource_link"}, {"name", "result"}, {"uri", "https://cdn.example/a.png"}})})}});
             else if (name == "structured") result = Json::object({{"structuredContent", Json::object({{"id", 7}})}});
+            else if (name == "structured_twice")  // the same result as text for older clients, and a short summary
+                result = Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", "{\"id\": 8}"}}),
+                                                                Json::object({{"type", "text"}, {"text", "One id."}})})},
+                                       {"structuredContent", Json::object({{"id", 8}})}});
             else
                 return reply(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32602}, {"message", "Unknown tool " + name}})}}));
         } else {

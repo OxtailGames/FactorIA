@@ -4,6 +4,15 @@
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
+> **Esta traducción va por detrás del texto inglés** ([GETTING_STARTED.md](../../GETTING_STARTED.md)): no recoge
+> los cambios posteriores a su última revisión. Lo que falta aquí: los roles `artist` y `audio` y `factoria ai review` (los
+> críticos de arte y los revisores de juego), `factoria setup launcher` (la app que abre el editor), el aviso de
+> **Restart** del editor y el reinicio de `factoria mcp` cuando el motor se actualiza en disco, que las
+> descargas de Windows aún no están firmadas (el flujo de publicación no tiene certificado de Windows; lo de macOS ya está
+> en este texto), NDK r27 o posterior para Android y los presets
+> `linux-sniper`, `web-debug` y `web-release`. Lee el texto inglés para esos puntos; esta traducción no se ha puesto al
+> día.
+
 > AI agents: read [AI_GUIDE.md](../../AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 
 FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo instalar el motor (descargarlo o compilarlo), crear un juego y conectar una IA.

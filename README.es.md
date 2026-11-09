@@ -4,6 +4,12 @@
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
+> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.19; este texto sigue
+> en la 0.1). Lo que falta aquí: el estado actual (versión 0.19 y los 11 juegos de ejemplo, no siete), el estado de la
+> firma en «Descarga» (las descargas de Windows no están firmadas todavía), las licencias de terceros (además de MIT, zlib
+> y dominio público hay Apache-2.0, BSL-1.0 y BSD-3-Clause) y la estructura del repositorio con `skills/` y el contenido
+> actual de `scripts/` y `platforms/`. Lee el texto inglés para esos puntos; esta traducción no se ha puesto al día.
+
 Motor de juegos 2D/3D en C++20 hecho para que las IAs creen juegos.
 
 ## Qué es

@@ -769,7 +769,7 @@ TEST_CASE("resolve_project_path takes the project folder as a native string and 
     stdfs::create_directories(root / "assets", ec);
     write_png(root / "assets" / stdfs::path(std::u8string(u8"rojo ñ.png")), make_image(2, 2, {1, 2, 3, 255}));
     const auto found = resolve_project_path(root.string(), u8c(u8"assets/rojo ñ.png"));
-    REQUIRE_MESSAGE(found.ok(), found.error().message);
+    REQUIRE_MESSAGE(found.ok(), (found.ok() ? std::string() : found.error().message));
     CHECK(stdfs::exists(*found));
     CHECK(stdfs::equivalent(*found, root / "assets" / stdfs::path(std::u8string(u8"rojo ñ.png"))));
     CHECK_FALSE(resolve_project_path(root.string(), "../outside.png").ok());

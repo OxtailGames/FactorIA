@@ -50,7 +50,7 @@ struct PoolScope {
     explicit PoolScope(const Mode& m) {
         if (!m.start) return;
         auto r = jobs::start(m.settings);
-        REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
         started = true;
     }
     ~PoolScope() {

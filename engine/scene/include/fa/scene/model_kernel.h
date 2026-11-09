@@ -85,6 +85,9 @@ struct ModelCapsuleParams {
     int rings = 8;      // per hemisphere
     int heightSegments = 1;
 };
+// The ranges of the torus' `segments` and `sides`: the model.* schema (model_doc.cpp) and the builder clamp use these.
+inline constexpr int kTorusMinSegments = 3, kTorusMaxSegments = 256;
+inline constexpr int kTorusMinSides = 3, kTorusMaxSides = 128;
 struct ModelTorusParams {
     float radius = 0.5f;  // of the ring (the circle through the middle of the tube)
     float tube = 0.15f;   // radius of the tube

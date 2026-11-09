@@ -59,6 +59,27 @@ TEST_CASE("nav.findTilePath: a Tilemap entity, a grid, version and errors") {
     CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { maxNodes: 'lots' })").find("maxNodes") != std::string::npos);
 }
 
+TEST_CASE("AI_GUIDE recipe 9.27: the cellOf lines read the tile size from the Tilemap component") {
+    TestHost h("nav_tiles_recipe");
+    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({
+        Json::parse(R"({"id":"ground","components":{"Transform":{"position":[10,20,0]},
+            "Tilemap":{"tileSize":[16,8],"width":4,"height":3,"tiles":[0,0,0,0, 0,0,0,0, 0,0,0,0]}}})")})}}).dump());
+    REQUIRE(h.start());
+    CHECK(h.load_scene_now("scenes/main.scene.json").empty());
+    h.step_frames(2);
+    // The same three lines as `cellOf` in docs/AI_GUIDE.md section 9.27; `map` is what world.find returns.
+    const char* cellOf = R"(
+      const map = world.find("ground");
+      const cellOf = (p) => {
+        const o = map.position, t = map.get("Tilemap").tileSize;
+        return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
+      };)";
+    CHECK(eval_ok(h, (std::string(cellOf) + "JSON.stringify(cellOf({ x: 27, y: 11 }))").c_str()) == "{\"col\":1,\"row\":1}");
+    // an entity has no `component` of its own (that is `entity.tilemap.component`): the old recipe threw here
+    CHECK(eval_ok(h, "world.find('ground').component === undefined").get<bool>());
+    CHECK(eval_ok(h, "world.find('ground').tilemap.component.tileSize.x").get<int>() == 16);
+}
+
 TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields and errors") {
     TestHost h("nav_grid_handles");
     h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());

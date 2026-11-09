@@ -379,7 +379,7 @@ TEST_CASE("ai.retrospective: a transcript that is too big is left out with its r
     ro.candidatesOnly = true;
     ro.maxTranscriptBytes = 2u * 1024 * 1024;
     auto r = run_retrospective(f.cfg, ro, f.proj.str());
-    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
     CHECK(r->sessions.size() == 2);
     REQUIRE(r->skipped.size() == 1);
     CHECK(r->skipped[0]["id"] == "20261026-120000-orchestrator");
@@ -771,7 +771,7 @@ TEST_CASE("ai.retrospective: a feedback file whose lock stays busy keeps the fix
     ro.engineVersion = "0.17.2";
     ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(f.provider); };
     auto r = run_retrospective(f.cfg, ro, f.proj.str());
-    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
     CHECK(r->fixChecks.size() == 2);                            // the checks are in the result whatever the file says
     CHECK(has(r->fixCheckProblem, "Another FactorIA process"));  // the lock's own words
     CHECK(has(r->to_json().dump(), "Another FactorIA process"));

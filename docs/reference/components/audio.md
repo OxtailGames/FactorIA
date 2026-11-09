@@ -18,7 +18,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). |
-| `variants` | int | `0` | Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it. Range 0.0..64.0. (since 0.16.0) |
+| `variants` | int | `0` | Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it. Range 0..64. (since 0.16.0) |
 | `volume` | float | `1.0` | Loudness multiplier, 0 (silent) to 1 (full). Range 0.0..1.0. |
 | `pitch` | float | `1.0` | Playback speed multiplier; 2 = one octave higher and twice as fast. Range 0.05..8.0. |
 | `loop` | bool | `false` | Restart the clip when it ends. |
@@ -36,15 +36,15 @@ Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `song` | asset (music) | `""` | Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). |
-| `mode` | enum: auto \\| live \\| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md). |
+| `mode` | enum: auto \| live \| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md). |
 | `volume` | float | `0.8` | Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms. Range 0.0..1.0. |
 | `bus` | string | `"music"` | Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply. |
 | `intensity` | float | `0.0` | 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays. Range 0.0..1.0. |
 | `playOnStart` | bool | `true` | Start playing when the entity spawns / the scene loads. |
 | `loop` | bool | `true` | true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended. |
 | `startSection` | string | `""` | Name of the section to start at ("" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning. |
-| `quantize` | enum: none \\| beat \\| bar \\| section | `"bar"` | When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop). |
-| `layerQuantize` | enum: none \\| beat \\| bar \\| section | `"none"` | When a change of `intensity` starts its layer fades. none: at once. |
+| `quantize` | enum: none \| beat \| bar \| section | `"bar"` | When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop). |
+| `layerQuantize` | enum: none \| beat \| bar \| section | `"none"` | When a change of `intensity` starts its layer fades. none: at once. |
 | `layerFade` | float | `1.0` | Seconds a layer takes to fade in or out when intensity changes. Range 0.0..30.0. |
 | `layerRange` | float | `0.25` | How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds. Range 0.0..1.0. |
 | `transitionFade` | float | `0.05` | Seconds of the equal-power crossfade between the old and the new position at a section jump. Range 0.0..5.0. |

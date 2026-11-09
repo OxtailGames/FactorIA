@@ -13,9 +13,11 @@
 #include <bcrypt.h>
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -236,6 +238,33 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
     return l;
 }
 
+int wait_readable(Socket s, int timeoutMs) {
+    if (s == kNoSocket) return -1;
+    timeoutMs = std::max(0, timeoutMs);
+#ifdef _WIN32
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(native(s), &readable);
+    timeval tv;
+    tv.tv_sec = static_cast<long>(timeoutMs / 1000);
+    tv.tv_usec = static_cast<long>((timeoutMs % 1000) * 1000);
+    const int n = ::select(0, &readable, nullptr, nullptr, &tv);  // the first argument is ignored on Windows
+    if (n == SOCKET_ERROR) return -1;
+    return n > 0 ? 1 : 0;
+#else
+    pollfd p{};
+    p.fd = native(s);
+    p.events = POLLIN;
+    for (;;) {
+        const int n = ::poll(&p, 1, timeoutMs);
+        if (n < 0 && errno == EINTR) continue;  // a signal: the wait is short, start it again
+        if (n < 0) return -1;
+        if (n == 0) return 0;
+        return (p.revents & (POLLIN | POLLHUP | POLLERR)) != 0 ? 1 : -1;
+    }
+#endif
+}
+
 Socket accept_connection(Socket listener) {
     Socket c;
     while (true) {
@@ -247,6 +276,44 @@ Socket accept_connection(Socket listener) {
     }
     if (c != kNoSocket) disable_sigpipe(c);
     return c;
+}
+
+bool set_nonblocking(Socket s, bool nonBlocking) {
+    if (s == kNoSocket) return false;
+#ifdef _WIN32
+    u_long mode = nonBlocking ? 1 : 0;
+    return ::ioctlsocket(native(s), FIONBIO, &mode) == 0;
+#else
+    const int flags = ::fcntl(native(s), F_GETFL, 0);
+    if (flags < 0) return false;
+    const int wanted = nonBlocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+    return wanted == flags || ::fcntl(native(s), F_SETFL, wanted) == 0;
+#endif
+}
+
+Accepted accept_pending(Socket listener, Socket& out) {
+    out = kNoSocket;
+    for (;;) {
+        const Socket c = static_cast<Socket>(::accept(native(listener), nullptr, nullptr));
+        if (c != kNoSocket) {
+            // Windows and the BSDs (macOS) give the connection the listener's non-blocking mode: the server's reads wait.
+            set_nonblocking(c, false);
+            disable_sigpipe(c);
+            out = c;
+            return Accepted::Connection;
+        }
+#ifdef _WIN32
+        const int e = ::WSAGetLastError();
+        if (e == WSAEINTR) continue;
+        // Nothing waits (the client that made the listener readable reset its connection before accept()).
+        if (e == WSAEWOULDBLOCK || e == WSAECONNRESET) return Accepted::Nothing;
+#else
+        const int e = errno;
+        if (e == EINTR) continue;
+        if (e == EAGAIN || e == EWOULDBLOCK || e == ECONNABORTED || e == EPROTO || e == ECONNRESET) return Accepted::Nothing;
+#endif
+        return Accepted::Failed;
+    }
 }
 
 Socket connect_loopback(std::uint16_t port) {

@@ -305,10 +305,22 @@ Result<McpCallResult> McpClient::call_tool(const std::string& tool, const Json& 
         if (!text.empty()) text += "\n";
         text += part;
     };
+    // structuredContent is the result itself when there is one: it goes first, and a text block that only repeats it as
+    // JSON (what servers send for older clients) is skipped. A short text next to it (FactorIA's summary) is kept.
+    const Json* sc = child(*r, "structuredContent");
+    if (sc && !sc->is_null()) add(dump(*sc));
+    const auto repeats_structured = [&](const std::string& t) {
+        if (!sc || sc->is_null() || t.empty() || (t.front() != '{' && t.front() != '[')) return false;
+        Json parsed = Json::parse(t, nullptr, false);
+        return !parsed.is_discarded() && parsed == *sc;
+    };
     if (const Json* content = child(*r, "content"); content && content->is_array()) {
         for (const Json& part : *content) {
             const std::string type = str(part, "type");
-            if (type == "text") add(str(part, "text"));
+            if (type == "text") {
+                const std::string t = str(part, "text");
+                if (!repeats_structured(t)) add(t);
+            }
             else if (type == "image") {
                 const std::string mt = str(part, "mimeType");
                 if (image_type_ok(mt) && !str(part, "data").empty()) out.images.push_back({mt, str(part, "data")});
@@ -325,10 +337,11 @@ Result<McpCallResult> McpClient::call_tool(const std::string& tool, const Json& 
             }
         }
     }
-    if (text.empty() && out.images.empty()) {
-        if (const Json* sc = child(*r, "structuredContent")) text = dump(*sc);
+    if (text.size() > kMaxResultText) {
+        std::size_t end = kMaxResultText;  // never inside a UTF-8 sequence
+        while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0) == 0x80) --end;
+        text = text.substr(0, end) + "\n...(result cut at 100000 bytes)";
     }
-    if (text.size() > kMaxResultText) text = text.substr(0, kMaxResultText) + "\n...(result cut at 100000 characters)";
     out.text = std::move(text);
     return out;
 }

@@ -15,6 +15,7 @@
 // the registry converts any exception into a structured error result.
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -74,6 +75,29 @@ private:
 bool command_progress_active();
 // Sends `message` to the installed sink; returns false if there is none or it reported that nobody listens.
 bool report_command_progress(std::string_view message);
+
+// Cancellation of a running command. The code that calls the registry for someone who can take the request back (the MCP
+// server, whose client sends notifications/cancelled) installs a flag with a CommandCancelScope on the calling thread and
+// sets it when the request is cancelled. While the flag is set, CommandRegistry::call() refuses every call made on that
+// thread (code "cancelled": a compound command or an agent stops at its next command), and a long handler polls
+// command_cancelled() or hands command_cancel_flag() to what it waits on (an agent session, run_process) to stop early.
+// Like the progress scope it is per thread and the flag must outlive the scope; a handler that moves its work to another
+// thread hands the flag over. Without a scope nothing is ever cancelled.
+class CommandCancelScope {
+public:
+    explicit CommandCancelScope(const std::atomic<bool>* flag);
+    ~CommandCancelScope();
+    CommandCancelScope(const CommandCancelScope&) = delete;
+    CommandCancelScope& operator=(const CommandCancelScope&) = delete;
+
+private:
+    const std::atomic<bool>* previous_;
+};
+
+// The flag of the innermost CommandCancelScope of this thread; null outside any.
+const std::atomic<bool>* command_cancel_flag();
+// True once the request the running command belongs to was cancelled.
+bool command_cancelled();
 
 // Who is behind the call that is running on this thread. A handler that must not do something on an AI's say-so (ai.settings.set
 // with scope "user" changes the user's own defaults) asks command_caller(). The code that hands a call to the registry on an AI's
@@ -161,8 +185,8 @@ public:
     // [{name, summary, description, inputSchema, readOnly, category}, ...]
     Json describe() const;
 
-    // Called at the start of every outermost call() (not for calls made from inside a running handler), before the
-    // command is looked up, with the command name. The script system uses it to re-import project tools edited on disk,
+    // Called at the start of every outermost call() (not for calls made from inside a running handler, nor from a job
+    // worker thread; the nesting is tracked per thread), before the command is looked up, with the command name. The script system uses it to re-import project tools edited on disk,
     // which replaces commands: that is only safe while no handler is running. Empty = none.
     void set_before_call(std::function<void(std::string_view)> hook) { beforeCall_ = std::move(hook); }
 
@@ -186,7 +210,6 @@ private:
     std::map<std::string, Entry, std::less<>> commands_;
     std::function<void(std::string_view)> beforeCall_;
     std::shared_ptr<const CommandInterceptor> interceptor_;
-    mutable int callDepth_ = 0;
     jobs::Owner* jobOwner_ = nullptr;
 };
 

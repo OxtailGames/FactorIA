@@ -15,7 +15,7 @@ namespace fa::ai::test {
 
 inline AiConfig config_from(const Json& json) {
     auto cfg = parse_config(json, "test");
-    REQUIRE_MESSAGE(cfg.ok(), cfg.error().to_string());
+    REQUIRE_MESSAGE(cfg.ok(), (cfg.ok() ? std::string() : cfg.error().to_string()));
     return *cfg;
 }
 inline AiConfig config_from(const char* json) { return config_from(Json::parse(json)); }
@@ -68,7 +68,7 @@ inline std::string png_bytes(int width, int height, std::uint8_t r, std::uint8_t
 
 inline Image decode_png(const std::string& bytes) {
     auto img = decode_image(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size());
-    REQUIRE_MESSAGE(img.ok(), img.error().message);
+    REQUIRE_MESSAGE(img.ok(), (img.ok() ? std::string() : img.error().message));
     return *img;
 }
 

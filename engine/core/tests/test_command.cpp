@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -395,4 +398,120 @@ TEST_CASE("close_object_schemas: properties get closed, $defs too, objects witho
     CHECK_FALSE(s["properties"]["c"].contains("additionalProperties"));
     CHECK(s["properties"]["default"]["default"] == Json::parse(R"({"properties":{"k":1}})"));  // data, not a schema
     CHECK(close_object_schemas(Json::object({{"type", "string"}})) == Json::object({{"type", "string"}}));
+}
+
+TEST_CASE("command: the before-call hook runs for the outermost call of a thread only, never for a nested call") {
+    CommandRegistry reg;
+    std::atomic<int> hooks{0};
+    reg.set_before_call([&](std::string_view) { ++hooks; });
+    CommandInfo inner;
+    inner.name = "t.inner";
+    reg.add(inner, [](const Json&) { return Json::object(); });
+    CommandInfo outer;
+    outer.name = "t.outer";
+    reg.add(outer, [&reg](const Json&) {
+        reg.call("t.inner");
+        reg.call("t.inner");
+        return Json::object();
+    });
+    CHECK(reg.call("t.outer").ok);
+    CHECK(hooks == 1);  // the two nested calls did not run it
+    CHECK(reg.call("t.inner").ok);
+    CHECK(hooks == 2);  // the depth went back to 0 after the first call
+
+    // A second registry called from a handler is its own outermost call.
+    CommandRegistry other;
+    std::atomic<int> otherHooks{0};
+    other.set_before_call([&](std::string_view) { ++otherHooks; });
+    CommandInfo plain;
+    plain.name = "t.plain";
+    other.add(plain, [](const Json&) { return Json::object(); });
+    CommandInfo crossing;
+    crossing.name = "t.cross";
+    reg.add(crossing, [&other](const Json&) {
+        other.call("t.plain");
+        return Json::object();
+    });
+    CHECK(reg.call("t.cross").ok);
+    CHECK(otherHooks == 1);
+}
+
+TEST_CASE("command: calls on several threads at once keep their own depth") {
+    constexpr int kThreads = 4;
+    constexpr int kCalls = 25;
+    CommandRegistry reg;
+    std::atomic<int> hooks{0};
+    std::atomic<int> insideHandlers{0};
+    std::atomic<int> maxInside{0};
+    // A rendezvous inside the handler: every thread waits for all the others, so the calls overlap in every round
+    // whatever the speed of the machine. Each thread makes exactly kCalls calls, so nobody waits for a partner that is gone.
+    std::mutex rvMutex;
+    std::condition_variable rvCv;
+    int arrived = 0;
+    long generation = 0;
+    reg.set_before_call([&](std::string_view) { ++hooks; });
+    CommandInfo inner;
+    inner.name = "t.inner";
+    reg.add(inner, [](const Json&) { return Json::object(); });
+    CommandInfo outer;
+    outer.name = "t.outer";
+    reg.add(outer, [&](const Json&) {
+        const int now = ++insideHandlers;
+        int seen = maxInside.load();
+        while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {}
+        {
+            std::unique_lock<std::mutex> lock(rvMutex);
+            const long myGeneration = generation;
+            if (++arrived == kThreads) {
+                arrived = 0;
+                ++generation;
+                rvCv.notify_all();
+            } else {
+                rvCv.wait(lock, [&] { return generation != myGeneration; });
+            }
+        }
+        reg.call("t.inner");
+        --insideHandlers;
+        return Json::object();
+    });
+    std::atomic<int> failures{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([&] {
+            for (int i = 0; i < kCalls; ++i)
+                if (!reg.call("t.outer").ok) ++failures;
+        });
+    for (auto& th : threads) th.join();
+    CHECK(failures == 0);
+    CHECK(maxInside.load() == kThreads);  // the rendezvous guarantees all four handlers were open at the same time
+    CHECK(hooks == kThreads * kCalls);    // every outermost call ran the hook once; no nested call did
+}
+
+TEST_CASE("command: a CommandCancelScope cancels the calls of its thread once its flag is set, and only those") {
+    CommandRegistry reg = make_registry();
+    CHECK_FALSE(command_cancelled());
+    CHECK(command_cancel_flag() == nullptr);
+    std::atomic<bool> flag{false};
+    {
+        CommandCancelScope scope(&flag);
+        CHECK(command_cancel_flag() == &flag);
+        CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);  // not set yet: runs
+        flag = true;
+        CHECK(command_cancelled());
+        const CommandResult refused = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}}));
+        CHECK_FALSE(refused.ok);
+        CHECK(refused.error["code"] == "cancelled");
+        CHECK(refused.error["message"].get<std::string>().find("math.add") != std::string::npos);
+        // another thread has no scope: its calls run
+        bool otherOk = false;
+        std::thread([&] { otherOk = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok; }).join();
+        CHECK(otherOk);
+        {
+            CommandCancelScope inner(nullptr);  // an inner scope replaces the flag while it lives
+            CHECK_FALSE(command_cancelled());
+        }
+        CHECK(command_cancelled());
+    }
+    CHECK_FALSE(command_cancelled());  // the scope ended
+    CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);
 }

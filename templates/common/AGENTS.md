@@ -75,8 +75,8 @@ logged. A green run means a script can finish the game, not that a person finds 
 - Game logic belongs in `scripts/` classes extending `Behaviour` (`onStart`, `onEnable`/`onDisable`, `onUpdate(dt)`,
   `onFixedUpdate`, `onCollisionEnter`, `onTriggerEnter`...). Tunable numbers are class fields
   that scenes can override via `"Script": {"path": ..., "props": {...}}`.
-- Determinism: use `rng` from `"factoria"` (never `Math.random`) and `time.dt` / the `dt`
-  argument (never `Date.now`). Tests and replays depend on it. A tool or generator that must repeat from a seed uses
+- Determinism: use `rng` from `"factoria"` (`Math.random` works, it draws from the same world
+  stream, but write `rng`) and `time.dt` / the `dt` argument (never `Date.now`). Tests and replays depend on it. A tool or generator that must repeat from a seed uses
   its own `rng.create(seed)` (same methods as `rng`, never touches the game's RNG), not `rng.seed`. Guide section 9.16.
 - Paths are project-relative with forward slashes (`assets/hero.png`).
 - Never put API keys or secrets in this project. Keys live in `~/.factoria/ai.json` or env vars.

@@ -88,7 +88,9 @@ struct Session {
 
 std::string args_js(const std::string& extra) { return std::string("{ sample: ") + kRows + ", legend: " + kLegend + ", " + extra + " }"; }
 Json args_json(const std::string& extra) { return Json::parse(std::string(R"({"sample":)") + kRows + R"(,"legend":)" + kLegend + "," + extra + "}"); }
-std::string error_text(const CommandResult& r) { return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
+std::string error_text(const CommandResult& r) {
+    if (r.ok) return std::string();  // doctest -s builds the message on success too
+    return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
 bool contains(const std::string& s, const std::string& n) { return s.find(n) != std::string::npos; }
 
 }  // namespace
@@ -159,7 +161,8 @@ TEST_CASE("tilemap.generate (script): place builds the Tilemap and one entity pe
     s.eval("globalThis.job = tilemap.generate(" +
            args_js("size: [24, 16], seed: 3, constraints: { counts: [{ tile: 'o', min: 3, max: 3 }] }, place: { entity: 'level', tilemap: { tileSize: [16, 16] }, position: [0, 0] }") + ")");
     REQUIRE(s.frames_until_done() >= 0);
-    REQUIRE_MESSAGE(s.eval("globalThis.job.error") == "", s.eval("globalThis.job.error").dump());
+    const Json jobError = s.eval("globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
+    REQUIRE_MESSAGE(jobError == "", jobError.dump());
     const Json rows = Json::parse(s.eval("JSON.stringify(globalThis.job.result.rows)").get<std::string>());
     int coins = 0;
     for (const Json& row : rows)
@@ -185,7 +188,8 @@ TEST_CASE("tilemap.generate (script): into writes the tiles of an entity that ex
     Session s;
     s.eval("globalThis.job = tilemap.generate({ sample: world.find('example'), size: [20, 12], seed: 5, n: 2, rows: true, into: world.find('target') })");
     REQUIRE(s.frames_until_done() >= 0);
-    REQUIRE_MESSAGE(s.eval("globalThis.job.error") == "", s.eval("globalThis.job.error").dump());
+    const Json jobError = s.eval("globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
+    REQUIRE_MESSAGE(jobError == "", jobError.dump());
     const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find("target"));
     REQUIRE(tm != nullptr);
     CHECK(tm->width == 20);

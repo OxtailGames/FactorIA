@@ -86,6 +86,11 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 
 # Next engine milestones
 
+**What comes next (2026-11-09):** M90 is done (0.20.0). Next M91, M92 and M93, then M94 and M95, and only then M71: M71 needs M95's
+frame graph and M75 needs M94.4, so the order of M70-M80 starts after them. M83-M89, M96, M97 and M98 fit in between as
+their "Order" lines say; M99 waits for the user's hardware and accounts. The reasons are in "M90-M99", at the end of
+this file. Update this paragraph when a milestone lands.
+
 Hand-written triage section (the ranked list above is generated; regenerate it with the command in
 `feedback/README.md` and keep this section). Triage date 2026-10-13, against commit `e2b0090`: of the 55
 entries from the four example games, the engine already fixed most; the work packages below cover what is left,
@@ -2011,7 +2016,8 @@ Rules for all of them:
   never committed, with their licenses checked first.
 
 Order: M70 and M71 first; M72 and M73 need M71; M74 needs M72; M75 needs M70; M76 needs M71; M77 stands alone;
-M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72.
+M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72. Since 2026-11-09 M71 needs M95 (its frame graph
+and render targets) and M75 needs M94.4 (broadphase and heightfield collider).
 
 ## M70. Loading, threads and fast storage (L; 5 packages) — DONE (0.19.0)
 
@@ -2103,7 +2109,8 @@ SHADERS.md "Not available yet" becomes empty.
   camera or chosen anchors on the M70 IO thread, with budgets, priorities and a debug view; an editor workflow to edit
   one big world in cells.
 - M75.4 (M) Large coordinates: origin shifting (or double-precision positions) so worlds of hundreds of km keep
-  precision in physics and rendering.
+  precision in physics and rendering. Decide the Transform model first (double positions or origin rebasing), since
+  physics, render, nav, audio, networking and saves all read positions.
 - M75.5 (L) Terrain: heightmap terrain with GPU LOD, splat material layers, holes, collision, sculpt and paint tools in
   the editor and as commands, generation from noise and erosion.
 - M75.6 (M) Foliage and scattering: GPU-instanced grass, trees and rocks with per-instance data, wind, LOD and culling,
@@ -2163,7 +2170,8 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M80.2 (M) Palettes and dithering: palette quantization (built-in palettes and `.pal`/`.gpl`/image import), ordered and
   error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets. Also blue-noise dithering
   (our own generated blue-noise texture, void-and-cluster, no shipped file), at runtime and as a `blueNoise` method of
-  the image tools' `dither` (today bayer2/4/8, floydSteinberg, atkinson).
+  the image tools' `dither` (today bayer2/4/8, floydSteinberg, atkinson), with `bayer16`, `clusteredDot`, `sierra`,
+  `sierraLite`, `burkes`, `jarvis` and `stucki` beside it.
 - M80.3 (M) Screens: CRT (scanlines, shadow mask, curvature, bloom, phosphor persistence), NTSC/PAL composite artefacts,
   LCD grid, VHS.
 - M80.4 (M) Retro 3D: vertex snapping, affine texture mapping, no filtering, low colour depth, draw distance fog, per
@@ -2206,3 +2214,346 @@ cleans an imported clip.
 - M82.3 (M) Clean an imported clip: `anim3d.clean {path, rig, out?}` filters jitter, finds the foot contacts and locks
   them (no foot skating), keeps the root over the feet, reduces keys within an error budget and reports what it changed
   with a before/after filmstrip; `anim.check` gains a `foot_skate` finding that suggests it.
+
+## M83-M89: ideas from the user's X bookmarks of 2026-11-06..09 (planned 2026-11-09)
+
+References: the dsh-* plugins (qa, game-studio, crew, harbor), small engines and tools for agents (67.js, Vork, raea,
+Tesseract, OpenMontage, glb-viewer), art tools (parametric top-down buildings, reference-to-game, video-to-game,
+image-to-sculpt, Sand3D, Aseprite AI Artist, Image-to-Pixel, kiki-pixel-gif), agent workflow tools (claude-mem,
+impeccable, graphify, doop) and a playable-ads post. Ideas only: each package is FactorIA's own engine, editor or AI
+feature over its own commands. Nothing of theirs is bundled, depended on or wrapped, no outside asset is shipped, and
+no package connects to an outside repository, service or installed program. Checked against the roadmap, the done
+list and the docs first; what already exists was left out (`checkpoint.*` and per-run Revert, `game.click`/`game.tap`
+by id and `ui.state`, `api.components`, UASTC/ETC1S, the selected entity named to the AI, the token and loopback of
+`project.serve_web`, `savers.projectFacts`, `ui.check_layout`, the M66-M69 pieces), and what is already planned was
+added to its package (more dither methods in M80.2).
+
+Order: free, each stands alone; M84.4 and M86 use M67 sessions; M85.1 is better after M81.1; M89.3 needs M96 (the
+smaller player).
+
+## M83. Regression tests from play sessions (M; 2 packages) — the user, 2026-11-09
+
+Today `input.record` and `factoria run --input` replay inputs and JS tests can `game.click`, `game.tap` and `expect`,
+but a `play.auto` or recorded session cannot become a test, and a test asserts on whatever frame it lands on.
+- M83.1 (M) `play.to_test {session, out?}` (and the same from an `input.record` file): writes a JS test for
+  `project.test` that replays the session's actions by id where it can (`game.click("start")`, not coordinates) and,
+  after each step, asserts what the session saw (scene, UI state, chosen `game.state` keys, no new errors). Rules: a
+  step whose result is unknown never passes (only a fresh observation decides), and a truncated view is reported as
+  incomplete, never as "not there". A failing step is a teaching error with the step, the expected and seen values
+  and the frame captured.
+- M83.2 (S) Waiting and scope in tests: `game.settle {quietMs?, timeoutMs, keys?}` waits until the chosen state, the UI
+  and tweens are still, with a bounded time and a teaching error naming what kept moving; `ui.state {within: id}`
+  reads one branch of the UI. Docs (MENUS.md, AI_GUIDE.md) and tests.
+
+## M84. The art critic compares against a reference (M; 4 packages) — the user, 2026-11-09
+
+Today `style.references` and the measurable style guide (M51.1) exist and the artCritic looks at screenshots, but
+nothing compares the game, a model or a video with a chosen reference.
+- M84.1 (M) Reference packs: `style.references` entries gain an `authority` (look, palette, UI, motion, camera) so
+  each reference rules one dimension, and imported videos are references too: sampled frames on a contact sheet (M69),
+  their palette and cut rhythm, summarised as a brief the artist role reads before generating.
+- M84.2 (M) `review.compare {reference, at?}`: the game captured at matching points next to the reference, side by
+  side, with the largest differences listed per dimension (palette distance, value range, silhouette density, UI
+  scale); the artCritic fixes the biggest one, and a fix is kept only when it wins a blind A/B (the critic sees A and
+  B unlabelled); the result records both pictures.
+- M84.3 (M) `model.compare_reference {path, image, view?}`: the model rendered from the reference's view, measured by
+  silhouette overlap, contour distance and normal direction per region, reported as several numbers and a difference
+  picture, never one score; the model panel shows it.
+- M84.4 (S) Close-ups: `play.auto {closeUps: true}` adds crops of each character and enemy on screen to the report for
+  the artCritic, and `play.best_window {session}` picks the most eventful seconds of a session as a frame grid.
+
+## M85. 3D to 2D and pixel-art tools (M; 5 packages) — the user, 2026-11-09
+
+Today `assets.bake_sheet` captures 2D entities only and `model.preview` renders a model to look at it, so a model
+cannot become 2D game art; GIF is not read or written.
+- M85.1 (M) `assets.bake_directions {model|prefab, directions: 1|2|4|8|16, angle, projection, clips?, size, pixelSize?,
+  palette?}`: renders a 3D model or prefab (with its animation clips) from N directions into a sprite sheet with its
+  clips per direction, ortho or perspective, lit by the style's light, snapped to a pixel grid and quantized to the
+  palette when asked; with M81.4 variants it makes a whole parametric building or character kit for a 2D,
+  top-down or isometric game.
+- M85.2 (M) Top-down and isometric prefabs from a model: the baked sprite plus a collider from the model's footprint
+  and a sorting/occlusion shape from its silhouette, so a building is placeable without hand-made colliders.
+- M85.3 (S) GIF: `assets.export_gif {sheet|clip}` with our own encoder (palette per frame or global, loop, baseline
+  alignment, the loop check of `assets.inspect_sheet`), and import of GIF frames as a sheet.
+- M85.4 (S) Set checks and sheets: `assets.check_set {paths}` reports assets of one kit that break its shared palette,
+  texel density or scale; sheet packing drops duplicate tiles; a baked PNG carries its recipe in a text chunk, so
+  `assets.inspect` can rebuild it from the picture alone.
+- M85.5 (S) A pixel-art rules skill written by us (readability at size, outlines, clusters, ramps, banding, pillow
+  shading, animation timing) that the artist and the artCritic roles read, with a checklist the critic grades.
+
+## M86. Trailers: a timeline and recording checks (L; 3 packages) — the user, 2026-11-09
+
+The open part of TM/FB-0055 gets its package; today a trailer is a script and nothing checks a recording.
+- M86.1 (L) A `Timeline` component and `*.timeline.json` documents: tracks of camera keys, entity animation, text
+  cards, fades, sounds and music, events for scripts, scrubbed and edited in the editor next to the Animation panel,
+  played in game and with `--record-video`; commands to build one from code.
+- M86.2 (M) `video.check {path}` and `play.check {session}`: a recording or trailer checked for cut-off or unreadable
+  text, low contrast, content outside the store safe zones, frozen or black stretches and loudness, each finding with
+  its time and frame picture and how to fix it.
+- M86.3 (S) Timing: cuts snapped to the music's beats and bars (the M51.4 analysis), and captions timed per word.
+
+## M87. The editor AI: memory and working together (M; 4 packages) — the user, 2026-11-09
+
+Today `savers.projectFacts` saves facts learned from failures, and several chats can edit one project with Revert
+handling the overlaps afterwards.
+- M87.1 (M) Project memory: facts, decisions and preferences the AI keeps per project, a periodic consolidation pass
+  that merges duplicates, drops stale facts and links related ones, a `<private>` mark that is never stored, and a
+  Memory panel where the user reads, edits and deletes them.
+- M87.2 (M) `ui.lint {scene?}`: finds the generic AI look in game menus (default fonts and sizes, centred stacks of
+  same-size buttons, missing hierarchy, low contrast, uneven spacing) against the project's own `DESIGN.md` for UI,
+  with concrete fixes.
+- M87.3 (M) `project.graph {path?}`: who uses an asset, prefab, script or scene and what it uses, unused assets, and
+  what a rename or deletion would break.
+- M87.4 (M) Concurrent edits: `expectedRevision` on entity and asset edits (a stale edit is a teaching error with the
+  current value), a lock per folder for chats that write there, and automatic escalation to a stronger model of the
+  same provider when a role fails twice, with a depth limit for nested agents.
+
+## M88. Asset optimisation and cost views (M; 3 packages) — the user, 2026-11-09
+
+Today the export reports sizes per folder and M64.4 checks overdraw for effects only.
+- M88.1 (M) `assets.optimize_report`: size on disk and in memory per texture and mesh, against project budgets per
+  platform, with the fix for each (resize, compress, simplify, share) and its saving.
+- M88.2 (M) Viewport views: overdraw and cost heat maps, normals and UV density, and a before/after compare of an
+  optimised asset with linked cameras.
+- M88.3 (S) An analytic lighting test (a white furnace: a white sphere under uniform light must come out uniform) for
+  every lighting change of M71-M73.
+
+## M89. Engine upgrades, prototypes and playable ads (L; 3 packages) — the user, 2026-11-09
+
+- M89.1 (M) `project.upgrade_check {to?}`: what in this project (components, fields, commands, script API) changes
+  between its engine version and the installed one, from `tools/common/api_since.json` and the docs, with the edits
+  to make, including the files of the menu kit a project copied (MENUS.md) that changed since it copied them.
+- M89.2 (S) A "My games" wall in the editor's start window: a tile per project with its last screenshot, opened or
+  played with one click.
+- M89.3 (L) Playable ads export: `project.export {platform: "playable"}` writes one small HTML page (a slimmed web
+  player, a size report against the networks' limits), with an MRAID-ready wrapper, an end card, an install button,
+  a hint hand, a size and API check per network, and `play.auto` bots that tune the first level's difficulty.
+
+## M90-M99: foundations and fixes from an outside review (planned 2026-11-09)
+
+An outside reviewer read the whole repository at 0.19.0 (`b6179fab`), knowing only the roadmap, and wrote two reports:
+one on the engine and one on its documentation (not in the repository). Every claim was checked in the code by three
+read-only passes (runtime and core; tools, MCP and security; docs), and most hold. Where the reviewer was wrong or
+went too far:
+- Headless runs have a renderer: `factoria run --headless`, `test`, `call` and `mcp` create one on EGL by default, so
+  animators, particle lifetimes and `ui.measureText` are exact there. Only `--no-graphics`, or a machine without EGL
+  (`graphics=false`, one startup warning), loses `SpriteAnimator`, `ParticleEmitter.autoDestroy` and exact text
+  measuring: that is the real bug (M91.1).
+- Input edges are cleared at the end of a frame, not at its start; the effect is the same (a press seen by no fixed step
+  or by several, M91.2).
+- The physics replay hash already runs on Apple Silicon (`macos-latest`) besides Linux and Windows, and an empty
+  `kPlatformHashes` means they all match. What is missing: Android, iOS and the web, and more than one test (M91.3).
+- The exported player links `fa_runtime` only, so it has no `fs.write` of the tools, no `project.*` and no
+  `publish.*`. It does carry the authoring commands that live in `fa_runtime` (wfc, level, terrain, mesh, anim, vfx;
+  M96.1).
+- `sg_image` appears only in a comment of the public `renderer.h`; `docs.read` takes `heading`; CHANGELOG.md and
+  ROADMAP_DONE.md are not embedded in the binary; the README's "versioned save slots" are Burrow Brigade's, as it says;
+  the Windows `frame % 120` poll rescans empty pad slots only; `save_config` is an unused function that writes with
+  default permissions before its chmod, not a chmod after `write_private` (removed in M90.4).
+- The MCP server lists 405 commands now (docs/MCP.md says about 190), but Claude Code defers MCP tools and the API
+  providers get M45's catalog: only other MCP clients load all of them (M97.2).
+
+Not taken:
+- Cutting M72.5, M73.4-5, M77, M78 and M79: the user decided on 2026-11-06 that FactorIA covers every kind of game.
+  They stay, after the foundations below.
+- One version per release instead of per milestone, CODEOWNERS and a human approval for the core, a feature freeze:
+  the process stays (a minor per milestone). Doing this block first is the pause the review asks for.
+- Moving the ~170 art commands into a "studio" plugin: the art tools are the user's M51-M60 and stay in the editor, the
+  CLI and MCP. M96 takes them out of the player, which is what the review wanted (size and surface).
+- Jolt for 3D physics: our own implementation (the rule of M70-M80); M94.4 builds the broadphase and the manifolds.
+- Git LFS: the pack is 115 MiB with about 42 MB of PNG and WAV, and LFS bandwidth quotas would go on CI checkouts.
+- Storing the examples' generated music as OGG instead of WAV (about 16 MB to 4): only a clone and CI fetch the
+  examples, never a user's download, so the gain is small; old blobs stay in the history anyway.
+- Merging the menu kit copies of six examples: a game owns its copy of the kit by design (MENUS.md). What is missing
+  is updating a copy when the kit changes, added to M89.1.
+- One A*: nav_grid (meshes) and nav_tiles (tilemaps) search different data; only the early "unreachable" is taken
+  (M94.5).
+
+Rules: those of every milestone (tests, docs, teaching errors), plus: each fix comes with the test that would have
+caught it, and each performance package shows its gain on M93.5's benchmarks.
+
+Order: M90 first (small). Then M91, M92 and M93, before any new feature. M94 and M95 before M71: M71 builds on M95's
+frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the
+small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
+when the user has the hardware and the accounts.
+
+## M90. Quick fixes the review found (M; 5 packages) — DONE (0.20.0)
+
+- M90.1 (M) Docs that break or contradict, each fixed against its source: recipe 9.27 (`this.map.tilemap.component`),
+  `Math.random` (deterministic in game scripts; AI_GUIDE lists it as a cause of different runs), `Date` fixed only in
+  `assets.bake_sheet` scripts, NDK r27+ in GETTING_STARTED, the signing state (README and GETTING_STARTED say releases
+  are signed, BUILDING says signing is off until the secrets exist: say which are, and drop the 0.1.3 quarantine notes
+  only when true), Export in the menu bar (EXPORTING), the seven AI roles (ARCHITECTURE), README's status (0.19, 11
+  examples) and licences (Apache-2.0, BSL-1.0 and BSD-3 too), the tool counts in MCP, AI_PROVIDERS and AI_COSTS,
+  EXTENDING's `scene.find_by_tag` presented as a command you would add, the golden paths and repository layout in
+  ARCHITECTURE, `setup launcher` in CLI.md, `--single-file` in EXPORTING's usage line, the missing presets in
+  GETTING_STARTED, EXTENDING's command areas (from the registry), dated sizes and example versions marked as examples,
+  and both Spanish translations marked as behind, with what they lack.
+- M90.2 (M) MCP: a result is sent once, as the whole JSON in a text block on every protocol version (no
+  `structuredContent`, which some clients show instead of the text), with an 80 KiB cap that truncates and names the
+  tool's own paging arguments; `notifications/cancelled` cancels the request's job (over stdio a queued request is
+  skipped, and requests still running 10 s after stdin closes are cancelled); a malformed message gets a JSON-RPC error
+  and never ends the server; the HTTP server has a bounded pool with a spare slot that evicts the oldest idle
+  keep-alive connection, joins connections as they end, a receive timeout and a smaller body cap. The CLI agent writes
+  `fa-run-mcp-<name>-*.json` per run like its other branch (unique name, `write_private_file`, deleted at exit).
+- M90.3 (S) Honest goldens: a missing golden fails unless `FA_UPDATE_GOLDENS=1`; the share of pixels over a per-pixel
+  threshold and the largest error are checked as well as the mean; `*.actual.png` untracked and ignored.
+- M90.4 (M) Small bugs: `World::destroy` then `set_parent`/`set_id` in the same frame (an entity being destroyed refuses
+  a new parent with a teaching error, and ids follow the subtree); `pattern` regexes compiled once; capsule, cylinder
+  and convex inertia from their shape; `platform` requests with a deadline the engine enforces and capped event queues;
+  `callDepth_` per thread; the "32-byte vertex" comment; the dead "wgpu"/"vulkan" names; `components` listed once by
+  `docs.list` and its dead branch; COMPONENTS.md enum cells escaped once, integer ranges without `.0` and the `sides`
+  range of the command and the component made one; the unused `save_config`; CLI agent placeholders expanded in one
+  pass, with `--` before a prompt passed on the command line.
+- M90.5 (S) No allocation in the audio callback: `used`, `live` and `ducking` become preallocated scratch, and a test
+  counts allocations in the callback (the mixer without locks is M91.4).
+
+## M91. A runtime that does not depend on the renderer (L; 4 packages) — outside review, 2026-11-09
+
+- M91.1 (L) Simulation without a renderer: the `SpriteAnimator` advance and the particle lifetimes and `autoDestroy`
+  move into the simulation step; particle state belongs to its `World` (today a static map keyed by entity bits, so two
+  live worlds, like the editor's scene and its play session, overwrite and delete each other's emitters); with no GPU,
+  text is shaped and measured on the CPU (HarfBuzz and the font's metrics), so `graphics=false` lays out like a window.
+  Test: the same world hash with and without a renderer for every example's scenes.
+- M91.2 (M) Input per fixed step: a press or a release is seen by exactly one `onFixedUpdate` (kept until a fixed step
+  takes it) and by one `onUpdate`; tests with 0, 1 and 5 fixed steps in a frame; SCRIPTING.md says which callback sees
+  what.
+- M91.3 (M) Deterministic maths wherever the simulation reads it: `det::exp`, `pow`, `log` and the rest a step uses,
+  used by `feel` and every simulation system (a test fails on `std::exp`, `pow`, `sin` or `cos` in simulation sources),
+  and game scripts' `Math.*` routed to them; a callback cut by the watchdog fails the run loudly, never as a different
+  result. Replay hashes for more scenes (2D and 3D physics, scripts, particles, nav, feel), on Android, iOS and the web
+  as well.
+- M91.4 (L) Audio that never waits: the game talks to the mixer through a lock-free queue; streamed music and long
+  sounds decode on the job system into ring buffers ahead of the callback, which takes no lock and allocates nothing;
+  voices are stolen by priority and loudness, not age; the music cache evicts the least recently used song and loads on
+  the job system, not on a thread of its own. A stress test of play and stop from many threads, under TSan (M93.1).
+
+## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09
+
+- M92.1 (L) Capabilities: each command declares what it can do (read, write the project, write anywhere, network, start
+  a process, spend money, publish), each caller has a set (a game script in the player, in the editor's Play and in a
+  test; each AI role; an MCP client, read-only or not; the CLI user), and `fa.call` from a game script gets the
+  runtime set. A denied call is a teaching error that names the capability and where to grant it (a test can ask for
+  more in its file). The commands reference and `api.json` show each command's capabilities.
+- M92.2 (M) Paths confined in one place: every command that writes takes its paths through one `fa::fs` function (the
+  project, the game's save folder, the user's export folder; an absolute path only for a caller that may write
+  anywhere); `game.screenshot`, `input.record` and the rest move to it. A test walks the registry and tries `..` and
+  absolute paths on every path argument.
+- M92.3 (M) Secrets off command lines and inherited environments: signing passwords never in argv (each tool's file,
+  environment, keychain-profile or API-key form; signtool through a certificate imported for the run); hooks and agent
+  CLIs get an allow-listed environment; private files on Windows get an owner-only ACL; the permission mode of each AI
+  CLI (`acceptEdits` for Claude Code today) is shown and editable in AI Settings with what it allows; the feedback
+  server limits per install and per IP and holds without `cf-connecting-ip`.
+- M92.4 (M) Contract tests for the AI CLIs: recorded outputs of each CLI (`stream-json` and the others) replayed by
+  tests, so a CLI update that changes its format fails here, not in a user's run.
+
+## M93. Oracles: sanitizers, fuzzing, strict builds, benchmarks (L; 5 packages) — outside review, 2026-11-09
+
+- M93.1 (M) ASan with UBSan, and TSan, as Linux Clang CI jobs over the Debug suite (TSan over the job system, loading,
+  audio and MCP server tests); what they find is fixed in the same milestone.
+- M93.2 (M) Fuzzing: targets for the JSON, scene and prefab loaders, schema validation, the PNG, KTX2, glTF, font and
+  audio decoders, the pak reader and MCP's JSON-RPC; a short run on every PR, a long weekly one, a corpus in the
+  repository.
+- M93.3 (M) Strict builds: warnings as errors in CI for GCC, Clang and MSVC (engine and tools, not `external/`);
+  `.clang-format` and `.editorconfig` with one formatting commit and a check; clang-tidy with a few bug-finding checks
+  over the changed files.
+- M93.4 (S) Coverage per module (llvm-cov) as a CI artifact, the editor autotest included; `autotest_tools.cpp` (9755
+  lines) split by section.
+- M93.5 (M) Benchmarks: `fa_bench` (ECS queries, hierarchy, 2D and 3D physics, render gather, command dispatch, the
+  script bridge, the audio mix) in a Release job, compared with a stored baseline; a big regression fails.
+
+## M94. Fast core data and 3D physics at scale (L; 5 packages) — outside review, 2026-11-09
+
+- M94.1 (L) ECS queries without copies: `each` walks the smallest pool in place, `count<T>()` and `any<T>()` replace
+  `entities_with(...).empty()` (the UI code), and the hierarchy caches world matrices, active-in-hierarchy and
+  pending-destroy with dirty flags.
+- M94.2 (L) Typed component data: `FieldKind::ArrayI32`, `ArrayF32` and `ArrayU8` (the same JSON on disk, typed in
+  memory and in scripts); `Tilemap::tiles` moves to it with a change counter, so physics, nav and render rebuild only
+  the chunks that changed (today every physics step hashes every tile of every map); the other hot `Json` fields
+  (about 46 in components.h) are checked one by one.
+- M94.3 (M) Commands and scripts: schemas compiled once at registration (defaults, validators, regexes); the script
+  bridge reads component fields through cached accessors instead of a Proxy per field.
+- M94.4 (L) 3D physics at scale: a broadphase (dynamic AABB tree; today every pair is tested every substep), islands and
+  sleeping, contact manifolds with several points for every shape pair, flat containers instead of `std::map` in the
+  solver, and a heightfield collider for M75.5's terrain. A stack of 100 boxes comes to rest, 1000 bodies stay within a
+  budget.
+- M94.5 (M) Jobs and paths: per-worker job queues with stealing instead of one global mutex; `NavGrid::search` answers
+  "unreachable" from its region labels before searching (still returning the closest reachable node when asked).
+
+## M95. A render core for HDR and what follows (L; 3 packages) — outside review, 2026-11-09
+
+- M95.1 (L) The engine's GPU layer over sokol_gfx: pipeline keys carry the colour format, sample count and depth format
+  (`kColorFormat` is fixed today, which blocks M71's float targets), a pipeline and state cache, and no backend types in
+  public headers. M77's D3D12 and Vulkan plug in here.
+- M95.2 (L) A render scene: the world gathered once per frame and shared by every camera and view, material parameters
+  hashed when they change (today `materialParams.dump()` is hashed per mesh per frame), sort keys, and `draw_job`
+  (about 770 lines) split into passes.
+- M95.3 (L) A frame graph: passes declare the targets they write and read, transient targets come from a pool, and
+  shadows, post-processing and render targets are passes with their cost in the profiler. M71 (HDR and the stack), M72
+  and M76 build on it. Test: every golden unchanged on every backend.
+
+## M96. A smaller player: runtime and authoring apart (L; 3 packages) — outside review, 2026-11-09
+
+- M96.1 (L) `fa_runtime` split: the authoring commands that live in it today (wfc, level, terrain, mesh, anim and vfx
+  authoring...) move to a library the player does not link; the editor, the CLI and MCP keep them; the export checks
+  that a game's scripts call only runtime commands, with a teaching error naming the command.
+- M96.2 (S) Player size budgets per platform in CI, with a report of what each library adds.
+- M96.3 (M) Script budgets: the QuickJS memory cap (768 MB today) is a project setting per platform, and a per-frame
+  script time budget warns in the profiler and in `play.report` long before the watchdog cuts a callback.
+
+## M97. Docs that are true and cheap to read (L; 5 packages) — outside review, 2026-11-09
+
+- M97.1 (M) A cheap first step: AI_GUIDE opens with an index under 5 KB, and its §4 (a hand-written table of about
+  33 KB) is generated from the registry; AGENTS.md and the `make-game` prompt read the index and the sections a task
+  needs, never `components` whole (docs/COMPONENTS.md is 1.76 MB); `docs.list` gives each doc a one-line summary and
+  its audience (the game's AI, the user, the engine developer).
+- M97.2 (M) Paging: `docs.components` and `docs.commands {full:true}` page with a cursor; MCP `tools/list` offers
+  profiles (core, a group, all) for clients without tool search, like M45's catalog does for the API providers.
+- M97.3 (M) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
+  kit (82 % of it) served from the kit instead of embedded; COMPONENTS.md served per component instead of embedded
+  whole; the docs for engine developers (releasing, extending, architecture) under `docs/design/`; the 15 docs the
+  README does not link reached from its index; the README restructured (what it is, try it, docs by audience).
+- M97.4 (M) Doc tests: every JS block parses and uses only existing script API (checked against the typings); every
+  command, component and field a doc names exists; counts and sizes come from their source; every doc is reachable
+  from the README; a translation records the English commit it follows and is flagged when the original moves on.
+- M97.5 (M) Example games a user can get: the download carries none (only a clone of the repository has `examples/`),
+  yet 12 embedded docs cite `examples/...` paths and the editor's start window scans `~/FactorIA/examples`, a folder no
+  package creates. Each release publishes every example as its own zip (the project without `.factoria/`) with its
+  hash; `project.examples` lists them (what each shows, its size) and `project.create {example}` downloads the one of
+  the installed version, checks it and creates the project from it, with a teaching error offline; the start window
+  gets an Examples tab built on them instead of the folder scan. Each example's README opens with what it shows and
+  what to read first. Every `examples/...` citation in the docs keeps the recipe in the doc itself and names the
+  example as optional ("if you got it with `project.create {example}`"); M97.4's test flags one without that. The
+  base download stays without examples (user, 2026-11-09).
+
+## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
+
+- M98.1 (M) Save slots (M19): slots with their menu in the kit, a version field with a migration hook, optional
+  encryption, cloud through `platform` where a backend has it, and a picture per slot (M31.24).
+- M98.2 (M) WebSocket in JS on every platform (M19): the browser's on the web, a native client elsewhere, reconnects,
+  tests against a local server.
+- M98.3 (M) Render interpolation: a project setting (and one per entity) draws transforms between the last two fixed
+  steps, so a 60 Hz simulation looks smooth at 120-144 Hz; cameras and physics bodies included.
+- M98.4 (M) Android shutdown (M9): `onDestroy` and the end of the process reach the game (`onQuit`), storage is
+  flushed, tested on the emulator.
+- M98.5 (L) Pads on Windows beyond XInput: DualShock and DualSense, Switch Pro and generic HID pads, rumble on every
+  platform that has it, hot-plug without polling.
+- M98.6 (L) UI (M10's leftovers): layout and hit tests that follow rotation and scale, a layout that does not add into
+  `Transform.position`, and `TextField` caret movement, selection, clipboard and IME composition on desktop, phones and
+  the web.
+- M98.7 (L) Editor basics: multi-selection, copy and paste of entities (between scenes too), prefab overrides shown,
+  applied and reverted, and undo as commands instead of whole-scene snapshots (up to 100 full copies today).
+- M98.8 (M) 3D audio beyond pan and linear fade: distance models (inverse, linear, exponential, a curve), doppler,
+  cones, occlusion by physics rays, and HRTF for headphones.
+- M98.9 (S) A deprecation policy: `deprecated` on commands, fields and script API (since when, the replacement),
+  warnings that name the replacement, removal after two minors, in `api_since.json` and the docs.
+
+## M99. Proven on real hardware and in the stores (S each; needs the user) — outside review, 2026-11-09
+
+What CI cannot prove, gathered from the "Left open" lists so it is not lost; each item needs the user's hardware,
+certificate or account, and ends with a note of what was tried and what passed:
+- Windows signing with an Authenticode certificate or Azure Trusted Signing (M8).
+- Real pads on Linux and Android (M8), an Apple pad on iOS (M9), the new Windows pads (M98.5).
+- The MSIX installed on a real Windows and an upload to the Mac App Store (M23); each M12 store backend with a real
+  account.
+- A device farm (an arm64 Android emulator, real GPUs), or a few phones and tablets run by hand with `play.auto`.

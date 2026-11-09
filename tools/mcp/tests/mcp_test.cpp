@@ -1,19 +1,29 @@
 #include <doctest.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <chrono>
+#include <functional>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "fa/mcp/client_config.h"
 #include "fa/mcp/server.h"
+#include "fa/mcp/stdio.h"
 #include "fa/mcp/transport.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/tooling.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -112,6 +122,12 @@ struct Fixture {
     }
 };
 
+// The result a tools/call sent: the JSON of its first text block (it is sent once, as text).
+Json result_json(const Json& res) {
+    CHECK_FALSE(res.contains("structuredContent"));
+    return Json::parse(res["content"][0]["text"].get<std::string>());
+}
+
 }  // namespace
 
 TEST_CASE("mcp: initialize negotiates protocol versions") {
@@ -160,6 +176,100 @@ TEST_CASE("mcp: malformed input yields JSON-RPC errors") {
     CHECK(emptyBatch["error"]["code"] == -32600);
 }
 
+TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an exception") {
+    Fixture f;
+    f.initialize();
+    auto answer = [&](const std::string& m) {
+        std::optional<std::string> r;
+        REQUIRE_NOTHROW(r = f.server.handle_message(m));
+        REQUIRE(r.has_value());
+        return Json::parse(*r);
+    };
+    // the id is kept when it is valid, null when it is not or there is none
+    Json r = answer(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":3}})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":2,"id":5,"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"] == 5);
+    r = answer(R"({"jsonrpc":"2.0","id":6,"method":7})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["error"]["message"].get<std::string>().find("\"method\" must be a string") != std::string::npos);
+    CHECK(r["id"] == 6);
+    r = answer(R"({"jsonrpc":"2.0","id":{"a":1},"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":"2.0","id":[1],"method":"ping"})");
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":"test_echo_value"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"] == 8);
+    r = answer(R"({"jsonrpc":"2.0","id":9,"method":"ping","params":[1]})");
+    CHECK(r["error"]["code"] == -32600);
+    r = answer(R"({"jsonrpc":null,"id":10,"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    // a batch answers each item: the invalid ones with an error, the others as usual
+    r = answer(R"([1,{"jsonrpc":2,"id":11,"method":"ping"},{"jsonrpc":"2.0","id":12,"method":"ping"}])");
+    REQUIRE(r.is_array());
+    REQUIRE(r.size() == 3);
+    CHECK(r[0]["error"]["code"] == -32600);
+    CHECK(r[1]["id"] == 11);
+    CHECK(r[1]["error"]["code"] == -32600);
+    CHECK(r[2]["id"] == 12);
+    CHECK(r[2]["result"].is_object());
+    // a field the server reads of the wrong type: treated as missing, or Invalid params
+    r = answer(R"({"jsonrpc":"2.0","id":13,"method":"initialize","params":{"protocolVersion":20250618,"clientInfo":{"name":5}}})");
+    CHECK(r["result"]["protocolVersion"] == kMcpLatestProtocol);
+    r = answer(R"({"jsonrpc":"2.0","id":14,"method":"logging/setLevel","params":{"level":3}})");
+    CHECK(r["error"]["code"] == -32602);
+    r = answer(R"({"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":42}})");
+    CHECK(r["error"]["code"] == -32602);
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // the next request works as usual
+    CHECK(result_json(f.call("test_echo_value", {{"value", 3}})["result"])["echo"] == 3);
+}
+
+TEST_CASE("mcp: over stdio malformed lines get errors, the valid ones around them are answered, and the server stays up") {
+    Fixture f;
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n"
+        "{\"jsonrpc\":2,\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":3}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":5}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":{\"x\":1},\"method\":\"ping\"}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\",\"params\":\"oops\"}\n"
+        "[1,{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}]\n"
+        "{not json\n"
+        "{\"jsonrpc\":2,\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":2}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":3}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 10);
+    CHECK(msgs[0]["result"]["protocolVersion"] == "2025-06-18");
+    CHECK(result_json(msgs[1]["result"])["echo"] == 1);
+    CHECK(msgs[2]["error"]["code"] == -32600);  // "jsonrpc": 2, no id
+    CHECK(msgs[2]["id"].is_null());
+    CHECK(msgs[3]["error"]["code"] == -32600);  // method 5
+    CHECK(msgs[3]["id"] == 3);
+    CHECK(msgs[4]["error"]["code"] == -32600);  // an object id
+    CHECK(msgs[4]["id"].is_null());
+    CHECK(msgs[5]["error"]["code"] == -32600);  // string params
+    CHECK(msgs[5]["id"] == 4);
+    REQUIRE(msgs[6].is_array());                // the batch
+    CHECK(msgs[6][0]["error"]["code"] == -32600);
+    CHECK(msgs[6][1]["id"] == 5);
+    CHECK(msgs[7]["error"]["code"] == -32700);  // not JSON
+    CHECK(msgs[8]["error"]["code"] == -32600);  // "jsonrpc": 2 with an id: the call does not run
+    CHECK(msgs[8]["id"] == 6);
+    CHECK(result_json(msgs[9]["result"])["echo"] == 3);
+    CHECK(f.server.session()->requests_queued() == 0);  // nothing invalid was announced as queued
+    CHECK(f.server.session()->requests_in_flight() == 0);
+}
+
 TEST_CASE("mcp: string ids and batches") {
     Fixture f;
     Json r = Json::parse(*f.server.handle_message(R"({"jsonrpc":"2.0","id":"abc","method":"ping"})"));
@@ -204,20 +314,22 @@ TEST_CASE("mcp: tools/list maps command names and describes tools") {
     CHECK(mcp_tool_name(std::string(100, 'x')).size() == 64);
 }
 
-TEST_CASE("mcp: tools/call success returns text and structuredContent") {
+TEST_CASE("mcp: a tool result is sent once, as the whole JSON in a text block, whatever the protocol") {
+    for (const char* version : {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}) {
+        Fixture f;
+        f.initialize(version);
+        const Json res = f.call("test_echo_value", {{"value", 7}})["result"];
+        CHECK(res["isError"] == false);
+        CHECK_FALSE(res.contains("structuredContent"));  // a client that reads only `content` misses nothing
+        REQUIRE(res["content"].size() == 1);
+        CHECK(res["content"][0]["type"] == "text");
+        CHECK(Json::parse(res["content"][0]["text"].get<std::string>()) == Json::object({{"echo", 7}}));
+    }
+    // A result that is not an object: the same.
     Fixture f;
-    Json r = f.call("test_echo_value", {{"value", 7}});
-    const Json& res = r["result"];
-    CHECK(res["isError"] == false);
-    REQUIRE(res["content"].size() == 1);
-    CHECK(res["content"][0]["type"] == "text");
-    Json parsed = Json::parse(res["content"][0]["text"].get<std::string>());
-    CHECK(parsed["echo"] == 7);
-    CHECK(res["structuredContent"]["echo"] == 7);
-    // Non-object results: text only.
     Json arr = f.call("test_array_result")["result"];
-    CHECK_FALSE(arr.contains("structuredContent"));
     CHECK(arr["isError"] == false);
+    CHECK(result_json(arr) == Json::array({1, 2, 3}));
 }
 
 TEST_CASE("mcp: an unknown argument is an error that teaches; the transport key _meta is not an argument") {
@@ -232,7 +344,7 @@ TEST_CASE("mcp: an unknown argument is an error that teaches; the transport key 
     // Some clients put `_meta` inside the arguments object: it is stripped, never reported.
     Json ok = f.call("test_echo_value", {{"value", 7}, {"_meta", {{"progressToken", "t1"}}}})["result"];
     CHECK(ok["isError"] == false);
-    CHECK(ok["structuredContent"]["echo"] == 7);
+    CHECK(result_json(ok)["echo"] == 7);
 }
 
 TEST_CASE("mcp: tools/call failures are isError results with code, message and hint") {
@@ -300,7 +412,7 @@ TEST_CASE("mcp: a tools/call runs its command as an MCP client's call (command_c
     f.initialize();
     const Json viaMcp = f.call("test_who_calls");
     REQUIRE(viaMcp["result"]["isError"] == false);
-    CHECK(viaMcp["result"]["structuredContent"]["caller"] == "an MCP client");
+    CHECK(result_json(viaMcp["result"])["caller"] == "an MCP client");
     CHECK(command_caller() == CommandCaller::User);  // the scope ended with the call
     CHECK(f.registry.call("test.who_calls").result["caller"] == "the user");
 }
@@ -324,7 +436,7 @@ TEST_CASE("mcp: $image results add an image content block") {
     REQUIRE(byPath["content"].size() == 2);
     CHECK(byPath["content"][1]["data"] == "iVBORw0KGgo=");
     CHECK(byPath["content"][0]["text"].get<std::string>().find("shot.png") != std::string::npos);
-    CHECK(byPath["structuredContent"]["frame"] == 5);
+    CHECK(result_json(byPath)["frame"] == 5);
     // missing file => text only, with an explanation
     Json missing = f.call("test_shot", {{"path", "nope.png"}})["result"];
     CHECK(missing["content"].size() == 1);
@@ -354,7 +466,7 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
     Json fb = f.call("feedback_report", {{"category", "physics"}, {"severity", "major"}, {"title", "No cloth simulation"},
                                          {"missing", "needed a cloth solver"}, {"workaround", "script"}})["result"];
     CHECK(fb["isError"] == false);
-    CHECK(fb["structuredContent"]["id"] == "FB-0001");
+    CHECK(result_json(fb)["id"] == "FB-0001");
     // project.export is a registered tooling command, so it is an MCP tool (an unknown platform is a tool error).
     Json ex = f.call("project_export", {{"platform", "amiga"}})["result"];
     CHECK(ex["isError"] == true);
@@ -533,7 +645,7 @@ TEST_CASE("mcp: stdio transport is newline-delimited and writes only protocol me
     REQUIRE(msgs.size() == 3);
     CHECK(msgs[0]["result"]["protocolVersion"] == "2025-03-26");
     CHECK(msgs[1]["error"]["code"] == -32700);
-    CHECK(msgs[2]["result"]["structuredContent"]["echo"] == 1);
+    CHECK(result_json(msgs[2]["result"])["echo"] == 1);
     // Multi-line text in results must stay on one line (escaped).
     CHECK(out.str().find("\\n") != std::string::npos);
 }
@@ -556,8 +668,8 @@ TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted;
     const std::string text = res["content"][0]["text"].get<std::string>();
     CHECK(text.find("frame_9.png") == std::string::npos);
     CHECK(text.find("deleted") != std::string::npos);
-    CHECK(res["structuredContent"]["$image"]["temporary"] == true);
-    CHECK_FALSE(res["structuredContent"]["$image"].contains("path"));
+    CHECK(result_json(res)["$image"]["temporary"] == true);
+    CHECK_FALSE(result_json(res)["$image"].contains("path"));
     // a file the user named is not temporary: it stays and its path is still in the reply
     Json kept = f.call("test_temp_shot", {{"name", "hall.png"}, {"temporary", false}})["result"];
     REQUIRE(kept["content"].size() == 2);
@@ -567,4 +679,370 @@ TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted;
     Json odd = f.call("test_temp_shot", {{"name", "hall2.png"}})["result"];
     REQUIRE(odd["content"].size() == 2);
     CHECK(stdfs::exists(shots / "hall2.png"));
+}
+
+// ---- Result size cap -------------------------------------------------------------------------------------------------
+
+namespace {
+
+// "x" then `n` two-byte characters: a cut at an even byte count falls inside one.
+std::string accented(std::size_t n) {
+    std::string s = "x";
+    for (std::size_t k = 0; k < n; ++k) s += "\xC3\xA9";
+    return s;
+}
+
+void add_big_commands(CommandRegistry& registry) {
+    CommandInfo paged;
+    paged.name = "test.big_list";
+    paged.summary = "A long list that pages.";
+    paged.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "offset":{"type":"integer","description":"First item."},"limit":{"type":"integer","description":"Items."}}})");
+    registry.add(paged, [](const Json&) {
+        Json items = Json::array();
+        for (int k = 0; k < 2000; ++k) items.push_back(Json::object({{"id", k}, {"name", accented(20)}}));
+        return Json::object({{"total", 2000}, {"items", items}});
+    });
+    CommandInfo narrow;
+    narrow.name = "test.big_text";
+    narrow.summary = "One long string; no paging, a filter.";
+    narrow.inputSchema = Json::parse(R"({"type":"object","properties":{"filter":{"type":"string","description":"Filter."}}})");
+    registry.add(narrow, [](const Json&) { return Json::object({{"text", accented(40000)}}); });
+    CommandInfo own = paged;
+    own.name = "test.big_own_paging";
+    own.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "pageToken":{"type":"string","description":"Where to go on."},"filter":{"type":"string","description":"Filter."},
+        "homepage":{"type":"string","description":"Not paging: the word is inside another one."},
+        "uvOffset":{"type":"array","items":{"type":"number"},"description":"Not paging: a vector."},
+        "rateLimit":{"type":"number","description":"Not paging: a number."},
+        "entityLimit":{"type":"integer","description":"Entities."}}})");
+    registry.add(own, registry.handler("test.big_list"));
+    CommandInfo bare;
+    bare.name = "test.big_array";
+    bare.summary = "A long array result (not an object), no arguments.";
+    registry.add(bare, [](const Json&) {
+        Json items = Json::array();
+        for (int k = 0; k < 5000; ++k) items.push_back(k);
+        return items;
+    });
+}
+
+}  // namespace
+
+TEST_CASE("mcp: a result over the cap is cut whole-JSON and UTF-8 safe, with a note that names the paging arguments") {
+    constexpr std::size_t kCap = 16 * 1024;
+    for (const char* version : {"2025-11-25", "2025-03-26"}) {
+        INFO("protocol " << version);
+        Fixture f;
+        add_big_commands(f.registry);
+        f.initialize(version);
+        f.server.set_result_cap(kCap);
+
+        const Json list = f.call("test_big_list")["result"];
+        CHECK(list["isError"] == false);
+        const Json value = result_json(list);  // parses: valid JSON
+        CHECK(value.dump().size() <= kCap);
+        CHECK(value["total"] == 2000);  // small fields stay
+        REQUIRE(value["items"].is_array());
+        CHECK(value["items"].size() > 10);
+        CHECK(value["items"].size() < 2000);
+        CHECK(value["items"][0]["name"] == accented(20));  // whole items, the first ones
+        const std::string note = value["_truncated"]["note"].get<std::string>();
+        CHECK(note.find("[truncated]") == 0);
+        CHECK(note.find("`/items` keeps the first " + std::to_string(value["items"].size()) + " of 2000 items") != std::string::npos);
+        CHECK(note.find("`offset` and `limit`") != std::string::npos);
+
+        // The command's own paging arguments (camelCase pageToken, entityLimit), in its schema's order; homepage, a uvOffset
+        // vector and a rateLimit number are not paging.
+        const Json own = result_json(f.call("test_big_own_paging")["result"]);
+        CHECK(own["_truncated"]["note"].get<std::string>().find("`pageToken` and `entityLimit`: call it again") != std::string::npos);
+
+        const Json text = result_json(f.call("test_big_text")["result"]);
+        const std::string kept = text["text"].get<std::string>();
+        CHECK(is_valid_utf8(kept));  // never cut inside a character
+        CHECK(kept.size() < 80001);
+        CHECK(kept.size() > 1000);
+        CHECK(text["_truncated"]["note"].get<std::string>().find("does not page: ask for less with `filter`") != std::string::npos);
+
+        // A result that is not an object is wrapped: {"result": the cut result, "_truncated": ...}
+        const Json arr = result_json(f.call("test_big_array")["result"]);
+        REQUIRE(arr["result"].is_array());
+        CHECK(arr["result"].size() < 5000);
+        CHECK(arr["result"][0] == 0);
+        CHECK(arr["_truncated"]["note"].get<std::string>().find("ask for a smaller part") != std::string::npos);
+
+        // Under the cap nothing changes.
+        CHECK(result_json(f.call("test_echo_value", {{"value", 3}})["result"]) == Json::object({{"echo", 3}}));
+    }
+}
+
+TEST_CASE("mcp: set_result_cap never goes below 8 KiB; the default is kMcpResultCap") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.sized";
+    i.summary = "Returns a string of the given size.";
+    i.inputSchema = Json::parse(R"({"type":"object","properties":{"bytes":{"type":"integer"}},"required":["bytes"]})");
+    f.registry.add(i, [](const Json& a) { return Json::object({{"s", std::string(a["bytes"].get<std::size_t>(), 'a')}}); });
+    // 40 KiB fits the default cap of 80 KiB; 400 KiB does not
+    static_assert(kMcpResultCap == 80 * 1024);
+    CHECK_FALSE(result_json(f.call("test_sized", {{"bytes", 40 * 1024}})["result"]).contains("_truncated"));
+    const Json big = result_json(f.call("test_sized", {{"bytes", 400 * 1024}})["result"]);
+    REQUIRE(big.contains("_truncated"));
+    CHECK(big.dump().size() <= kMcpResultCap);
+    f.server.set_result_cap(10);  // counts as 8 KiB: room for the note and some of the result
+    CHECK_FALSE(result_json(f.call("test_sized", {{"bytes", 2000}})["result"]).contains("_truncated"));
+    const Json cut = result_json(f.call("test_sized", {{"bytes", 12000}})["result"]);
+    REQUIRE(cut.contains("_truncated"));
+    CHECK(cut.dump().size() <= 8 * 1024);
+    CHECK(cut["s"].get<std::string>().size() > 1000);
+}
+
+// ---- Cancellation ----------------------------------------------------------------------------------------------------
+
+namespace {
+
+// test.block runs until its request is cancelled (or 60 s pass: a safety net far above any wait in these tests) and
+// says whether it saw the cancel. `started` tells the test when it runs.
+struct Blocker {
+    std::atomic<bool> started{false};
+    std::atomic<bool> sawCancel{false};
+    std::atomic<bool> nestedRefused{false};
+    void add_to(CommandRegistry& registry) {
+        CommandInfo i;
+        i.name = "test.block";
+        i.summary = "Runs until cancelled.";
+        registry.add(i, [this, &registry](const Json&) {
+            started = true;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            while (!command_cancelled() && std::chrono::steady_clock::now() < end)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            sawCancel = command_cancelled();
+            // a command it calls now is refused: a compound command or an agent stops at its next step
+            const CommandResult nested = registry.call("test.echo_value", Json::object({{"value", 1}}));
+            nestedRefused = !nested.ok && nested.error["code"] == "cancelled";
+            return Json::object({{"finished", true}});
+        });
+    }
+};
+
+bool wait_until(const std::function<bool()>& done) {  // 30 s: far above what a loaded machine needs
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!done()) {
+        if (std::chrono::steady_clock::now() > end) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return true;
+}
+
+std::string cancel_message(const Json& requestId) {
+    return Json::object({{"jsonrpc", "2.0"}, {"method", "notifications/cancelled"},
+                         {"params", Json::object({{"requestId", requestId}, {"reason", "the user pressed Esc"}})}})
+        .dump();
+}
+
+}  // namespace
+
+TEST_CASE("mcp: notifications/cancelled stops the running request, which then gets no response") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    f.initialize();
+    std::optional<std::string> response = std::string("not set");
+    std::thread caller([&] {
+        response = f.server.handle_message(R"({"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+    });
+    REQUIRE(wait_until([&] { return blocker.started.load(); }));
+    CHECK(f.server.session()->requests_in_flight() == 1);
+    CHECK(McpServer::is_cancel_notification(cancel_message("call-1")));
+    CHECK_FALSE(f.server.handle_message(cancel_message("call-1")).has_value());  // a notification: no answer either
+    caller.join();
+    CHECK(blocker.sawCancel);
+    CHECK(blocker.nestedRefused);
+    CHECK_FALSE(response.has_value());  // MCP: a cancelled request gets no response
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // The server goes on: the same id again is a new request, answered.
+    CHECK(f.call("test_echo_value", {{"value", 2}})["result"]["isError"] == false);
+}
+
+TEST_CASE("mcp: a cancel for an unknown or finished request is ignored without an error") {
+    Fixture f;
+    f.initialize();
+    CHECK_FALSE(f.server.handle_message(cancel_message(999)).has_value());     // never sent
+    const Json done = f.call("test_echo_value", {{"value", 4}});              // answered: id 2
+    CHECK_FALSE(f.server.handle_message(cancel_message(done["id"])).has_value());  // too late: nothing to stop
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // malformed cancels are notifications too: no answer, nothing breaks
+    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{}})").has_value());
+    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"a":1}}})").has_value());
+    CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":"2.0","id":1,"method":"notifications/cancelled"})"));
+    CHECK_FALSE(McpServer::is_cancel_notification("[" + cancel_message(1) + "]"));
+    CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":1}})"));
+    // the next call works as usual
+    CHECK(result_json(f.call("test_echo_value", {{"value", 5}})["result"])["echo"] == 5);
+}
+
+TEST_CASE("mcp: servers that share a session see one handshake and cancel each other's requests") {
+    TempDir tmp;
+    CommandRegistry registry;
+    Blocker blocker;
+    blocker.add_to(registry);
+    SimpleMcpHost host(registry, tmp.path.string());
+    auto session = std::make_shared<McpSession>();
+    McpServer first(host);
+    first.share_session(session);
+    REQUIRE(first.handle_message(R"({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})"));
+    McpServer second(host);
+    second.share_session(session);  // made after the initialize: takes its protocol
+    CHECK(second.protocol_version() == "2025-03-26");
+    std::optional<std::string> response = std::string("not set");
+    std::thread caller([&] {
+        response = first.handle_message(R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+    });
+    REQUIRE(wait_until([&] { return blocker.started.load(); }));
+    CHECK_FALSE(second.handle_message(cancel_message(7)).has_value());  // another server of the same client
+    caller.join();
+    CHECK_FALSE(response.has_value());
+    CHECK(blocker.sawCancel);
+}
+
+TEST_CASE("mcp: over stdio a cancel is read at once; the other lines keep their order") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}\n" +
+        cancel_message(2) + "\n" +
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":6}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    // The cancel is read as soon as it arrives: the call stops if it already runs, or is skipped if it still waits.
+    CHECK((blocker.sawCancel || !blocker.started));
+    REQUIRE(msgs.size() == 3);  // initialize, ping, the echo: nothing for the cancelled call
+    CHECK(msgs[0]["id"] == 1);
+    CHECK(msgs[1]["id"] == 3);
+    CHECK(msgs[2]["id"] == 4);
+    CHECK(result_json(msgs[2]["result"])["echo"] == 6);
+}
+
+TEST_CASE("mcp: over stdio a request cancelled while it waits for its turn never runs and gets no answer") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    std::atomic<bool> recordRan{false};
+    CommandInfo info;
+    info.name = "test.record";
+    info.summary = "Says it ran.";
+    f.registry.add(info, [&](const Json&) {
+        recordRan = true;
+        return Json::object();
+    });
+    // The reading thread takes the lines in order: request 3 is queued (behind the blocking 2) before its cancel is
+    // read, and the cancel of 2, which lets the loop go on, comes after that.
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_record\",\"arguments\":{}}}\n" +
+        cancel_message(3) + "\n" + cancel_message(2) + "\n" +
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":7}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    CHECK_FALSE(recordRan);  // skipped: it was cancelled before its turn
+    REQUIRE(msgs.size() == 2);  // initialize and the echo
+    CHECK(msgs[0]["id"] == 1);
+    CHECK(msgs[1]["id"] == 4);
+    CHECK(result_json(msgs[1]["result"])["echo"] == 7);
+    CHECK(f.server.session()->requests_queued() == 0);
+    CHECK(f.server.session()->requests_in_flight() == 0);
+}
+
+namespace {
+
+// Hands out `lines`, then the end of the input once `eofWhen` is true (a timeout before that).
+class ScriptedReader final : public LineReader {
+public:
+    ScriptedReader(std::vector<std::string> lines, std::function<bool()> eofWhen)
+        : lines_(std::move(lines)), eofWhen_(std::move(eofWhen)) {}
+    Status next(std::string& line, std::chrono::milliseconds timeout) override {
+        if (at_ < lines_.size()) {
+            line = lines_[at_++];
+            return Status::Line;
+        }
+        if (eofWhen_()) return Status::Eof;
+        std::this_thread::sleep_for(std::min(timeout, std::chrono::milliseconds(5)));
+        return Status::Timeout;
+    }
+    bool holds_input() const override { return false; }
+
+private:
+    std::vector<std::string> lines_;
+    std::size_t at_ = 0;
+    std::function<bool()> eofWhen_;
+};
+
+}  // namespace
+
+TEST_CASE("mcp: over stdio the end of the input cancels a request still running after the grace") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    // The input ends while the blocking call runs, with another call queued behind it.
+    ScriptedReader reader(
+        {R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})",
+         R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_block","arguments":{}}})",
+         R"({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"test_echo_value","arguments":{"value":1}}})"},
+        [&] { return blocker.started.load(); });
+    std::ostringstream out;
+    StdioLoopOptions options;
+    options.eofGrace = std::chrono::milliseconds(200);  // the blocker waits 60 s: only the cancel ends it sooner
+    CHECK(run_stdio_loop(f.server, reader, out, options) == StdioExit::Eof);
+    CHECK(blocker.sawCancel);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 1);  // the initialize: the cancelled call and the one queued behind it get no answer
+    CHECK(msgs[0]["id"] == 1);
+    CHECK(f.server.session()->requests_queued() == 0);
+    CHECK(f.server.session()->requests_in_flight() == 0);
+}
+
+TEST_CASE("mcp: over stdio a loop that ends within the grace after the input ends cancels nothing") {
+    Fixture f;
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);  // the default grace (10 s) is far above what two quick messages need
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 2);
+    CHECK(result_json(msgs[1]["result"])["echo"] == 1);
+}
+
+TEST_CASE("mcp: a session keeps a cancel for a queued request until it begins") {
+    McpSession session;
+    session.expect_request(5);
+    session.expect_request("five");
+    CHECK(session.requests_queued() == 2);
+    CHECK(session.cancel(5));            // queued: kept
+    CHECK_FALSE(session.cancel(6));      // unknown: ignored
+    auto five = session.begin_request(5);
+    CHECK(five->load());                 // starts cancelled
+    CHECK(session.end_request(5, five));
+    auto other = session.begin_request("five");
+    CHECK_FALSE(other->load());          // a string id is another request
+    CHECK_FALSE(session.end_request("five", other));
+    CHECK(session.requests_queued() == 0);
 }

@@ -726,3 +726,38 @@ TEST_CASE("load_scene: a duplicate id warning explains scenes saved with script-
     REQUIRE(r.messages.size() == 1);
     CHECK(r.messages[0].hint.find("script") != std::string::npos);
 }
+
+TEST_CASE("serialize: nothing is created under a parent that is being destroyed") {
+    World w;
+    Entity parent = w.create("Parent", "parent");
+    Entity kid = w.create("Kid", "kid");
+    w.set_parent(kid, parent);
+    w.destroy(parent);
+    const std::size_t before = w.entities().size();
+
+    LoadReport r;
+    Entity e = entity_from_json(w, Json::parse(R"({"id":"orphan","components":{"Transform":{"position":[5,0,0]}}})"), parent, r, "spawn");
+    CHECK(e.is_null());
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.messages[0].message.find("'parent'") != std::string::npos);
+    CHECK(r.messages[0].message.find("being destroyed") != std::string::npos);
+    CHECK_FALSE(r.messages[0].hint.empty());
+    CHECK(r.created.empty());
+    CHECK(w.entities().size() == before);  // not even a half-made entity
+    CHECK(w.find_by_id("orphan").is_null());
+
+    // A child of the destroyed entity is refused the same way, a prefab too, and a live parent still works.
+    LoadReport r2;
+    CHECK(entity_from_json(w, Json::parse(R"({"id":"orphan2"})"), kid, r2, "spawn").is_null());
+    CHECK_FALSE(r2.ok());
+    LoadReport r3;
+    CHECK(instantiate_prefab(w, "prefabs/does-not-matter.prefab.json", parent, r3).is_null());
+    REQUIRE_FALSE(r3.ok());
+    CHECK(r3.messages[0].message.find("being destroyed") != std::string::npos);
+
+    Entity live = w.create("Live", "live");
+    LoadReport r4;
+    Entity ok = entity_from_json(w, Json::parse(R"({"id":"child"})"), live, r4, "spawn");
+    CHECK(r4.ok());
+    CHECK(w.parent(ok) == live);
+}

@@ -106,7 +106,7 @@ TEST_CASE("rig.create: writes the document, fits and bakes a skinned .glb that l
     CHECK(prov["recipe"]["inputs"].size() == 2);
 
     auto sk = parse_skeleton(bytes_of(p.file(kGlb)), kGlb);
-    REQUIRE_MESSAGE(sk.ok(), sk.error().to_string());
+    REQUIRE_MESSAGE(sk.ok(), (sk.ok() ? std::string() : sk.error().to_string()));
     REQUIRE(sk->skins.size() >= 1);
     const SkelSkin& skin = sk->skins[0];
     REQUIRE(skin.joints.size() == 22);

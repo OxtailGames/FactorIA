@@ -189,6 +189,25 @@ struct PlatformEvent {
     Json data;
 };
 
+// How long a request may stay unanswered before the engine answers it itself (docs/PLATFORM.md, "Deadlines"): the answer is
+// the error "network" ("no answer from the <backend> backend in <N> s"), and a late answer from the backend is ignored, except a
+// late SUCCESSFUL purchases.buy / purchases.restore: money was taken, so it reaches the game as a `purchase` event instead.
+inline constexpr double kPlatformDefaultTimeoutSeconds = 30.0;      // every method that does not wait for the player
+inline constexpr double kPlatformInteractiveTimeoutSeconds = 300.0;  // purchases.buy / .restore, ads.showRewarded / .privacyOptions, player.signIn
+// ads.consent / ads.available / ads.setUnderAge: the ads plugins wait for the consent flow (a form the player fills in) up to 120 s, for
+// as long as the player is busy with it, and then up to 30 s for an ad to load; the engine's deadline must stay above that.
+inline constexpr double kPlatformAdsFlowTimeoutSeconds = 600.0;
+// How many purchases.buy / .restore requests the engine gave up on are remembered, to deliver a late successful answer as an event.
+inline constexpr std::size_t kPlatformMaxWatchedPurchases = 64;
+inline constexpr double kPlatformHttpGraceSeconds = 5.0;  // http.fetch: its own `timeout` argument (default 15 s) plus this
+// The most events kept for the game between two take_events() calls: past it the OLDEST are dropped (counted, one warning), the
+// overlay, player and remotePlay events before any `purchase` (a purchase is money: it goes only when nothing else is left to drop).
+inline constexpr std::size_t kPlatformMaxQueuedEvents = 1024;
+// The most answers kept for the game between two take_answers() calls: the oldest are dropped past it (the games' promises for them stay
+// pending); one request needs a pending slot, so this only happens when a game starts thousands of requests in one frame and never
+// takes the answers.
+inline constexpr std::size_t kPlatformMaxQueuedAnswers = 4096;
+
 // ------------------------------------------------------------------------------------------------------- backend --
 
 // How a backend answers. A small copyable handle, safe to keep and to use from any thread, also after the
@@ -223,6 +242,10 @@ public:
     // Starts one request. Answer with sink.complete / sink.fail exactly once: now (same thread) or later (any thread).
     virtual void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) = 0;
     virtual void frame() {}  // once per engine frame, on the game thread, before scripts run
+    // The engine gave up on request `id` (its deadline passed, PlatformServices::request_timeout): stop working on it if you can. Its answer, if
+    // it still comes, is ignored (a successful purchases.buy / .restore becomes a `purchase` event). Called on the game thread; the
+    // default does nothing. A backend that keeps per-request state must release it here.
+    virtual void cancel(std::uint64_t id) { (void)id; }
 };
 
 // The backend of a game with no store: offers no service; player.signIn answers "not signed in".
@@ -299,14 +322,30 @@ public:
     // failures come back as answers. Game thread only.
     Result<StartInfo> start(const std::string& method, const Json& args);
 
-    // Once per engine frame, before scripts: backend->frame() (the fake releases delayed answers there).
+    // Once per engine frame, before scripts: backend->frame() (the fake releases delayed answers there), then every request past its
+    // deadline is answered with the error "network" (request_timeout) and its backend is told through cancel(). The deadline is IO, not
+    // simulation: it reads a monotonic clock (set_clock), and a request served by the fake backend has none (its answers are scripted).
     void frame();
+    // Seconds `method` may stay unanswered: kPlatformDefaultTimeoutSeconds, kPlatformInteractiveTimeoutSeconds for the methods that wait for
+    // the player, or what set_request_timeout gave. http.fetch adds kPlatformHttpGraceSeconds to the request's own `timeout`
+    // (pass it as `args`; default 15 s).
+    double request_timeout(const std::string& method, const Json& args = Json::object()) const;
+    // Overrides the deadline of one method (for http.fetch: the grace added to the request's `timeout`). seconds <= 0 removes the override.
+    void set_request_timeout(const std::string& method, double seconds);
+    // The monotonic clock the deadlines read, in seconds (any origin). Default: std::chrono::steady_clock. Tests pass their own.
+    using Clock = std::function<double()>;
+    void set_clock(Clock clock);
+    // Events dropped because the queue was full (kPlatformMaxQueuedEvents) and answers dropped for the same reason, since the last reset_session().
+    std::uint64_t dropped_events() const;
+    std::uint64_t dropped_answers() const;
+    // Requests the engine gave up on since the last reset_session().
+    std::uint64_t timed_out() const;
     // Answers and events that arrived since the last call, in the order they came (the script layer settles promises and
     // calls listeners at the start of a frame).
     std::vector<PlatformAnswer> take_answers();
     std::vector<PlatformEvent> take_events();
 
-    // {backend, adsBackend, release, services, audience, underAge, player: {id, name, signedIn}, pending} (adsBackend: the
+    // {backend, adsBackend, release, services, audience, underAge, player: {id, name, signedIn}, pending, droppedEvents, timedOut} (adsBackend: the
     // backend that answers ads.*, "none" when no backend offers ads; audience: the catalog's platform.ads.audience; underAge:
     // what platform.ads.setUnderAge said, true for a children's game, null before any answer; player: what the last signIn
     // answer or `player` event said; signedIn false before any).

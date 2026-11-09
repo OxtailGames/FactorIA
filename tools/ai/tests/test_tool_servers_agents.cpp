@@ -158,7 +158,7 @@ TEST_CASE("AgentSession with Claude Code: the server is allowed, named in the pr
     std::size_t leftovers = 0;
     std::error_code ec;
     for (const auto& e : std::filesystem::directory_iterator(dir.path / ".factoria" / "ai", ec))
-        if (has(e.path().filename().string(), "mcp-claude-code-")) ++leftovers;
+        if (has(e.path().filename().string(), "fa-run-mcp-claude-code-")) ++leftovers;
     CHECK(leftovers == 0);
 }
 
