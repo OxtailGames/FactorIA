@@ -674,7 +674,7 @@ TEST_CASE("text: Japanese, Chinese, Korean and Arabic draw together through the 
     put_text(w, "مرحبا بالعالم", {155, -80, 0}, 20, kAr, Align::Right, 0, RenderSpace::World, {1, 0});
     put_text(w, "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E", {314, 4, 0}, 12, "", Align::Right, 0, RenderSpace::Screen, {1, 1});
     const Image img = g.render(w);
-    expect_golden(img, "2d_text_scripts");
+    expect_golden_edges(img, "2d_text_scripts");
     CHECK(g.renderer.stats().textGlyphs > 60);
 }
 

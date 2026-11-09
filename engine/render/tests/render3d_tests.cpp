@@ -756,7 +756,7 @@ TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") 
     CHECK(log.messages().empty());
     const Image solid = frame("");
     CHECK(diff_images(cut, solid, 4.0f / 255.0f).meanError > 0.005);
-    expect_golden(cut, "3d_material_cutout");
+    expect_golden_edges(cut, "3d_material_cutout");
 }
 
 TEST_CASE("materials: the alpha of a vertex color cuts a clip material's mesh and its shadow, and custom materials keep the tint") {

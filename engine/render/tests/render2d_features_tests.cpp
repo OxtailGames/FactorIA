@@ -493,7 +493,7 @@ TEST_CASE("parallax: a repeating strip never runs out and the result is determin
         INFO("camera 37, pixel x " << x);
         CHECK(near(ic.pixel(x, 150), m < 10.0f ? Color::hex(0xff8000) : Color::hex(0x303040)));
     }
-    expect_golden(ic, "2d_parallax");
+    expect_golden_edges(ic, "2d_parallax");
 }
 
 TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes keep their colour (golden)") {

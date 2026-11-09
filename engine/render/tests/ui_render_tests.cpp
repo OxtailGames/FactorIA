@@ -185,7 +185,7 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
     CHECK(near(img.pixel(100, 178), clear, 0.05f));  // third item: entirely outside
     CHECK(near(img.pixel(40, 165), Color::hex(0x40e040), 0.03f));  // a Shape2D under the list is cut at the same edge
     CHECK(near(img.pixel(40, 172), clear, 0.05f));
-    expect_golden(img, "2d_widgets");
+    expect_golden_edges(img, "2d_widgets");
 }
 
 TEST_CASE("on-screen gamepad: discs, the knob follows the stick value, a hidden control draws nothing") {
@@ -286,7 +286,7 @@ TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its 
         }
     CHECK(speakerColoured);
     CHECK(whiteText);
-    expect_golden(img, "2d_captions");
+    expect_golden_edges(img, "2d_captions");
 
     c.align = Align::Left;
     Image left = g.render(w);
