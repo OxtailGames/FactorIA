@@ -12,6 +12,7 @@
 #include <format>
 #include <map>
 
+#include "fa/core/det_math.h"
 #include "fa/scene/model_modifiers.h"
 #include "model_mesh_ops.h"
 
@@ -197,7 +198,7 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
             return make_error(std::format("a bevel of width {} does not fit: the faces next to the sharp edges are smaller than any bevel", p.width),
                               "Lower `width` a lot, or bevel only the larger parts of the model (put the bevel node around them).");
         // report a width that works, rounded down to two significant digits
-        const float mag = std::pow(10.0f, std::floor(std::log10(width)) - 1.0f);
+        const float mag = det::pow(10.0f, std::floor(det::log10(width)) - 1.0f);
         const float shown = std::floor(width / mag) * mag;
         return make_error(std::format("a bevel of width {} is wider than the faces next to the sharp edges can give (a face would turn inside out)", p.width),
                           std::format("Use a width of about {} or less.", shown));

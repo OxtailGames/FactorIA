@@ -479,6 +479,18 @@ NATIVE(guardEnd) {
     return JS_UNDEFINED;
 }
 
+// Cuts of the watchdog so far, and the text of those after the first `since` (a test that survived a cut inside a callback
+// of its game.step fails: its result depends on the machine's speed).
+NATIVE(watchdogCuts) {
+    SETUP;
+    const double since = arg_num(ctx, argc, argv, 0, -1);
+    if (since < 0) return JS_NewFloat64(ctx, static_cast<double>(I->cutCount));
+    std::string text;
+    const size_t first = since >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(since);
+    for (size_t i = first; i < I->cuts.size(); ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
+    return JS_NewString(ctx, text.c_str());
+}
+
 NATIVE(logSeq) {
     (void)thisv; (void)argc; (void)argv;
     return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
@@ -4184,7 +4196,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),

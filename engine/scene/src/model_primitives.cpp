@@ -5,6 +5,7 @@
 #include <cmath>
 #include <utility>
 
+#include "fa/core/det_math.h"
 #include "fa/scene/model_kernel.h"
 
 namespace fa {
@@ -132,10 +133,10 @@ void arc_points(Strip& out, float radius, float cy, float a0, float a1, int ring
 // v = 1 at the first point of the strip and 0 at the last, by distance along it.
 void spread_v(Strip& strip) {
     float total = 0;
-    for (std::size_t i = 1; i < strip.size(); ++i) total += std::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y);
+    for (std::size_t i = 1; i < strip.size(); ++i) total += float(det::f64::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y));
     float run = 0;
     for (std::size_t i = 0; i < strip.size(); ++i) {
-        if (i) run += std::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y);
+        if (i) run += float(det::f64::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y));
         strip[i].v = total > 0 ? 1.0f - run / total : 0.0f;
     }
 }

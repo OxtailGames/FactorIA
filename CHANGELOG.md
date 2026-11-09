@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs (M91.3):** `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p`, `pow` (and `**`), `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot` in scripts are the engine's deterministic functions: the same bits on every platform (the C library's last bit differs between them), accurate to about 1 ulp, with `Math.pow(2, 10)` and the other exact cases exact. Every script the engine runs gets them (game scripts, tests, tools and editor scripts: there is one QuickJS). A callback cut by the script watchdog now makes the run invalid and loud: an error naming the script and the callback, `factoria run --headless` exits 1 with `replayValid: false` and `watchdogCuts` in the report, a test that ran while a callback was cut fails, and `play.auto` reports an INVALID RUN. docs/SCRIPTING.md, "Runtime notes".
+- **For engine developers (M91.3):** `fa/core/det_math.h` has `fa::det::f64::` (`exp`, `exp2`, `expm1`, `log`, `log2`, `log10`, `log1p`, `pow`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, the hyperbolics, `cbrt`, `hypot`) built only from `+ - * / sqrt`, and `float` versions of the new ones next to the existing frozen ones (`det::exp`, `pow`, `log`, `tan`, ...); a table of bit patterns and an accuracy test check them. The feel effects, animation clips, bounds, the model builders (bevel, remesh, SDF mesh, primitives, mesh surface and store), the VFX budget and the camera maths use them instead of `std::exp`/`pow`/`sin`/`cos`/`tan`, so a model or mesh built from those can differ from 0.20.0 by about one ulp. `engine/core/tests/test_det_scan.cpp` reads the simulation sources and fails on any C library transcendental; its file list (`kSimulationDirs`, `kSimulationFiles`, `kExempt`) is the place to add new simulation code. QuickJS's `Math` is routed to `f64` by a force-included header (`engine/script/quickjs_det/`), `external/` untouched. Replay hashes: particles and feel (`det_replay_hashes`) and a script that drives `Math`, 2D and 3D physics and nav (`det_probe_hashes`, `tools/cli/tests/determinism_probe.js`) are compared with committed values on the Linux, Windows and macOS jobs; the script one also runs in the Android emulator, the iOS simulator and the web smoke test (`scripts/det-hash-check.sh`). docs/ARCHITECTURE.md, "Determinism of the maths".
+
 ## 0.20.0
 
 FactorIA 0.20.0 (M90) fixes what an outside review of the engine found. The MCP server speaks protocol 2025-06-18

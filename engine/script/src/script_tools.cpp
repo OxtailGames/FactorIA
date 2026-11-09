@@ -216,6 +216,7 @@ Result<Json> Impl::eval(std::string_view code) {
         JS_FreeValue(ctx, exc);
         if (timedOut) {
             timedOut = false;
+            if (!debug_session_ended()) record_cut("eval", "", limit_text(5.0));
             e.message = debug_session_ended() ? "eval was stopped because the debug session ended"
                                               : "script took too long (" + limit_text(5.0) + ") in eval";
         }
@@ -525,6 +526,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             JS_FreeValue(ctx, exc);
             if (timedOut) {
                 timedOut = false;
+                if (!debug_session_ended()) record_cut(timedOutLabel.empty() ? "a test" : timedOutLabel, path, limit_text(timedOutSeconds));
                 e.message = debug_session_ended()
                                 ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
                                 : "a test used more than 60 s of CPU time (or " + std::to_string(static_cast<int>(60 * kWallCapFactor)) +
