@@ -1498,7 +1498,9 @@
         lastVariant.set(path, pick);
         path = N.audioVariantPath(path, pick, n);
       }
-      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
+      if (o.priority !== undefined && !(typeof o.priority === "number" && o.priority >= 0 && o.priority <= 255))
+        throw new Error(`audio.play(path, { priority }): priority is a number from 0 to 255 (default 128; higher wins a voice when all 64 play), but got ${inspect(o.priority)}`);
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },

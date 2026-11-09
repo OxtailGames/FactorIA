@@ -12,10 +12,17 @@
 // mixed, with its effects and volume, and then summed into its parent. All of it runs in the same mixer on the null device,
 // so the result is deterministic.
 //
+// Threads (docs/SOUND.md, "The audio callback"): every call below is thread-safe and answers from the game side's own record
+// of what it asked for. The device's callback never waits for it: the calls send commands through bounded lock-free queues,
+// the callback applies them at the start of its next block, and it takes no lock and allocates nothing. With a device the
+// commands of one call reach the mixer together; on the null device each is applied at once, so a headless run stays
+// deterministic. What the mixer reports back (voices that ended, the music state) is read at the next call.
+//
 // Memory: a clip is decoded whole to 44.1 kHz stereo float when it loads, except the long ones. A clip streams when its
 // import setting `stream` (assets.json) is "always", or "auto" and it lasts more than 10 seconds: it keeps its encoded
-// file and every voice playing it decodes a few thousand frames at a time, so a 3-minute track holds about 100 KB of
-// PCM instead of 63 MB. `normalize` plays a clip at the loudness the import settings ask for (fa/audio/analysis.h).
+// file and every voice playing it keeps a ring of decoded frames that jobs (fa::jobs) refill ahead of the mixer, so a
+// 3-minute track holds a few hundred KB of PCM instead of 63 MB. A ring the jobs did not refill in time plays silence
+// (stats().underruns). `normalize` plays a clip at the loudness the import settings ask for (fa/audio/analysis.h).
 #pragma once
 
 #include <cstdint>
@@ -43,6 +50,9 @@ struct PlayParams {
     std::string bus = "sfx";  // "sfx" | "music" | "ui" or a bus of the project — each bus has its own volume
     bool notifyEnd = false;   // the voice's end is queued for take_ended_voices()
     std::int64_t delayFrames = 0;  // output frames of silence before the voice sounds (a music stinger waiting for its beat); 0 = now
+    // Voice stealing (docs/SOUND.md): with every voice taken, a play replaces the voice of the lowest priority, the quietest
+    // of those, when its own priority is higher, or the same and it is louder; otherwise it does not play. 0..255.
+    int priority = 128;
 };
 
 // A bus a project declares (factoria.json "audio.buses"): `parent` is "sfx", "music", "ui", "master" or another project bus.
@@ -53,7 +63,8 @@ struct AudioBusDef {
 
 // One entry of the play log: a play request (kind "play": play() calls from scripts, AudioSource components starting a clip
 // and play_music(); failed requests are logged too, with ok = false) or a volume change of a voice that plays (kind
-// "setVoiceVolume", set_voice_volume: `volume` is the target, `fade` the seconds it takes, `path` the voice's clip).
+// "setVoiceVolume", set_voice_volume: `volume` is the target, `fade` the seconds it takes, `path` the voice's clip). A play
+// a full mixer refused (voice stealing) is logged with ok = true and voice 0.
 struct AudioEvent {
     std::string kind = "play";  // "play" | "setVoiceVolume"
     VoiceId voice = 0;          // the voice the request started (0 = it did not start), or changed
@@ -102,6 +113,8 @@ struct AudioSnapshot {
 };
 using AudioSnapshots = std::map<std::string, AudioSnapshot>;
 
+struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
+
 class Audio {
 public:
     Audio();
@@ -125,6 +138,7 @@ public:
     static std::shared_ptr<const void> decode_clip(std::string_view clipPath, std::string* error);
     bool adopt_clip(std::string_view clipPath, std::shared_ptr<const void> decoded, std::vector<std::string> files);
     bool clip_loaded(std::string_view clipPath) const;
+    // Starts a clip; 0 when it cannot be loaded, or when every voice is taken by sounds that win over it (PlayParams::priority).
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
@@ -148,8 +162,8 @@ public:
     // `source` the id of the entity whose AudioSource or Video plays it ("" for scripts).
     Json active_voices() const;
     // The voices played with notifyEnd that ended since the last call, in the order they ended: the clip finished, a fade-out
-    // reached 0, stop() was called, or a full mixer evicted them. stop_all() and a scene load drop the list instead (the
-    // scene that asked is gone).
+    // reached 0, stop() was called, or a new play stole them (PlayParams::priority). stop_all() and a scene load drop the
+    // list instead (the scene that asked is gone).
     std::vector<VoiceId> take_ended_voices();
     // Sets the voice's own volume (the bus and master volumes still apply); with fadeSeconds > 0 it moves there in a
     // straight line over that time of audio. A voice that plays gets a "setVoiceVolume" entry in the play log unless `log` is false (the engine's own
@@ -202,8 +216,9 @@ public:
     bool paused() const;
     // Looping music on the "music" bus. The same track again only retunes it. persist = the track survives scene loads.
     void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f, bool persist = false);
-    // Layered music: every layer starts on the same mixed sample (one lock), loops, and is faded with set_layer. Replaces
-    // the current music. All or nothing: false (and nothing plays) when a clip fails to load. `volume` scales every layer.
+    // Layered music: every layer starts on the same mixed sample (their plays reach the mixer together), loops, and is
+    // faded with set_layer. Replaces the current music. All or nothing: false (and nothing plays) when a clip fails to load.
+    // `volume` scales every layer.
     bool play_music_layers(const std::vector<MusicLayer>& layers, float volume = 0.6f, float fadeSeconds = 0.5f,
                            bool persist = false);
     // Moves a layer of the current layered music to `level` (0..1) over fadeSeconds; false for an unknown layer.
@@ -233,7 +248,8 @@ public:
     // (negative: crossfadeBars). It starts at `section` ("" = the beginning). Without music playing the song just starts.
     Result<void> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
                                     std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
-    // The state of the player of `e` (exists = false when it has none).
+    // The state of the player of `e` (exists = false when it has none). With a device it is the mixer's state after its last
+    // block: a change sent in this frame shows from the next one.
     MusicStatus music_status(World& world, Entity e) const;
     // Every player: [{entity, ...status}], the ones playing out after a scene change included.
     Json music_players() const;
@@ -250,8 +266,12 @@ public:
     // Drives AudioSource/AudioListener components, the sound of Video components and scene music.
     void update(World& world, float dt);
 
-    // Headless: mix `seconds` of audio (called by the engine per frame with dt).
+    // Headless: mix `seconds` of audio (called by the engine per frame with dt). With a device it mixes nothing and does
+    // what service() does.
     void advance_null_device(double seconds);
+    // With a device: hands the queued commands to the mixer, refills the streamed voices' rings (decode jobs) and takes the
+    // recorded output. update() does it every frame; the engine calls it on frames it skips update() (a paused game).
+    void service();
     // Recording of the mixed output (any mode). Stops + writes on stop_recording.
     void start_recording();
     // Writes the WAV (an empty path writes nothing). `pcmOut` / `rateOut` also get the mix as interleaved 16-bit
@@ -261,7 +281,10 @@ public:
 
     // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
     // of the voices that stream) and streamedClips (the loaded clips that stream), busEffects (the bus_state of every bus,
-    // master included) and snapshot (the last one applied, "" = none).
+    // master included) and snapshot (the last one applied, "" = none). The real-time path: underruns / underrunFrames
+    // (a streamed voice found nothing decoded and played that many frames of silence), commandsDropped / settingsDropped
+    // (a stalled device: the oldest plays and voice settings, then bus and music settings, dropped from the full queue),
+    // voicesStolen / voicesRejected (voice stealing with every voice taken).
     Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)
@@ -272,6 +295,7 @@ public:
     struct Impl;
 
 private:
+    friend struct AudioTestAccess;
     std::unique_ptr<Impl> impl_;
 };
 

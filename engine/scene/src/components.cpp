@@ -1653,7 +1653,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("playOnStart", &AudioSource::playOnStart, "Start playing when the entity spawns / the scene loads.")
         .field("playing", &AudioSource::playing, "Runtime state: true while a voice is playing. Set true to play, false to stop.").runtime_only()
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
-        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
+        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000)
+        .field("priority", &AudioSource::priority,
+               "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest "
+               "priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise "
+               "the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard "
+               "(dialogue, alarms), lower it for ambient detail.").range(0, 255);
 
     r.add<MusicPlayer>(
           "MusicPlayer",

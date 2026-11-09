@@ -2863,6 +2863,8 @@ NATIVE(audioPlay) {
     std::string bus = arg_str(ctx, argc, argv, 5);
     if (!bus.empty()) pp.bus = bus;
     pp.notifyEnd = arg_bool(ctx, argc, argv, 10, false);
+    const double priority = arg_num(ctx, argc, argv, 11, 128);  // clamped before the narrowing (NaN: the default)
+    pp.priority = std::isfinite(priority) ? static_cast<int>(std::clamp(priority, 0.0, 255.0)) : 128;
     const VoiceId voice = I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.

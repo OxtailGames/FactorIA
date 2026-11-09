@@ -442,6 +442,24 @@ audio.render {"path":"assets/audio/wind_loop.audio.json","stopAfter":0}
 -> the chain up to the trim: 0.585 s, before the seam
 ```
 
+## Voice stealing
+
+At most 64 voices play at once: sounds, `audio.music` and its layers, a video's sound, a `MusicPlayer`'s clip stingers (a
+`MusicPlayer`'s song plays in a transport of its own and takes no voice). When all 64 play, a new sound replaces the
+voice with the **lowest priority**, the **quietest** of those (ties: the one started first), if the new sound has a higher
+priority, or the same priority and is louder. Otherwise the new sound does not play: `audio.play` returns 0, `stats()` counts it
+in `voicesRejected` and the log names the clip once. How long a voice has played never decides. A replaced voice ends like a
+stopped one: its `onEnded` is called and `take_ended_voices` reports it; `stats()` counts it in `voicesStolen`.
+
+- **Priority**: 0..255, default 128: `audio.play(path, { priority })` in a script, `AudioSource.priority` in a scene, `PlayParams::priority`
+  in C++. Raise it for dialogue, alarms and the sounds the player must hear; lower it for ambient detail. Music (`audio.music`,
+  `musicLayers`) has a priority above 255, so no sound ever replaces it; a video's sound has 192, a clip stinger 128.
+- **Loudness**: the voice's own volume times its clip's normalization gain and the volumes and snapshot scales of its bus and
+  the buses above it (the values the game set, not a measurement of the output). Music fading out to its end (`stopMusic`
+  with a fade, a replaced track) counts as silent.
+
+Up to 0.20 a full mixer replaced the oldest sound that did not loop (else the oldest that was not music) and a new sound always played.
+
 ## The Sound panel
 
 The editor's Sound panel (View > Sound, or a double click on a patch, an audio document or a recording in the Project panel) edits
@@ -461,16 +479,60 @@ velocity, normalization). `assets.synth_sound` renders a preset with `options.se
 
 ### The audio callback
 
-The mixer that fills the device's buffer (`Audio::Impl::mix_locked`, behind the lock the main thread also takes) allocates nothing
-while it mixes: the per-block flags of every bus, the bus buffers (4096 frames from the moment the bus table is built; a bigger
-device block grows them once, the first time; some Android and web devices may ask for more than 4096 frames, and the first such block allocates once), the ducking gains and the list of ended voices are made when the bus table is
-(`build_mix_order`, called by `set_buses`), outside the callback, and the callback only writes into them. A new bus table is
-therefore ready before the next block. Two things still allocate on purpose: recording (`start_recording` appends every block
-to a vector; it is a diagnostic, not part of a shipped game) and the single log line of the first callback after a device starts.
-The callback can still free memory (a voice that ends is erased, and its stream or the last reference to its clip is released, on
-the audio thread). The test counts calls to `operator new` only, so a `malloc` made inside the C decoders (stb_vorbis, minimp3,
-dr_wav, qoa) while a streamed clip decodes in the callback is not covered. The callback still takes the lock (`std::mutex`), so a
-long call into `Audio` from the main thread can delay a block; the lock-free mixer is a separate step (M91.4).
-`engine/audio/tests/test_audio_realtime.cpp` counts the heap allocations of the mixing thread
-(a replaced global `operator new` in the test binary, counting only inside an `AllocCounter::Scope`) over voices on several buses
-with a low-pass, a reverb, ducking, a streamed clip, a PCM voice and ended voices, and expects zero.
+The device callback (`Mixer::render`, `engine/audio/src/audio_mixer.h`) takes no lock, allocates nothing and frees nothing. The
+game thread and the callback share only bounded single-producer single-consumer queues (`audio_rings.h`) and a few atomics, and
+each memory ordering is explained where it is used:
+
+- **Commands, game to mixer.** Every `Audio` call that changes what plays becomes a command made on the game thread: a play or a
+  stop, a voice's volume, pitch, pan or bus, a bus volume, effect or ducking, a snapshot, a new bus table, a music transport
+  change, the recorder. The commands of one call are committed together, so the mixer applies them in the same block. The ring
+  holds 2048. When the callback falls behind, the rest wait on the game side in a staging queue of at most 8192; past that the
+  oldest play or voice setting is dropped, then the oldest bus or music setting. Stops, removals, music starts, bus table swaps
+  and the recorder are never dropped (they end or free something the game waits for). A dropped play ends its voice on the
+  game side, so `onEnded` and `take_ended_voices` still report it. `stats()` counts `commandsDropped` (plays and voice settings)
+  and `settingsDropped` (bus and music settings), and the log says it once.
+- **Returns, mixer to game.** A ring of 4096: the commands the mixer applied, which the game frees with what they carried back
+  (an old bus table, a removed music transport, the last reference to a clip), and the voices that ended. The mixer applies a
+  command only while the returns have room for everything it can give back, so nothing is lost there; a command that does not
+  fit waits for the next block.
+- **Streamed voices.** A clip that streams (`"stream"` in assets.json, docs/ASSETS.md) keeps a ring of decoded frames: 12288
+  frames (279 ms at 44.1 kHz) for a sound, one second when it plays as music (`play_music` and its layers). The first 4096 frames are decoded on
+  the game thread when the voice starts; after that the game hands a decode job (`fa::jobs`, `audio.stream`) every frame to each
+  ring with room for at least 2048. A ring that runs dry is an **underrun**: the voice plays silence for the rest of the block
+  and waits where it is (no frame is skipped), the callback never waits for the decoder, and `stats()` counts `underruns` (one per
+  voice and block) and `underrunFrames`. Only a game thread that stalls for longer than a ring lasts underruns.
+- **Music players.** Each `MusicPlayer` has its transport in the mixer (64 at most at once). The game reads the transport's
+  state from a triple buffer (the newest whole copy) and its events from a ring of 2048 that the transport fills only as far as
+  it has room: events are delayed, never dropped. `music_status` and the component's runtime fields are at most a block behind.
+- **PCM voices and the recorder.** A video's sound and the editor's previews feed a ring of their own (four seconds); the
+  recorder's ring is drained by the game every frame, and a recording the game does not drain for several seconds loses samples
+  and says so in the log.
+
+Every public `Audio` call holds the game side's mutex (recursive: a call may make another); the callback never needs it. What a
+game reads (`isPlaying`, `activeVoices`, `take_ended_voices`, the `MusicPlayer` runtime fields, `stats()`) comes from the game
+side's copy of the state, updated from the returns on each call and each frame, so the simulation never reads what the audio
+thread is writing. With a device the engine calls `Audio::service()` every frame (`update()` does it while the game runs, and the
+engine calls it while the game is paused) to commit the commands, start the refills and take back what the mixer returned.
+
+On the null device (headless runs, tests, `--record-audio`) there is no other thread: a command is applied as it is sent, and
+`advance_null_device` mixes on the calling thread with the same functions as the callback, so a recording is deterministic. There,
+and on the web, where the callback runs on the browser's main thread, a streamed voice whose ring is dry is decoded by the mixer
+itself before it plays.
+
+Nothing the callback uses is made in it: the bus buffers (4096 frames; a bigger device block is mixed in pieces of 4096), the
+ducking gains and the per-block flags are made with the bus table on the game thread and handed over with it; a reverb's delay
+lines are made when it is switched on. Tests:
+
+- `engine/audio/tests/test_audio_realtime.cpp` counts the heap allocations of the thread that mixes on the null device (a
+  replaced global `operator new`, counting only inside an `AllocCounter::Scope`) over voices on several buses with a low-pass, a
+  reverb, ducking, a streamed clip, a PCM voice and ended voices, and expects zero.
+- `engine/audio/tests/test_audio_threads.cpp` drives the mixer as a device would (`AudioTestAccess`, `audio_testing.h`): the
+  callback's allocations while commands of every kind arrive (zero), a callback that mixes while another thread holds the API
+  mutex (it would hang if it took it), a stream starved into underruns that resumes, the rings on two threads, and four threads
+  playing, changing and stopping voices while the callback mixes. These tests and the rest of `fa_test_audio` report no race
+  when built with `-fsanitize=thread`.
+- `engine/audio/tests/test_music.cpp` loads a song on a job and plays intensity changes, a section jump, a stinger and a
+  crossfade with a device thread, with no allocation in the callback.
+
+The count covers `operator new` only, so a `malloc` inside the C decoders (stb_vorbis, minimp3, dr_wav, qoa) while the null
+device or the web decodes a dry stream in the callback is not covered.

@@ -3,10 +3,13 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
 
+#include "../src/audio_testing.h"
+#include "alloc_counter.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
 #include "fa/audio/music_player.h"
@@ -14,6 +17,7 @@
 #include "fa/audio/song.h"
 #include "fa/audio/song_preview.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -752,4 +756,103 @@ TEST_CASE("music: a live render brings a `loudness: style` master to the style g
     CHECK(loud / quiet == doctest::Approx(std::pow(10.0, 21.0 / 20.0)).epsilon(0.1));   // 21 LU apart
     // A master that is not on "style" ignores the guide.
     CHECK(level(-30.0, "off") == doctest::Approx(level(-9.0, "off")));
+}
+
+// ---- the music cache and the player with a device thread ------------------------------------------------------------------------------
+
+TEST_CASE("music cache: past its budget it forgets the songs played longest ago that nothing plays") {
+    PlayerFx fx;
+    fx.mp().quantize = MusicQuantize::None;  // quick crossfades between the songs
+    fx.mp().crossfadeBars = 0.25f;
+    for (const char* n : {"a", "b", "c", "d"})
+        REQUIRE(fs::write_text(std::string("music/") + n + ".song.json", demo_json().dump()).ok());
+    auto play = [&](const char* n) {
+        fx.mp().song = std::string("music/") + n + ".song.json";
+        fx.step(1.0);  // the crossfade ends and the song before is let go
+        REQUIRE(fx.mp().playing);
+        REQUIRE(fx.mp().ready);
+    };
+    auto cached = [&] {
+        std::vector<std::string> out;
+        for (const auto& [key, bytes] : AudioTestAccess::music_cache(fx.audio)) out.push_back(key.substr(0, key.find('|')));
+        return out;
+    };
+    play("a");
+    play("b");
+    play("c");
+    play("a");  // played again: now newer than b
+    play("c");
+    const auto sizes = AudioTestAccess::music_cache(fx.audio);
+    REQUIRE(sizes.size() == 3);
+    const std::size_t song = sizes[0].second;  // the four songs are the same piece: the same size
+    REQUIRE(song > 0);
+    for (const auto& [key, bytes] : sizes) REQUIRE(bytes == song);
+
+    // Room for three: loading d lets go of b, the least recently played; a, loaded first, stays.
+    AudioTestAccess::set_music_cache_budget(fx.audio, 4 * song - 1);
+    play("d");
+    CHECK(cached() == std::vector<std::string>{"music/a.song.json", "music/c.song.json", "music/d.song.json"});
+    // Room for none: a song still sounding (d, fading out while b loads) stays whatever the budget; the others go.
+    AudioTestAccess::set_music_cache_budget(fx.audio, 1);
+    play("b");
+    CHECK(cached() == std::vector<std::string>{"music/b.song.json", "music/d.song.json"});
+}
+
+namespace {
+float render_device(Audio& audio, int blocks) {
+    thread_local std::vector<float> buf(512 * 2);
+    float peak = 0.0f;
+    for (int i = 0; i < blocks; ++i) {
+        AudioTestAccess::render(audio, buf.data(), 512, 2);
+        for (float v : buf) peak = std::max(peak, std::fabs(v));
+    }
+    return peak;
+}
+}  // namespace
+
+TEST_CASE("music player: with a device thread the song loads on a job and the transport's commands mix without allocating") {
+    REQUIRE(jobs::start(jobs::Settings::threads(2)));
+    {
+        PlayerFx fx;
+        fx.mp().quantize = MusicQuantize::Beat;
+        fx.mp().crossfadeBars = 0.25f;
+        fx.mp().intensity = 0.4f;  // the rhythm layer (the harmony one comes in at 0.5)
+        AudioTestAccess::use_manual_device(fx.audio, 48000);
+        (void)render_device(fx.audio, 0);  // makes this thread's output buffer
+        std::size_t allocs = 0;
+        auto frame = [&](int blocks) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);  // the game's frame: commit, refill, take back
+            audio_test::AllocCounter::Scope scope;
+            const float peak = render_device(fx.audio, blocks);
+            allocs += scope.count();
+            return peak;
+        };
+        // The load runs on a worker while the game keeps going (a safety net far above the time it takes).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (!fx.mp().ready && std::chrono::steady_clock::now() < deadline) frame(2);
+        REQUIRE(fx.mp().ready);
+        float peak = 0.0f;
+        for (int i = 0; i < 60; ++i) peak = std::max(peak, frame(2));
+        CHECK(peak > 0.01f);
+        CHECK(fx.mp().playing);
+
+        // Intensity changes, a section jump, a stinger and a crossfade to another song: commands the callback applies.
+        fx.audio.music_set_intensity(fx.world, fx.e, 1.0f);
+        for (int i = 0; i < 30; ++i) frame(2);
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "main", MusicQuantize::Beat).ok());
+        MusicStingerSpec spec;
+        spec.clip = "sounds/sine.wav";
+        spec.quantize = MusicQuantize::Beat;
+        spec.duck = 0.5f;
+        REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+        for (int i = 0; i < 60; ++i) frame(2);
+        fx.mp().song = "music/other.song.json";
+        const auto again = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (fx.mp().tempo != 90.0f && std::chrono::steady_clock::now() < again) frame(2);
+        CHECK(fx.mp().tempo == doctest::Approx(90.0f));
+        for (int i = 0; i < 60; ++i) frame(2);
+        CHECK(fx.mp().playing);
+        CHECK_MESSAGE(allocs == 0, "the device callback allocated " << allocs << " times while the music played");
+    }
+    jobs::stop();
 }
