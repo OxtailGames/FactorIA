@@ -1082,9 +1082,8 @@ const char* Renderer::backend_name() {
         case SG_BACKEND_METAL_IOS:
         case SG_BACKEND_METAL_MACOS:
         case SG_BACKEND_METAL_SIMULATOR: return "metal";
-        case SG_BACKEND_WGPU: return "wgpu";
-        case SG_BACKEND_VULKAN: return "vulkan";
-        default: return "dummy";
+        case SG_BACKEND_DUMMY: return "dummy";
+        default: return "unknown";  // wgpu / vulkan: the engine never builds those sokol backends
     }
 }
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }

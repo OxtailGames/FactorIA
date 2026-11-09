@@ -467,7 +467,7 @@ editor's game view), so check `window.available` first or offer the option only 
 
 ### game.device: pick a quality preset
 `game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high", steamDeck, handheld }`.
-`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, `"gles3"`, `"wgpu"` or `"vulkan"`; `memoryGB` is the machine's physical
+`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, or `"gles3"`; `memoryGB` is the machine's physical
 memory; `tier` comes from the backend and the memory (under 3.5 GB is `"low"`, under 7.5 GB `"medium"`, 5.5 on a phone
 or tablet; unknown memory, as on the web, is `"medium"`). A phone and a tablet differ by the short side of the screen
 (600 logical pixels). **Headless runs, tests and the editor always read** `{ formFactor: "desktop", gpuBackend:

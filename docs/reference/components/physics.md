@@ -16,7 +16,7 @@ A walking character: a kinematic capsule that moves and slides. Move it with phy
 | `stepOffset` | float | `0.3` | Highest step in meters the character walks up (and the distance it snaps down to stay on the ground). Range 0.0..10.0. |
 | `slopeLimit` | float | `45.0` | Steepest slope in degrees the character can walk up; steeper surfaces count as walls. Range 0.0..89.0. |
 | `skin` | float | `0.02` | Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling. Range 0.001..1.0. |
-| `layer` | int | `0` | Collision category of the character, 0..31. Range 0.0..31.0. |
+| `layer` | int | `0` | Collision category of the character, 0..31. Range 0..31. |
 | `mask` | int | `-1` | Bitmask of layers the character collides with. -1 = all layers. |
 | `velocity` | vec3 | `[0.0,0.0,0.0]` | Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion. |
 | `carriedByPlatforms` | bool | `true` | When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it. (since 0.3.0) |
@@ -32,7 +32,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `shape` | enum: box \\| circle \\| capsule | `"box"` | Shape type; uses size (box, capsule) or radius (circle). |
+| `shape` | enum: box \| circle \| capsule | `"box"` | Shape type; uses size (box, capsule) or radius (circle). |
 | `size` | vec2 | `[32.0,32.0]` | box/capsule: [width, height] in world units (capsule is vertical). |
 | `radius` | float | `16.0` | circle: radius in world units. |
 | `offset` | vec2 | `[0.0,0.0]` | Shape center offset [x, y] from the entity origin, in world units. |
@@ -41,7 +41,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = no bounce, 1 = perfectly elastic. Range 0.0..1.0. |
 | `density` | float | `1.0` | Mass per area; mass = density * shape area. Range 0.0..10000.0. |
-| `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
+| `layer` | int | `0` | Collision category of this collider, 0..31. Range 0..31. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers (bit i = layer i). |
 | `oneWay` | bool | `false` | One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump up through it from below and pass sideways. |
 
@@ -51,7 +51,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `shape` | enum: box \\| sphere \\| capsule \\| convex \\| mesh | `"box"` | box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain). |
+| `shape` | enum: box \| sphere \| capsule \| convex \| mesh | `"box"` | box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain). |
 | `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale. |
 | `radius` | float | `0.5` | sphere and capsule: radius in meters. |
 | `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (since 0.2.0) |
@@ -61,7 +61,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
-| `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
+| `layer` | int | `0` | Collision category of this collider, 0..31. Range 0..31. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
 | `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (since 0.3.0) |
 | `navWalkable` | bool | `false` | true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set. (since 0.3.0) |
@@ -74,7 +74,7 @@ A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle),
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: revolute \\| distance \\| prismatic \\| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
+| `type` | enum: revolute \| distance \| prismatic \| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
 | `connected` | entity |  | Id of the other entity (it needs a body). Empty (leave it out, null or "") = the joint is fixed to the world and connectedAnchor is a world position. |
 | `anchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin. |
 | `connectedAnchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created. |
@@ -103,7 +103,7 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: hinge \\| ball \\| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
+| `type` | enum: hinge \| ball \| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
 | `connected` | entity |  | The other body's entity id. Empty (leave it out, null or "") = the world: the anchor point stays where it is. The entity needs a RigidBody3D (any type) or a Collider3D. |
 | `anchor` | vec3 | `[0.0,0.0,0.0]` | Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge. |
 | `connectedAnchor` | vec3 | `[0.0,0.0,0.0]` | Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true. |
@@ -158,7 +158,7 @@ Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions a
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: static \\| dynamic \\| kinematic | `"dynamic"` | static: never moves (walls, floors). dynamic: moved by forces and collisions. kinematic: moved only by setting velocity or the Transform; pushes dynamic bodies but is not pushed back. |
+| `type` | enum: static \| dynamic \| kinematic | `"dynamic"` | static: never moves (walls, floors). dynamic: moved by forces and collisions. kinematic: moved only by setting velocity or the Transform; pushes dynamic bodies but is not pushed back. |
 | `gravityScale` | float | `1.0` | Multiplier on world gravity. 0 = floats, negative = falls upwards. |
 | `linearDamping` | float | `0.0` | Air resistance for movement; 0 = none, higher slows faster. Range 0.0..1000.0. |
 | `angularDamping` | float | `0.05` | Air resistance for spinning. Range 0.0..1000.0. |
@@ -173,7 +173,7 @@ Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and c
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: static \\| dynamic \\| kinematic | `"dynamic"` | static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by velocity/Transform. |
+| `type` | enum: static \| dynamic \| kinematic | `"dynamic"` | static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by velocity/Transform. |
 | `mass` | float | `1.0` | Mass in kilograms (affects collision responses between dynamic bodies). Range 0.0001..1000000.0. |
 | `gravityScale` | float | `1.0` | Multiplier on world gravity. |
 | `linearDamping` | float | `0.0` | Air resistance; 0 = none. Range 0.0..1000.0. |
