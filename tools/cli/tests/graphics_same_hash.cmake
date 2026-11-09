@@ -6,9 +6,14 @@
 # The hash of the WHOLE world is compared too, but only reported: three things are still measured by the renderer and make it
 # differ in some scenes, none of them animators or particles -- the layout of UI text (a script reads the width of a Text to
 # size its Panel: CPU text shaping, M91.1b), the offset of a Parallax layer (the camera's) and input.mouse.world (the camera's).
-#   cmake -DFACTORIA=<factoria> -DROOT=<repo> -P graphics_same_hash.cmake
+#   cmake -DFACTORIA=<factoria> -DROOT=<repo> [-DEXAMPLE=<name>] -P graphics_same_hash.cmake
+# One example per run (CTest registers one test for each); without EXAMPLE every example is checked.
 set(components "\"Sprite\",\"SpriteAnimator\",\"ParticleEmitter\"")
-file(GLOB projects LIST_DIRECTORIES true ${ROOT}/examples/*)
+if(EXAMPLE)
+    set(projects ${ROOT}/examples/${EXAMPLE})
+else()
+    file(GLOB projects LIST_DIRECTORIES true ${ROOT}/examples/*)
+endif()
 set(checked 0)
 set(skipped "")
 set(failures "")
@@ -78,8 +83,12 @@ foreach(project ${projects})
         math(EXPR checked "${checked} + 1")
     endforeach()
 endforeach()
-if(checked EQUAL 0)
-    message(FATAL_ERROR "no example scene was checked (ROOT=${ROOT})")
+if(checked EQUAL 0 AND NOT failures)
+    if(EXAMPLE AND skipped)
+        message(STATUS "${EXAMPLE}: none of its scenes starts on its own (${skipped}); nothing to compare")
+        return()
+    endif()
+    message(FATAL_ERROR "no example scene was checked (ROOT=${ROOT}, EXAMPLE=${EXAMPLE})")
 endif()
 string(REPLACE ";" "\n  " differText "${wholeWorldDiffers}")
 message(STATUS "${checked} example scenes checked (skipped, they do not start on their own: ${skipped}).\n"

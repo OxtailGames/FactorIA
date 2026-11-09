@@ -47,7 +47,8 @@ int sprite_anim_frame(const SpriteAnimPlan& plan, int step);  // the grid index 
 // One step of `dt` seconds of every active SpriteAnimator of `world`: clip changes, time, `frame`, the frame events
 // (SpriteAnimator::events, only when dt > 0), the game event `clipEnded` of a clip that reached its end, and the Sprite.region of
 // the frame (the pixel rectangle of the frame in the texture). The sheet comes from assets::sheet and the texture's size from
-// its file (texture_size, cached by file time and size), never from a GPU texture, so a game with no renderer animates the same
+// its file (texture_size, cached by file name; the file's time and size are looked at again once per frame, after each dt = 0
+// pass, so a picture that changed is seen the next frame), never from a GPU texture, so a game with no renderer animates the same
 // as one with it. A texture with no readable file counts 32x32 (the renderer's missing-texture checker), no texture 1x1; a
 // `runtime:` or `target:` texture has no size on the CPU: its region is left to the renderer. dt = 0 only settles (a script
 // changed the clip). An unknown `clip` is warned once per entity and clip (World::warned_sprite_clips).

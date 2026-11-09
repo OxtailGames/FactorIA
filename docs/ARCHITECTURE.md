@@ -553,12 +553,13 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   `emitBurst`. Both run in the fixed step right after `update_vfx`, with `fixedDt * time.scale`, and again with `dt` 0 before a
   picture is drawn (`Engine::Impl::settle_visuals`: a clip a script changed this frame, or a burst, shows in this frame's
   picture and never advances time). A `SpriteAnimator` reads the size of its sheet from the image file or the packed atlas
-  (`texture_size`, cached by modification time), never from a GPU texture, so a run with `graphics=false` and one that draws
+  (`texture_size`, cached by file name and looked at again once per frame, so a platform whose files have no modification time,
+  like an Android APK asset, reads each picture once), never from a GPU texture, so a run with `graphics=false` and one that draws
   give the same `Sprite.region`; the renderer only repeats the region for a texture that exists on the GPU alone
   (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
   editor's scene and its Play session) never share it, and `World::clear()` and every scene load empty it. The renderer
   (`renderer.h`) keeps only camera and parallax in `Renderer::update`; `render_world` draws what the world holds.
-  The ctest `example_graphics_same_hash` compares `game.state_hash` of the Sprite, SpriteAnimator and ParticleEmitter
+  The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the Sprite, SpriteAnimator and ParticleEmitter
   components of every example scene after 40 frames with a renderer and with `--no-graphics`, and
   engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame (whole world) for a small project. Three things of
   the world are still measured by the renderer and make the whole-world hash differ in some example scenes: the size of UI text
