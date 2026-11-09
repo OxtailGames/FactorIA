@@ -1,6 +1,9 @@
 #include "fa/ai/commands.h"
 #include "test_common.h"
 
+#include <atomic>
+#include <stdexcept>
+
 using namespace fa;
 using namespace fa::ai;
 using namespace fa::ai::test;
@@ -159,6 +162,39 @@ TEST_CASE("ai.run reports what the sub-agent does: MCP progress for the caller, 
     CHECK_FALSE(registry.call("ai.run", Json::object({{"task", "t"}, {"role", "worker"}})).ok);
     REQUIRE_FALSE(log.empty());
     CHECK(log.back().rfind("end worker failed", 0) == 0);
+}
+
+TEST_CASE("ai.run survives a host callback that throws while a client's cancel and the host's are both watched") {
+    TempDir dir;
+    CommandRegistry registry = make_registry();
+    auto provider = std::make_shared<FakeProvider>();
+    provider->script = {text_response("All done.")};
+    CancelFlag hostStop{false};
+    bool throwAtStart = true;
+    AiCommandOptions opt;
+    opt.loadConfig = [] { return Result<AiConfig>(default_config()); };
+    opt.projectDir = [&] { return dir.str(); };
+    opt.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(provider);
+    };
+    opt.cancel = &hostStop;  // with the request's flag below, the run watches a merged flag kept by a thread
+    opt.onRunStart = [&](const AiRunInfo&) {
+        if (throwAtStart) throw std::runtime_error("host callback failed");
+    };
+    register_ai_commands(registry, opt);
+
+    std::atomic<bool> requestCancel{false};
+    CommandCancelScope scope(&requestCancel);
+    // The exception leaves run_agent_session while the merging thread runs: it is joined, not left to std::terminate.
+    auto failed = registry.call("ai.run", Json::object({{"task", "Do something"}, {"role", "worker"}}));
+    CHECK_FALSE(failed.ok);
+    CHECK(failed.error.dump().find("host callback failed") != std::string::npos);
+
+    // The process is still here, and the next run works.
+    throwAtStart = false;
+    auto ok = registry.call("ai.run", Json::object({{"task", "Do something"}, {"role", "worker"}}));
+    REQUIRE(ok.ok);
+    CHECK(ok.result["finalText"] == "All done.");
 }
 
 TEST_CASE("describe_agent_event: one short line per event worth showing") {

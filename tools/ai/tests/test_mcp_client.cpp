@@ -3,6 +3,7 @@
 #include <cstdlib>
 
 #include "fa/ai/mcp_client.h"
+#include "fa/core/strings.h"
 #include "fake_mcp_http.h"
 
 using namespace fa;
@@ -69,6 +70,9 @@ TEST_CASE("mcp http: initialize, tools/list (paged), headers, session id, tool c
         auto structured = (*client)->call_tool("structured", Json::object());
         REQUIRE(structured.ok());
         CHECK(structured->text == "{\"id\":7}");
+        auto twice = (*client)->call_tool("structured_twice", Json::object());
+        REQUIRE(twice.ok());
+        CHECK(twice->text == "{\"id\":8}\nOne id.");  // structuredContent first, the text that repeats it as JSON skipped
 
         auto unknown = (*client)->call_tool("nope", Json::object());
         REQUIRE_FALSE(unknown.ok());
@@ -291,7 +295,8 @@ TEST_CASE("mcp stdio: a local program is started, listed, called and ended with 
     auto big = (*client)->call_tool("big", Json::object());
     REQUIRE(big.ok());
     CHECK(big->text.size() < 100100);
-    CHECK(has(big->text, "result cut at 100000 characters"));
+    CHECK(has(big->text, "result cut at 100000 bytes"));
+    CHECK(is_valid_utf8(big->text));  // the cut never splits a character
     auto unknown = (*client)->call_tool("nope", Json::object());
     REQUIRE_FALSE(unknown.ok());
     CHECK(has(unknown.error().message, "Unknown tool: nope"));

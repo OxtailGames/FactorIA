@@ -11,8 +11,12 @@
 // implements all of it from a registry + project directory.
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -95,13 +99,90 @@ bool is_user_only_command(std::string_view commandName);
 inline constexpr const char* kMcpLatestProtocol = "2025-11-25";
 const std::vector<std::string>& mcp_supported_protocols();
 
+// The largest tool result the server sends, in bytes of JSON (the default of McpServer::set_result_cap). A client puts the
+// result into its model's context (Claude Code refuses one over about 25k tokens; JSON is about 3 bytes a token), so a
+// larger one is cut down first.
+inline constexpr std::size_t kMcpResultCap = 80 * 1024;
+
+// What the McpServers answering one client share: the handshake (the protocol version initialize negotiated) and the
+// requests in flight, which notifications/cancelled reaches. A transport that makes one server per message (the editor's
+// per-run HTTP endpoint, where requests run at the same time on their own threads) gives each of them the same session;
+// a server that is not given one has its own. Thread-safe.
+class McpSession {
+public:
+    // The handshake of the client's initialize; empty protocol until there was one.
+    struct Handshake {
+        std::string protocolVersion;
+        Json clientInfo = Json::object();
+        Json clientCapabilities = Json::object();
+    };
+    void set_handshake(Handshake h);
+    Handshake handshake() const;
+
+    // A transport that queues requests (stdio: one runs at a time) announces one it has read and not started yet, so that
+    // a notifications/cancelled that arrives while it waits is kept: begin_request() then starts it cancelled, and the
+    // server skips it (no response). Only for an id the server will begin (a string or number id, not initialize); each
+    // call is consumed by one begin_request() with that id.
+    void expect_request(const Json& id);
+    // A request starts: its cancel flag, set by cancel() while it runs (already set when it was cancelled while queued,
+    // see expect_request). Several requests with the same id (a client's mistake) are all cancelled together.
+    std::shared_ptr<std::atomic<bool>> begin_request(const Json& id);
+    // The request ended: forgets it and says whether it was cancelled (then no response may be sent). The decision is
+    // taken under the same lock as cancel(), so a cancel that comes after it finds nothing and is ignored.
+    bool end_request(const Json& id, const std::shared_ptr<std::atomic<bool>>& flag);
+    // notifications/cancelled: sets the flag of the request `id`, running or queued (expect_request); false when there is
+    // no such request (unknown or already answered), which is ignored.
+    bool cancel(const Json& id);
+    // The client is gone (stdio: stdin closed): cancels every request running or queued. Returns how many.
+    std::size_t cancel_all();
+    std::size_t requests_in_flight() const;
+    std::size_t requests_queued() const;
+
+private:
+    mutable std::mutex mu_;
+    Handshake handshake_;
+    std::multimap<std::string, std::shared_ptr<std::atomic<bool>>> inFlight_;  // id.dump() -> flag
+    std::multimap<std::string, bool> queued_;  // id.dump() -> cancelled while queued
+};
+
 class McpServer {
 public:
     explicit McpServer(McpHost& host);
 
     // Handles one incoming JSON-RPC message (request, notification, response or batch).
-    // Returns the serialized response (single line, no newline), or nullopt when none is due.
+    // Returns the serialized response (single line, no newline), or nullopt when none is due: a notification, or a
+    // request the client cancelled (notifications/cancelled) while it ran, which gets no response at all (MCP spec,
+    // "Cancellation"). A message that only cancels (is_cancel_notification) may be handled on another thread while a
+    // request runs: that is how a transport lets a client take back a long tools/call.
+    // Never throws: invalid JSON is a Parse error (-32700); a message of the wrong shape (a number for "jsonrpc" or
+    // "method", an object for "id", a string for "params", a non-object in a batch) an Invalid Request (-32600) carrying
+    // its id when it has a valid one; an exception while a request runs an Internal error (-32603), and a notification
+    // that fails is dropped with a log line.
     std::optional<std::string> handle_message(std::string_view message);
+    // True when `message` is one valid notifications/cancelled (not a batch, not an Invalid Request): a transport that handles requests one at a time
+    // hands it to handle_message() at once instead of queueing it behind the request it cancels.
+    static bool is_cancel_notification(std::string_view message);
+    // The id of the request handle_message() runs for `msg` (and tracks in the session, McpSession::begin_request): a valid
+    // JSON-RPC 2.0 object with a string method other than initialize, a string or number id and object params (or none).
+    // Null for anything else (a notification, a response, an initialize, an invalid message). A transport that queues
+    // requests announces this id (McpSession::expect_request), so a cancel read while it waits finds it.
+    static Json runnable_request_id(const Json& msg);
+
+    // Shares the handshake and the requests in flight with the other servers of the same client (see McpSession). A
+    // session that already saw an initialize gives this server its protocol version, client info and capabilities.
+    void share_session(std::shared_ptr<McpSession> session);
+    const std::shared_ptr<McpSession>& session() const { return session_; }
+
+    // A tool result is sent once, as JSON text in `content` (pretty when it fits the cap), whatever the protocol: no
+    // `structuredContent`, so a client that reads only `content` misses nothing. A result with a picture (`$image`) gets an
+    // image block after the text.
+    // Tool results larger than `bytes` of JSON are cut down (kMcpResultCap by default; at least 8 KiB, a smaller value
+    // counts as 8 KiB). The heaviest part goes first: an array or an object keeps its first items or keys, a long string
+    // its start (never inside a UTF-8 sequence). An object result gets a `_truncated` field ({"note": ...}) that says what
+    // was cut and which paging arguments of the command fetch the rest (or which arguments ask for less); any other result
+    // is sent as {"result": <the cut result>, "_truncated": {...}}. What is sent is always valid JSON. A picture is sent
+    // whole: the cap counts the JSON only.
+    void set_result_cap(std::size_t bytes);
 
     // Receives server-initiated messages. Without a sink they are queued (see drain_outgoing).
     using Sink = std::function<void(const std::string& message)>;
@@ -152,10 +233,12 @@ public:
     Json tools_json() const;
 
 private:
-    std::optional<Json> handle_one(const Json& msg);
-    Json handle_request(const std::string& method, const Json& params, const Json& id);
-    Json call_tool(const Json& params);
-    Json run_tool(const Json& params);
+    std::optional<Json> handle_one(const Json& msg);  // never throws
+    std::optional<Json> handle_valid_one(const Json& msg);
+    std::optional<Json> internal_error(const Json& msg, const std::string& what);
+    Json handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel);
+    Json call_tool(const Json& params, const std::atomic<bool>* cancel);
+    Json run_tool(const Json& params, const std::atomic<bool>* cancel);
     void emit(const Json& message);
 
     McpHost& host_;
@@ -171,6 +254,8 @@ private:
     CommandFilter filter_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};
+    std::size_t resultCap_ = kMcpResultCap;
+    std::shared_ptr<McpSession> session_ = std::make_shared<McpSession>();
     std::vector<std::string> queued_;
     std::mutex outMutex_;
 };

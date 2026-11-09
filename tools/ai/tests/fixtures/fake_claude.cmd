@@ -9,12 +9,14 @@ rem FAKE_MODE=mcp_run_detach calls the tool ai_run in the background and ends it
 rem "finished after your turn ended", the editor's continuation, gets a plain answer). FAKE_SLEEP=<seconds> keeps it silent
 rem that long after its init line.
 rem FAKE_MODE=spend makes two paid model calls, then stays silent 30 s (the run's limit must stop it).
-rem A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
+rem A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". The file after --mcp-config is copied to
+rem %FAKE_ARGV_FILE%.mcpconfig (the run deletes its own when it ends). Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
 if not defined FAKE_COST set FAKE_COST=0.0123
 if "%FAKE_MODE%"=="models" goto models
 if defined FAKE_ARGV_FILE (
   for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
   if defined CLAUDE_CODE_AUTO_COMPACT_WINDOW >>"%FAKE_ARGV_FILE%" echo compact-window:%CLAUDE_CODE_AUTO_COMPACT_WINDOW%
+  call :copy_mcp %*
   <nul set /p "=stdin:">>"%FAKE_ARGV_FILE%"
   findstr "^">>"%FAKE_ARGV_FILE%"
 ) else (
@@ -36,6 +38,15 @@ echo {"type":"assistant","message":{"content":[{"type":"text","text":"All good."
 echo {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1792021800},"seven_day":{"utilization":0.07,"resetsAt":1792584000}}}}
 echo {"type":"result","subtype":"success","is_error":false,"result":"Done: project is valid.","total_cost_usd":%FAKE_COST%,"num_turns":2,"session_id":"sess-1","usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":50},"modelUsage":{"claude-haiku-5-5":{"inputTokens":100,"outputTokens":20,"cacheReadInputTokens":50,"cacheCreationInputTokens":5,"contextWindow":1000000}}}
 exit /b 0
+
+:copy_mcp
+if "%~1"=="" exit /b 0
+if "%~1"=="--mcp-config" (
+  if exist "%~2" copy /y "%~2" "%FAKE_ARGV_FILE%.mcpconfig" >nul
+  exit /b 0
+)
+shift
+goto copy_mcp
 
 :spend
 echo {"type":"system","subtype":"init","session_id":"s1","model":"sonnet","mcp_servers":[]}

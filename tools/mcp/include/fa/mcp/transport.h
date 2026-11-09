@@ -9,7 +9,8 @@
 namespace fa {
 
 // Blocking loop: reads newline-delimited JSON-RPC from `in`, writes responses and server
-// notifications to `out` (flushed per message). Returns when `in` reaches EOF.
+// notifications to `out` (flushed per message). Returns when `in` reaches EOF. Built on run_stdio_loop (stdio.h): the
+// input is read on while a request runs, so notifications/cancelled stops it.
 // Defaults: std::cin / std::cout. Also redirects fa logging to stderr-only behaviour is the
 // caller's job (fa::log already writes to stderr).
 int run_stdio(McpServer& server);
