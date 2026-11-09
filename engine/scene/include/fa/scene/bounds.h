@@ -33,20 +33,21 @@ struct VisualMeasure {
     // Pixel size of a texture file as the renderer sees it (32 x 32 for a missing or unreadable file). Empty: 32 x 32 for all.
     std::function<Vec2(const std::string& path)> textureSize;
     // Size {w, h} of `text` laid out like the renderer does, with the player's text size (ui.textScale), the Text's
-    // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or the
-    // CPU TextMeasurer of fa/render/text_measure.h without a renderer: the same numbers). Empty: approx_text_size(). Screen-space text is measured in UI
-    // UNITS (ui_rect.h): at the interface scale k it is drawn k times as big, so the measure is for fontSize, not fontSize * k.
+    // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or the CPU TextMeasurer of
+    // fa/render/text_measure.h without a renderer: the same numbers). Empty: approx_text_size(). Screen-space text is measured in
+    // UI UNITS (ui_rect.h): at the interface scale k it is drawn k times as big, so the measure is for fontSize, not fontSize * k.
     std::function<Vec2(const Text& text)> textSize;
     // The player's text size option (ui.textScale) at the moment of the measurement. UI code that fits labels itself
     // (text_fit.h) reads it; textSize already includes it for a Text.
     float textScale = 1.0f;
 };
 
-// Size of a text without a renderer (headless): 0.6 em per character and 1.2 em per line, wrapping at maxWidth (> 0).
-// With `markup` (Text.markup) the tags are not characters and an icon counts as two.
+// An approximation of the size of a text, for a host that has neither a renderer nor a TextMeasurer (a test host; the engine
+// itself measures with the real fonts, fa/render/text_measure.h): 0.6 em per character and 1.2 em per line, wrapping at maxWidth
+// (> 0). With `markup` (Text.markup) the tags are not characters and an icon counts as two.
 Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup = false);
 // The same for a Text entity's component: screen-space text at the player's text size `textScale`, the maxTextScale cap and
-// autoShrink applied (text_fit.h), so a headless run measures like a rendered one.
+// autoShrink applied (text_fit.h), with the same approximation of the glyphs.
 Vec2 approx_text_size(const Text& text, float textScale);
 
 // Sprite.skew, meshColumns / meshRows and vertexOffsets: shared by the renderer (render/scene2d.cpp) and the footprint below, so

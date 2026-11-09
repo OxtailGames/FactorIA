@@ -3512,7 +3512,8 @@ NATIVE(worldToScreen) {
         Vec2 s = r->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
-    if (const CameraSet* cs = I->host->camera_set()) {
+    // Empty before the first refresh: the live maths below answers then.
+    if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
         const Vec2 s = cs->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
@@ -3530,7 +3531,7 @@ NATIVE(screenToWorld) {
         Vec3 w = r->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
-    if (const CameraSet* cs = I->host->camera_set()) {
+    if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
         const Vec3 w = cs->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
@@ -3546,7 +3547,7 @@ NATIVE(screenRay) {
     Vec3 o, d;
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
         r->screen_ray(sp, o, d, camera);
-    } else if (const CameraSet* cs = I->host->camera_set()) {
+    } else if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
         cs->screen_ray(sp, o, d, camera);
     } else {
         const FallbackView fv = fallback_view(I, W, camera, &sp);

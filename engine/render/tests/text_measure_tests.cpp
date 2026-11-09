@@ -4,6 +4,7 @@
 // implementation (render/src/font_set.h), so a layout that is a pixel wider in a run with no graphics is a bug.
 #include "test_util.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -197,4 +198,37 @@ TEST_CASE("measure: a font that cannot be read measures like the renderer does, 
     // nothing to measure
     CHECK(p.cpu.measure_text("", 20).x == 0);
     CHECK(p.cpu.measure_text("abc", 0).x == 0);
+}
+
+// No Gfx and no Renderer here: the numbers a TextMeasurer gives with the bundled font, written down, so a change of the shaping, the
+// metrics or the font file shows up even where no GPU can run the comparisons above. They were measured on macOS (FreeType + HarfBuzz
+// at the sizes below); the tolerance (4%, at least one pixel) covers the hinting and rounding another FreeType build may do, and is
+// far smaller than the difference between two fonts or two layouts.
+TEST_CASE("measure: fixed sizes of the bundled font, measured without a renderer") {
+    TextMeasurer m;
+    struct Case { const char* text; float size; float maxW; float w, h; };
+    const std::vector<Case> cases = {{"Hello world", 20, 0, 112.12f, 23},
+                                     {"VSync", 12, 0, 37.13f, 14},
+                                     {"two\nlines", 24, 0, 55.82f, 56},  // two lines of 28
+                                     {"Hello wrapped world of text that is long", 20, 100, 87.23f, 115},  // five lines of 23
+                                     {"iiiiiiiiii", 20, 0, 55.57f, 23},
+                                     {"WWWWWWWWWW", 20, 0, 197.75f, 23}};
+    for (const Case& c : cases) {
+        INFO("text " << c.text << " size " << c.size << " maxWidth " << c.maxW);
+        const Vec2 v = m.measure_text(c.text, c.size, "", c.maxW, RenderSpace::World);
+        CHECK(std::fabs(v.x - c.w) <= std::max(1.0f, c.w * 0.04f));
+        CHECK(std::fabs(v.y - c.h) <= std::max(1.0f, c.h * 0.04f));
+    }
+    // The same text measured again, at the player's sizes: world text ignores both, screen text grows with the text size.
+    const Vec2 world = m.measure_text("Hello world", 20, "", 0, RenderSpace::World);
+    m.set_text_scale(2.0f);
+    CHECK(m.measure_text("Hello world", 20, "", 0, RenderSpace::World).x == world.x);
+    const Vec2 big = m.measure_text("Hello world", 20, "", 0, RenderSpace::Screen);
+    CHECK(big.x == doctest::Approx(world.x * 2.0f).epsilon(0.04));
+    // A Text component goes through the same code.
+    Text t;
+    t.text = "Hello world";
+    t.fontSize = 20;
+    m.set_text_scale(1.0f);
+    CHECK(m.measure_text(t).x == world.x);
 }

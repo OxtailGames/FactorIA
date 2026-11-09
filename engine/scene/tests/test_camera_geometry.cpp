@@ -118,3 +118,41 @@ TEST_CASE("world hash: the live particles are part of it") {
     b.particles().update(b, 1.0f / 60.0f);
     CHECK(world_state_hash(a).hash == world_state_hash(b).hash);
 }
+
+TEST_CASE("world hash: an emitter's random sequence and emission accumulator are part of it") {
+    // The emission accumulator: no particle is born yet in either world (10 and 20 per second, one 60 Hz step), so only the fraction
+    // owed differs.
+    World a, b;
+    int i = 0;
+    for (World* w : {&a, &b}) {
+        const Entity e = w->create("stream");
+        auto& em = w->add<ParticleEmitter>(e);
+        em.rate = (i++ == 0) ? 10.0f : 20.0f;
+        em.lifetime = 1.0f;
+        em.seed = 5;
+        w->particles().update(*w, 1.0f / 60.0f);
+    }
+    REQUIRE(a.particles().find(a.find("stream"))->sim.particles.empty());
+    REQUIRE(b.particles().find(b.find("stream"))->sim.particles.empty());
+    CHECK(world_state_hash(a).hash != world_state_hash(b).hash);
+
+    // The random sequence: two seeds, every particle dead again (the shortest life is 0.01 s), the same clock and counters.
+    World c, d;
+    i = 0;
+    for (World* w : {&c, &d}) {
+        const Entity e = w->create("puff");
+        auto& em = w->add<ParticleEmitter>(e);
+        em.emitting = false;
+        em.rate = 0;
+        em.burst = 4;
+        em.lifetime = 0.01f;
+        em.speed = 20;
+        em.speedVariance = 0.5f;
+        em.seed = (i++ == 0) ? 1 : 2;
+        w->particles().update(*w, 1.0f / 60.0f);
+        w->particles().update(*w, 1.0f / 60.0f);
+    }
+    REQUIRE(c.particles().find(c.find("puff"))->sim.particles.empty());
+    REQUIRE(d.particles().find(d.find("puff"))->sim.particles.empty());
+    CHECK(world_state_hash(c).hash != world_state_hash(d).hash);
+}

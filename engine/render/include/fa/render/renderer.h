@@ -196,10 +196,13 @@ public:
     // simulation (World::particles(), a ParticleStore) are stepped by the runtime in the fixed simulation step, with or without a
     // renderer, and render_world() only DRAWS what the world holds: the image depends solely on the world + renderer state.
     // update() refreshes what queries need without drawing (the cameras, so world_to_screen and entity.bounds() are right in a run
-    // that skips drawing, and the Parallax offsets); it needs no begin_frame(). `dt` is not used.
-    // Contract: call update(world, dt) once per frame, then optionally render_world(). Code that only calls render_world(world, dt)
-    // keeps working: if update() was not called since the previous draw, render_world() calls it with `dt` itself.
-    void update(World& world, float dt);
+    // that skips drawing, and the Parallax offsets); it needs no begin_frame().
+    // Parallax rule (the same without a renderer): the offset the world keeps is the one for the FIRST camera (the one that comes
+    // first in render order, which a script's camera queries default to). While a frame is drawn each camera draws the layers
+    // shifted for itself (several cameras, a render target, a CameraView), and the first camera's offset is put back when it ends.
+    // Contract: call update(world) once per frame, then optionally render_world(). Code that only calls render_world(world, dt)
+    // keeps working: if update() was not called since the previous draw, render_world() calls it itself.
+    void update(World& world);
     // Draws the world (cameras, sprites, shapes, tilemaps, text, particles, meshes, lights, debug draw).
     void render_world(World& world, float dt);
 

@@ -1137,14 +1137,14 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
 
-void Renderer::update(World& world, float dt) {
-    (void)dt;  // the animators and the particles move in the simulation step (fa::update_sprite_animators, World::particles())
+void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;
-    // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
-    // the runtime skips drawing in headless/test runs, so refresh the camera here as well.
+    // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing: a frame the runtime
+    // does not draw (OnDemand, a test that steps without drawing) still refreshes the cameras here.
     im.lastCams = im.collect_cameras(world);
-    update_parallax(world, im.lastCams.front().position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
+    // entity.bounds() of a parallax layer follows the camera whether or not the frame is drawn.
+    update_parallax(world, im.lastCams.front().position.xy());
     im.updated = true;
 }
 
@@ -1188,7 +1188,7 @@ void Renderer::set_text_scale(float scale) {
 void Renderer::render_world(World& world, float dt) {
     if (!initialized()) return;
     if (!impl_->inFrame) begin_frame();
-    if (!impl_->updated) update(world, dt);  // backward compatible: callers that only use render_world
+    if (!impl_->updated) update(world);  // backward compatible: callers that only use render_world
     impl_->updated = false;
     impl_->render(world, dt);
 }
@@ -1350,6 +1350,9 @@ void Renderer::Impl::render(World& world, float dt) {
         }
     if (fonts->atlas_epoch() == atlasEpoch) break;
     }
+    // gather_2d shifted the Parallax layers for each camera it drew; what the world keeps is the shift for the first camera (the one
+    // Renderer::update and a run with no renderer use), whatever cameras or render targets the frame had.
+    update_parallax(world, lastCams.front().position.xy());
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
     ramps.sync();
@@ -2401,6 +2404,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
         gather_particles(world, fr);
         if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
     }
+    if (!im.lastCams.empty()) update_parallax(world, im.lastCams.front().position.xy());  // the layers were shifted for this camera
     im.fonts->sync();
     im.ramps.sync();
 
