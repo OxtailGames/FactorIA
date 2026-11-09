@@ -24,6 +24,8 @@
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/render/text_measure.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
@@ -1010,19 +1012,21 @@ NATIVE(particlesBurst) {
     return JS_UNDEFINED;
 }
 
-// How scripts measure text: the renderer's own layout when there is one, otherwise (headless) an approximation of 0.6 em
-// per character and 1.2 em per line, with a one-time warning (`what` names the caller in it). The Text-level size includes
-// the player's text size, the maxTextScale cap and autoShrink (text_fit.h), like the renderer.
+// How scripts measure text: the renderer's own layout when there is one, otherwise (no graphics) the CPU measurer, which shapes
+// with the same fonts and code (fa/render/text_measure.h), so both give the same numbers. Only a host with neither (a test host)
+// gets an approximation of 0.6 em per character and 1.2 em per line, with a one-time warning (`what` names the caller in it).
+// The Text-level size includes the player's text size, the maxTextScale cap and autoShrink (text_fit.h), like the renderer.
 VisualMeasure script_measure(Impl* I, const char* what) {
     VisualMeasure m;
     m.textScale = I->host->text_scale();
     m.textSize = [I, what](const Text& t) {
         Renderer* r = I->host->renderer();
         if (r && r->initialized()) return r->measure_text(t);
+        if (const TextMeasurer* measurer = I->host->text_measurer()) return measurer->measure_text(t);
         static bool warned = false;
         if (!warned) {
             warned = true;
-            fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
+            fa::log(LogLevel::Warn, "script", std::string(what) + ": this host has no renderer and no text measurer; using an approximation of 0.6 * fontSize per character");
         }
         return approx_text_size(t, I->host->text_scale());
     };
@@ -3485,7 +3489,8 @@ Vec2 design_size(Impl* I) {
     return I->host->design_size();
 }
 
-// Without a renderer (no GPU at all): the same maths as the renderer for an orthographic camera, with the camera's viewport.
+// Without a renderer the host's CameraSet answers with the renderer's own maths (fa/scene/camera_geometry.h). A host with none (a
+// test host) gets the live orthographic maths of the camera's viewport.
 using FallbackView = OrthoView;
 
 FallbackView fallback_view(Impl* I, World& W, Entity named, const Vec2* point) {
@@ -3505,6 +3510,10 @@ NATIVE(worldToScreen) {
         Vec2 s = r->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
+    if (const CameraSet* cs = I->host->camera_set()) {
+        const Vec2 s = cs->world_to_screen(p, camera);
+        return array_of(ctx, {s.x, s.y});
+    }
     const FallbackView fv = fallback_view(I, W, camera, nullptr);
     const Vec2 s = fv.to_screen(p);
     return array_of(ctx, {s.x, s.y});
@@ -3519,6 +3528,10 @@ NATIVE(screenToWorld) {
         Vec3 w = r->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
+    if (const CameraSet* cs = I->host->camera_set()) {
+        const Vec3 w = cs->screen_to_world(sp, depth, camera);
+        return array_of(ctx, {w.x, w.y, w.z});
+    }
     const FallbackView fv = fallback_view(I, W, camera, &sp);
     const Vec3 wp = fv.to_world(sp, depth);
     return array_of(ctx, {wp.x, wp.y, wp.z});
@@ -3531,6 +3544,8 @@ NATIVE(screenRay) {
     Vec3 o, d;
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
         r->screen_ray(sp, o, d, camera);
+    } else if (const CameraSet* cs = I->host->camera_set()) {
+        cs->screen_ray(sp, o, d, camera);
     } else {
         const FallbackView fv = fallback_view(I, W, camera, &sp);
         o = fv.to_world(sp, fv.position.z);
@@ -3544,6 +3559,9 @@ NATIVE(cameraAt) {
     Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     if (Renderer* r = I->host->renderer(); r && r->initialized() && !r->cameras().empty()) {
         const Entity e = r->camera_at(sp);
+        if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
+    } else if (const CameraSet* cs = I->host->camera_set(); cs && !cs->cameras().empty()) {
+        const Entity e = cs->camera_at(sp);
         if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
     }
     return ent_val(ctx, camera_containing(W, design_size(I), sp));

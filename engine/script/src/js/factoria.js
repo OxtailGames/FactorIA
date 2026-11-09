@@ -2287,7 +2287,7 @@
   const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
   const UI_EVENTS = ["click", "change", "submit", "focus", "blur", "hover", "press", "release", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
   const ui = {
-    // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
+    // Size of `text` laid out like Text rendering: { width, height }. The same numbers with and without graphics.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
     // maxTextScale caps that scale; autoShrink (with minFontSize, maxHeight and maxWidth as the box) shrinks the font to fit,
     // exactly as Text does; `fontSize` in the result is the size it would be drawn at. markup / bold: the Text fields of

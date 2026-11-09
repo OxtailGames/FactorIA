@@ -205,8 +205,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   texture's pixel size (32 x 32 for a plain colour quad or a missing texture). A circle is its bounding square
   (diameter `size.x`), a line is the stroked segment from the origin to `size`, and the outline `thickness` of the other
   shapes is ignored.
-- **Text.** The laid-out text box (`pivot` and `maxWidth` as drawn). Without a renderer (headless) the size is the
-  same approximation as `ui.measureText` and logs the same one-time warning.
+- **Text.** The laid-out text box (`pivot` and `maxWidth` as drawn). The size is the same with and without
+  graphics, as for `ui.measureText`.
 - **Rotation and scale** of the world transform are applied, and the result is the box around the rotated corners.
   An entity that has several visuals (a `Sprite` and a `Text`) gets the union of their rectangles.
 - **Screen space.** A visual with `space: "screen"` is positioned on the screen, not in the world, so it has no world
@@ -864,8 +864,8 @@ Tools: `audio.music_state` (what every player does) and `audio.music` (the same 
 - `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` →
   `{ width, height, fontSize }` laid out exactly like `Text` rendering
   (shaped, wrapped, with the fallback fonts). `space` is `"screen"` (default: HUD text and widget labels, measured at the
-  size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
-  times `ui.textScale` for `"screen"`) and warn once. `markup` and `bold` are the `Text` fields of the same names
+  size the player's text size option makes it) or `"world"`. A run without graphics (`graphics=false`, `--no-graphics`)
+  gives the same numbers: it shapes the text on the CPU with the same fonts. `markup` and `bold` are the `Text` fields of the same names
   ([TEXT.md](TEXT.md), "Rich text").
 - `ui.markupProblems(text)` → `string[]`: what is wrong with the `[b]`, `[i]`, `[c:name]` and `[icon:name]` tags of `text`
   (unknown tag, `[` without `]`, unclosed tag, a colour or icon the project's `text` section lacks), `[]` when clean.

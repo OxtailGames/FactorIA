@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "fa/core/det_math.h"
@@ -15,8 +16,9 @@ namespace fa {
 struct Camera;
 
 // The cameras a frame draws, in draw order: every active camera with primary = true by ascending depth (equal depths keep
-// the order of creation), at most 8 as the renderer draws. The first is "the" camera (camera.main).
-std::vector<Entity> rendering_cameras(World& w);
+// the order of creation), at most 8 as the renderer draws. The first is "the" camera (camera.main). A camera about to be destroyed
+// (this frame's) does not count. `total`, when given, receives how many there were before the cut to 8.
+std::vector<Entity> rendering_cameras(World& w, std::size_t* total = nullptr);
 
 // The viewport of `c` as the renderer clamps it: a finite rectangle inside [0, 1] (the whole screen when it is not usable).
 Rect clamped_camera_viewport(const Camera& c);

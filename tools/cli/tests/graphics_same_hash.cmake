@@ -1,11 +1,11 @@
-# The simulation does not need a renderer (docs/ARCHITECTURE.md, "Animation"): the sprite animators and the particle emitters advance
-# in the fixed step, so the Sprite, SpriteAnimator and ParticleEmitter components of a game (and which entities exist: an emitter
-# with autoDestroy removes its entity when it is done) are the same with a GPU renderer that draws as with --no-graphics.
+# The simulation does not need a renderer (docs/ARCHITECTURE.md, "Animation" and "Simulation without a renderer"): the sprite
+# animators and the particle emitters advance in the fixed step, text is shaped and measured on the CPU with the renderer's fonts, and
+# the cameras (input.mouse.world, camera.worldToScreen, the offset of a Parallax layer) are CPU maths too. So the WHOLE world -- every
+# entity, component and field, the live particles, the clock and the random generator -- is the same with a GPU renderer that draws
+# as with --no-graphics.
 # Runs every scene of every example game for the same 40 frames both ways (with graphics it draws two frames on the way, so the
-# renderer's own passes have run) and compares game.state_hash restricted to those components (its "components" argument).
-# The hash of the WHOLE world is compared too, but only reported: three things are still measured by the renderer and make it
-# differ in some scenes, none of them animators or particles -- the layout of UI text (a script reads the width of a Text to
-# size its Panel: CPU text shaping, M91.1b), the offset of a Parallax layer (the camera's) and input.mouse.world (the camera's).
+# renderer's own passes have run) and compares game.state_hash of the whole world; when it differs, the Sprite, SpriteAnimator and
+# ParticleEmitter components alone are compared first, so the message says whether the animators are what differs.
 #   cmake -DFACTORIA=<factoria> -DROOT=<repo> [-DEXAMPLE=<name>] -P graphics_same_hash.cmake
 # One example per run (CTest registers one test for each); without EXAMPLE every example is checked.
 set(components "\"Sprite\",\"SpriteAnimator\",\"ParticleEmitter\"")
@@ -17,7 +17,6 @@ endif()
 set(checked 0)
 set(skipped "")
 set(failures "")
-set(wholeWorldDiffers "")
 foreach(project ${projects})
     if(NOT EXISTS ${project}/factoria.json)
         continue()
@@ -78,7 +77,7 @@ foreach(project ${projects})
         if(NOT partGfx STREQUAL partNone)
             list(APPEND failures "${ex}/${scene}: the Sprite/SpriteAnimator/ParticleEmitter hash after 40 frames is ${partGfx} with a renderer and ${partNone} with --no-graphics")
         elseif(NOT wholeGfx STREQUAL wholeNone)
-            list(APPEND wholeWorldDiffers "${ex}/${scene}")
+            list(APPEND failures "${ex}/${scene}: the hash of the whole world after 40 frames is ${wholeGfx} with a renderer and ${wholeNone} with --no-graphics, the animators and particles agree (text sizes, cameras, parallax or the live particles differ; run game.state_hash with perEntity both ways to find the entity)")
         endif()
         math(EXPR checked "${checked} + 1")
     endforeach()
@@ -90,9 +89,7 @@ if(checked EQUAL 0 AND NOT failures)
     endif()
     message(FATAL_ERROR "no example scene was checked (ROOT=${ROOT}, EXAMPLE=${EXAMPLE})")
 endif()
-string(REPLACE ";" "\n  " differText "${wholeWorldDiffers}")
-message(STATUS "${checked} example scenes checked (skipped, they do not start on their own: ${skipped}).\n"
-               "Whole-world hash differs (UI text layout, Parallax, mouse.world: measured by the renderer, not animators or particles):\n  ${differText}")
+message(STATUS "${checked} example scenes checked, the whole world is the same with and without a renderer (skipped, they do not start on their own: ${skipped}).")
 if(failures)
     string(REPLACE ";" "\n  " failText "${failures}")
     message(FATAL_ERROR "the simulation depends on the renderer:\n  ${failText}")

@@ -237,6 +237,8 @@ public:
     Audio& audio() override;
     Physics& physics() override;
     Renderer* renderer() override;
+    const TextMeasurer* text_measurer() const override;
+    const CameraSet* camera_set() const override;
     UiSystem* ui() override;
     CommandRegistry& commands() override;
     Json project_settings() const override;

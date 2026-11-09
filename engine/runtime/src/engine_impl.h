@@ -12,8 +12,10 @@
 #include "background_loader.h"
 #include "fa/core/i18n.h"
 #include "fa/core/jobs.h"
+#include "fa/render/text_measure.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/vfx.h"
@@ -113,6 +115,8 @@ struct Engine::Impl {
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
+    CameraSet cpuCameras;  // the cameras when there is no renderer: refreshed where Renderer::update would (render()), answers like it
+    TextMeasurer cpuText;  // text sizes when there is no renderer: the same fonts and shaping (fa/render/text_measure.h); settings kept in step either way
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
     EngineClipboard clipboard;
     InputRecorder recorder;  // the Input observer; records only between start_input_recording and stop_input_recording
@@ -204,8 +208,9 @@ struct Engine::Impl {
     void apply_localization();
     Result<std::string> switch_language(std::string_view requested);  // the language now in use, or why not
     void apply_fallback_fonts();  // the renderer's fallback fonts for the language in use (localization.fallbackFonts / languageFonts)
+    CameraTarget camera_target() const;  // what the cameras are drawn into: the design size (a run without a window)
     Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
-    VisualMeasure measure() const;  // text sizes from the renderer, else the approximation
+    VisualMeasure measure() const;  // text sizes from the renderer, else from the CPU measurer (same fonts, same numbers)
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 
