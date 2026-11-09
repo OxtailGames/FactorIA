@@ -12,8 +12,7 @@
 //
 // HOW TO ADD A FILE OR A DIRECTORY
 //   * New simulation code in a directory that is already listed in kSimulationDirs is covered with no edit.
-//   * Simulation code anywhere else (for example SpriteAnimator or the particle simulation once they move out of
-//     engine/render into the simulation step, M91.1a): add its path (relative to the repository root, forward slashes) to
+//   * Simulation code anywhere else: add its path (relative to the repository root, forward slashes) to
 //     kSimulationFiles, or its directory to kSimulationDirs. Then make the test pass by using fa::det:: in that code.
 //   * A file that really needs the C library (an asset importer, an audio mixer, a debug print) goes into kExempt with the
 //     reason; it must not be simulation. Rendering, the editor, tools, tests and audio are not scanned at all.
@@ -56,11 +55,9 @@ constexpr const char* kSimulationDirs[] = {
     "engine/services/include",
 };
 
-// Single files outside those directories. M91.1a: add the SpriteAnimator and particle simulation files that leave
-// engine/render here (or their directory to kSimulationDirs).
-const std::vector<std::string_view> kSimulationFiles = {
-    // "engine/render/src/sprite_animator_sim.cpp",
-};
+// Single files outside those directories. None today: the SpriteAnimator step and the particle simulation (M91.1a) live in
+// engine/scene/src (sprite_animator.cpp, particles.cpp, particle_store.cpp), which kSimulationDirs covers.
+const std::vector<std::string_view> kSimulationFiles = {};
 
 struct Exempt { const char* path; const char* reason; };
 constexpr Exempt kExempt[] = {
