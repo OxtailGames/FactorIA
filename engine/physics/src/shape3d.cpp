@@ -4,6 +4,9 @@
 #include <cmath>
 #include <numeric>
 
+#include "fa/scene/model_game_ready.h"
+#include "inertia3d.h"
+
 namespace fa::detail {
 
 namespace {
@@ -100,7 +103,12 @@ std::shared_ptr<ShapeData> make_shape_data(std::shared_ptr<const MeshGeometry> g
     auto d = std::make_shared<ShapeData>();
     d->geometry = std::move(geometry);
     const MeshGeometry& g = *d->geometry;
-    if (hull) d->hull = reduce_cloud(g.positions);
+    if (hull) {
+        d->hull = reduce_cloud(g.positions);
+        // The mass properties of the hull, once per model: the triangles of its exact hull, summed as tetrahedra.
+        const ModelHull solid = model_convex_hull(d->hull, kMaxHullVertices);
+        if (!solid.points.empty()) d->hullMoments = solid_moments(solid.points, solid.indices);
+    }
     if (bvh) {
         const int triangles = int(g.indices.size() / 3);
         Builder b{*d, {}, {}, {}};

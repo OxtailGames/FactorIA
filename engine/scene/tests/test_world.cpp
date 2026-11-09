@@ -329,3 +329,51 @@ TEST_CASE("tooltip settings: factoria.json \"ui\" keys are read and every mistak
     CHECK_FALSE(parse_tooltip_settings(Json::parse(R"({"tooltip":{"maxWidth":"wide"}})"), "x").ok());
     CHECK_FALSE(parse_tooltip_settings(Json::parse(R"({"tooltip":5})"), "x").ok());
 }
+
+TEST_CASE("world: an entity being destroyed refuses a new parent, a new child and a new id") {
+    World w;
+    Entity root = w.create("Root", "root");
+    Entity kid = w.create("Kid", "kid");
+    w.set_parent(kid, root);
+    Entity safe = w.create("Safe", "safe");
+    Entity other = w.create("Other", "other");
+    w.destroy(root);
+
+    // The entity itself, and a child of it (its subtree is already unregistered), cannot move out.
+    auto moveRoot = w.check_set_parent(root, safe);
+    REQUIRE_FALSE(moveRoot.ok());
+    CHECK(moveRoot.error().message.find("being destroyed") != std::string::npos);
+    CHECK_FALSE(moveRoot.error().hint.empty());
+    CHECK_FALSE(w.check_set_parent(kid, safe).ok());
+    CHECK_FALSE(w.check_set_parent(kid, kNullEntity).ok());
+    // Nobody can be put under the destroyed entity or under one of its children.
+    auto under = w.check_set_parent(safe, root);
+    REQUIRE_FALSE(under.ok());
+    CHECK(under.error().message.find("'root'") != std::string::npos);
+    CHECK_FALSE(w.check_set_parent(safe, kid).ok());
+    CHECK(w.check_set_parent(safe, other).ok());  // unrelated entities still move
+
+    // set_parent changes nothing when refused.
+    w.set_parent(kid, safe);
+    CHECK(w.parent(kid) == root);
+    w.set_parent(safe, root);
+    CHECK(w.parent(safe).is_null());
+    CHECK(w.children(root) == std::vector<Entity>{kid});
+
+    // A pending entity does not take a new id; the id of a live one is unaffected.
+    auto rename = w.set_id(kid, "kid_2");
+    REQUIRE_FALSE(rename.ok());
+    CHECK(rename.error().message.find("being destroyed") != std::string::npos);
+    CHECK(w.id_of(kid) == "kid");
+    CHECK(w.set_id(safe, "safe_2").ok());
+    CHECK(w.find_by_id("safe_2") == safe);
+
+    // The lookup table never holds an id of the destroyed subtree, and after the flush the ids are free.
+    CHECK(w.find_by_id("root").is_null());
+    CHECK(w.find_by_id("kid").is_null());
+    w.flush();
+    CHECK_FALSE(w.alive(root));
+    CHECK_FALSE(w.alive(kid));
+    CHECK(w.id_of(w.create("Again", "kid")) == "kid");
+    CHECK(w.find_by_id("safe_2") == safe);
+}

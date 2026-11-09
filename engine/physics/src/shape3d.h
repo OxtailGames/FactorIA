@@ -15,11 +15,19 @@
 
 namespace fa::detail {
 
+// The volume of a solid and the integrals of x^2, y^2 and z^2 over it (second moments about the origin of its space).
+struct SolidMoments {
+    double volume = 0.0;
+    double xx = 0.0, yy = 0.0, zz = 0.0;
+};
+
 // Geometry shared by every collider that uses the same mesh: the (reduced) vertex cloud of the convex hull, and the
 // triangles with their bounding-volume hierarchy. Vertices are in the model's own space (unscaled, unrotated).
 struct ShapeData {
     std::shared_ptr<const MeshGeometry> geometry;
     std::vector<Vec3> hull;  // convex: vertices whose hull equals the mesh's (at most ~256 of them)
+    // convex: volume and integrals of x^2, y^2, z^2 of the hull about the model origin (inertia3d.h); volume 0 = none (flat hull)
+    SolidMoments hullMoments;
     struct Node {
         Vec3 lo, hi;
         int left = -1, right = -1;  // children; -1 = leaf

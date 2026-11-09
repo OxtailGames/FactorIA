@@ -76,7 +76,8 @@
 //     into triangles by a BVH (median split, 4 triangles per leaf) so only the triangles near the other shape are
 //     tested, and rays walk the BVH. Rigid-body contacts of general shapes are manifolds like boxes: a capsule lying
 //     flat gets two end points, a box or hull on a mesh gets its low corners ray-probed onto the surface, everything
-//     else one point; a dynamic capsule/convex has the bounding-box inertia and its origin is its centre of mass.
+//     else one point; a dynamic capsule has the inertia of the solid capsule (cylinder plus two hemispheres) and a convex body
+//     the inertia of its solid hull about the model origin (products of inertia ignored); the origin is the centre of mass.
 //     Rays against a capsule/convex use sphere tracing over GJK (a ray grazing under ~3 degrees may miss); mesh rays are
 //     exact (Moller-Trumbore). Every shape works with contacts against every other shape, raycast3d, shape_cast3d,
 //     overlap_sphere3d, is_touching3d, CCD, sleeping, events and debug_shapes/debug_state (Capsule / Convex / Mesh kinds).
@@ -119,8 +120,8 @@
 //     Other bodies see it as a kinematic capsule.
 //   * 3D ROTATION DYNAMICS: a dynamic BOX, or a dynamic SPHERE with RigidBody3D.rollWithMotion off, without
 //     RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the solid box's (diagonal in the box frame from the
-//     scaled size and mass, rotated into the world through the orientation) or the solid sphere's (2/5 m r^2 about every
-//     axis), contacts are manifolds (the touching face clipped to the other box's face: up to 8 points; edge-edge and
+//     scaled size and mass, rotated into the world through the orientation), the solid capsule's or hull's (see above) or the solid
+//     sphere's (2/5 m r^2 about every axis), contacts are manifolds (the touching face clipped to the other box's face: up to 8 points; edge-edge and
 //     sphere contacts have one) and the solver applies friction and normal impulses AT the contact points, so a box
 //     tips over a ledge, tumbles and settles on a face, a sphere hitting it off-centre spins it, and a rigid sphere on a
 //     slope rolls without slipping (spin = speed / radius) while a glancing hit spins both spheres. Impulses are
