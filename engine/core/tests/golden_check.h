@@ -7,7 +7,9 @@
 //    spelling, still works). A test that silently wrote its own reference compared the picture with itself.
 //  - A picture matches when all three hold: the mean error over all channels, the share of pixels with any channel off
 //    by more than `pixelThreshold`, and the largest single-channel error are within the limits. The mean alone lets one
-//    wrong region (a missing sprite, a black glyph) pass on a big picture; the share and the maximum catch it.
+//    wrong region (a missing sprite, a black glyph) pass on a big picture; the share catches a region and the maximum
+//    catches one wrong pixel, except in a golden with text, thin lines or nearest-sampled edges: golden_edge_limits()
+//    allows a largest error of 1.0 there, so for those only the mean and the share guard against a missing glyph or edge.
 //  - One golden file serves every backend (Metal, D3D11, GL on Mesa llvmpipe): the limits are what the backends'
 //    rasterizers needed, so a limit is raised only with a measurement of a backend, never to make a failure go away.
 #pragma once
@@ -39,7 +41,11 @@ struct GoldenLimits {
 //    pixels more than 4/255 off (2d_captions on llvmpipe; 3.7 % for 3d_pbr_normalmap_ibl), largest error up to 0.19 on
 //    the 3D goldens. So 0.004 mean (the bound the goldens always had), 8 % of the pixels (about 2x the worst measured:
 //    a wrong region of a twelfth of the picture still fails) and 0.6 for the largest error (3x the worst 3D case).
-//  - Direct3D 11 has not been measured on this host; its CI job ran with the mean bound only, which these limits do not loosen.
+//  - Direct3D 11 (the CI windows job runs fa_test_render and fa_test_cli on WARP) has NOT been measured against the share and
+//    maximum gates: they were chosen on Metal and llvmpipe. Measure it on the Windows PC with
+//    `FACTORIA_D3D11_WARP=1 FA_GOLDEN_REPORT=1 fa_test_render` (and fa_test_cli) and record the worst mean, share and max
+//    per golden HERE (D3D11 WARP: not yet measured), raising a limit only with those numbers. The mean bound is what its CI
+//    job always had and these limits do not loosen it.
 //  - Goldens with text, thin lines or nearest-sampled texture edges have single pixels that flip between ink and background
 //    from one GPU to the next (largest error 0.78 to 1.0 on Metal and llvmpipe, in under 0.3 % of the pixels): they pass
 //    golden_edge_limits(), which lets the largest error be 1.0 and keeps the mean and the share.
@@ -77,13 +83,12 @@ struct GoldenResult {
     bool ok() const { return verdict == GoldenVerdict::Match || verdict == GoldenVerdict::Wrote; }
 };
 
-// True when the environment asks for goldens to be written: FA_UPDATE_GOLDENS=1 (FA_UPDATE_GOLDEN=1 is the old name).
+// True when the environment asks for goldens to be written: FA_UPDATE_GOLDENS=1. FA_UPDATE_GOLDEN=1 is the old name and
+// counts only when FA_UPDATE_GOLDENS is not set, so FA_UPDATE_GOLDENS=0 turns an old FA_UPDATE_GOLDEN=1 off.
 inline bool golden_update_requested() {
-    for (const char* name : {"FA_UPDATE_GOLDENS", "FA_UPDATE_GOLDEN"}) {
-        const char* v = std::getenv(name);
-        if (v && std::string(v) == "1") return true;
-    }
-    return false;
+    if (const char* v = std::getenv("FA_UPDATE_GOLDENS")) return std::string(v) == "1";
+    const char* old = std::getenv("FA_UPDATE_GOLDEN");
+    return old && std::string(old) == "1";
 }
 
 // Compares `img` with the PNG at `golden`. No assertions: the caller (or expect_golden_file) decides what a verdict means.
@@ -147,7 +152,9 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
 }
 
 // The test-side check. On a failure the picture is written next to the golden as <name>.actual.png (git-ignored) so it can
-// be looked at, and copied over the golden by hand or by FA_UPDATE_GOLDENS=1 when it is the intended one.
+// be looked at, and copied over the golden by hand or by FA_UPDATE_GOLDENS=1 when it is the intended one. When that folder
+// cannot be written (a read-only checkout, a Docker volume) the picture goes to the temp folder instead; the failure message
+// names the path that was written, or says that none could be.
 inline GoldenResult expect_golden_file(const Image& img, const std::filesystem::path& golden, const GoldenLimits& limits = {}) {
     GoldenResult r = compare_golden(img, golden, limits, golden_update_requested());
     if (r.verdict == GoldenVerdict::Wrote) {
@@ -155,10 +162,22 @@ inline GoldenResult expect_golden_file(const Image& img, const std::filesystem::
         return r;
     }
     if (!r.ok()) {
-        std::filesystem::path actual = golden;
-        actual.replace_extension(".actual.png");
-        if (r.verdict != GoldenVerdict::Unreadable && save_png(img, fs::path_to_utf8(actual)).ok())
-            r.message += "; the picture is saved as " + fs::path_to_utf8(actual);
+        if (r.verdict != GoldenVerdict::Unreadable) {
+            std::filesystem::path actual = golden;
+            actual.replace_extension(".actual.png");
+            if (save_png(img, fs::path_to_utf8(actual)).ok()) {
+                r.message += "; the picture is saved as " + fs::path_to_utf8(actual);
+            } else {
+                std::error_code ec;
+                const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec);
+                std::filesystem::path alt = tmp / golden.filename();
+                alt.replace_extension(".actual.png");
+                if (!ec && save_png(img, fs::path_to_utf8(alt)).ok())
+                    r.message += "; " + fs::path_to_utf8(actual) + " is not writable, so the picture is saved as " + fs::path_to_utf8(alt);
+                else
+                    r.message += "; the picture could not be saved (neither next to the golden nor in the temp folder)";
+            }
+        }
         FAIL_CHECK(r.message);
     }
     return r;

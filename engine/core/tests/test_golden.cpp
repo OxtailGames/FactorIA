@@ -2,6 +2,8 @@
 #include <doctest.h>
 
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 #include <filesystem>
 
 #include "fa/core/fs.h"
@@ -99,6 +101,66 @@ TEST_CASE("golden check: a wrong region passes the mean error but is caught by t
     CHECK(r.diff.maxError < limits.maxPixelError);
     CHECK(r.differingShare > limits.maxDifferingShare);
     CHECK(r.verdict == GoldenVerdict::TooDifferent);
+}
+
+TEST_CASE("golden check: one inverted pixel passes the edge limits but fails the default limits") {
+    GoldenDir t;
+    const Image golden = flat_picture(320, 180, 20);
+    REQUIRE(save_png(golden, fs::path_to_utf8(t.golden)).ok());
+
+    Image img = golden;
+    for (int c = 0; c < 3; ++c) img.rgba[(100 * 320 + 160) * 4 + c] = 255 - 20;  // a glyph pixel that flipped: 20 -> 235
+
+    // Text, thin lines and nearest-sampled edges use golden_edge_limits(): a single pixel may differ completely there ...
+    const GoldenResult edge = compare_golden(img, t.golden, golden_edge_limits(), false);
+    CHECK(edge.verdict == GoldenVerdict::Match);
+    CHECK(edge.diff.maxError > 0.8);
+    // ... which the default limits do not allow.
+    const GoldenResult normal = compare_golden(img, t.golden, GoldenLimits{}, false);
+    CHECK(normal.verdict == GoldenVerdict::TooDifferent);
+    // Even the edge limits still catch a wrong region (the share) and keep the mean.
+    Image block = golden;
+    for (int y = 60; y < 120; ++y)
+        for (int x = 100; x < 196; ++x)
+            for (int c = 0; c < 3; ++c) block.rgba[(std::size_t(y) * 320 + x) * 4 + c] = 235;
+    CHECK(compare_golden(block, t.golden, golden_edge_limits(), false).verdict == GoldenVerdict::TooDifferent);
+}
+
+TEST_CASE("golden check: FA_UPDATE_GOLDENS wins over the old FA_UPDATE_GOLDEN name") {
+    struct Env {  // restores both variables
+        std::string a, b;
+        bool hadA, hadB;
+        Env() {
+            const char* x = std::getenv("FA_UPDATE_GOLDENS");
+            const char* y = std::getenv("FA_UPDATE_GOLDEN");
+            hadA = x != nullptr;
+            hadB = y != nullptr;
+            if (x) a = x;
+            if (y) b = y;
+        }
+        ~Env() {
+            set("FA_UPDATE_GOLDENS", hadA ? a.c_str() : nullptr);
+            set("FA_UPDATE_GOLDEN", hadB ? b.c_str() : nullptr);
+        }
+        static void set(const char* name, const char* value) {
+#ifdef _WIN32
+            _putenv_s(name, value ? value : "");
+#else
+            if (value) setenv(name, value, 1);
+            else unsetenv(name);
+#endif
+        }
+    } env;
+    Env::set("FA_UPDATE_GOLDENS", nullptr);
+    Env::set("FA_UPDATE_GOLDEN", nullptr);
+    CHECK_FALSE(golden_update_requested());
+    Env::set("FA_UPDATE_GOLDEN", "1");
+    CHECK(golden_update_requested());
+    Env::set("FA_UPDATE_GOLDENS", "0");
+    CHECK_FALSE(golden_update_requested());
+    Env::set("FA_UPDATE_GOLDENS", "1");
+    Env::set("FA_UPDATE_GOLDEN", "0");
+    CHECK(golden_update_requested());
 }
 
 TEST_CASE("golden check: small rasterizer-like differences are within the limits") {
