@@ -247,7 +247,7 @@ TEST_CASE("audio callback: a stream the decode jobs do not refill underruns into
 }
 
 TEST_CASE("audio callback: several threads playing, changing and stopping voices while the callback mixes") {
-    REQUIRE(jobs::start(jobs::Settings::threads(2)));  // the stream refills run on workers
+    JobPool pool(jobs::Settings::threads(2));  // the stream refills run on workers; stopped when the test ends, however it ends
     {
         Fixture fx;
         fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
@@ -291,15 +291,18 @@ TEST_CASE("audio callback: several threads playing, changing and stopping voices
         for (std::thread& g : game) g.join();
         for (const std::vector<VoiceId>& ids : kept)
             for (VoiceId v : ids) fx.audio.stop(v);
-        // Let the callback take the stops and hand back the ended voices (a safety net far above the few blocks needed).
+        // Let the callback take the stops and hand back the ended voices. active_voices() skips a voice the game already
+        // stopped, so it is zero at once and proves nothing: the mirror empties only when the mixer says each voice ended
+        // (a safety net of 30 s, far above the few blocks needed, so a slow CI machine does not fail).
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         while (std::chrono::steady_clock::now() < deadline) {
             fx.audio.service();
-            if (fx.audio.active_voices().size() == 0) break;
+            if (AudioTestAccess::mirror_voices(fx.audio) == 0) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
         stopMixing.store(true, std::memory_order_release);
         callback.join();
+        CHECK_MESSAGE(AudioTestAccess::mirror_voices(fx.audio) == 0, "the mixer did not acknowledge the end of every voice");
 
         const Json st = fx.audio.stats();
         CHECK(stat(st, "activeVoices") == 0);
@@ -309,5 +312,117 @@ TEST_CASE("audio callback: several threads playing, changing and stopping voices
         // The pool held at most 64 voices all along: the plays past that stole or were refused, and every one is counted.
         CHECK(stat(st, "voicesStolen") + stat(st, "voicesRejected") > 0);
     }
-    jobs::stop();
+}
+
+namespace {
+
+// Settings of the "ui" bus: junk that fills the mixer's ring (2048) and then the staging queue while a test's device stalls.
+void send_settings(Audio& audio, int count) {
+    for (int i = 0; i < count; ++i) audio.set_bus_volume("ui", 0.5f + 0.0001f * float(i % 100), 0.0f);
+}
+
+// The device is back: render and pump until the staging queue is empty and the mixer has taken everything (a count of
+// blocks, never a time).
+void resume_device(Audio& audio, int extraBlocks = 8) {
+    for (int i = 0; i < 200; ++i) {
+        render_blocks(audio, 1);
+        AudioTestAccess::pump(audio);
+        if (i > 8 && AudioTestAccess::staged_commands(audio) == 0) break;
+    }
+    render_blocks(audio, extraBlocks);
+    AudioTestAccess::pump(audio);
+    render_blocks(audio, 2);
+}
+
+}  // namespace
+
+TEST_CASE("audio callback: settings dropped while the device stalls are sent again and the mixer converges") {
+    // The same final state reached without a stall: what the mixer must end up with.
+    float expected = 0.0f;
+    {
+        Fixture ref;
+        AudioTestAccess::use_manual_device(ref.audio, 48000);
+        const VoiceId v = ref.audio.play("sounds/sine.wav", on("sfx"));
+        ref.audio.set_bus_volume("sfx", 0.25f, 0.0f);
+        ref.audio.set_voice_volume(v, 0.5f, 0.0f);
+        render_blocks(ref.audio, 4);
+        expected = render_blocks(ref.audio, 8);
+        REQUIRE(expected > 0.01f);
+    }
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("sfx"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    // The device stops taking commands. The ring fills, then the two settings wait in the staging queue, and 9000 more
+    // settings of another bus push them out of it (8192 staged): the voice's volume goes first (a Droppable), then the
+    // oldest bus settings.
+    send_settings(fx.audio, 2100);
+    fx.audio.set_bus_volume("sfx", 0.25f, 0.0f);
+    fx.audio.set_voice_volume(v, 0.5f, 0.0f);
+    send_settings(fx.audio, 9000);
+    const Json stalled = fx.audio.stats();
+    CHECK(stat(stalled, "commandsDropped") >= 1);  // the voice's volume
+    CHECK(stat(stalled, "settingsDropped") >= 1);  // the bus volume
+    CHECK(AudioTestAccess::staged_commands(fx.audio) <= 8192);
+
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    // Without the resend the bus would sit at 1.0 and the voice at 1.0: four times as loud.
+    CHECK(render_blocks(fx.audio, 8) == doctest::Approx(expected).epsilon(0.02));
+    CHECK(fx.audio.is_playing(v));
+}
+
+TEST_CASE("audio callback: a stall does not pile up repeated fades, pauses and effect resets, and no stop is lost") {
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    const VoiceId kept = fx.audio.play("sounds/sine.wav", on("sfx"));
+    const VoiceId stopped = fx.audio.play("sounds/sine.wav", on("sfx"));
+    fx.audio.play_music("sounds/sine.wav", 1.0f, 0.0f);
+    REQUIRE(kept != 0);
+    REQUIRE(stopped != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    REQUIRE(AudioTestAccess::mirror_voices(fx.audio) == 3);
+    send_settings(fx.audio, 2048 + 1500);  // the ring is full and 1500 settings wait: past the point where Keeps are merged
+    const std::size_t before = AudioTestAccess::staged_commands(fx.audio);
+    REQUIRE(before >= 1024);
+    fx.audio.stop(stopped);  // a stop: never dropped, never merged
+    // What a game that keeps calling these every frame sends: 3 x 2000 commands that each make the one before useless.
+    for (int i = 0; i < 2000; ++i) {
+        fx.audio.play_music("sounds/sine.wav", 1.0f, 0.0f);  // the same track again: a retune of the playing voice
+        fx.audio.set_paused(i % 2 == 0);
+        fx.audio.reset_bus_effects();
+    }
+    fx.audio.set_paused(false);
+    fx.audio.stop_music(1.0f);
+    const Json st = fx.audio.stats();
+    CHECK(AudioTestAccess::staged_commands(fx.audio) <= before + 8);  // the stop and one of each
+    CHECK(stat(st, "commandsCoalesced") >= 5900);
+    CHECK(stat(st, "commandsDropped") == 0);
+    CHECK(stat(st, "settingsDropped") == 0);
+
+    // The device is back: the stop arrived, the last pause state (not paused) too, so the music fades out in one second.
+    resume_device(fx.audio, 120);
+    CHECK(AudioTestAccess::mirror_voices(fx.audio) == 1);
+    CHECK(fx.audio.is_playing(kept));
+    CHECK(render_blocks(fx.audio, 2) > 0.01f);
+}
+
+TEST_CASE("audio callback: a stall merges repeated stops of everything") {
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("sfx"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    send_settings(fx.audio, 2048 + 1500);
+    const std::size_t before = AudioTestAccess::staged_commands(fx.audio);
+    for (int i = 0; i < 1000; ++i) fx.audio.stop_all();
+    CHECK(AudioTestAccess::staged_commands(fx.audio) <= before + 1);
+    CHECK(stat(fx.audio.stats(), "commandsCoalesced") >= 990);
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::mirror_voices(fx.audio) == 0);  // the one that stays still ends everything
 }
