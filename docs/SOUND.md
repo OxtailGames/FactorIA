@@ -458,3 +458,16 @@ The synthesizer is in `fa_audio` (`engine/audio/include/fa/audio/sfx.h`): `parse
 player (instruments are patches; notes are renders of them, possibly live while the game runs) call the same functions, and a
 game ships `fa_audio` without the tooling modules. `SfxRenderOptions` carries what changes per render (seed, frequency, length,
 velocity, normalization). `assets.synth_sound` renders a preset with `options.seed` and a pitch jitter of up to 10 percent from its seed.
+
+### The audio callback
+
+The mixer that fills the device's buffer (`Audio::Impl::mix_locked`, behind the lock the main thread also takes) allocates nothing
+while it mixes: the per-block flags of every bus, the bus buffers (4096 frames from the moment the bus table is built; a bigger
+device block grows them once, the first time), the ducking gains and the list of ended voices are made when the bus table is
+(`build_mix_order`, called by `set_buses`), outside the callback, and the callback only writes into them. A new bus table is
+therefore ready before the next block. Two things still allocate on purpose: recording (`start_recording` appends every block
+to a vector; it is a diagnostic, not part of a shipped game) and the single log line of the first callback after a device starts.
+The callback still takes the lock (`std::mutex`), so a long call into `Audio` from the main thread can delay a block; the
+lock-free mixer is a separate step. `engine/audio/tests/test_audio_realtime.cpp` counts the heap allocations of the mixing thread
+(a replaced global `operator new` in the test binary, counting only inside an `AllocCounter::Scope`) over voices on several buses
+with a low-pass, a reverb, ducking, a streamed clip, a PCM voice and ended voices, and expects zero.
