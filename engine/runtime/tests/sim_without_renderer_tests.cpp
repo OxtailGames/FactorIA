@@ -25,7 +25,9 @@ const char* kProject = R"({
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 }
 })";
 
-// A looping animator, one that ends, an emitter that bursts once and is destroyed when its particles are gone, and one that waits for a burst.
+// A looping animator, one that ends, an emitter that bursts once and is destroyed when its particles are gone, and one that waits for a
+// burst; a Parallax layer behind a camera that the test moves; and a panel that fits a button and a label whose size comes from the
+// text shaping (Latin, Japanese, wrapped), which a run with no renderer measures on the CPU.
 const char* kScene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -43,7 +45,16 @@ const char* kScene = R"({
     { "id": "wait", "name": "Wait",
       "components": { "Transform": { "position": [-20, 0, 0] },
                       "ParticleEmitter": { "emitting": false, "rate": 0, "burst": 0, "lifetime": 0.5, "lifetimeVariance": 0,
-                                           "speed": 30, "seed": 5 } } }
+                                           "speed": 30, "seed": 5 } } },
+    { "id": "sky", "name": "Sky",
+      "components": { "Sprite": { "texture": "assets/sheet.png" }, "Parallax": { "factor": [0.25, 0.5] } } },
+    { "id": "menu", "name": "Menu",
+      "components": { "Panel": { "layout": "column", "fit": true, "spacing": 6 } },
+      "children": [
+        { "id": "play", "components": { "Button": { "text": "Play the game", "autoSize": true, "maxWidth": 90 } } },
+        { "id": "jp", "components": { "Button": { "text": "\u65e5\u672c\u8a9e\u306e\u9577\u3044\u6587\u7ae0", "autoSize": true, "maxWidth": 80 } } },
+        { "id": "label", "components": { "Text": { "text": "Score: 12345", "space": "screen", "fontSize": 24 } } }
+      ] }
   ]
 })";
 
@@ -142,6 +153,7 @@ TEST_CASE("sim: the world state is the same frame by frame with a renderer that 
     TempProject p("same");
     std::vector<std::string> hashes[2];
     std::vector<std::size_t> particles[2];
+    Vec2 panelSize[2];
     for (int mode = 0; mode < 2; ++mode) {
         Engine e;
         std::string err;
@@ -152,17 +164,30 @@ TEST_CASE("sim: the world state is the same frame by frame with a renderer that 
             return;
         }
         CHECK((e.renderer() != nullptr) == (mode == 1));
+        const Entity cam = e.world().find_by_id("cam");
+        REQUIRE(cam);
         for (int i = 0; i < 70; ++i) {
+            e.world().get<Transform>(cam)->position.x = 2.0f * float(i);  // a moving camera: the Parallax layer follows it
             e.frame(1.0 / 60.0);  // simulates one fixed step and, with a renderer, draws it
             hashes[mode].push_back(state_hash_hex(world_state_hash(e.world()).hash));
             particles[mode].push_back(e.world().particles().particle_count());
         }
+        // The things a renderer used to measure: the parallax offset follows the camera, the panel was fitted to the shaped text.
+        const Parallax* sky = e.world().get<Parallax>(e.world().find_by_id("sky"));
+        const Panel* menu = e.world().get<Panel>(e.world().find_by_id("menu"));
+        REQUIRE(sky);
+        REQUIRE(menu);
+        CHECK(sky->offset.x != 0.0f);
+        panelSize[mode] = menu->size;
         e.shutdown();
     }
     REQUIRE(hashes[0].size() == hashes[1].size());
     CHECK(hashes[0].front() != hashes[0].back());
     CHECK(hashes[0] == hashes[1]);
     CHECK(particles[0] == particles[1]);
+    CHECK(panelSize[0].x == panelSize[1].x);
+    CHECK(panelSize[0].y == panelSize[1].y);
+    CHECK(panelSize[0].x > 0.0f);
     CHECK(particles[0][1] > 0);
     CHECK(particles[0].back() == 0);
 }
@@ -178,7 +203,7 @@ TEST_CASE("game.state_hash components: hashes only the named component types and
     auto whole = e.commands().call("game.state_hash", Json::object());
     REQUIRE(whole.ok);
     CHECK(only.result["hash"] != whole.result["hash"]);
-    CHECK(only.result["components"].get<int>() == 4);  // Sprite + SpriteAnimator on two entities
+    CHECK(only.result["components"].get<int>() == 5);  // Sprite + SpriteAnimator on two entities, and the Sprite of the Parallax layer
     // The other components are not part of it: moving an entity that has none of these changes nothing.
     Transform* t = e.world().get<Transform>(e.world().find_by_id("wait"));
     REQUIRE(t);

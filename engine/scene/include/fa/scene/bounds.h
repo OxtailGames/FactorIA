@@ -33,8 +33,8 @@ struct VisualMeasure {
     // Pixel size of a texture file as the renderer sees it (32 x 32 for a missing or unreadable file). Empty: 32 x 32 for all.
     std::function<Vec2(const std::string& path)> textureSize;
     // Size {w, h} of `text` laid out like the renderer does, with the player's text size (ui.textScale), the Text's
-    // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or
-    // approx_text_size(Text, textScale) without a renderer). Empty: approx_text_size(). Screen-space text is measured in UI
+    // maxTextScale cap and its autoShrink already applied (the renderer's Renderer::measure_text(Text), or the
+    // CPU TextMeasurer of fa/render/text_measure.h without a renderer: the same numbers). Empty: approx_text_size(). Screen-space text is measured in UI
     // UNITS (ui_rect.h): at the interface scale k it is drawn k times as big, so the measure is for fontSize, not fontSize * k.
     std::function<Vec2(const Text& text)> textSize;
     // The player's text size option (ui.textScale) at the moment of the measurement. UI code that fits labels itself
