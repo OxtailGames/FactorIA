@@ -10,6 +10,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/runtime/engine.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/components.h"
 #include "fa/scene/particle_store.h"
 #include "fa/scene/state_hash.h"
@@ -190,6 +191,30 @@ TEST_CASE("sim: the world state is the same frame by frame with a renderer that 
     CHECK(panelSize[0].x > 0.0f);
     CHECK(particles[0][1] > 0);
     CHECK(particles[0].back() == 0);
+}
+
+TEST_CASE("sim: the camera queries of a script answer right after a load, before any frame has ended") {
+    TempProject p("camfirst");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(config(p, false), nullptr, &err), err);
+    REQUIRE(e.renderer() == nullptr);
+    // The loaded scene's camera is in the set already (a script's onStart runs before the first frame ends).
+    REQUIRE(e.camera_set() != nullptr);
+    REQUIRE_FALSE(e.camera_set()->all().empty());
+    const char* code = "JSON.stringify([camera.worldToScreen([10, 20, 0]), camera.screenToWorld([200, 50]), camera.screenRay([200, 50])])";
+    auto before = e.commands().call("script.eval", Json::object({{"code", code}}));
+    REQUIRE_MESSAGE(before.ok, before.error.dump());
+    e.step(1);
+    auto after = e.commands().call("script.eval", Json::object({{"code", code}}));
+    REQUIRE(after.ok);
+    CHECK(before.result == after.result);
+    // The default camera shows the design height (180 units) over 180 pixels: 10 units right of the origin is 10 pixels right of the centre.
+    auto point = e.commands().call("script.eval", Json::object({{"code", "camera.worldToScreen([10, 0, 0])"}}));
+    REQUIRE(point.ok);
+    CHECK(point.result["value"][0].get<double>() == doctest::Approx(170.0).epsilon(0.01));
+    CHECK(point.result["value"][1].get<double>() == doctest::Approx(90.0).epsilon(0.01));
+    e.shutdown();
 }
 
 TEST_CASE("game.state_hash components: hashes only the named component types and names a mistyped one") {

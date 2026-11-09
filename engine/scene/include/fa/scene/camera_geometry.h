@@ -102,9 +102,10 @@ private:
     bool warnedCameras_ = false;
 };
 
-// Parallax layers follow the camera: Parallax.offset = camPos * (1 - factor). Called with the position of the first camera once a
-// frame, with or without a renderer (entity.bounds() of a layer and the hash of the world read it), and by the renderer with the
-// position of each camera it draws.
+// Parallax layers follow the camera: Parallax.offset = camPos * (1 - factor). The offset a world keeps is the one for the FIRST
+// camera, set once a frame with or without a renderer (entity.bounds() of a layer and the hash of the world read it). A renderer
+// that draws several cameras (or a render target) calls it with each camera it draws so each shows the layers shifted for itself,
+// and puts the first camera's offset back when the frame is gathered.
 void update_parallax(World& world, Vec2 camPos);
 
 }  // namespace fa

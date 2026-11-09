@@ -87,31 +87,6 @@ constexpr std::size_t kParallelParticles = 2048;
 constexpr std::size_t kParticleChunk = 1024;
 constexpr std::size_t kEmitterWeight = 16;
 
-// Consecutive ranges [first, second) of items whose weights add up to at least `target` (the last may weigh less); one range with
-// every item when the weights add up to less than `minTotal` or the pool has no worker thread.
-std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights, std::size_t target,
-                                                                 std::size_t minTotal) {
-    std::vector<std::pair<std::size_t, std::size_t>> out;
-    if (weights.empty()) return out;
-    std::size_t total = 0;
-    for (std::size_t w : weights) total += w;
-    if (total < minTotal || jobs::worker_count() == 0) {
-        out.emplace_back(0, weights.size());
-        return out;
-    }
-    std::size_t first = 0, sum = 0;
-    for (std::size_t i = 0; i < weights.size(); ++i) {
-        sum += weights[i];
-        if (sum >= target) {
-            out.emplace_back(first, i + 1);
-            first = i + 1;
-            sum = 0;
-        }
-    }
-    if (first < weights.size()) out.emplace_back(first, weights.size());
-    return out;
-}
-
 struct StepItem {
     Entity e;
     ParticleEmitter* em = nullptr;
@@ -183,7 +158,7 @@ void ParticleStore::update(World& world, float dt) {
         weights.push_back(st.sim.particles.size() + kEmitterWeight);
     });
     // The steps only read the World (a Tilemap to bounce on, the emitter a sub-emitter names) and write their own sim.
-    const auto ranges = weighted_ranges(weights, kParticleChunk, kParallelParticles);
+    const auto ranges = jobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
     auto run_range = [&](std::size_t r) {
         for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i) steps[i].st->sim.step(*steps[i].em, steps[i].env, dt);
     };

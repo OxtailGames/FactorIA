@@ -219,6 +219,13 @@ std::size_t chunk_count(std::size_t count, std::size_t grain);  // ceil(count / 
 std::uint64_t chunk_seed(std::uint64_t seed, std::size_t index);  // splitmix64 of seed and index
 Chunk chunk_at(std::size_t count, std::size_t grain, std::size_t index, std::uint64_t seed = 0);
 
+// Chunks for items of very different sizes (emitters of 3 or 3000 particles): consecutive ranges [first, second) of items whose
+// weights add up to at least `target` (the last range may weigh less). They depend only on the weights. One range with every item
+// when the weights add up to less than `minTotal` or the pool has no worker thread; none when there are no items. Used by the
+// particle step (fa_scene) and the particle gather (fa_render).
+std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights, std::size_t target,
+                                                                 std::size_t minTotal);
+
 // Runs fn once per chunk of `grain` items, on the workers and the calling thread, and returns when every chunk is done.
 // Every chunk runs even when one throws; the error returned is the one of the lowest chunk index that failed (the same
 // whatever the threads). fn must only write data of its own chunk. Nested calls (a parallel_for inside a job) work.

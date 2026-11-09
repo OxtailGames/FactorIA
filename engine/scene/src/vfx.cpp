@@ -486,10 +486,10 @@ void warn_once(const std::string& key, const std::string& text) {
 bool usable(const World& w, Entity e) { return !e.is_null() && w.alive(e) && !w.pending_destroy(e); }
 
 // ---- how long an emitter's entity stays after it stopped emitting ----
-// The renderer steps the particles, and only a windowed game has one. So the entity of a stopped emitter is removed by this system, a
-// fixed number of game seconds later: the most its particles can live (lifetime plus its variance, plus the trail they leave), plus,
-// for each sub-emitter level, the same again (a particle's death can start the next one). The same on every machine, with or
-// without a GPU.
+// The particles are stepped in the fixed simulation step (World::particles()), with or without a renderer. The entity of a stopped
+// emitter is removed by this system, a fixed number of game seconds later: the most its particles can live (lifetime plus its
+// variance, plus the trail they leave), plus, for each sub-emitter level, the same again (a particle's death can start the next
+// one). It depends only on the emitter's fields and the document, so it is the same on every machine and every frame rate.
 
 double drain_bound(const World& w, const ParticleEmitter& em, int depth) {
     double deepest = 0.0;

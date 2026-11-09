@@ -187,7 +187,7 @@ struct Engine::Impl {
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
     void render(double dt);       // per-frame: draws in Always mode, only simulates visuals in OnDemand
-    void draw(double dt);         // draws the world now
+    void draw(double dt, bool settled = false);  // draws the world now; settled = settle_visuals() already ran since the last step
     void settle_visuals();        // dt = 0 step of the sprite animators and particles: what scripts and loads changed since the last step (no renderer needed)
     void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);

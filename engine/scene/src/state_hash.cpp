@@ -157,7 +157,7 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
     }
     if (!filtered) {
         // The particles are simulation state too (they live in the world's ParticleStore, not in a component): each emitter's live
-        // particles, in birth order, and what the next step depends on. trailSlot is left out: it names a slot of a pool, not a value.
+        // particles, in birth order, and what the next step depends on (the clock, the random sequence, the emission accumulator). trailSlot is left out: it names a slot of a pool, not a value.
         const ParticleStore& store = world.particles();
         for (Entity e : world.entities()) {
             const ParticleEmitterState* st = store.find(e);
@@ -168,6 +168,8 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
             all.u8(sim.everSpawned ? 1 : 0);
             all.u32(std::uint32_t(sim.pending_burst()));
             all.f64(sim.clock());
+            all.u64(sim.rng_state());         // the next particle's random draws depend on it
+            all.f32(sim.emission_accumulator());  // ...and when the next one is born
             for (const Particle& p : sim.particles) {
                 all.f32(p.pos.x); all.f32(p.pos.y); all.f32(p.pos.z);
                 all.f32(p.vel.x); all.f32(p.vel.y); all.f32(p.vel.z);
