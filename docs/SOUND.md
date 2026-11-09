@@ -453,7 +453,8 @@ stopped one: its `onEnded` is called and `take_ended_voices` reports it; `stats(
 
 - **Priority**: 0..255, default 128: `audio.play(path, { priority })` in a script, `AudioSource.priority` in a scene, `PlayParams::priority`
   in C++. Raise it for dialogue, alarms and the sounds the player must hear; lower it for ambient detail. Music (`audio.music`,
-  `musicLayers`) has a priority above 255, so no sound ever replaces it; a video's sound and a `MusicPlayer`'s clip stinger have 192 (above the default effects, below what a game raises on purpose).
+  `musicLayers`) has a priority above 255, so no sound ever replaces it; a video's sound and a `MusicPlayer`'s clip stinger
+  have 192 (above the default effects, below what a game raises on purpose).
 - **Loudness**: the voice's own volume times its clip's normalization gain and the volumes and snapshot scales of its bus and
   the buses above it (the values the game set, not a measurement of the output). Music fading out to its end (`stopMusic`
   with a fade, a replaced track) counts as silent.
@@ -493,20 +494,27 @@ each memory ordering is explained where it is used:
   and `settingsDropped` (bus and music settings), and the log says it once.
   - **A dropped setting is not lost.** The game keeps its own copy of every voice, bus and `MusicPlayer` setting (what a query
     answers). When a command that set a voice's volume, pitch, pan or bus, or a bus's volume, effect, ducking or snapshot scale,
-    or a player's volume, loop, layers, intensity or bus is dropped, that voice, bus or player is marked, and once the staging
-    queue is down to half (4096) its current state is sent again, so the mixer ends up where the game believes it is. What does
-    not come back is an event that happened once: a dropped play (the voice ends), a section jump or a section stinger.
+    or a player's volume, loop, layers, intensity or bus is dropped, that voice, bus or player is marked (a bus by its name, so
+    a bus table swap while the queue waits does not make it resend another bus; a bus the swap removed is skipped), and once the
+    staging queue is down to half (4096) its current state is sent again, so the mixer ends up where the game believes it is.
+    A player whose entity is gone and that fades out gets the last values it was sent. A resent intensity uses the
+    component's `layerQuantize` of that moment. What does not come back is an event that happened once: a dropped play (the
+    voice ends), a section jump or a section stinger. **A resent state jumps**: it is applied at once, with no ramp, so a long
+    fade that was dropped (a volume fade, a snapshot fade) becomes a step to its target, and a fade that was running when the
+    stall began is not continued.
   - **Repeated Keep commands merge.** While more than 1024 commands wait, a pause, a reset of the bus effects, a stop of every
     sound or a retune of the playing music (`audio.music` again with the same track) replaces an earlier one still waiting (a
-    game that calls `setPaused` or `audio.music` every frame during a long stall does not pile them up); `stats()` counts them in `commandsCoalesced`. It is a count of waiting commands, not a time. Bus table
-    swaps do not merge (each is built from the one before), and a stop of one voice or a removal is never dropped or merged away: if more than 32768 commands that must stay are waiting, the log says so once and they are all kept.
+    game that calls `setPaused` or `audio.music` every frame during a long stall does not pile them up); `stats()` counts
+    them in `commandsCoalesced`. It is a count of waiting commands, not a time. Bus table swaps do not merge (each is built
+    from the one before), and a stop of one voice or a removal is never dropped or merged away: if more than 32768 commands
+    that must stay are waiting, the log says so once and they are all kept.
 - **Returns, mixer to game.** A ring of 4096: the commands the mixer applied, which the game frees with what they carried back
   (an old bus table, a removed music transport, the last reference to a clip), and the voices that ended. The mixer applies a
   command only while the returns have room for everything it can give back, so nothing is lost there; a command that does not
   fit waits for the next block.
 - **Streamed voices.** A clip that streams (`"stream"` in assets.json, docs/ASSETS.md) keeps a ring of decoded frames: 12288
-  frames (279 ms at 44.1 kHz) for a sound, one second when it plays as music (`play_music` and its layers). The first 4096 frames are decoded on
-  the game thread when the voice starts; after that the game hands a decode job (`fa::jobs`, `audio.stream`) every frame to each
+  frames (279 ms at 44.1 kHz) for a sound, one second when it plays as music (`play_music` and its layers). The first 4096
+  frames are decoded on the game thread when the voice starts; after that the game hands a decode job (`fa::jobs`, `audio.stream`) every frame to each
   ring with room for at least 2048. A ring that runs dry is an **underrun**: the voice plays silence for the rest of the block
   and waits where it is (no frame is skipped), the callback never waits for the decoder, and `stats()` counts `underruns` (one per
   voice and block) and `underrunFrames`. Only a game thread that stalls for longer than a ring lasts underruns.
@@ -538,8 +546,9 @@ lines are made when it is switched on. Tests:
 - `engine/audio/tests/test_audio_threads.cpp` drives the mixer as a device would (`AudioTestAccess`, `audio_testing.h`): the
   callback's allocations while commands of every kind arrive (zero), a callback that mixes while another thread holds the API
   mutex (it would hang if it took it), a stream starved into underruns that resumes, the rings on two threads, and four threads
-  playing, changing and stopping voices while the callback mixes, and a stalled device (settings dropped from the full queue are sent
-  again and the mixer converges; repeated Keep commands merge and no stop is lost). These tests were checked with
+  playing, changing and stopping voices while the callback mixes, and a stalled device (settings dropped from the full queue
+  are sent again, for voices, buses by name across a table swap, a snapshot, `AudioSource` parameters and music players, and
+  the mixer converges; repeated Keep commands merge and no stop is lost). These tests were checked with
   ThreadSanitizer (`-fsanitize=thread`) when they were written; no CI job runs it.
 - `engine/audio/tests/test_music.cpp` loads a song on a job and plays intensity changes, a section jump, a stinger and a
   crossfade with a device thread, with no allocation in the callback.

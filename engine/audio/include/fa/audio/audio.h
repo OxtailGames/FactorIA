@@ -283,10 +283,10 @@ public:
     // of the voices that stream) and streamedClips (the loaded clips that stream), busEffects (the bus_state of every bus,
     // master included) and snapshot (the last one applied, "" = none). The real-time path: underruns / underrunFrames
     // (a streamed voice found nothing decoded and played that many frames of silence), commandsDropped / settingsDropped
-    // (a stalled device: the oldest plays and voice settings, then bus and music settings, dropped from the full queue),
-    // (a dropped setting is sent again from the game's copy once the queue has emptied), commandsCoalesced (repeated pauses,
-    // effect resets, stops of everything and music retunes merged while a stalled device has a long queue), voicesStolen / voicesRejected (voice stealing
-    // with every voice taken).
+    // (a stalled device: the oldest plays and voice settings, then bus and music settings, dropped from the full queue; a
+    // dropped setting is sent again from the game's copy once the queue has emptied), commandsCoalesced (repeated pauses,
+    // effect resets, stops of everything and music retunes merged while a stalled device has a long queue) and
+    // voicesStolen / voicesRejected (voice stealing with every voice taken).
     Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)

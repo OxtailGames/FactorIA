@@ -142,7 +142,7 @@ struct Touch {
     Vec2 position;  // design-resolution pixels
     bool pressedThisFrame = false;  // landed since the last begin_frame() (what the frame's readers see)
     bool pressedThisStep = false;   // landed since the last fixed step took its input (what a fixed step sees)
-    bool pressedLate = false;       // bookkeeping of the fixed-step view: landed since the open step began (read touch_pressed())
+    bool pressedLate = false;       // bookkeeping of the fixed-step view: landed since the open step began (touch_pressed())
 };
 
 // Told about every event the feed below receives, BEFORE it changes the state: what the input recorder (fa/runtime/input_recorder.h)
@@ -179,8 +179,9 @@ public:
     // per frame would be seen by no step or by several; the fixed-step view keeps every edge (and delta, text, Back,
     // paste) until a step takes it: end_fixed_step() closes the step, and the next one starts from what arrived AFTER the
     // step began (the first FixedScope since the last end_fixed_step()): an event fed while a step runs, say by its
-    // onFixedUpdate, is not lost, the next step sees it. A press is therefore seen by exactly one fixed step and by exactly
-    // one frame. Every event of the feed below lands in both. A fixed view nobody closes keeps its text (at most
+    // onFixedUpdate, is not lost, the next step sees it. A press is therefore taken by one fixed step and by one frame
+    // (an event fed while a step runs is also visible to the readers of that same step that come after the feed, and then
+    // to the next step). Every event of the feed below lands in both. A fixed view nobody closes keeps its text (at most
     // kMaxTextPerView characters) and its consumed actions (one entry per action) bounded.
     void begin_frame();
     // Closes one fixed step: edges, deltas and the "previous" state of the fixed-step view start again from the moment the
@@ -195,7 +196,10 @@ public:
             in_.begin_fixed_step();
             in_.active_ = kFixedLayer;
         }
-        ~FixedScope() { in_.active_ = prev_; }
+        ~FixedScope() {
+            in_.active_ = prev_;
+            --in_.fixedDepth_;
+        }
         FixedScope(const FixedScope&) = delete;
         FixedScope& operator=(const FixedScope&) = delete;
 
@@ -208,6 +212,10 @@ public:
     // delta, wheel, typed text) and keeps every edge (pressed/released of keys, buttons, actions, pads, touches, Back, paste),
     // so what arrived or was injected in between is seen once by the next simulated frame.
     void discard_idle_motion();
+    // Forgets every edge nobody has read yet, in all views (presses, releases, taps that landed and lifted, consumed actions,
+    // Back, paste, motion, text) and keeps what is held, so a held key is not a new press. For a session that starts after a
+    // stretch in which nothing advanced the views (the editor outside Play): what happened then must not reach its first step.
+    void discard_pending_edges();
 
     // -------- event feed (platform layer, tests, injection)
     void on_key(Key key, bool down);
@@ -265,10 +273,12 @@ public:
     std::vector<GamepadEvent> take_gamepad_events();
     // Test isolation (and nothing else): bindings back to the project's, the mouse back at (0, 0) with no delta or wheel
     // (as in a fresh process), cursor visible and unlocked, on-screen keyboard
-    // hidden, last device the keyboard, every pad generic, no pending Back press, no recorded vibration.
+    // hidden, last device the keyboard, every pad generic, no pending Back press, no recorded vibration, and no tap that
+    // landed earlier and is still waiting for a view to see it land.
     void reset_options();
     // Focus lost or a test reset: releases everything (keys, mouse, touches, pad buttons and axes) and disconnects every
-    // pad. A windowed run reconnects the pads that are really there on the next poll_gamepads().
+    // pad. A windowed run reconnects the pads that are really there on the next poll_gamepads(). A finger that landed and
+    // that no view has seen land yet still shows as a tap once (it was a real touch); discard_pending_edges() drops those.
     void release_all();
 
     // -------- raw queries
@@ -425,12 +435,16 @@ public:
     static constexpr float kActionDownThreshold = 0.5f;
     bool action_down(std::string_view action) const;
     bool action_pressed(std::string_view action) const;   // became down this frame (analog too)
-    // A reader handled this frame's press of `action`: from now until the next begin_frame() (of the view being read) the
-    // press reads as gone, for that action and for every other action that shares one of its bindings (Escape is "pause"
-    // and "ui_cancel": the UI consumes ui_cancel when a widget handles it, so the pause handler that reads "pause" later sees nothing). Only the
-    // press edge (action_pressed) is taken away; action_down and action_value keep reading the held input. Applies to
-    // the global actions, not to player_action_*. An unknown action is ignored. In the fixed-step view the consumption
-    // ends when the input is released, so a second press before any step took the first is not silenced.
+    // A reader handled this frame's press of `action`: from now until the next begin_frame() (of the view being read)
+    // the press reads as gone, for that action and for every other action that shares one of its bindings (Escape is
+    // "pause" and "ui_cancel": the UI consumes ui_cancel when a widget handles it, so the pause handler that reads
+    // "pause" later sees nothing). Only the press edge (action_pressed) is taken away; action_down and action_value
+    // keep reading the held input. Applies to the global actions, not to player_action_*. An unknown action is
+    // ignored. In the fixed-step view the consumption ends when the input is released, so a second press before any
+    // step took the first is not silenced. LIMIT: the view keeps one press flag per input, not a count, so the
+    // release cannot tell which press the consumption was for: a press the UI consumed that is also RELEASED before
+    // the next fixed step ran (a tap shorter than fixedDt that no step saw while held) reaches that step as an
+    // ordinary press, once.
     void consume_action(std::string_view action);
     // Text input mode: while a TextField (or a script's on-screen keyboard, set_script_text_input) has the focus, the
     // typed keys belong to the text. An action bound to a printable key (letters, digits, Space, punctuation, alone or
@@ -632,9 +646,13 @@ private:
     // end_fixed_step() makes it the fixed-step view (so an event fed during the step reaches the next one).
     static constexpr size_t kFrameLayer = 0, kFixedLayer = 1, kLateLayer = 2, kLayerCount = 3;
     void advance(size_t layer);
-    void begin_fixed_step();  // the first FixedScope of a step: the late layer starts from now
+    static bool& touch_flag(Touch& t, size_t layer);  // the flag of `t` that says whether `layer` has seen it land
+    static bool touch_unseen(const Touch& t);         // some layer has not seen it land yet
+    void begin_fixed_step();  // a FixedScope was made: the first of a step starts the late layer from now
     void forget_fixed_consumption();  // an input was released: the fixed-step view's consumed presses no longer hide a new one
     bool fixedStepOpen_ = false;
+    int fixedDepth_ = 0;  // live FixedScopes; a nested step (a script stepping the game in a step) leaves the outer one open
+    bool textCapWarned_ = false;
     std::vector<Touch> endedTouches_;  // fingers that landed and lifted before every view saw them (not in touches_)
     const Layer& L() const { return layers_[active_]; }
     Layer& L() { return layers_[active_]; }

@@ -272,7 +272,9 @@ test("a test that steps a frame while 120 behaviours spin", () => {
 });
 )");
     REQUIRE(h.start());
-    h.scripts.set_callback_limit(0.003);
+    // 20 ms like the test above: CPU time counts in ticks of 15.6 ms on Windows and a loaded VM may not run a spinner for
+    // a few ms at a time. Every spinner loops forever, so each one is cut whatever the limit: 120 cuts a frame.
+    h.scripts.set_callback_limit(0.02);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(1);  // the first cuts happen outside any test
     const std::uint64_t before = h.scripts.watchdog_cut_count();
@@ -284,6 +286,9 @@ test("a test that steps a frame while 120 behaviours spin", () => {
     CHECK(rep.cases[0].passed);  // no cut happened during it
     CHECK_FALSE(rep.cases[1].passed);
     CHECK(rep.cases[1].message.find("the script watchdog stopped 'onUpdate' of scripts/spin.js") != std::string::npos);
+    // The message lists a few cuts and counts the rest instead of printing 120 of them.
+    CHECK(rep.cases[1].message.find(" ... and ") != std::string::npos);
+    CHECK(rep.cases[1].message.size() < 3000);
     CHECK(h.scripts.watchdog_cut_count() > before);
     CHECK(h.scripts.watchdog_cuts().size() == 100);
 }

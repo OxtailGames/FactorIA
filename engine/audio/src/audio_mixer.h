@@ -317,7 +317,8 @@ struct Cmd {
     std::uint64_t batch = 0;   // the commands of one API call: committed together, so applied in the same block
     CmdKind kind = CmdKind::Keep;
     SyncTarget sync = SyncTarget::None;  // Droppable/Lossy: what a drop leaves out of step
-    std::uint32_t syncId = 0;            // the voice id or bus index (kSyncAllBuses: all of them)
+    std::uint32_t syncId = 0;            // the voice id (a bus is found by syncName; kSyncAllBuses: all of them)
+    std::string syncName;                // Bus: the bus it sets, by name (a table swap moves the indexes under a stalled queue)
     std::uint64_t coalesceKey = 0;       // Keep: see CoalesceKind
     VoiceIdT play = 0;         // a play: the voice it starts (dropping it ends that voice on the game side)
     std::function<void(Mixer&, Cmd&)> run;  // runs on the mixer thread: no allocation, no lock

@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "fa/core/jobs.h"
@@ -95,6 +96,38 @@ TEST_CASE("jobs: chunk bounds and seeds depend only on count, grain, seed and in
     CHECK(jobs::chunk_seed(0, 0) == 0xe220a8397b1dcdafULL);  // splitmix64: the same number on every platform
     Rng a = last.rng(), b = jobs::chunk_at(10, 3, 3, 7).rng();
     CHECK(a.next_u32() == b.next_u32());
+}
+
+TEST_CASE("jobs: weighted_ranges cut by weight, depend only on the weights and are one range without a worker") {
+    using Ranges = std::vector<std::pair<std::size_t, std::size_t>>;
+    const std::vector<std::size_t> weights{3, 3000, 16, 16, 16, 500, 500, 2, 1};
+    // Nobody to share the work with (no pool): one range with every item; no items: none.
+    REQUIRE(!jobs::running());
+    CHECK(jobs::weighted_ranges(weights, 1000, 0) == Ranges{{0, 9}});
+    CHECK(jobs::weighted_ranges({}, 1000, 0).empty());
+    if (!jobs::threads_supported()) return;
+    for (int workers : {1, 2, 4}) {
+        INFO(workers << " workers");
+        PoolScope pool(jobs::Settings::threads(workers));
+        // A range closes as soon as its weights reach the target; the last one may weigh less.
+        CHECK(jobs::weighted_ranges(weights, 1000, 2048) == Ranges{{0, 2}, {2, 7}, {7, 9}});
+        CHECK(jobs::weighted_ranges(weights, 1000, 2048) == jobs::weighted_ranges(weights, 1000, 2048));
+        // One heavy item is a range of its own; a target of 0 closes a range at every item.
+        CHECK(jobs::weighted_ranges({5000}, 1000, 0) == Ranges{{0, 1}});
+        CHECK(jobs::weighted_ranges({1, 2, 3}, 0, 0) == Ranges{{0, 1}, {1, 2}, {2, 3}});
+        // The ranges cover [0, n) once, in order, with no gap.
+        const Ranges r = jobs::weighted_ranges(weights, 600, 0);
+        REQUIRE(!r.empty());
+        CHECK(r.front().first == 0);
+        CHECK(r.back().second == weights.size());
+        for (std::size_t i = 1; i < r.size(); ++i) CHECK(r[i].first == r[i - 1].second);
+        // Under `minTotal` in all: one range with everything.
+        CHECK(jobs::weighted_ranges(weights, 1000, 5000) == Ranges{{0, 9}});
+        // No items: none.
+        CHECK(jobs::weighted_ranges({}, 1000, 0).empty());
+    }
+    PoolScope none(jobs::Settings::threads(0));  // a pool with no worker thread: one range as well
+    CHECK(jobs::weighted_ranges(weights, 1000, 0) == Ranges{{0, 9}});
 }
 
 TEST_CASE("jobs: settings parse auto, inline and counts, and errors teach") {

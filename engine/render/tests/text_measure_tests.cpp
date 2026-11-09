@@ -200,10 +200,10 @@ TEST_CASE("measure: a font that cannot be read measures like the renderer does, 
     CHECK(p.cpu.measure_text("abc", 0).x == 0);
 }
 
-// No Gfx and no Renderer here: the numbers a TextMeasurer gives with the bundled font, written down, so a change of the shaping, the
-// metrics or the font file shows up even where no GPU can run the comparisons above. They were measured on macOS (FreeType + HarfBuzz
-// at the sizes below); the tolerance (4%, at least one pixel) covers the hinting and rounding another FreeType build may do, and is
-// far smaller than the difference between two fonts or two layouts.
+// No Gfx and no Renderer here: the numbers a TextMeasurer gives with the bundled font, written down, so a change of the
+// shaping, the metrics or the font file shows up even where no GPU can run the comparisons above. They were measured on
+// macOS (stb_truetype + HarfBuzz at the sizes below); the tolerance (4%, at least one pixel) covers the rounding another
+// build may do, and is far smaller than the difference between two fonts or two layouts.
 TEST_CASE("measure: fixed sizes of the bundled font, measured without a renderer") {
     TextMeasurer m;
     struct Case { const char* text; float size; float maxW; float w, h; };
