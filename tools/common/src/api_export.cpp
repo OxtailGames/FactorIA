@@ -2,6 +2,7 @@
 #include "fa/tooling/api_export.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <sstream>
@@ -26,6 +27,12 @@ std::string md_escape(std::string s) {
     return out;
 }
 std::string short_json(const Json& j) { return j.dump(); }
+// A range bound: an integer field's bounds are stored as doubles but read as integers ("3..64", not "3.0..64.0").
+std::string bound_text(const Json& j, bool integerField) {
+    if (integerField && j.is_number() && j.get<double>() == std::floor(j.get<double>()) && std::fabs(j.get<double>()) < 9e15)
+        return std::to_string(static_cast<long long>(j.get<double>()));
+    return short_json(j);
+}
 
 const Json& since_data() {
     static const Json data = [] {
@@ -54,11 +61,11 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
         if (f.contains("enum")) {
             type = "enum: ";
             bool first = true;
-            for (const auto& e : f["enum"]) { type += (first ? "" : " \\| ") + e.get<std::string>(); first = false; }
+            for (const auto& e : f["enum"]) { type += (first ? "" : " | ") + e.get<std::string>(); first = false; }  // md_escape escapes the bars once
         }
         if (f.contains("assetType")) type += " (" + f["assetType"].get<std::string>() + ")";
         std::string desc = f.value("doc", "");
-        if (f.contains("min")) desc += " Range " + short_json(f["min"]) + ".." + short_json(f["max"]) + ".";
+        if (f.contains("min")) desc += " Range " + bound_text(f["min"], f.value("kind", "") == "int") + ".." + bound_text(f["max"], f.value("kind", "") == "int") + ".";
         if (f.value("readOnly", false)) desc += " Read-only.";
         if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
         const std::string fieldSince = f.value("since", "");

@@ -28,7 +28,7 @@ namespace fa::render {
 // Vertex formats
 // ---------------------------------------------------------------------------
 // Everything 2D (sprites, tiles, glyphs, shapes, particles, debug lines) uses
-// one 32-byte vertex; `mode` selects the fragment path (see shaders/quad.glsl).
+// one 48-byte vertex (static_assert below); `mode` selects the fragment path (see shaders/quad.glsl).
 // kModeLit (+1 for a left-handed normal-map frame) is a textured quad shaded by the 2D lights; `aux` is then the angle of
 // the picture's right axis in the world (radians). See set_lit() and shaders/quad.glsl.
 enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5, kModeShape = 7 };

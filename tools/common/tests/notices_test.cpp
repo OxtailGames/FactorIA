@@ -91,5 +91,5 @@ TEST_CASE("notices: readable as the 'licenses' document") {
     CHECK(read_doc("third-party-notices").ok());
     bool listed = false;
     for (const auto& d : list_docs()) listed |= d.name == "licenses";
-    CHECK_FALSE(listed);  // generated, like "components": docs.list adds it, list_docs() has files only
+    CHECK_FALSE(listed);  // generated: docs.list adds it, list_docs() has files only
 }

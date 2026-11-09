@@ -1080,19 +1080,6 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     return out;
 }
 
-Result<void> save_config(const AiConfig& cfg, std::string_view path) {
-    fsys::path p(path);
-    std::error_code ec;
-    if (p.has_parent_path()) fsys::create_directories(p.parent_path(), ec);
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    if (!f) return make_error("Cannot write AI config '" + std::string(path) + "'", "Check the directory exists and is writable.");
-    f << dump_json(config_to_json(cfg, false));
-#ifndef _WIN32
-    fsys::permissions(p, fsys::perms::owner_read | fsys::perms::owner_write, ec);
-#endif
-    return {};
-}
-
 Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path) {
     Json j = Json::object();
     std::error_code ec;

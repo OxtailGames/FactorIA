@@ -233,6 +233,7 @@ enum class GradientEase : std::int32_t {
 float gradient_ease_apply(GradientEase ease, float t);
 // The most stops a Shape2D.gradientStops uses; further ones are ignored.
 constexpr int kMaxGradientStops = 8;
+inline constexpr int kShape2DMinTips = 3, kShape2DMaxTips = 64;  // Shape2D.sides and .points range
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
@@ -246,8 +247,8 @@ struct Shape2D {
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
-    std::int32_t sides = 6;           // polygon: number of sides (3..64); vertices on the ellipse inscribed in the size box, first one up
-    std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
+    std::int32_t sides = 6;           // polygon: number of sides (kShape2DMinTips..kShape2DMaxTips); vertices on the ellipse inscribed in the size box, first one up
+    std::int32_t points = 5;          // star: number of tips (kShape2DMinTips..kShape2DMaxTips); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
     bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
     float cornerRadius = 0.0f;        // rectangle: radius of the rounded corners in world units (clamped to half the shorter side)
