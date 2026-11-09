@@ -11,6 +11,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
 
 #include "export_internal.h"
 #include "fa/core/process.h"
@@ -556,6 +557,18 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
     }
 
     // ---- run the project's own Gradle wrapper ----
+    // An export over an Android export keeps app/build (export.cpp, gradle_working_dir): the APK or bundle of the last
+    // build would pass the check below after a build that wrote nothing. Gradle writes them again on every build.
+    for (const char* stale : {"app/build/outputs/apk", "app/build/outputs/bundle"}) {
+        std::error_code sec;
+        fs::remove_tree(outRoot / stale, sec);
+        if (sec)
+            return err("export: cannot delete " + fs::path_to_utf8(outRoot / stale) + ", the output of the previous Android build: " +
+                           sec.message(),
+                       fs::is_sharing_violation(sec) && sec != std::errc::permission_denied
+                           ? "A program holds a file in it open (an emulator installing the app, Android Studio?): close it and export again."
+                           : "Check that the folder can be written, or delete it yourself, then export again.");
+    }
     ProcessOptions po;
     if (is_windows_host()) po.argv = {"cmd.exe", "/c", "gradlew.bat", task, "--console=plain"};
     else po.argv = {generic(outRoot / "gradlew"), task, "--console=plain"};

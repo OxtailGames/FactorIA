@@ -47,7 +47,16 @@ const char* pixel_format_name(sg_pixel_format format) {
     }
 }
 
+sg_pixel_format ktx2_target_format() {
+    const Target* t = pick_target();
+    return t ? t->gpu : SG_PIXELFORMAT_RGBA8;
+}
+
 Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed) {
+    return transcode_ktx2_as(data, size, allowCompressed ? ktx2_target_format() : SG_PIXELFORMAT_RGBA8);
+}
+
+Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format) {
     static std::once_flag once;
     std::call_once(once, [] { basist::basisu_transcoder_init(); });
 
@@ -64,7 +73,10 @@ Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t s
     // D3D11 and WebGPU create block-compressed textures only when the size is a multiple of the block, so any other size
     // is transcoded to RGBA8 (the export leaves such textures as PNG: tools/common/src/export_textures.cpp).
     const bool blockAligned = ktx.get_width() % 4 == 0 && ktx.get_height() % 4 == 0;
-    const Target* target = allowCompressed && blockAligned ? pick_target() : nullptr;
+    const Target* target = nullptr;
+    if (blockAligned)
+        for (const Target& t : kTargets)
+            if (t.gpu == format) target = &t;
     TranscodedTexture out;
     out.width = int(ktx.get_width());
     out.height = int(ktx.get_height());

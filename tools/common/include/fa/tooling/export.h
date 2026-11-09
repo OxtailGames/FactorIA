@@ -125,6 +125,15 @@ struct ExportSize {
     std::uint64_t gzipBytes = 0;     // web files: about what a host that gzips sends; folders: 0
 };
 
+// One codec of a game pack: how many files it holds and their size before and after (a file whose compressed blocks saved
+// too little is stored as it is, and counts under "store").
+struct ExportPackCodec {
+    std::string codec;               // "store" | "lz4" | "zstd"
+    std::uint64_t files = 0;
+    std::uint64_t bytes = 0;         // the files' size
+    std::uint64_t storedBytes = 0;   // what they take in the pack
+};
+
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
@@ -140,6 +149,13 @@ struct ExportReport {
     std::string pack;                      // release desktop export: the game's pack, as a path relative to the folder it is in
                                            // (game.pak: next to the executable, in Contents/Resources of a macOS app); else empty
     std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
+    std::vector<ExportPackCodec> packCodecs;  // a pack was written (desktop --release, web): each codec that holds files
+    std::uint64_t packBytes = 0;           // the pack's size on disk (index included); 0 = no pack
+    std::uint64_t packFileBytes = 0;       // the size of the files in it, before compression
+    // The pack's file order: "firstUse" (the order play sessions first read the files in, .factoria/cache/load-order.json;
+    // the rest by path) or "path" (nothing recorded, or export.pack.useLoadOrder false). Empty = no pack.
+    std::string packOrder;
+    std::uint64_t packOrderedFiles = 0;    // "firstUse": how many of the pack's files the recorded order placed
     std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
                                            // shaders <material>.json.<slang>.shader for the platform's dialects
     std::vector<std::string> builtinFonts;  // the built-in fonts that are files, not inside the player ("builtin:serif"), that the project

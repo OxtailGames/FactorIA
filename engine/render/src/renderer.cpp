@@ -9,6 +9,10 @@
 #include <set>
 
 #include "fa/core/fs.h"
+#include "font_internal.h"
+#include "fa/core/strings.h"
+#include "fa/core/load_trace.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/log.h"
 #include "fa/core/profiler.h"
 #include "fa/platform/sokol_logging.h"
@@ -19,6 +23,8 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_internal.h"
+#include "render_jobs.h"
+#include "shader_cache.h"
 
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
@@ -93,6 +99,13 @@ struct Renderer::Impl {
     int physW = 0, physH = 0;      // size of the GPU images
     Gpu gpu;
     GpuTimer gpuTimer;
+    // Renderer::warm_step: the groups of pipelines to make before the first game frame, built on the first call.
+    std::vector<std::function<void()>> warmGroups;
+    std::size_t warmNext = 0;
+    bool warmBuilt = false;
+    std::size_t warmPipelines = 0;
+    double warmMs = 0;
+    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
     GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
@@ -218,25 +231,31 @@ struct Renderer::Impl {
 
 namespace {
 
+// The 3D gather of a camera (matrices, culling boxes, frustum and shadow tests) runs as jobs from this many
+// MeshRenderers on, kMeshGrain per chunk: an item costs ~1 us (a skinned one several), a chunk a few to hand out.
+constexpr std::size_t kParallelMeshes = 256;
+constexpr std::size_t kMeshGrain = 64;
+
 struct Viewport { float x, y, w, h, scale; };
 
 Viewport compute_viewport(ScaleMode mode, int fbW, int fbH, int tw, int th) {
     if (fbW <= 0 || fbH <= 0 || tw <= 0 || th <= 0) return {0, 0, float(fbW), float(fbH), 1.0f};
+    const float fw = float(fbW), fh = float(fbH), tfw = float(tw), tfh = float(th);
     switch (mode) {
         case ScaleMode::Stretch:
-            return {0, 0, float(fbW), float(fbH), float(fbW) / float(tw)};
+            return {0, 0, fw, fh, fw / tfw};
         case ScaleMode::PixelPerfect: {
-            float s = std::floor(std::min(float(fbW) / tw, float(fbH) / th));
-            if (s < 1.0f) s = std::min(float(fbW) / tw, float(fbH) / th);
-            float w = tw * s, h = th * s;
-            return {std::floor((fbW - w) * 0.5f), std::floor((fbH - h) * 0.5f), w, h, s};
+            float s = std::floor(std::min(fw / tfw, fh / tfh));
+            if (s < 1.0f) s = std::min(fw / tfw, fh / tfh);
+            float w = tfw * s, h = tfh * s;
+            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
         }
         case ScaleMode::Expand:
         case ScaleMode::Fit:
         default: {
-            float s = std::min(float(fbW) / tw, float(fbH) / th);
-            float w = tw * s, h = th * s;
-            return {std::floor((fbW - w) * 0.5f), std::floor((fbH - h) * 0.5f), w, h, s};
+            float s = std::min(fw / tfw, fh / tfh);
+            float w = tfw * s, h = tfh * s;
+            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
         }
     }
 }
@@ -855,16 +874,8 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
-Renderer::Renderer() = default;
-Renderer::~Renderer() { shutdown(); }
-
-bool Renderer::initialized() const { return impl_ && impl_->initialized; }
-
-bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error) {
-    if (initialized()) return true;
-    impl_ = std::make_unique<Impl>();
-    Impl& im = *impl_;
-    im.desc = desc;
+// The sokol_gfx setup both open_context() and init() use: one place for the pool sizes.
+sg_desc make_sg_desc(const GfxEnvironment& env) {
     sg_desc sd{};
     sd.environment = env.get();
     sd.logger.func = fa_sokol_log_func;
@@ -875,7 +886,132 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
+    return sd;
+}
+
+Renderer::Renderer() = default;
+Renderer::~Renderer() { shutdown(); }
+
+bool Renderer::initialized() const { return impl_ && impl_->initialized; }
+
+bool Renderer::open_context(const GfxEnvironment& env, std::string* error) {
+    if (sg_isvalid()) {
+        if (error) *error = "a graphics context is already open";
+        return false;
+    }
+    sg_desc sd = make_sg_desc(env);
     sg_setup(&sd);
+    if (!sg_isvalid()) {
+        if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+        return false;
+    }
+    return true;
+}
+
+bool Renderer::context_open() { return sg_isvalid(); }
+
+void Renderer::close_context() {
+    if (sg_isvalid()) sg_shutdown();
+}
+
+bool Renderer::present_clear(const GfxSwapchain& swapchain) {
+    if (!sg_isvalid()) return false;
+    sg_pass pass{};
+    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
+    pass.action.colors[0].clear_value = {0, 0, 0, 1};
+    pass.swapchain = swapchain.get();
+    pass.label = "present-clear";
+    sg_begin_pass(&pass);
+    sg_end_pass();
+    sg_commit();
+    return true;
+}
+
+int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
+    if (!initialized() || impl_->desc.headless) return 0;
+    Impl& im = *impl_;
+    if (!im.warmBuilt) {
+        im.warmBuilt = true;
+        Gpu* gpu = &im.gpu;
+        const sg_swapchain sc = swapchain.get();
+        const int scSamples = sc.sample_count > 0 ? sc.sample_count : 1;
+        // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
+        // frame that needs one before its group ran makes it itself, the same pipeline.
+        im.warmGroups.push_back([gpu, sc, scSamples] { gpu->blit_pipeline(sc.color_format, sc.depth_format, scSamples); });
+        im.warmGroups.push_back([gpu] {
+            gpu->quad_pipeline(false, false, BlendMode::Alpha);
+            gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
+            gpu->quad_pipeline(false, false, BlendMode::Alpha, true, true);
+        });
+        im.warmGroups.push_back([gpu] {
+            gpu->quad_pipeline(false, false, BlendMode::Additive);
+            gpu->quad_pipeline(false, false, BlendMode::Multiply);
+            gpu->quad_pipeline(false, true, BlendMode::Alpha);
+        });
+        bool meshes = false;
+        world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
+        if (meshes) {
+            const bool shadows = gpu->shadows_supported();
+            im.warmGroups.push_back([gpu] {
+                gpu->mesh_pipeline(false, false);
+                gpu->mesh_pipeline(false, true);
+            });
+            im.warmGroups.push_back([gpu] {
+                gpu->mesh_pipeline(true, false);
+                gpu->mesh_pipeline(true, true);
+                gpu->quad_pipeline(true, false, BlendMode::Alpha);
+            });
+            im.warmGroups.push_back([gpu] {
+                gpu->sky_pipeline();
+                gpu->mesh_pipeline(false, false, true);
+            });
+            if (shadows) {
+                im.warmGroups.push_back([gpu] {
+                    gpu->shadow_pipeline(false);
+                    gpu->shadow_pipeline(true);
+                });
+            }
+        }
+    }
+    if (im.warmNext >= im.warmGroups.size()) return 0;
+    // As many groups as fit in about 8 ms of this window frame (at least one): where a pipeline costs a few ms (GL, GLES, WebGL
+    // link in the driver) a group per frame would add ~100 ms of black frames, where it costs microseconds (Metal) the whole
+    // warm-up fits in one frame. The budget decides only HOW MANY frames the warm-up takes, never what it makes: the groups
+    // run in the same order and every pipeline is keyed in Gpu, so pictures and game state do not depend on it. It is wall time
+    // of the window host, outside the simulation (no game frame runs meanwhile).
+    constexpr double kFrameBudgetMs = 8.0;
+    const auto t0 = std::chrono::steady_clock::now();
+    const std::size_t before = im.gpu.pipeline_count();
+    do {
+        im.warmGroups[im.warmNext++]();
+    } while (im.warmNext < im.warmGroups.size() &&
+             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() < kFrameBudgetMs);
+    im.warmPipelines += im.gpu.pipeline_count() - before;
+    im.warmMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return int(im.warmGroups.size() - im.warmNext);
+}
+
+Json Renderer::startup_report() const {
+    Json j = shader_build_stats().to_json(backend_name());
+    j["cache"] = shader_cache_mode();
+    if (impl_) {
+        j["pipelinesWarmed"] = int(impl_->warmPipelines);
+        j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
+        j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
+    }
+    return j;
+}
+
+bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error) {
+    if (initialized()) return true;
+    impl_ = std::make_unique<Impl>();
+    Impl& im = *impl_;
+    im.desc = desc;
+    im.adopted = desc.adoptContext && sg_isvalid();
+    if (!im.adopted) {
+        sg_desc sd = make_sg_desc(env);
+        sg_setup(&sd);
+    }
     if (!sg_isvalid()) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         impl_.reset();
@@ -889,7 +1025,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     std::string gerr;
     if (!im.gpu.init(samples, &gerr)) {
         if (error) *error = gerr;
-        sg_shutdown();
+        if (!im.adopted) sg_shutdown();
         impl_.reset();
         return false;
     }
@@ -920,7 +1056,7 @@ void Renderer::shutdown() {
         for (sg_view* v : {&im.shadowColorAtt, &im.shadowDepthAtt, &im.shadowTexView}) if (v->id) sg_destroy_view(*v);
         for (sg_image* i : {&im.shadowColor, &im.shadowDepth}) if (i->id) sg_destroy_image(*i);
         im.gpu.shutdown();
-        sg_shutdown();
+        if (!im.adopted) sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
     }
     impl_.reset();
 }
@@ -1555,49 +1691,77 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     fr.anyFlash = world.feel().any_flash();
+    // The MeshRenderers this camera draws, in their order; the matrices, bounds and frustum tests run as jobs around the
+    // asset lookups, which stay on this thread (a mesh, texture or material may be loaded).
+    std::vector<MeshItem> meshes;
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
-        if (const auto flash = inherited_flash(world, fr, e)) mi.flash = *flash;  // feel.h: flashing items never share a draw
-        mi.model = world.drawn_matrix(e);
-        mi.dist = length(mi.model.translation() - fr.cam.position);
-        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.mr = &mr;
+        mi.entity = e;
+        meshes.push_back(mi);
+    });
+    const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
+    rjobs::run("render.mesh_matrices", meshSplit, [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i) {
+            MeshItem& mi = meshes[i];
+            if (const auto flash = inherited_flash(world, fr, mi.entity)) mi.flash = *flash;  // feel.h: flashing items never share a draw
+            mi.model = world.drawn_matrix(mi.entity);
+            mi.dist = length(mi.model.translation() - fr.cam.position);
+        }
+    });
+    for (MeshItem& mi : meshes) {
+        const MeshRenderer& mr = *mi.mr;
+        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
         mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
-        if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
-            mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
-        if (mr.materialColors.is_object() && !mr.materialColors.empty())
-            mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
-        mi.bmin = mi.mesh->bmin;
-        mi.bmax = mi.mesh->bmax;
-        // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
-        // palette is empty and the model shows in bind pose).
-        const Animator* anim = world.get<Animator>(e);
-        if (anim && !anim->palette.empty()) {
-            for (auto& p : mi.mesh->parts)
-                if (p.skinVb.id) mi.anim = anim;
-            if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
-                bool first = true;
-                for (auto& p : mi.mesh->parts) {
-                    Vec3 lo = p.bmin, hi = p.bmax;
-                    if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
-                    mi.bmin = first ? lo : min(mi.bmin, lo);
-                    mi.bmax = first ? hi : max(mi.bmax, hi);
-                    first = false;
+    }
+    // Per item: the hashes of its overrides, its culling box, the frustum test and whether it is blended (a char: each
+    // chunk writes its own items' slots).
+    std::vector<char> meshBlended(meshes.size(), 0);
+    rjobs::run("render.mesh_cull", meshSplit, [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i) {
+            MeshItem& mi = meshes[i];
+            const MeshRenderer& mr = *mi.mr;
+            if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
+                mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
+            if (mr.materialColors.is_object() && !mr.materialColors.empty())
+                mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
+            mi.bmin = mi.mesh->bmin;
+            mi.bmax = mi.mesh->bmax;
+            // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
+            // palette is empty and the model shows in bind pose).
+            const Animator* anim = world.get<Animator>(mi.entity);
+            if (anim && !anim->palette.empty()) {
+                for (auto& p : mi.mesh->parts)
+                    if (p.skinVb.id) mi.anim = anim;
+                if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
+                    bool first = true;
+                    for (auto& p : mi.mesh->parts) {
+                        Vec3 lo = p.bmin, hi = p.bmax;
+                        if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
+                        mi.bmin = first ? lo : min(mi.bmin, lo);
+                        mi.bmax = first ? hi : max(mi.bmax, hi);
+                        first = false;
+                    }
                 }
             }
+            mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
+            // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
+            // whatever Color.a or the glTF material say.
+            bool anyBlend = mr.color.a < 0.999f;
+            for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
+            if (mi.material) anyBlend = mi.material->alphaMode == "blend";
+            meshBlended[i] = anyBlend ? 1 : 0;
         }
-        mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
-        // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
-        // whatever Color.a or the glTF material say.
-        bool anyBlend = mr.color.a < 0.999f;
-        for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
-        if (mi.material) anyBlend = mi.material->alphaMode == "blend";
-        (anyBlend ? blended : opaque).push_back(mi);
     });
-    std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
+    for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
+    // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
+    const auto farther = [](const MeshItem& a, const MeshItem& b) {
+        return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
+    };
+    rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
     if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
         if (!entity_active(world, e)) return;
         Mat4 m = world.world_matrix(e);
@@ -1656,19 +1820,31 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     Mat4 lightVP;
     bool doShadows = false;
     if (haveShadowCaster) {
+        // The world box of each caster's parts as jobs, joined here in the order of the items.
         Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
         bool any = false;
         for (auto* list : {&opaque, &blended}) {
-            for (auto& mi : *list) {
-                if (!mi.mr->castShadows) continue;
-                for (auto& p : mi.mesh->parts) {
-                    for (int c = 0; c < 8; ++c) {
-                        Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y, (c & 4) ? p.bmax.z : p.bmin.z};
-                        Vec3 w = mi.model.transform_point(corner);
-                        bmin = min(bmin, w); bmax = max(bmax, w);
-                        any = true;
+            struct Box { Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f}; bool any = false; };
+            std::vector<Box> boxes(list->size());
+            rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes), [&](const jobs::Chunk& ch) {
+                for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                    const MeshItem& mi = (*list)[i];
+                    if (!mi.mr->castShadows) continue;
+                    Box& b = boxes[i];
+                    for (auto& p : mi.mesh->parts) {
+                        for (int c = 0; c < 8; ++c) {
+                            Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y, (c & 4) ? p.bmax.z : p.bmin.z};
+                            Vec3 w = mi.model.transform_point(corner);
+                            b.lo = min(b.lo, w); b.hi = max(b.hi, w);
+                            b.any = true;
+                        }
                     }
                 }
+            });
+            for (const Box& b : boxes) {
+                if (!b.any) continue;
+                bmin = min(bmin, b.lo); bmax = max(bmax, b.hi);
+                any = true;
             }
         }
         if (any && gpu.shadows_supported()) {
@@ -1687,10 +1863,16 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     // A mesh outside the camera frustum is not drawn in the main pass but can still cast a shadow into view, so it stays
     // in the shadow pass (when it is inside the light's volume); an item that does neither is dropped here.
     for (auto* list : {&opaque, &blended}) {
+        if (doShadows)
+            rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes), [&](const jobs::Chunk& ch) {
+                for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                    MeshItem& mi = (*list)[i];
+                    mi.casts = mi.mr->castShadows && box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+                }
+            });
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
-            mi.casts = doShadows && mi.mr->castShadows &&
-                       box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+            if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }
         list->erase(std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
@@ -2426,6 +2608,132 @@ std::string Renderer::create_runtime_texture(const Image& img, std::string* erro
 
 bool Renderer::destroy_runtime_texture(const std::string& id) {
     return impl_ && impl_->assets && impl_->assets->destroy_runtime_texture(id);
+}
+
+// ---------------------------------------------------------------------------
+// Background loading (renderer.h, "Background loading")
+// ---------------------------------------------------------------------------
+namespace {
+
+bool is_background_texture_ext(const std::string& ext) {
+    static const char* const kExt[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2"};
+    for (const char* e : kExt)
+        if (ext == e) return true;
+    return false;
+}
+
+IoResult background_failure(std::string message, std::string hint = {}) {
+    IoResult r;
+    r.error = std::move(message);
+    r.hint = std::move(hint);
+    return r;
+}
+
+// The file is made warm first (fs::warm): when its decode fails, the load on first use reads the same bytes from memory
+// (and reports the same error) instead of the disk; the background loader drops it again once the asset is adopted.
+Result<IoFile> background_read(const std::string& path) {
+    if (auto w = fs::warm(path); !w) return w.error();
+    auto view = fs::read_view(path);
+    if (!view) return view.error();
+    return IoFile{path, std::move(*view)};
+}
+
+}  // namespace
+
+Renderer::BackgroundKind Renderer::background_kind(std::string_view path) {
+    const std::string ext = to_lower(fs::extension(path));
+    if (is_background_texture_ext(ext)) return BackgroundKind::Texture;
+    if (ext == ".gltf" || ext == ".glb") return BackgroundKind::Model;
+    if (ext == ".ttf" || ext == ".otf") return BackgroundKind::Font;
+    return BackgroundKind::None;
+}
+
+bool Renderer::background_cached(std::string_view pathIn, BackgroundKind kind) const {
+    if (!impl_ || !impl_->assets) return true;  // nothing to prepare for: no renderer
+    const std::string path(pathIn);
+    switch (kind) {
+        case BackgroundKind::Texture: {
+            const assets::PackedTexture packed = assets::packed_texture(path);
+            return impl_->assets->has_texture(packed.atlas.empty() ? path : packed.atlas);
+        }
+        case BackgroundKind::Model: return impl_->assets->has_mesh(path);
+        case BackgroundKind::Font: return impl_->fonts->has_face(path);
+        case BackgroundKind::None: return true;
+    }
+    return true;
+}
+
+Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, BackgroundKind kind) const {
+    const std::string path(pathIn);
+    BackgroundWork w;
+    switch (kind) {
+        case BackgroundKind::Texture: {
+            const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            w.read = [path]() -> Result<IoFile> {
+                // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
+                const assets::PackedTexture packed = assets::packed_texture(path);
+                const std::string key = packed.atlas.empty() ? path : packed.atlas;
+                const std::string twin = fs::extension(key) == kTextureTwinExtension ? key : key + kTextureTwinExtension;
+                return background_read(fs::exists(twin) ? twin : key);
+            };
+            w.decode = [path, format](IoFile& f) {
+                const assets::PackedTexture packed = assets::packed_texture(path);
+                const std::string key = packed.atlas.empty() ? path : packed.atlas;
+                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format);
+                if (!p) return background_failure(p.error().message, p.error().hint);
+                IoResult r;
+                r.ok = true;
+                r.value = std::make_shared<PreparedTexture>(std::move(*p));
+                return r;
+            };
+            break;
+        }
+        case BackgroundKind::Model:
+            w.read = [path] { return background_read(path); };
+            w.decode = [path](IoFile& f) {
+                AssetLoadScope trace("mesh", path);  // the decode time (the read was the IO thread's); free without a trace
+                trace.set_bytes(f.view.size());
+                auto p = std::make_shared<PreparedMesh>();
+                std::string error;
+                if (!render::decode_gltf(path, f.view.data(), f.view.size(), *p, error)) return background_failure("mesh " + error);
+                IoResult r;
+                r.ok = true;
+                r.value = std::move(p);
+                return r;
+            };
+            break;
+        case BackgroundKind::Font:
+            w.read = [path]() -> Result<IoFile> { return IoFile{path, {}}; };  // the face reads its file itself
+            w.decode = [path](IoFile&) {
+                auto face = std::make_shared<std::unique_ptr<render::FontFace>>(render::load_font_face(path));
+                IoResult r;
+                r.ok = true;  // a face that failed is kept as one: a load on first use keeps it too (and reports it once)
+                r.bytes = (*face)->size;
+                r.value = std::move(face);
+                return r;
+            };
+            break;
+        case BackgroundKind::None: break;
+    }
+    return w;
+}
+
+std::uint64_t Renderer::adopt_background(std::string_view pathIn, BackgroundKind kind, IoResult& result) {
+    if (!impl_ || !impl_->assets || !result.ok || !result.value) return 0;
+    const std::string path(pathIn);
+    switch (kind) {
+        case BackgroundKind::Texture:
+            return impl_->assets->adopt_texture(*std::static_pointer_cast<PreparedTexture>(result.value), std::move(result.files));
+        case BackgroundKind::Model:
+            return impl_->assets->adopt_mesh(path, *std::static_pointer_cast<PreparedMesh>(result.value), std::move(result.files));
+        case BackgroundKind::Font: {  // the face moves into the cache (a FontFace is not copyable)
+            auto holder = std::static_pointer_cast<std::unique_ptr<render::FontFace>>(result.value);
+            impl_->fonts->adopt(std::move(*holder), std::move(result.files));
+            return 0;
+        }
+        case BackgroundKind::None: break;
+    }
+    return 0;
 }
 
 }  // namespace fa

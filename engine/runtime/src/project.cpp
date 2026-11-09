@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 
@@ -99,6 +100,14 @@ Json ProjectSettings::to_json() const {
     j["feedbackFile"] = feedbackFile;
     if (icon.empty()) j.erase("icon");
     else j["icon"] = icon;
+    if (jobThreadsSet) {
+        Json runtime = j.contains("runtime") && j["runtime"].is_object() ? j["runtime"] : Json::object();
+        runtime["jobThreads"] = jobThreads.to_json();
+        j["runtime"] = runtime;
+    } else if (j.contains("runtime") && j["runtime"].is_object()) {
+        j["runtime"].erase("jobThreads");
+        if (j["runtime"].empty()) j.erase("runtime");
+    }
     return j;
 }
 
@@ -207,7 +216,7 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
 const std::vector<std::string>& reserved_plugin_names() {
     static const std::vector<std::string> names = {
         "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
-        "feedback", "fs",  "game",   "i18n",    "input",   "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
+        "feedback", "fs",  "game",   "i18n",    "input",   "jobs",    "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
         "platform", "prefab", "project", "scene", "script", "session", "settings", "setup", "test", "ui", "world"};
     return names;
 }
@@ -482,6 +491,32 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double ppm = s.pixelsPerMeter;
         FA_TRY(read_double(*it, "pixelsPerMeter", "/physics", ppm, 0.0, true));
         s.pixelsPerMeter = float(ppm);
+    }
+    if (auto it = j.find("runtime"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/runtime", "an object like {\"jobThreads\": \"auto\"}", *it);
+        if (auto jt = it->find("jobThreads"); jt != it->end() && !jt->is_null()) {
+            auto threads = jobs::parse_settings(*jt, at("/runtime/jobThreads"));
+            if (!threads) return threads.error();
+            s.jobThreads = threads.value();
+            s.jobThreadsSet = true;
+        }
+        // Background loading budgets (docs/PERFORMANCE.md, "Background loading"): a number in a range, else an error that
+        // names the field and the range.
+        auto budget = [&](const char* key, double maxValue, double& out, const char* example) -> Result<void> {
+            auto b = it->find(key);
+            if (b == it->end() || b->is_null()) return {};
+            const std::string ptr = std::string("/runtime/") + key;
+            if (!b->is_number()) return field_error(ptr, std::string("a number like ") + example, *b);
+            const double v = b->get<double>();
+            if (!(v > 0.0) || v > maxValue)
+                return make_error(at(ptr) + ": " + std::format("{}", v) + " is out of range (more than 0, at most " +
+                                      std::format("{}", maxValue) + ")",
+                                  std::string("Typical value: ") + example + ". Remove the field to use the default.");
+            out = v;
+            return {};
+        };
+        FA_TRY(budget("loadBudgetMs", 100.0, s.loadBudgetMs, "4"));
+        FA_TRY(budget("uploadBudgetMB", 1024.0, s.uploadBudgetMB, "16"));
     }
     if (auto it = j.find("input"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/input", "an object like {\"actions\": {...}}", *it);
@@ -834,6 +869,44 @@ constexpr const char* kSchemaText =
             "type": "boolean",
             "description": "true: the game runs without this plugin, so a missing build for this computer is a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws \"the native plugin is not loaded\" when a function is used (wrap calls in try/catch, or reach the plugin only through what it provides, e.g. the `platform` API falls back to the development fake store), and the runtime only logs a warning. `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident. Default false."
           }
+        }
+      }
+    },
+)JSON"
+    R"JSON(    "runtime": {
+      "type": "object",
+      "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
+      "properties": {
+        "jobThreads": {
+          "description": "Worker threads of the job system (docs/ARCHITECTURE.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 written as a number, not in quotes (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "auto",
+                "inline"
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32
+            }
+          ]
+        },
+        "loadBudgetMs": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "default": 4,
+          "description": "Background loading (scene.preload, assets.preload, scene.load with {async: true}; docs/PERFORMANCE.md, \"Background loading\"): how many milliseconds of a frame the main thread may spend taking finished files and uploading them to the GPU, in a game with a window. Default 4. Tests, headless runs, the editor and replays use a fixed number of files per frame instead, so they do not depend on the machine."
+        },
+        "uploadBudgetMB": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1024,
+          "default": 16,
+          "description": "Background loading: how many megabytes of textures and meshes a frame may upload to the GPU, in a game with a window (the frame stops taking files once it passed this; at least one file per frame). Default 16."
         }
       }
     },
@@ -1403,6 +1476,23 @@ constexpr const char* kSchemaText =
           "type": "array",
           "items": {"type": "string"},
           "description": "Project-relative globs no export ships (folder, game.pak, web, android, ios): \"store/**\", \"levels/*.tmx\", \"notes\" (a folder). '*' matches inside one folder, '**' crosses folders, '?' one character. Added to the files and folders every export already leaves out (hidden files and folders whose name starts with a dot, build/, tests/, tools/, types/, README.md, the feedback file, AGENTS.md, CLAUDE.md). `factoria validate` warns about a glob that matches no file and fails when one matches the main scene. See docs/EXPORTING.md, \"What is shipped\"."
+        },
+)JSON"
+    R"JSON(        "pack": {
+          "type": "object",
+          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/EXPORTING.md, \"The game pack\".",
+          "properties": {
+            "codecs": {
+              "type": "object",
+              "additionalProperties": {"type": "string", "enum": ["store", "lz4", "zstd"]},
+              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\" or \"zstd\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest; a block that compression shrinks by less than 1/32 is stored as it is."
+            },
+            "useLoadOrder": {
+              "type": "boolean",
+              "default": true,
+              "description": "true (default): the files go into the pack in the order the game first read them in play sessions (the editor's Play, factoria run, play.auto record it per scene in .factoria/cache/load-order.json): the main scene's files first, then each scene's in the order the scenes first loaded, then the files no session read, by path. Reading a pack front to back is what disks and SSDs do fastest. false, or no session recorded yet: by path. The export says which order it used and how many files it covered."
+            }
+          }
         },
         "windows": {
           "type": "object",

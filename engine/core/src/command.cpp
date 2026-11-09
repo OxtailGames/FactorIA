@@ -4,8 +4,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <optional>
 #include <string_view>
 
+#include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -109,6 +111,8 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    std::optional<jobs::OwnerScope> owner;  // jobs and main-thread tasks a handler queues belong to this registry
+    if (jobOwner_) owner.emplace(jobOwner_);
     const std::shared_ptr<const CommandInterceptor> interceptor = interceptor_;  // one pointer test when there is none
     if (!interceptor || !interceptor->wants || !interceptor->wants(name)) return call_inner(name, argsIn);
     Json args = argsIn.is_null() ? Json::object() : argsIn;

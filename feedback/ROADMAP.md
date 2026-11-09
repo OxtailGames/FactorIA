@@ -2013,7 +2013,7 @@ Rules for all of them:
 Order: M70 and M71 first; M72 and M73 need M71; M74 needs M72; M75 needs M70; M76 needs M71; M77 stands alone;
 M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72.
 
-## M70. Loading, threads and fast storage (L; 5 packages) — the user, 2026-11-06
+## M70. Loading, threads and fast storage (L; 5 packages) — DONE (0.19.0)
 
 - M70.1 (L) Job system: a fixed pool of worker threads (cores - 1, capped; one on the web without cross-origin
   isolation), jobs with dependencies, a main-thread fallback, profiler lanes per thread, and a debug mode that runs

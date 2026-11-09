@@ -15,6 +15,7 @@ commands.
 | `peakMemoryMB` | Peak resident memory of the process. Windows: peak working set. Linux, Android, macOS: `ru_maxrss`. Web: the size of the wasm heap (it never shrinks). |
 | `drawCalls`, `entities` | Maximum over the run. |
 | `triangles`, `lights`, `textureMB` | What the renderer drew: triangles of the main pass, the lights (3D lights of the main pass plus Light2D lights, which a frame keeps at most 256 of, the ones in view first: see "2D lights"), and GPU texture memory in MB. Maximum over the run (`lights` is the largest `lights + lights2d` of a frame); 0 without a renderer. Otherwise the same numbers as `game.renderStats()` in a test. |
+| `startupMs` | CPU milliseconds from the moment the engine starts reading the game's files to the end of its first frame (scenes, scripts, textures, shader programs). The CPU time of the process, so a busy machine moves it less than the clock; the window and the first presented frame are not in it. See "Startup". |
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
@@ -75,7 +76,8 @@ A limit is `max(baseline * (1 + ratio), baseline + slack)`; the slack keeps a ti
 | `memory` (ratio) | 0.10 | Peak memory | Repeated runs differ by about 1-2%. |
 | `drawCalls`, `entities` (ratio) | 0.10 | Max draw calls / entities | Deterministic for a fixed scene and input. |
 | `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights (3D plus Light2D) and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
-| `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `countSlack` | 1, 8, 1, 2 | The slack of each kind of limit | |
+| `startup` (ratio) | 2.0 | `startupMs`, the CPU time to the first frame | Start-up reads files and makes GPU programs: it differs a lot between a cold and a warm disk and between drivers, so the ratio is wide. Only checked when the runner's baseline has the field. |
+| `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `startupSlackMs`, `countSlack` | 1, 8, 1, 500, 2 | The slack of each kind of limit | |
 
 `cpuMsMax` is recorded but not checked: one slow frame is mostly the machine.
 
@@ -96,9 +98,14 @@ All three work on the project they run in (`--project DIR`) and are also MCP too
 - `factoria call perf.measure` just measures.
 - **Budgets for what a scene draws.** Besides the baseline, `perf.json` may hold absolute caps that fail whatever the
   baseline says, on any runner and also where there is no baseline yet:
-  `"budgets": { "maxTriangles": 200000, "maxLights": 8, "maxTextureMB": 120, "maxDrawCalls": 300, "maxEntities": 600 }`.
+  `"budgets": { "maxTriangles": 200000, "maxLights": 8, "maxTextureMB": 120, "maxDrawCalls": 300, "maxEntities": 600, "maxStartupMs": 5000 }`.
   `perf.check` takes the same object as its `budgets` argument (its keys win over the file's). A typo in a key is an
   error with a "did you mean". The failure names the cap: `maxTriangles 26 > budget 25`.
+- **`perf.startup`: the start-up budget.** `maxStartupMs` is the most CPU milliseconds the game may take from reading its
+  files to its first frame (`startupMs` of the sample). The three templates (`2d-empty`, `2d-platformer`, `3d-empty`) ship a
+  `perf.json` with `"maxStartupMs": 5000`: about a hundred times what they cost on a developer machine, so only a game that
+  became slow trips it, never a busy CI machine. It is a time, so it fails when `CI` is set and warns elsewhere (see above);
+  the message says what to do ("Startup").
 
 Peak memory is the whole process's, so run the check the same way each time; the engine's own tests use
 `factoria call --project <game> perf.check @args.json` (`factoria call` gives `perf.*` no GPU of its own; the engine the command starts inside has it).
@@ -193,6 +200,166 @@ with `factoria call perf.baseline` (see the file's `runners`) in the same PR.
 
 Not covered yet: the web and Android players report memory and time with the limits above but have no CI baseline.
 
+## Startup
+
+What a player does between the click on its icon and a game you can play, in order (design in
+[ARCHITECTURE.md](ARCHITECTURE.md#start-up-order-and-the-shader-cache)):
+
+1. **The first frame is presented before any game file is read.** The window and the graphics context come first; the very
+   first window frame shows a cleared frame (black, the letterbox colour) and returns, so the window is on screen at once
+   instead of nothing. Only the next frame reads the game (scenes, scripts, textures, audio headers). It is on by default
+   and cannot be turned off; it applies to the player and to a windowed `factoria run`. The game cannot tell: its first
+   frame is the same frame 0, and `state_hash`, recordings, replays and goldens are identical with or without it.
+2. **The GPU pipelines the first scene draws with are made in the background of the window**, as many groups per window
+   frame as fit in about 8 ms (each frame still shows the cleared frame), so the first game frame does not stall on them. A frame that needs a pipeline
+   the warm-up has not made yet makes it then, as before: the picture never depends on the warm-up.
+3. **The game runs.** Its first frame uses at most 1/60 s of game time even when the start took longer.
+
+The numbers, from the start of the process (`play.report` `loading.startup`, the headless report's `startup`, and one log
+line `startup: first frame presented at ... ms, game ready at ... ms`):
+
+| Field | Meaning |
+| --- | --- |
+| `firstPresentMs` | When the first frame (a cleared one) was presented. `null` with no window (a headless run, `perf.measure`, tests), where nothing is presented. |
+| `firstGameFrameMs` | When the first frame of the GAME was done. The two are separate on purpose: the first is how long the player stares at nothing, the second how long until the game is playable. |
+| `windowReadyMs`, `initMs`, `warmupMs` | Window and context ready; reading the game; making the first scene's pipelines. |
+| `startupCpuMs` | CPU time from reading the files to the first game frame. The `startupMs` of `perf.*`, what `maxStartupMs` budgets. |
+| `diskReadsAtFirstPresent`, `diskReadsAtFirstGameFrame` | Files read from disk by then. The first is 0 or the player's own few files: the game's files are read after the first frame. |
+| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `warmMs`, `groupsLeft`. |
+
+`loading.startup` is there for a session that starts its own engine (`factoria run`, `play.auto`, the player); a Play inside the
+editor has none, because the editor's engine started once with the editor and its start-up numbers say nothing about the session.
+`startupMs` and `startupCpuMs` are the CPU time of the WHOLE process between the two marks (all its threads, like
+`cpuMsAvg`), not of the game's thread alone: measured from a terminal (`factoria call perf.measure`, `perf.check`) the process
+is the game, but a number taken inside the editor would also count the editor's own threads (its UI, background loaders, the AI).
+
+Times are this machine's and rounded to 0.1 ms: compare two runs on one machine, never pass or fail on them (no test
+does; `startupMs` is a CPU time with a wide budget for that reason).
+
+**Keeping start-up low.** The usual causes, in the order to look at them:
+
+- The start scene instances or loads too much: put what is not on the first screen in a scene or prefab loaded later.
+- Big textures: `play.report` `loading.slowestAssets` lists them with the time to read and to decode; ship PNGs as KTX2
+  ([EXPORTING.md](EXPORTING.md)).
+- Work in `onStart` of a script: generating a large map, building tables. Spread it over frames or generate it ahead of time
+  into a file.
+- Many custom materials: each one is shader programs to build (compare `gpu.cacheHits` with `gpu.cacheMisses`: on a first run everything is a miss, on later runs a hit).
+
+### The shader cache and the backends
+
+A shader program must be turned into the graphics card's machine code before it draws. Where the engine can keep part of that
+work between runs it does, in the per-user cache folder (`fs::cache_dir()`: macOS `~/Library/Caches/FactorIA`, Windows
+`%LOCALAPPDATA%\FactorIA\Cache`, Linux `$XDG_CACHE_HOME/factoria` or `~/.cache/factoria`, Android the app's `cache` folder, iOS
+`Library/Caches`; `FA_CACHE_DIR` overrides it; never the game folder). A cache file holds a header (magic, format version, a key,
+the payload size and its SHA-256) and the payload; a file with another key (another engine version, other source), a bad header or a
+bad checksum is ignored with one log line (category `cache`) and rebuilt, and a file is written to a temporary name and renamed
+over the old one, so a crash never leaves half a file. Deleting the folder is always safe.
+
+| Backend | Where | Engine disk cache | What it cannot do (documented elsewhere in these docs) |
+| --- | --- | --- | --- |
+| Direct3D 11 | Windows | Yes: the compiled bytecode (DXBC) of each stage, made with `d3dcompiler_47` (loaded at run time; without it sokol compiles as before). The first run compiles every program (about 0.3-1 s for the built-in ones); later runs hand the bytecode to the driver and load no compiler. | Nothing the others lack: it reports GPU times. |
+| OpenGL 4.3 core | Linux | No: sokol hands the driver GLSL source and the link happens inside the driver, with no way to give it a binary. The driver's own shader cache (Mesa, NVIDIA) does that. | A driver without GL 4.3 cannot start the renderer. It reports GPU times. |
+| Metal | macOS, iOS | No: the Metal library is built from source text by the OS, which caches it itself. | No GPU times through the graphics layer the engine uses (see "Finding what is slow"). |
+| OpenGL ES 3 | Android | No: as GL (the driver's cache); the player gives the cache folder to the engine for the day a backend there can use it. | No GPU times; at least the 256 vec4 uniforms of the minimum (64 joints per skin); textures may be ETC2 where nothing better exists. |
+| WebGL2 | Web | No, and it cannot have one: a page has no folder of its own to keep files in (the browser caches compiled shaders itself). | The same limits as GL ES 3, and textures stay PNG. |
+
+Whether a given feature works on every backend is documented where the feature is (for example [SHADERS.md](SHADERS.md)); a
+`renderer.supports(...)` query that scripts and tools can ask is planned (ROADMAP, M71 onward) and does not exist yet.
+
+## Loading
+
+A play session (the editor's Play, `play.auto`) also measures how the game loads, and `play.report` returns it as `loading`:
+
+```json
+"loading": {
+  "timeToFirstFrameMs": 412.3,
+  "scenes": [ { "scene": "scenes/main.scene.json", "loadMs": 380.1, "files": 57, "bytes": 18234567 } ],
+  "slowestAssets": [ { "kind": "texture", "path": "assets/sky.png", "bytes": 4194304, "readMs": 3.2, "decodeMs": 41.7 } ],
+  "reads": { "count": 61, "bytes": 18301234, "fromPack": 0, "packStoredBytes": 0 },
+  "note": "Times are this machine's, rounded to 0.1 ms: ..."
+}
+```
+
+- `timeToFirstFrameMs`: from the start of the session to the end of its first frame.
+- `scenes`: each scene loaded during the session, with the project files first read while it was the current scene and
+  their bytes; its `loadMs` runs from the start of its load to the end of the first frame after it.
+- `slowestAssets` (at most 10): the textures, meshes, sounds and fonts that took longest, split into the time spent
+  reading the file (`readMs`) and the rest of the load (`decodeMs`: decoding, uploading, building). A large `decodeMs` on a
+  PNG says to ship it as KTX2 ([EXPORTING.md](EXPORTING.md)); a large `readMs` says the file is big or the drive slow.
+- `reads`: the project files read (an absolute path is not counted), how many came out of a mounted `game.pak`, and what
+  those took in the pack (compressed).
+
+The times are this machine's and are rounded: compare two runs on one machine, never pass or fail on them (no test does). A
+time not reached yet (the session ended before its first frame) is `null`.
+
+The same sessions, and `factoria run`, record which files each scene reads first, in that order, into
+`.factoria/cache/load-order.json`; a `--release` export writes `game.pak` in that order, so a scene's files lie next to each
+other on the drive and a load reads mostly forward ([EXPORTING.md](EXPORTING.md#compression-and-pack-order)). A `factoria run`
+or `play.auto` (a fresh engine that reads every file it needs itself) sets a scene's order; an editor Play only adds the
+files it was missing. Recording costs one short lock and a set lookup per file read while a session runs (nothing when none
+does); the file is written when the session ends, under the project's lock, and the editor writes it on a background
+thread so Stop never waits on the disk. An exported game records nothing.
+
+## Background loading
+
+`scene.load` reads, decodes and uploads a scene's files before the frame goes on, so a big level freezes the game for a
+moment. Three calls do that work in the background instead, while frames keep running:
+
+- `scene.load(path, props, { async: true })` (the command `scene.load {"path", "async": true}`) loads the scene in the
+  background and switches to it at the end of the frame its files are ready. The new scene starts exactly as after a sync
+  load: the same world, the same `game.sceneProps()`, the same files in the same first-use order.
+- `scene.preload(path)` (command `scene.preload {"path"}`) reads a scene's files ahead; a later `scene.load` of that scene
+  reads nothing from the disk.
+- `assets.preload(paths)` (command `assets.preload {"paths"}`) does the same for a list of files: textures, models (a
+  `.gltf` brings its `.bin` and images), fonts and sounds go into the engine's caches, any other file stays in memory.
+
+Each answers at once with a handle in scripts (`progress` 0..1 that never goes down, `done`, `files`/`total`, `bytes`,
+`uploadedBytes`, `error`, `cancelled`, `cancel()`, `promise`; docs/SCRIPTING.md) or a `loadId` for tools: `load.status
+{"id"}` gives `{state, progress, items {done, total}, bytes, uploadedBytes, error?, hint?}` and `load.cancel {"id"}` stops
+it. A missing file is an error at once, with "did you mean" and a hint; a file that cannot be read or decoded fails the
+load with its message (an async scene load then does not switch). A newer `scene.load` (sync or async) or `scene.reload`
+cancels an async scene load that is still loading: the last request wins.
+
+How the work is split:
+
+- **One IO thread** for the whole process reads the files (through `fa::fs`: a `game.pak`, an APK or a loose file alike)
+  and **jobs** of the job pool decode them: PNG and KTX2/Basis to pixels, glTF to vertices, a sound to samples, a font file to
+  a parsed face; the first item parses the scene's JSON to find the files it names. The **main thread** only takes what is finished and uploads it to the GPU or adopts it into the
+  audio cache. Without worker threads (`runtime.jobThreads` 0 or `"inline"`, the web build) there is no IO thread: the main
+  thread reads and decodes a share each frame.
+- The work is counted in **items**: the first reads the scene (or the listed files) and everything it names that is text
+  (prefabs, materials, scripts and their imports, `.gltf` files), then one item per binary file, models last. `progress`
+  is items done over items, exact from the second frame on.
+- **Per frame**, two budgets:
+  - **exact** (tests, headless runs, `play.auto`, the editor, replays): exactly 4 items per frame, waiting for each that
+    is not ready, so the frames a load takes and every `progress` value are the same on every machine and with any
+    number of worker threads;
+  - **timed** (a game with a window): only the items that are ready, in the same fixed order, until the frame has spent
+    `runtime.loadBudgetMs` milliseconds (default 4) or uploaded `runtime.uploadBudgetMB` megabytes to the GPU (default 16).
+    A frame never waits for a file. With worker threads it may take no item at all; without, it takes at least one. A
+    texture bigger than the upload budget still goes up whole, in one frame.
+
+```json
+"runtime": { "loadBudgetMs": 4, "uploadBudgetMB": 16 }
+```
+
+- **Replays**: a recording of a timed run keeps how many items each frame took (`"loadUnits"` in the frame's entry), and
+  its replay takes exactly those, so a session recorded in a window replays the same frames headless.
+- **Memory**: the files of a running load are held in memory until a cache took what they hold. Those still held when it
+  finishes (the scene file, scripts, prefabs, files no cache decodes) stay through the first scene load after it finished
+  and are dropped at the second (or by `cancel()`/`release()`/`load.cancel`), so a preload costs about one scene's files
+  beyond the one in use. `load.status {}` shows `warmBytes`, what is held now.
+- **Load trace**: the files a background load reads ahead count in `play.report`'s `reads` when they are read, and enter a
+  scene's first-use order (what `factoria export` packs `game.pak` by) only when the game first uses them, so an async load
+  records the same order as a sync one. An async scene load's entry in `loading.scenes` has `"async": true`, `readyMs`
+  (from the request to the frame the scene started) and `loadMs` from the request to the end of the scene's first frame; a
+  cancelled one says `"cancelled": true`.
+
+Cost: nothing while no background load runs (no thread, no work in the frame; frames, `game.state_hash` and `play.report`
+stay as they were). While one runs: the IO thread and the decode jobs on the worker threads, and on the main thread at most
+`loadBudgetMs` per frame (plus one item) in a window, or the 4 items in exact mode. A cancelled load throws away what it
+decoded; a decode already running finishes on its worker and is dropped.
+
 ## Finding what is slow: the profiler
 
 A budget says THAT the game got slower. The profiler says WHERE the time goes. It measures the CPU time of every engine
@@ -215,6 +382,8 @@ profile: {
   systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio,
             scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}},
   behaviours: [{class, path, avgMs, maxMs, callsPerFrame}],   // slowest first
+  threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
+             jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
   memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}
 }
@@ -239,4 +408,101 @@ Reading it:
   would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
+- `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a
+  thread outside the pool ran jobs): the time it spent in jobs per frame and as a share of the frame (`busyPct`), and its
+  slowest jobs by the name they were submitted with (a `parallel_for` chunk counts as one job). Which thread ran a job
+  changes from run to run; the results do not (see "Job threads" below). A game whose engine work uses no jobs shows
+  zeros there.
 - Measuring has a small cost of its own (a few microseconds per behaviour callback); with it off there is none.
+
+## Job threads
+
+The engine hands pieces of its work to a pool of worker threads (docs/ARCHITECTURE.md, "Jobs and threads"). How many is
+the `runtime` setting of factoria.json:
+
+```json
+"runtime": { "jobThreads": "auto" }
+```
+
+- `"auto"` (the default): hardware threads - 1, at most 8 on desktop and 4 on phones (their slow cores count too, and
+  the OS, the GPU driver and audio need room). The web build has no threads: 0 there.
+- A number 0..32, written as a whole JSON number (`"4"` in quotes and `4.0` are refused with a hint): that many workers
+  besides the main thread. `0` runs every job on the main thread, when something waits for it or at the end of the
+  frame: the cheapest setting for a game that is light anyway.
+- `"inline"`: every job runs at once on the thread that submits it, in submission order. For debugging only: a job's
+  crash then has the plain call stack of its caller.
+- The words are exact in the file: `"Inline"` or `" auto"` is refused with the spelling to use.
+- The `FA_JOB_THREADS` environment variable (the same values, in any case, spaces around them ignored) overrides the
+  file for one run:
+  `FA_JOB_THREADS=0 factoria run`, `FA_JOB_THREADS=inline factoria test`. A bad value is reported at start and the
+  file's setting is used; a bad value in the file stops the start with an error at `/runtime/jobThreads`.
+
+Threads never change what the game computes. `factoria call game.state_hash` gives one hash of the whole simulation
+state; the same replay gives the same hash with any setting (`{"perEntity":true}` lists one hash per entity to find which
+one differs). `factoria call jobs.info` says what runs now: workers, mode, the setting and where it came from, the jobs
+of the last frame, how busy each thread was, the threads waiting now (`waiting`) and this engine's unfinished jobs
+(`enginePending`).
+
+Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
+big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
+little memory and battery.
+
+What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, particles, the 3D meshes'
+matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
+lists each job with its threshold) and the poses of many animators. A game under every threshold (a few hundred
+sprites, under 2048 particles, under 256 meshes: most games) runs exactly as with 0 workers. In `perf.profile`'s
+`threads` these show as `render.gather_sprites`, `render.particles`, `render.mesh_cull`, `scene.animation_poses` and
+the like on the worker lanes.
+
+Choosing `jobThreads`:
+
+- Keep `"auto"` unless a measurement says otherwise. A game whose `threads` show no render or animation jobs on the
+  workers gains nothing from more of them; `0` then saves the workers' memory.
+- A crowded scene (thousands of sprites or particles, hundreds of meshes) gains on the CPU side of `render`. What the
+  workers cannot take is the submission to the GPU (one call per draw, on the main thread), so `drawCalls` still sets
+  the floor: batch first (shared textures and materials), then add threads.
+- `perf.measure`'s `cpuMs` is the CPU time of the whole process (every thread), so threads do not lower it: compare
+  `perf.profile`'s `frameMs` and `systems.render` (wall clock) with `FA_JOB_THREADS=0` and with the setting you want.
+- The picture and `game.state_hash` are the same with every setting; `"inline"` and 0 workers take the one-chunk path,
+  the cheapest when there is nobody to share the work with.
+
+### Physics on jobs
+
+Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same result
+as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small game never
+queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
+
+| Work | Runs on the job threads when | Not split further than |
+| --- | --- | --- |
+| 2D physics step (Box2D) | at least 1536 awake bodies or 4096 contacts | 4 pieces per task (the pool's size above 4 is not used) |
+| 3D physics, contact tests and events | bodies^2 >= about 16384 (128 bodies or more) | chunks of about 4096 body pairs |
+| `nav.findPaths` / `nav.findTilePaths` | 8 or more queries in one call | 4 queries per chunk |
+| `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
+
+Measured on an Apple M5 (10 cores) with a Release build, the machine busy with other builds, so read the numbers as
+orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker threads:
+
+| Scene | inline | 1 | 2 | 8 |
+| --- | --- | --- | --- | --- |
+| 2D, 420 bodies (below the threshold) | 0.38 ms | 0.41 ms | 0.40 ms | 0.47 ms |
+| 2D, 1000 bodies | 1.0 ms | 1.0 ms | 0.95 ms | 1.05 ms |
+| 2D, 4000 bodies | 5.3 ms | 4.6 ms | 4.0 ms | 3.9 ms |
+| 2D, 8000 bodies | 9.9 ms | 8.6 ms | 7.8 ms | 7.4 ms |
+| 3D, 100 bodies (below the threshold) | 0.9 ms | 0.9 ms | 0.9 ms | 0.9 ms |
+| 3D, 250 bodies | 4.9 ms | 3.6 ms | 3.2 ms | 3.0 ms |
+| 3D, 600 bodies | 23 ms | 17 ms | 15 ms | 12 ms |
+| `render_sfx`, 5 layers, 3 s | 13 ms | 9 ms | 8.6 ms | 9 ms |
+
+The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
+sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
+bigger because its pair loops dominate. The solver's iterations, the time-of-impact islands,
+sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
+below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
+`4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
+
+Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for the
+other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that spinning costs
+CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps small steps off it.
+
+`cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
+lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.

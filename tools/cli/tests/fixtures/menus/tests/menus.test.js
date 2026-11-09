@@ -70,6 +70,27 @@ test("Play goes through the loading screen to the level", () => {
   expect(game.find("player")).toBeTruthy();
 });
 
+test("the loading screen shows the real progress of the background load, and leaving it first cancels the load", () => {
+  mainMenu();
+  pad.tap("A");
+  const seen = [];
+  for (let f = 0; f < 60 && scene.current === "scenes/loading.scene.json"; f++) {
+    const m = /(\d+)%/.exec(game.find("loading").get("Text").text);
+    if (m) seen.push(Number(m[1]));
+    game.step(1);
+  }
+  expect(scene.current).toBe("scenes/level.scene.json");
+  expect(seen.length).toBeGreaterThan(0);
+  for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThanOrEqual(seen[i - 1]); // never goes back
+  // Left before the level was ready: the load is cancelled, the game stays where it went.
+  mainMenu();
+  pad.tap("A");
+  expect(scene.current).toBe("scenes/loading.scene.json");
+  load("scenes/menu.scene.json");
+  game.step(30);
+  expect(scene.current).toBe("scenes/menu.scene.json");
+});
+
 test("pause freezes the level, and Resume does not make the player jump", () => {
   load("scenes/level.scene.json");
   game.step(60);

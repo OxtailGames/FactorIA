@@ -644,7 +644,10 @@ While the game plays (Play), the Profiler panel shows a graph of the last frames
 (physics, scriptsUpdate, render...), a table of script behaviour classes sorted by milliseconds per frame (with the script
 path and calls per frame), the GPU time, and memory (process, JavaScript heap, textures, audio, entities). Numbers are smoothed
 over a few frames. The GPU shows `n/a` with the reason where the graphics backend has no timer queries (PERFORMANCE.md,
-"Finding what is slow"). The profiler only runs while the panel is open or a play session records, so a closed panel costs
+"Finding what is slow"). The **Threads** tab has one row per thread of the job pool (main, worker 1.., and `other` when a
+thread outside the pool ran jobs): the milliseconds it spent in jobs per frame, how many jobs, its share of the frame and
+its slowest jobs by name (hover them for the whole list). How many workers there are is `runtime.jobThreads` in
+factoria.json (PERFORMANCE.md, "Job threads"). The profiler only runs while the panel is open or a play session records, so a closed panel costs
 nothing. Edit mode shows nothing: nothing runs.
 
 ## Level generator
@@ -1298,7 +1301,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), T2 (Play on Phone: no player, the stand-in player's server, the QR code, a phone log line, a re-export, Stop), A (Audio panel), A2 (Profiler panel) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), T2 (Play on Phone: no player, the stand-in player's server, the QR code, a phone log line, a re-export, Stop), A (Audio panel), A2 (Profiler panel: a behaviour's row, then the Threads tab with a row per thread and a job run while the game plays) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI

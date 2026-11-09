@@ -90,6 +90,51 @@ void ProfilerView::add_frame(const ProfFrame& f) {
     }
     rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Row& r) { return r.ms < 1e-4 && r.calls < 0.01; }), rows.end());
     std::sort(rows.begin(), rows.end(), [](const Row& x, const Row& y) { return x.ms != y.ms ? x.ms > y.ms : x.className < y.className; });
+    // Threads: the frame's lanes in its order, carrying each one's smoothed numbers; lanes it no longer has fade out.
+    std::vector<LaneRow> next;
+    next.reserve(f.lanes.size() + lanes.size());
+    auto decay = [&](LaneRow& l) {
+        l.jobMs *= 1.0 - a;
+        l.jobs *= 1.0 - a;
+        for (JobRow& j : l.top) {
+            j.ms *= 1.0 - a;
+            j.count *= 1.0 - a;
+        }
+    };
+    for (const ProfLane& fl : f.lanes) {
+        auto old = std::find_if(lanes.begin(), lanes.end(), [&](const LaneRow& l) { return l.name == fl.name; });
+        LaneRow l;
+        if (old != lanes.end()) {
+            l = std::move(*old);
+            lanes.erase(old);
+        } else {
+            l.name = fl.name;
+        }
+        decay(l);
+        l.jobMs += fl.jobMs * a;
+        l.jobs += double(fl.jobs) * a;
+        for (const ProfJobSample& js : fl.samples) {
+            auto it = std::find_if(l.top.begin(), l.top.end(), [&](const JobRow& j) { return j.name == js.name; });
+            if (it == l.top.end()) {
+                l.top.push_back(JobRow{js.name, 0, 0});
+                it = l.top.end() - 1;
+            }
+            it->ms += js.ms * a;
+            it->count += double(js.count) * a;
+        }
+        next.push_back(std::move(l));
+    }
+    for (LaneRow& l : lanes) {  // lanes the frame did not have ("other", workers of a pool that shrank)
+        decay(l);
+        if (l.jobMs >= 1e-4 || l.jobs >= 0.01) next.push_back(std::move(l));
+    }
+    for (LaneRow& l : next) {
+        l.top.erase(std::remove_if(l.top.begin(), l.top.end(), [](const JobRow& j) { return j.ms < 1e-4 && j.count < 0.01; }),
+                    l.top.end());
+        std::sort(l.top.begin(), l.top.end(),
+                  [](const JobRow& x, const JobRow& y) { return x.ms != y.ms ? x.ms > y.ms : x.name < y.name; });
+    }
+    lanes = std::move(next);
 }
 
 void ProfilerView::add_gpu_ms(double ms) {

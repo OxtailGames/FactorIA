@@ -2479,6 +2479,18 @@ Answers the review sheet that assets.generate_image {count} made for `slot` (its
 | `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
 | `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
+### `assets.preload` (modifies state)
+
+Since 0.19.0.
+
+Read a list of asset files in the background, ready for their first use.
+
+Starts a background load of the listed files: textures, models, fonts and sounds are decoded into the engine's caches (a .gltf brings its buffers and textures, a .prefab.json or .material.json what it names); any other file is read into memory. Answers at once with `loadId` and the status; it advances in the frames the game runs. A missing file is an error with "did you mean"; a folder is an error too. Example: assets.preload {"paths":["assets/boss.glb","sounds/boss_theme.ogg"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | yes | Project-relative files to read ahead. |
+
 ### `assets.preview_in_scene`
 
 Since 0.16.0.
@@ -3529,6 +3541,20 @@ Filters: entities (ids), components (names to include), includeDefaults, maxEnti
 | `includeDefaults` | boolean | no |  Default false. |
 | `maxEntities` | integer | no |  Default 200. |
 
+### `game.state_hash`
+
+Since 0.19.0.
+
+One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.
+
+Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. Example: game.state_hash {"perEntity":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `perEntity` | boolean | no | Also list one hash per entity, in creation order (at most maxEntities). Default false. |
+| `includeRuntime` | boolean | no | Hash the fields that are not saved to scenes too (velocities, timers). Default true. |
+| `maxEntities` | integer | no | How many entities perEntity lists. Default 200. |
+
 ### `game.step` (modifies state)
 
 Advance the simulation by N fixed frames (deterministic) and return a state summary.
@@ -4460,6 +4486,42 @@ Record the input the game receives as an input replay (start / stop).
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
 | `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
 
+## jobs
+
+### `jobs.info`
+
+Since 0.19.0.
+
+The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.
+
+mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
+
+## scene
+
+### `load.cancel` (modifies state)
+
+Since 0.19.0.
+
+Stop a background load, or drop the files a finished one read ahead.
+
+A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now, and an async scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. Example: load.cancel {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | yes | The loadId to stop. |
+
+### `load.status`
+
+Since 0.19.0.
+
+Show the background loads: progress, items, bytes, errors.
+
+With `id`: that load (from scene.preload, assets.preload, scene.load {async:true}, or a script's handle). Without: {jobs, threaded, warmBytes}, the loads that run and the last 16 that ended. A load is {id, kind, paths, origin (script|tool), state (scanning|loading|done|failed|cancelled), progress (0..1, never goes down), items {done, total} (the scan counts as one), bytes, uploadedBytes, error?, hint?}. `threaded` is false when the job pool has no worker thread: the files are then read on the main thread, a share per frame. Example: load.status {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | no | A loadId. Default: every running and recent load. |
+
 ## material
 
 ### `material.info`
@@ -5189,6 +5251,22 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 | `closest` | boolean | no | When the goal is unreachable, return a path to the reachable point nearest to it (complete=false). |
 | `mesh` | string | no | Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`. |
 
+### `nav.find_paths`
+
+Since 0.19.0.
+
+Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
+
+The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: nav.findPaths(queries, opts). Example: nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},{"from":[2,0,2],"to":[-4,0,6]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `queries` | array | yes | The path queries, at most 10000. |
+| `radius` | number | no | Default agent radius of every query. |
+| `snap` | number | no | Default snap distance of every query. |
+| `closest` | boolean | no | Default for every query. |
+| `mesh` | string | no | Default NavMesh3D entity id of every query. |
+
 ### `nav.find_tile_path`
 
 Since 0.3.0.
@@ -5206,6 +5284,25 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 | `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}; null or negative blocks, a solid tile listed here is walkable. |
 | `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
 | `maxNodes` | integer | no | Most cells the search expands before it gives up (too_far). Default 100000. |
+| `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
+| `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
+
+### `nav.find_tile_paths`
+
+Since 0.19.0.
+
+Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
+
+The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and `allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths {"tilemap":"ground","queries":[{"from":[0,0],"to":[5,3]},{"from":[1,1],"to":[9,2]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `tilemap` | string | no | Id of the entity with the Tilemap. Give this or `grid`. |
+| `grid` | object | no | A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number \| [w,h]}. |
+| `queries` | array | yes | The path queries, at most 10000. |
+| `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}. |
+| `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
+| `maxNodes` | integer | no | Most cells each search expands before it gives up (too_far). Default 100000. |
 | `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
 | `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
 
@@ -5242,7 +5339,7 @@ Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
 
-Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, triangles:0.1, lights:0.1, textureMB:0.1, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, countSlack:2}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities} (absolute caps, see perf.check), runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
+Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, triangles:0.1, lights:0.1, textureMB:0.1, startup:2.0, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, startupSlackMs:500, countSlack:2}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs} (absolute caps, see perf.check; maxStartupMs is the `perf.startup` budget), runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5251,7 +5348,7 @@ Measures like perf.measure (3 runs, median) and stores the result under runners.
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
 | `repeats` | integer | no | Runs to take the median of. Default 3. |
-| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB (ratios), cpuSlackMs, memorySlackMB, textureSlackMB, countSlack. |
+| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities, triangles, lights, textureMB, startup (ratios), cpuSlackMs, memorySlackMB, textureSlackMB, startupSlackMs, countSlack. |
 
 ### `perf.check`
 
@@ -5259,14 +5356,14 @@ Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
-Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
+Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU milliseconds the game may take from reading its files to its first frame (startupMs of the sample); the templates ship one with a wide margin, and the message tells how to bring start-up down. A time (cpuMsAvg, cpuMsP95, startupMs, maxStartupMs) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
 | `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
 | `requireBaseline` | boolean | no | Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything. Default false. |
-| `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities. |
+| `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs. |
 
 ### `perf.measure`
 
@@ -5274,7 +5371,7 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5514,7 +5611,7 @@ Run this after you build a feature and BEFORE you ask the user to play: it plays
 
 What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
 
-Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` "auto") also `kind` and `step` of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and `auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1) or, with `phase`, of that phase; a play.auto session without marks shows the picture taken when the run ended. Call again with mark 2, 3... or phase 1, 2... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
+Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; loading: timeToFirstFrameMs, each scene's loadMs (from the start of its load to the end of the first frame after it), files and bytes, slowestAssets (kind, path, bytes, readMs, decodeMs) and reads (count, bytes, fromPack, packStoredBytes): this machine's times, rounded, to compare runs, never a pass or a fail; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` "auto") also `kind` and `step` of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and `auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1) or, with `phase`, of that phase; a play.auto session without marks shows the picture taken when the run ended. Call again with mark 2, 3... or phase 1, 2... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5580,7 +5677,7 @@ The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level, which it loads in the background (scene.load with {async: true}) while it shows the real progress.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -5602,7 +5699,7 @@ Since 0.1.2.
 
 Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).
 
-Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "apk" (default) or "aab" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports it as `artifact`; "gradle" only writes the project and builds nothing. `release` builds the release variant (signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is (<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "appimage" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms ["web"], else a web build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format "zip"; `mode` says where the player came from: explicit, package, installed or build). windows with `format` "msix" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the Microsoft Store, from any computer (reported as `artifact`, format "msix"; identity in export.windows.msix; sign it with `sign.windows`, upload it with `publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command; `project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click (`artifact`, format "html"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json names them in full, with their licenses in the notices (`builtinFonts` in the result). Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read {"name":"exporting"}. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
+Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "apk" (default) or "aab" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports it as `artifact`; "gradle" only writes the project and builds nothing. `release` builds the release variant (signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is false; each file compressed with its type's codec, export.pack.codecs overrides it per extension; the files in the order play sessions first read them unless export.pack.useLoadOrder is false) and reports it as `pack` with the packed paths in `packed` and `packStats` {bytes, fileBytes, codecs: [{codec, files, bytes, storedBytes}], order: "firstUse"|"path", orderedFiles}. ios: the game plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is (<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "appimage" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms ["web"], else a web build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format "zip"; `mode` says where the player came from: explicit, package, installed or build). windows with `format` "msix" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the Microsoft Store, from any computer (reported as `artifact`, format "msix"; identity in export.windows.msix; sign it with `sign.windows`, upload it with `publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command; `project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click (`artifact`, format "html"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json names them in full, with their licenses in the notices (`builtinFonts` in the result). Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read {"name":"exporting"}. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6089,12 +6186,25 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. `async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, "Background loading") and answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
+| `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
+
+### `scene.preload` (modifies state)
+
+Since 0.19.0.
+
+Read a scene's files in the background, so a later scene.load waits for nothing.
+
+Starts a background load of the scene file and everything it uses (prefabs, materials, scripts, models, textures, fonts, sounds): the IO thread reads them and jobs decode them while frames run; each frame the main thread uploads a share to the GPU (docs/PERFORMANCE.md, "Background loading"). Answers at once with `loadId` and the load's status; it advances in the frames the game runs (game.step, play.auto, a running window). The files stay ready until the second scene load after the preload finished (load.cancel drops them earlier). A missing scene is an error with "did you mean". Example: scene.preload {"path":"scenes/level2.scene.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative scene path, e.g. scenes/level2.scene.json. |
 
 ### `scene.reload` (modifies state)
 
@@ -9133,6 +9243,60 @@ declare module "factoria" {
   }
 
   /**
+   * One query of nav.findPaths: the same fields as nav.findPath's arguments, each overriding the default given in findPaths' opts.
+   * @since 0.19.0
+   */
+  export interface NavPathQuery {
+    /**
+     * Start point (the agent's feet), meters.
+     * @since 0.19.0
+     */
+    from: Vec3Like;
+    /**
+     * Goal point, meters.
+     * @since 0.19.0
+     */
+    to: Vec3Like;
+    /**
+     * Agent radius of this query (meters). Default: findPaths' opts.radius, else the NavMesh3D's agentRadius.
+     * @since 0.19.0
+     */
+    radius?: number;
+    /**
+     * How far (meters) a start or goal off the walkable cells is moved onto the nearest one.
+     * @since 0.19.0
+     */
+    snap?: number;
+    /**
+     * Goal unreachable: return a path to the reachable point nearest to it (complete = false).
+     * @since 0.19.0
+     */
+    closest?: boolean;
+    /**
+     * Id of the entity with the NavMesh3D to use.
+     * @since 0.19.0
+     */
+    mesh?: string;
+  }
+
+  /**
+   * One query of nav.findTilePaths.
+   * @since 0.19.0
+   */
+  export interface NavTileQuery {
+    /**
+     * Start cell (0-based, row 0 = top).
+     * @since 0.19.0
+     */
+    from: NavCell | readonly [number, number];
+    /**
+     * Goal cell.
+     * @since 0.19.0
+     */
+    to: NavCell | readonly [number, number];
+  }
+
+  /**
    * Options of nav.findPath.
    * @since 0.3.0
    */
@@ -9507,6 +9671,16 @@ declare module "factoria" {
      * @since 0.3.0
      */
     findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * Many findPath queries in one call, searched in parallel on the job threads (runtime.jobThreads): for a crowd or a planner that asks for dozens of routes in one frame. Returns one NavPath per query, IN THE ORDER YOU ASKED, each exactly what findPath gives for it, and the same whatever the thread count (8 or more queries use the threads, fewer run in order). opts holds the defaults of every query (radius, snap, closest, mesh). Never throws for 'no route'; throws an Error naming the query when one cannot be answered (no baked NavMesh3D, unknown mesh, radius bigger than the mesh was baked for) or when a query is not { from, to }. At most 10000 queries per call. Example: const paths = nav.findPaths(guards.map((g) => ({ from: g.position, to: player.position })), { radius: 0.3 }); paths.forEach((p, i) => { if (p.found) guards[i].target = p.points[1] ?? p.points[0]; });
+     * @since 0.19.0
+     */
+    findPaths(queries: readonly NavPathQuery[], opts?: NavPathOptions): NavPath[];
+    /**
+     * Many findTilePath queries on ONE map in one call, searched in parallel on the job threads; the map is read once (a Tilemap or a plain grid is converted once, not per query; a grid from nav.createGrid is used as it is). Returns one NavTilePath per query in the order you asked, each exactly what findTilePath gives, the same whatever the thread count (8 or more queries use the threads). opts apply to every query. Never throws for 'no route'; throws, naming the query, when the map or a cell is not what the call expects. At most 10000 queries per call. Example: const paths = nav.findTilePaths(grid, walkers.map((w) => ({ from: w.cell, to: market })), { diagonals: true });
+     * @since 0.19.0
+     */
+    findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[];
     /**
      * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
      * @since 0.3.0
@@ -9992,14 +10166,18 @@ declare module "factoria" {
 
   export interface SceneAPI {
     /**
-     * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     * Reads a scene's files in the background and returns a handle at once: the IO thread reads them, jobs decode the images, models, fonts and sounds, and each frame uploads a share to the GPU, so a later scene.load(path) of that scene reads nothing from the disk and a loading screen keeps drawing (and animating). Reads the scene file and what it points at: prefabs, materials, scripts and their imports, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four per frame in tests, headless runs, the editor and replays (so the frames it takes never depend on the machine), the files that are ready within runtime.loadBudgetMs and runtime.uploadBudgetMB in a game with a window (a frame never waits for a file). A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
      * @since 0.3.0
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. A sync load cancels an async scene.load still loading (the last request wins). Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string, props?: Json): void;
+    load(path: string, props?: Json | null, options?: { async?: false }): void;
+    /**
+     * With { async: true }: reads the scene's files in the background first (like scene.preload) and switches to the scene at the end of the frame they are all ready; the game, a loading screen included, keeps running meanwhile. Returns the load's handle at once: progress (0..1, never goes down), done, cancel(), promise. A newer scene.load or scene.reload cancels it (its promise rejects with "cancelled") and it never switches. The new scene starts like after a sync load: same world, same game.sceneProps(), same first-use file order. A scene that does not exist throws with a did-you-mean list; an unknown option throws with the closest one. Without options, or with { async: false }, it is the sync load above and returns undefined. Example: const h = scene.load("scenes/level2.scene.json", { level: 2 }, { async: true }); bar.width = 400 * h.progress;
+     */
+    load(path: string, props: Json | null | undefined, options: { async: true }): PreloadHandle;
     reload(): void;
     /**
      * The path of the running scene. A reload of the same scene leaves it equal: use `generation` to tell the two apart.
@@ -11494,42 +11672,62 @@ declare module "factoria" {
   }
 
   /**
-   * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   * Progress of scene.preload / assets.preload / scene.load(path, props, { async: true }). Values change between frames only, never in the middle of your code. The files a finished job read ahead and that no cache took stay in memory through the first scene load after it finished and leave at the second; release() frees them earlier.
    * @since 0.3.0
    */
   export interface PreloadHandle {
     /**
-     * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     * How much of the work is done, 0..1: items loaded over the items of the job (the scan of the scene counts as one). Never goes down, 1 when done without an error.
      * @since 0.3.0
      */
     readonly progress: number;
     /**
-     * True once every file is read, or the job failed (then error says why).
+     * True once everything is loaded, or the job failed (then error says why) or was cancelled (then cancelled is true).
      * @since 0.3.0
      */
     readonly done: boolean;
     /**
-     * Files read so far.
+     * Items loaded so far: the scan of the scene (or of the listed files) counts as one, then one per texture, model, font, sound or other file.
      * @since 0.3.0
      */
     readonly files: number;
+    /**
+     * Items of the job: 1 until the scan is done, then the real count. progress is files / total.
+     * @since 0.19.0
+     */
+    readonly total: number;
     /**
      * Bytes read so far.
      * @since 0.3.0
      */
     readonly bytes: number;
     /**
+     * Bytes uploaded to the GPU so far (textures and models; fonts upload their glyphs when first drawn; 0 without a GPU). In a game with a window a frame stops taking files once it uploaded runtime.uploadBudgetMB.
+     * @since 0.19.0
+     */
+    readonly uploadedBytes: number;
+    /**
      * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
      * @since 0.3.0
      */
     readonly error: string;
     /**
-     * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     * True when the job was cancelled: cancel(), release() before it finished, the load.cancel command, or a newer scene load replaced an async one.
+     * @since 0.19.0
+     */
+    readonly cancelled: boolean;
+    /**
+     * Resolves with the totals when everything is loaded; rejects with an Error (message + hint) when the job fails, is cancelled or is released first.
      * @since 0.3.0
      */
-    readonly promise: Promise<{ files: number; bytes: number }>;
+    readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
-     * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
+     * @since 0.19.0
+     */
+    cancel(): void;
+    /**
+     * Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. Optional: they leave memory by themselves at the second scene load after the job finished.
      * @since 0.3.0
      */
     release(): void;
@@ -11540,7 +11738,7 @@ declare module "factoria" {
    */
   export interface AssetsAPI {
     /**
-     * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     * Reads the files in the background like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: textures, models, fonts and sounds are decoded into the engine's caches, any other file is kept in memory, so the next use reads nothing from the disk. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
      * @since 0.3.0
      */
     preload(paths: string[]): PreloadHandle;

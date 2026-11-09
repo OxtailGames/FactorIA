@@ -69,6 +69,8 @@ struct PlaySession {
     std::vector<PlayMark> marks;
     Json input = Json::object();  // {"frames": {"<n>": {...}}}
     Json profile;                 // the profiler's summary of the session (ProfileSummary::to_json); null = not measured
+    Json loading;                 // the loading trace of the session (Engine::loading_report: time to the first frame, each
+                                  // scene's load time, the slowest assets, the reads); null = not traced
     // ---- play.auto only (source "auto"); an editor session leaves them empty and session.json does not carry them
     std::string source;                // "" = a person played in the editor; "auto" = play.auto
     std::vector<PlayPhase> phases;

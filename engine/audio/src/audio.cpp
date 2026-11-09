@@ -25,6 +25,7 @@
 #include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/load_trace.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/core/video.h"
@@ -197,7 +198,9 @@ struct MusicLoad {
     std::atomic<bool> done{false};
     std::shared_ptr<MusicSource> source;
     std::string error;
+    LoadTrace::Owner owner = LoadTrace::current_owner();  // the engine that asked: its load trace gets the reads
     void run() {
+        LoadTrace::ReadingFor reading(owner);  // on the loader thread too (fa/core/load_trace.h)
         auto r = music_load_source(path, mode, plan, &note);
         if (r) source = std::move(*r);
         else error = r.error().to_string();
@@ -246,6 +249,7 @@ struct Audio::Impl {
     std::atomic<bool> streamLogged{false};  // the first stream callback is logged once
 
     std::map<std::string, std::shared_ptr<const Clip>> clips;
+    std::map<std::string, std::vector<std::string>> untraced;  // adopt_clip: the files of a clip not used yet (load trace)
     std::set<std::string> failedLogged;
 
     std::vector<Voice> voices;
@@ -430,7 +434,9 @@ struct Audio::Impl {
     }
 
     // ------------------------------------------------------------ decode
-    std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
+    // Uses no state of the mixer: background loading runs it on a job (Audio::decode_clip).
+    static std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
+        AssetLoadScope trace("sound", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
         auto file = read_audio_file(path);
         if (!file) {
             std::vector<std::string> cands;
@@ -500,7 +506,7 @@ struct Audio::Impl {
 
     // Sets clip.gain when the clip's `normalize` import setting is on: from the loudness assets.json holds for this very
     // file, else measured now (once per load, desktop only).
-    void normalize(Clip& clip, const Json& settings, const audio_detail::Bytes& bytes, const std::string& ext) {
+    static void normalize(Clip& clip, const Json& settings, const audio_detail::Bytes& bytes, const std::string& ext) {
         if (!setting_bool(settings, "normalize", false)) return;
         const Json entry = assets::entry(clip.path);
         auto analysis = entry.find("analysis");
@@ -530,7 +536,15 @@ struct Audio::Impl {
         {
             std::lock_guard<std::mutex> lk(mu);
             auto it = clips.find(path);
-            if (it != clips.end()) return it->second;
+            if (it != clips.end()) {
+                // Loaded in the background (adopt_clip): its files enter the load order on this first use.
+                if (!untraced.empty() && LoadTrace::current_ahead_tag() == 0)
+                    if (auto u = untraced.find(path); u != untraced.end()) {
+                        for (const std::string& f : u->second) LoadTrace::file_used(f);
+                        untraced.erase(u);
+                    }
+                return it->second;
+            }
         }
         std::string err;
         auto clip = decode(path, &err);
@@ -1024,6 +1038,7 @@ void Audio::shutdown() {
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->voices.clear();
     impl_->clips.clear();
+    impl_->untraced.clear();
     impl_->ents.clear();
     impl_->videos.clear();
     impl_->musicVoice = 0;
@@ -1043,6 +1058,30 @@ void Audio::shutdown() {
 }
 
 bool Audio::load(std::string_view clipPath) { return impl_->get_clip(clipPath) != nullptr; }
+
+std::shared_ptr<const void> Audio::decode_clip(std::string_view clipPath, std::string* error) {
+    std::string err;
+    auto clip = Impl::decode(fs::normalize(clipPath), &err);
+    if (!clip && error) *error = err;
+    return clip;
+}
+
+bool Audio::clip_loaded(std::string_view clipPath) const {
+    const std::string path = fs::normalize(clipPath);
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->clips.count(path) > 0;
+}
+
+bool Audio::adopt_clip(std::string_view clipPath, std::shared_ptr<const void> decoded, std::vector<std::string> files) {
+    if (!decoded) return false;
+    const std::string path = fs::normalize(clipPath);
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    if (impl_->clips.count(path)) return false;  // loaded on first use meanwhile: that one stays
+    impl_->clips.emplace(path, std::static_pointer_cast<const Clip>(decoded));
+    impl_->failedLogged.erase(path);
+    if (!files.empty()) impl_->untraced[path] = std::move(files);
+    return true;
+}
 
 VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) { return impl_->start(clipPath, params, ""); }
 

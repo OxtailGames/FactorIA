@@ -171,29 +171,7 @@ std::string mime_type(std::string_view fileName) {
     return "application/octet-stream";  // game.pak and anything unknown
 }
 
-bool is_valid_utf8(std::string_view s) {
-    std::size_t i = 0;
-    while (i < s.size()) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        std::size_t extra;
-        std::uint32_t cp;
-        if (c < 0x80) { ++i; continue; }
-        if (c >= 0xC2 && c <= 0xDF) { extra = 1; cp = c & 0x1F; }
-        else if (c >= 0xE0 && c <= 0xEF) { extra = 2; cp = c & 0x0F; }
-        else if (c >= 0xF0 && c <= 0xF4) { extra = 3; cp = c & 0x07; }
-        else return false;  // a continuation byte alone, an overlong lead (C0, C1) or a lead beyond U+10FFFF
-        if (i + extra >= s.size()) return false;  // cut short
-        for (std::size_t k = 1; k <= extra; ++k) {
-            const unsigned char cc = static_cast<unsigned char>(s[i + k]);
-            if ((cc & 0xC0) != 0x80) return false;
-            cp = (cp << 6) | (cc & 0x3F);
-        }
-        if ((extra == 2 && cp < 0x800) || (extra == 3 && cp < 0x10000)) return false;  // overlong
-        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;              // beyond Unicode, a surrogate
-        i += extra + 1;
-    }
-    return true;
-}
+bool is_valid_utf8(std::string_view s) { return fa::is_valid_utf8(s); }
 
 // CON, PRN, AUX, NUL, COM1-9, LPT1-9 (and the superscript digits; also CONIN$ and CONOUT$), with or without an extension, in any case: Windows opens a device
 // instead of a file of that name, so they are refused on every platform (a game cannot ship such a file name there anyway).

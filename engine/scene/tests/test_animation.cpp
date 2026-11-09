@@ -3,8 +3,10 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/serialize.h"
 #include "fa_test_paths.h"
@@ -317,6 +319,80 @@ TEST_CASE("animator: two identical runs give identical palettes and events") {
     }
     CHECK(evA == evB);
     CHECK(!evA.empty());
+}
+
+namespace {
+
+// 300 animators (900 skeleton nodes, above kParallelPoseNodes: their poses are built as jobs), with fades, state
+// changes and events; the palettes and events of every step.
+struct PoseRun {
+    std::vector<std::vector<Mat4>> palettes;
+    std::vector<std::string> events;
+};
+
+struct PoolScope {
+    bool started = false;
+    explicit PoolScope(const jobs::Settings* s) {
+        if (!s) return;
+        REQUIRE(jobs::start(*s).ok());
+        started = true;
+    }
+    ~PoolScope() {
+        if (started) jobs::stop();
+    }
+};
+
+PoseRun run_many_animators(const jobs::Settings* settings) {
+    PoolScope pool(settings);
+    PoseRun out;
+    {
+        World world;
+        std::vector<Entity> heroes;
+        for (int i = 0; i < 300; ++i) {
+            Entity e = world.create("hero", "hero" + std::to_string(i));
+            world.add<MeshRenderer>(e).mesh = kModel;
+            Animator& a = world.add<Animator>(e);
+            const std::string cfg = R"({"events": [{"clip": "Bend", "time": 0.3, "name": "e"}], "params": {"v": 0},
+                "states": {"a": {"clip": ")" + std::string(i % 3 ? "Bend" : "Slide") + R"("}, "b": {"clip": "Spline"}},
+                "transitions": [{"from": "a", "to": "b", "when": "v > 1", "fade": 0.4}]})";
+            REQUIRE(object_patch_from_json(*TypeRegistry::global().find("Animator"), &a, Json::parse(cfg)).ok());
+            a.speed = 0.5f + float(i % 17) * 0.1f;
+            heroes.push_back(e);
+        }
+        for (int step = 0; step < 60; ++step) {
+            if (step == 20)
+                for (std::size_t i = 0; i < heroes.size(); i += 2) CHECK(animator_set(world, heroes[i], "v", 2).ok());
+            update_animators(world, 1.0f / 30.0f);
+            for (const GameEvent& g : world.events().game) out.events.push_back(g.name + "@" + std::to_string(step));
+            world.events().game.clear();
+            for (Entity e : heroes) out.palettes.push_back(world.get<Animator>(e)->palette);
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("animator: many animators give the same palettes and events with the pool stopped, inline and 1, 2, 8 workers") {
+    Fixture fx;
+    REQUIRE(!jobs::running());
+    const PoseRun base = run_many_animators(nullptr);
+    REQUIRE(base.palettes.size() == 300 * 60);
+    CHECK(!base.events.empty());
+    std::vector<jobs::Settings> settings{jobs::Settings::inline_jobs()};
+    if (jobs::threads_supported())
+        for (int n : {1, 2, 8}) settings.push_back(jobs::Settings::threads(n));
+    for (const jobs::Settings& s : settings) {
+        INFO("jobs: " << s.describe());
+        const PoseRun run = run_many_animators(&s);
+        CHECK(run.events == base.events);
+        REQUIRE(run.palettes.size() == base.palettes.size());
+        bool same = true;
+        for (std::size_t i = 0; same && i < base.palettes.size(); ++i)
+            same = run.palettes[i].size() == base.palettes[i].size() &&
+                   std::memcmp(run.palettes[i].data(), base.palettes[i].data(), base.palettes[i].size() * sizeof(Mat4)) == 0;
+        CHECK(same);
+    }
 }
 
 TEST_CASE("animator: scene JSON round trip keeps the configuration and drops the runtime data") {

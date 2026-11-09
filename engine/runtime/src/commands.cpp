@@ -6,11 +6,13 @@
 
 #include "engine_impl.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/state_hash.h"
 #include "fa/services/platform_commands.h"
 
 namespace fa {
@@ -450,10 +452,14 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in "
            "`messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first "
            "start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. "
+           "`async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, \"Background loading\") and "
+           "answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the "
+           "game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. "
            "Example: scene.load {\"path\":\"scenes/level2.scene.json\",\"props\":{\"difficulty\":\"hard\"}}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
                "path":{"type":"string","description":"Project-relative scene path."},
-               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."}}})"),
+               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."},
+               "async":{"type":"boolean","default":false,"description":"Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame)."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a["path"].get<std::string>();
@@ -463,6 +469,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                      "Use project.info to list scenes.");
               }
               const bool hasProps = a.contains("props") && a["props"].is_object();
+              if (a.value("async", false)) {
+                  auto r = I.start_background_load(BackgroundLoader::Kind::SceneLoad, {path},
+                                                   hasProps ? std::optional<Json>(a["props"]) : std::nullopt,
+                                                   BackgroundLoader::Origin::Tool);
+                  if (!r.ok()) throw CommandError("not_found", r.error().message, r.error().hint);
+                  return Json::object({{"ok", true}, {"async", true}, {"path", path}, {"loadId", r.value()}});
+              }
               if (I.inFrame) {
                   if (hasProps) engine.request_scene_change_with_props(path, a["props"]);
                   else engine.request_scene_change(path);
@@ -524,6 +537,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_terrain_commands(engine, I);     // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
     register_scene_file_commands(engine, I);  // prefab.save, scene.format
     register_play_session_commands(engine, I);  // play.sessions, play.report
+    register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);          // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);      // ui.check_layout
     register_shot_commands(engine, I);          // game.screenshot, render.inspect, render.pick
@@ -777,6 +791,64 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "maxEntities":{"type":"integer","default":200,"minimum":0}}})"),
            true, "game"},
           [&engine, &I](const Json& a) { return engine.state(a); });
+
+    I.commands.add({"game.state_hash", "One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.",
+           "Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra "
+           "entity, another random number drawn) changes it. Use it to check determinism: the same game with "
+           "runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a "
+           "replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists "
+           "one hash per entity (creation order) to find which entity differs. Example: game.state_hash {\"perEntity\":true}",
+           parse_schema(R"({"type":"object","properties":{
+               "perEntity":{"type":"boolean","default":false,"description":"Also list one hash per entity, in creation order (at most maxEntities)."},
+               "includeRuntime":{"type":"boolean","default":true,"description":"Hash the fields that are not saved to scenes too (velocities, timers)."},
+               "maxEntities":{"type":"integer","default":200,"minimum":0,"maximum":100000,"description":"How many entities perEntity lists."}}})"),
+           true, "game"},
+          [&I](const Json& a) {
+              StateHashOptions o;
+              o.perEntity = a.value("perEntity", false);
+              o.includeRuntime = a.value("includeRuntime", true);
+              const std::int64_t maxRaw = a.contains("maxEntities") && a["maxEntities"].is_number_integer()
+                                              ? a["maxEntities"].get<std::int64_t>()
+                                              : 200;
+              const std::size_t maxEntities = std::size_t(std::clamp<std::int64_t>(maxRaw, 0, 100000));
+              const StateHash h = world_state_hash(I.world, o);
+              Json out = Json::object({{"hash", state_hash_hex(h.hash)},
+                                       {"entities", h.entities},
+                                       {"components", h.components},
+                                       {"frame", I.frame},
+                                       {"worldFrame", I.world.frame()},
+                                       {"time", std::round(I.world.time() * 1e6) / 1e6},
+                                       {"includeRuntime", o.includeRuntime}});
+              if (o.perEntity) {
+                  Json list = Json::array();
+                  for (const EntityHash& e : h.perEntity) {
+                      if (list.size() >= maxEntities) break;
+                      list.push_back(Json::object({{"entity", e.id}, {"hash", state_hash_hex(e.hash)}}));
+                  }
+                  out["perEntity"] = list;
+                  out["truncated"] = h.perEntity.size() > list.size();
+              }
+              return out;
+          });
+
+    I.commands.add({"jobs.info", "The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.",
+           "mode is \"threads\" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at "
+           "the end of the frame), \"inline\" (debugging: every job runs on the main thread when it is submitted) or "
+           "\"stopped\". setting is the value the pool was started with and source where this engine's setting came from "
+           "(\"EngineConfig\", \"FA_JOB_THREADS\", \"factoria.json\" for runtime.jobThreads, or \"default\" = \"auto\"; a second "
+           "engine in the same process shares the first one's pool); autoWorkers is what \"auto\" gives on "
+           "this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and "
+           "busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one "
+           "to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs "
+           "not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what "
+           "the game computes (game.state_hash checks it). Example: jobs.info {}",
+           parse_schema(R"({"type":"object","properties":{}})"), true, "jobs"},
+          [&I](const Json&) {
+              Json out = jobs::info_json(jobs::info());
+              out["source"] = I.jobThreadsSource;
+              out["enginePending"] = I.jobOwner.pending();
+              return out;
+          });
 
     I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
            "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
@@ -1465,6 +1537,68 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto r = I.physics.nav_find_path(I.world, from, to, o);
               if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
               return r.value().to_json();
+          });
+
+    I.commands.add({"nav.find_paths",
+           "Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).",
+           "The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, "
+           "mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one "
+           "entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or "
+           "found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same "
+           "whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on "
+           "several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked "
+           "NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any "
+           "search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: "
+           "nav.findPaths(queries, opts). Example: nav.find_paths "
+           "{\"queries\":[{\"from\":[0,0,0],\"to\":[10,0,5]},{\"from\":[2,0,2],\"to\":[-4,0,6]}]}",
+           parse_schema(R"({"type":"object","required":["queries"],"properties":{
+               "queries":{"type":"array","items":{"type":"object","required":["from","to"],"properties":{
+                   "from":{"type":"array","items":{"type":"number"},"description":"Start point [x,y,z] in meters."},
+                   "to":{"type":"array","items":{"type":"number"},"description":"Goal point [x,y,z] in meters."},
+                   "radius":{"type":"number","description":"Agent radius of this query (see nav.find_path)."},
+                   "snap":{"type":"number","description":"How far (meters) a start or goal is moved onto walkable ground."},
+                   "closest":{"type":"boolean","description":"Unreachable goal: return a path to the nearest reachable point."},
+                   "mesh":{"type":"string","description":"Id of the NavMesh3D entity to use."}}},"description":"The path queries, at most 10000."},
+               "radius":{"type":"number","description":"Default agent radius of every query."},
+               "snap":{"type":"number","description":"Default snap distance of every query."},
+               "closest":{"type":"boolean","description":"Default for every query."},
+               "mesh":{"type":"string","description":"Default NavMesh3D entity id of every query."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto queries = nav_parse_path_queries(a, "nav.find_paths");
+              if (!queries.ok()) throw CommandError("invalid_argument", queries.error().message, queries.error().hint);
+              auto r = I.physics.nav_find_paths(I.world, queries.value());
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              Json out = Json::array();
+              for (const NavPath& p : r.value()) out.push_back(p.to_json());
+              return out;
+          });
+
+    I.commands.add({"nav.find_tile_paths",
+           "Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).",
+           "The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and "
+           "`allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. "
+           "Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. "
+           "Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every "
+           "query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. "
+           "At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths "
+           "{\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}",
+           parse_schema(R"({"type":"object","required":["queries"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number | [w,h]}."},
+               "queries":{"type":"array","items":{"type":"object","required":["from","to"],"properties":{
+                   "from":{"type":"array","items":{"type":"number"},"description":"Start cell [col,row]."},
+                   "to":{"type":"array","items":{"type":"number"},"description":"Goal cell [col,row]."}}},"description":"The path queries, at most 10000."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."},
+               "maxNodes":{"type":"integer","description":"Most cells each search expands before it gives up (too_far). Default 100000."},
+               "closest":{"type":"boolean","description":"Goal unreachable: return the path to the nearest reachable cell (complete=false)."},
+               "allowBlockedGoal":{"type":"boolean","description":"A blocked goal cell can still be entered (cost 1)."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_tile_query_many(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
           });
 
     I.commands.add({"nav.find_tile_path",

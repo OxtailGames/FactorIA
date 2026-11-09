@@ -26,6 +26,10 @@
 
 #include "fa/core/json.h"
 
+namespace fa::jobs {
+class Owner;
+}
+
 namespace fa {
 
 struct CommandError : std::runtime_error {
@@ -162,6 +166,11 @@ public:
     // which replaces commands: that is only safe while no handler is running. Empty = none.
     void set_before_call(std::function<void(std::string_view)> hook) { beforeCall_ = std::move(hook); }
 
+    // The job owner (fa/core/jobs.h) of everything a handler queues: call() makes it the thread's current owner while
+    // the handler runs, so the jobs and main-thread tasks a command starts belong to the registry's engine. Null (the
+    // default) leaves the caller's current owner as it is.
+    void set_job_owner(jobs::Owner* owner) { jobOwner_ = owner; }
+
     // Installs (or, with null, removes) the interceptor. Not to be called while another thread is inside call(). A registry without
     // one pays a single pointer test per call.
     void set_interceptor(std::shared_ptr<const CommandInterceptor> interceptor) { interceptor_ = std::move(interceptor); }
@@ -178,6 +187,7 @@ private:
     std::function<void(std::string_view)> beforeCall_;
     std::shared_ptr<const CommandInterceptor> interceptor_;
     mutable int callDepth_ = 0;
+    jobs::Owner* jobOwner_ = nullptr;
 };
 
 }  // namespace fa

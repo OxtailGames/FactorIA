@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "fa/core/build_info.h"
+#include "fa/core/jobs.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/scene/ui_tooltip.h"
@@ -109,6 +110,14 @@ struct ProjectSettings {
     std::string icon;  // "icon": project-relative path of the game icon (a square PNG/JPG); "" = none
     std::vector<PluginSettings> plugins;  // "plugins", sorted by name
     LocalizationSettings localization;    // "localization": languages and fonts; off when the section is absent
+    // "runtime": {"jobThreads"}: worker threads of the job system (fa/core/jobs.h). Unset = "auto"; the FA_JOB_THREADS
+    // environment variable and EngineConfig::jobThreads override it.
+    jobs::Settings jobThreads;
+    bool jobThreadsSet = false;
+    // "runtime": {"loadBudgetMs", "uploadBudgetMB"}: what a frame of a game with a window may spend on background loading
+    // (the main thread's share: taking finished files and uploading them; docs/PERFORMANCE.md, "Background loading").
+    double loadBudgetMs = 4.0;
+    double uploadBudgetMB = 16.0;
     Json raw;  // the whole file, for fields the engine does not model yet
 
     // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |

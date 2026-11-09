@@ -31,6 +31,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/background_io.h"
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
@@ -74,6 +75,10 @@ struct RendererDesc {
     int designHeight = 720;
     int sampleCount = 1;       // MSAA of the game target (1 = off)
     bool headless = false;     // no swapchain; present() must not be called
+    // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
+    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
+    // Ignored (a normal init) when no context is open.
+    bool adoptContext = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -138,10 +143,33 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Calls sg_setup() with `env`. Returns false + message on failure.
+    // Calls sg_setup() with `env` (unless desc.adoptContext and a context is open). Returns false + message on failure.
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
+
+    // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/ARCHITECTURE.md "Start-up order") ----------------------------------
+    // A window player opens the graphics context FIRST (open_context), presents one cleared frame (present_clear) and only
+    // then starts the engine, which reads the game's files and makes the renderer (init with desc.adoptContext). Nothing here
+    // changes what a game draws: the first game frame is the same whether or not these ran.
+    // sg_setup() with the same limits init() uses. False + message when the device is not usable. False when a context is open.
+    static bool open_context(const GfxEnvironment& env, std::string* error);
+    static bool context_open();
+    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
+    // renderer that adopted the context closes it in shutdown().
+    static void close_context();
+    // One frame that clears the swapchain to black (the letterbox colour) and commits it. No renderer needed; also fine
+    // while one exists (the commit is noted). False when no context is open (nothing is drawn).
+    static bool present_clear(const GfxSwapchain& swapchain);
+    // Makes, a few at a time, the pipelines the first game frame would otherwise compile in the middle of drawing: the
+    // present blit and the sprite pipelines, plus the mesh, sky and shadow ones when `world` has a MeshRenderer. One call
+    // makes one group (about a frame's worth of driver work on Metal and D3D11). Returns how many groups are left (0 = done,
+    // and every later call returns 0 at once). A frame drawn before the groups are done makes any missing pipeline on the spot,
+    // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
+    int warm_step(const GfxSwapchain& swapchain, World& world);
+    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, warmMs, groupsLeft}: what the start-up
+    // spent on shader programs and pipelines (the `loading.startup.gpu` object of play.report).
+    Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
     void set_target_size(int width, int height);
@@ -317,6 +345,26 @@ public:
     void reset_particles();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+
+    // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
+    // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a
+    // job decodes it (background_work), then the main thread uploads it into the caches (adopt_background) under the
+    // frame's upload budget. The asset is then what a load on first use would have made, and its first use reads nothing.
+    // None: a file the renderer does not prepare (a glTF .bin buffer, a video): it is only read ahead (fs::warm).
+    enum class BackgroundKind { None, Texture, Model, Font };
+    static BackgroundKind background_kind(std::string_view path);  // by extension: textures, .gltf/.glb, .ttf/.otf
+    // `path` (normalized, project-relative) is in the cache already, loaded or failed: there is nothing to prepare.
+    bool background_cached(std::string_view path, BackgroundKind kind) const;
+    struct BackgroundWork {
+        IoRead read;      // any thread: reads the file (a texture's KTX2 twin or atlas when the export made one)
+        IoDecode decode;  // any thread: decodes it (pixels, transcoded KTX2 levels, vertices, a font face)
+    };
+    // Main thread (it reads the GPU's compressed format). The work touches no renderer state, so it may outlive the renderer.
+    BackgroundWork background_work(std::string_view path, BackgroundKind kind) const;
+    // Main thread: uploads a finished item of background_work into the caches and returns the GPU bytes it uploaded (0 for
+    // a font, and when the asset was loaded on first use meanwhile: the prepared copy is dropped). A failed item is left
+    // to the load on first use, which reports it as it always does.
+    std::uint64_t adopt_background(std::string_view path, BackgroundKind kind, IoResult& result);
 
     // GPU time of drawing the world. While the profiler is on (fa/core/profiler.h; docs/PERFORMANCE.md) every drawn frame is
     // timed with a timer query where the backend has them (D3D11, desktop OpenGL); the answers arrive a few frames late and

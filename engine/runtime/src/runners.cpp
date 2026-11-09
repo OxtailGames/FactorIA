@@ -17,6 +17,7 @@
 #include "fa/platform/local_date.h"
 #include "fa/services/fake_platform.h"
 #include "fa/runtime/play_session.h"
+#include "fa/runtime/startup_sequence.h"
 
 namespace fa {
 
@@ -40,6 +41,11 @@ struct WindowedState {
     // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
     // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
     bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
+    // The first window frames (fa/runtime/startup_sequence.h): a clear frame first, the game's files after it. Built in d.init.
+    std::unique_ptr<StartupSequence> sequence;
+    bool contextOpened = false;  // d.init opened the graphics context (Renderer::open_context): d.cleanup closes it if still open
+    bool firstGameFrame = true;
+    bool startupLogged = false;
 };
 
 void apply_input_requests(WindowedState& st) {
@@ -133,6 +139,51 @@ std::vector<AppIconImage> load_window_icon(const std::string& projectDir, const 
     return out;
 }
 
+// Frame 2 of the window: reads the game (Engine::init) and does what has to happen once it exists. False = it could not start.
+bool start_game(WindowedState& st) {
+    GfxEnvironment env = app_gfx_environment();
+    std::string err;
+    st.ok = st.engine.init(st.cfg, &env, &err);
+    if (!st.ok) {
+        FA_ERROR("engine", "Cannot start: {}", err);
+        st.exitCode = 1;
+        app_request_quit();
+        return false;
+    }
+    apply_expand(st.engine, app_framebuffer_width(), app_framebuffer_height());
+    if (!st.cfg.inputReplayPath.empty()) {
+        auto r = load_json_file(st.cfg.inputReplayPath);
+        const Json* frames = r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
+        if (!r.ok()) {
+            FA_ERROR("player", "Cannot read the input replay: {}", r.error().to_string());
+        } else if (!frames || !frames->is_object()) {
+            FA_ERROR("player", "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
+                     st.cfg.inputReplayPath);
+        } else {
+            for (auto it = frames->begin(); it != frames->end(); ++it) {
+                try {
+                    const int n = std::stoi(it.key());
+                    st.replay[n] = *it;
+                    st.replayLast = std::max(st.replayLast, n);
+                } catch (...) {
+                    FA_WARN("player", "replay: frame key '{}' is not a number", it.key());
+                }
+            }
+            FA_INFO("player", "replaying {} ({} frames with input)", st.cfg.inputReplayPath, st.replay.size());
+        }
+    }
+    // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
+    // A raw pointer: the engine keeps this function and `st` owns the engine (a shared_ptr would never be freed).
+    st.engine.set_design_to_window([s = &st](Vec2 p) {
+        Renderer* r = s->engine.renderer();
+        if (!r) return p;
+        return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), s->engine.project().scaleMode);
+    });
+    // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
+    if (app_is_mobile()) st.engine.input().set_last_device(InputDevice::Touch);
+    return true;
+}
+
 }  // namespace
 
 namespace {
@@ -164,6 +215,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         return r->framebuffer_to_design(p, app_framebuffer_width(), app_framebuffer_height(), st->engine.project().scaleMode);
     };
     d.init = [st] {
+        // The window and its graphics context exist now. Opening the context is all this callback does with the GPU; reading
+        // the game happens in frame 2 (start_game), after frame 1 presented a clear frame (StartupSequence).
         GfxEnvironment env = app_gfx_environment();
         std::string err;
         // The wall clock is read here and in refresh_clock_date only: the player's date goes into the config like the seed
@@ -174,52 +227,36 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
             st->clockDate = today;
         }
-        st->ok = st->engine.init(st->cfg, &env, &err);
-        if (!st->ok) {
-            FA_ERROR("engine", "Cannot start: {}", err);
-            st->exitCode = 1;
-            app_request_quit();
-            return;
+        if (st->cfg.graphics && !st->cfg.editorMode) {
+            st->contextOpened = Renderer::open_context(env, &err);
+            st->cfg.adoptGraphicsContext = st->contextOpened;
+            // Not usable: Engine::init tries again, fails the same way and runs without graphics, as it always did.
         }
-        apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
-        if (!st->cfg.inputReplayPath.empty()) {
-            auto r = load_json_file(st->cfg.inputReplayPath);
-            const Json* frames = r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
-            if (!r.ok()) {
-                FA_ERROR("player", "Cannot read the input replay: {}", r.error().to_string());
-            } else if (!frames || !frames->is_object()) {
-                FA_ERROR("player", "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
-                         st->cfg.inputReplayPath);
-            } else {
-                for (auto it = frames->begin(); it != frames->end(); ++it) {
-                    try {
-                        const int n = std::stoi(it.key());
-                        st->replay[n] = *it;
-                        st->replayLast = std::max(st->replayLast, n);
-                    } catch (...) {
-                        FA_WARN("player", "replay: frame key '{}' is not a number", it.key());
-                    }
-                }
-                FA_INFO("player", "replaying {} ({} frames with input)", st->cfg.inputReplayPath, st->replay.size());
-            }
-        }
-        // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
-        // A raw pointer: the engine keeps this function and `st` owns the engine (a shared_ptr would never be freed).
-        st->engine.set_design_to_window([s = st.get()](Vec2 p) {
-            Renderer* r = s->engine.renderer();
-            if (!r) return p;
-            return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), s->engine.project().scaleMode);
-        });
-        // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
-        if (app_is_mobile()) st->engine.input().set_last_device(InputDevice::Touch);
+        StartupSequence::Hooks hooks;
+        hooks.present_clear = [st] {
+            if (st->contextOpened) Renderer::present_clear(app_gfx_swapchain());
+        };
+        hooks.init = [st] { return start_game(*st); };
+        hooks.warm = [st] { return st->contextOpened ? st->engine.warm_step(app_gfx_swapchain()) : 0; };
+        st->sequence = std::make_unique<StartupSequence>(std::move(hooks), &st->engine.startup_timeline());
     };
     d.frame = [st](double dt) {
+        // The first window frames present a clear frame, read the game and warm the GPU (StartupSequence); the game runs after.
+        if (st->sequence && !st->sequence->on_frame()) return;
         if (!st->ok) return;
+        // The frame that follows the start (a long one) must not look like a long game frame: the first game frame is one 60 Hz tick.
+        if (st->firstGameFrame) {
+            st->firstGameFrame = false;
+            dt = std::min(dt, 1.0 / 60.0);
+        }
         // The clock is read again about once a minute (outside the simulation, like the first read) so game.today() moves on.
         if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60)) refresh_clock_date(*st);
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
         if (!st->replay.empty()) {
+            // While the replay has frames, those without "loadUnits" take the fixed share of background loads, not what is
+            // ready (it would differ). Once it is over the game plays on with the timed budget, which never waits for a file.
+            st->engine.runtime_impl().replaying = st->replayFrame <= st->replayLast;
             if (auto it = st->replay.find(st->replayFrame); it != st->replay.end()) {
                 std::vector<std::string> problems;
                 st->engine.apply_input_entry(it->second, problems, st->replayFrame);
@@ -229,6 +266,12 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         }
         ++st->replayFrame;
         st->engine.frame(dt);
+        if (!st->startupLogged) {  // one line per run: what the first frames cost (docs/PERFORMANCE.md, "Startup")
+            st->startupLogged = true;
+            const Json t = st->engine.startup_report();
+            FA_INFO("player", "startup: first frame presented at {} ms, game ready at {} ms (reading the game {} ms, GPU warm-up {} ms; since process start)",
+                    t["firstPresentMs"].dump(), t["firstGameFrameMs"].dump(), t["initMs"].dump(), t["warmupMs"].dump());
+        }
         apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
         // scripts/android-smoke.sh) grep for it to prove the game started and kept rendering on a simulator/emulator.
@@ -285,7 +328,10 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             default: break;
         }
     };
-    d.cleanup = [st] { st->engine.shutdown(); };
+    d.cleanup = [st] {
+        st->engine.shutdown();
+        if (st->contextOpened) Renderer::close_context();  // the renderer kept the context open (or never took it)
+    };
     d.exit_code = [st] { return st->exitCode; };
     return d;
 }
@@ -311,11 +357,12 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http",
+                                                       "loadUnits"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard and http.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -342,6 +389,20 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             }
         } else {
             note("'http' needs the fake platform backend (headless runs have it): the answers were ignored");
+        }
+    }
+    if (entry.contains("loadUnits")) {
+        // How many background-load units the recorded frame took (docs/PERFORMANCE.md, "Background loading"): the replay
+        // takes the same, so a load started by the game ends on the same frame.
+        const Json& u = entry["loadUnits"];
+        if (!u.is_number_integer()) {
+            note("'loadUnits' must be a whole number of background-load units like 3, got " + describe_json_value(u));
+        } else {
+            const std::int64_t n = std::clamp<std::int64_t>(u.get<std::int64_t>(), 0, BackgroundLoader::kMaxReplayUnits);
+            if (n != u.get<std::int64_t>())
+                note("'loadUnits' " + u.dump() + " is out of range: it was clamped to " + std::to_string(n) + " (0.." +
+                     std::to_string(BackgroundLoader::kMaxReplayUnits) + ")");
+            I.replayLoadUnits = int(n);
         }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
@@ -472,6 +533,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         return finish(2);
     }
     Engine::Impl& I = engine.runtime_impl();
+    const LoadTrace::ReadingFor reading(engine.load_trace_owner());  // what the run reads is the game's (fa/core/load_trace.h)
 
     // Video: validated before the run, so a wrong request does not cost a whole replay.
     const bool wantVideo = !options.videoOutPath.empty();
@@ -612,7 +674,10 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         perf["lights"] = maxLights;
         perf["textureMB"] = std::round(double(maxTextureBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
         perf["graphics"] = I.renderer ? Json(I.gpu ? I.gpu->description() : "window") : Json("none");
+        // CPU ms from the start of Engine::init to the end of the first frame (what perf.measure / the startup budget read).
+        if (const double startupMs = engine.startup_timeline().startup_cpu_ms(); startupMs >= 0) perf["startupMs"] = std::round(startupMs * 10.0) / 10.0;
         report["perf"] = perf;
+        report["startup"] = engine.startup_report();
     }
     std::vector<std::int16_t> pcm;
     int pcmRate = 0;

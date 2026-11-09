@@ -155,6 +155,7 @@ public:
     const SceneSettings& settings() const { return settings_; }
     WorldEvents& events() { return events_; }
     Rng& rng() { return rng_; }
+    const Rng& rng() const { return rng_; }
     // Game feel (feel.h): the running camera shakes, flashes, squashes, knockbacks and hit-stops, and the player's reduce motion /
     // reduced effects choices. clear() drops the effects and keeps the choices.
     FeelState& feel() { return feel_; }

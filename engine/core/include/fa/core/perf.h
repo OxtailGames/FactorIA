@@ -2,8 +2,8 @@
 //
 // The performance budgets (`factoria call perf.check`, docs/PERFORMANCE.md) measure CPU time instead of wall-clock time
 // so a busy machine moves the numbers less, and the peak resident memory of the process. Per platform:
-//   Windows        CPU: QueryProcessCycleTime scaled by GetProcessTimes (the tick of GetProcessTimes alone is 15.6 ms);
-//                  memory: PeakWorkingSetSize.
+//   Windows        CPU: QueryProcessCycleTime scaled by the TSC rate, measured against QueryPerformanceCounter (ARM64:
+//                  by GetProcessTimes, whose tick alone is 15.6 ms); memory: PeakWorkingSetSize.
 //   Linux/Android  CPU: CLOCK_PROCESS_CPUTIME_ID; memory: ru_maxrss (VmHWM).
 //   macOS/iOS      CPU: CLOCK_PROCESS_CPUTIME_ID; memory: ru_maxrss (bytes).
 //   Web            CPU: not available, the wall clock stands in (cpu_time_is_wall_clock()); memory: the wasm heap size,

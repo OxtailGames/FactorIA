@@ -30,6 +30,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
 #include "fa/core/date.h"
+#include "fa/core/jobs.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/net.h"
 #include "fa/tooling/play_auto.h"
@@ -797,6 +798,30 @@ void Editor::at_build_tools_script() {
         pendingFocus_ = "Profiler";
     });
     snap("editor_profiler.png");
+    // Threads tab: jobs that run while the game plays show up on the thread that ran them, one row per thread of the pool.
+    for (int k = 0; k < 12; ++k) {
+        step(1, [this] {
+            std::vector<double> sums(16, 0.0);
+            auto r = jobs::parallel_for("autotest.spin", 4096, 256, [&sums](const jobs::Chunk& c) {
+                double x = 0;
+                for (std::size_t i = c.begin; i < c.end; ++i) x += std::sqrt(double(i));
+                sums[c.index] = x;
+            });
+            if (!r.ok()) at_check(false, "a parallel_for on the editor's main thread runs: " + r.error().to_string());
+        });
+    }
+    step(4, [this] {
+        const auto& lanes = profView_.lanes;
+        at_check(!lanes.empty() && lanes[0].name == "main", "the Threads tab lists the main thread first");
+        at_check(lanes.size() >= std::size_t(1 + jobs::worker_count()), "...and one row per worker of the job pool");
+        bool seen = false;
+        for (const ProfilerView::LaneRow& l : lanes)
+            for (const ProfilerView::JobRow& j : l.top) seen = seen || (j.name == "autotest.spin" && j.ms > 0.0);
+        at_check(seen, "...and the autotest.spin job with its time on a thread that ran it");
+        profShowThreads_ = true;
+        pendingFocus_ = "Profiler";
+    });
+    snap("editor_profiler_threads.png");
 
     // ---------------------------------------------------------- B. Commands that rebuild the open scene file (Console / AI)
     section("B");

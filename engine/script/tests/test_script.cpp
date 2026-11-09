@@ -1,5 +1,10 @@
 #include <doctest.h>
 #include <chrono>
+#include <vector>
+#include <string>
+#include <mutex>
+#include <memory>
+#include <functional>
 #include <sstream>
 #include <thread>
 
@@ -16,6 +21,36 @@ using namespace fa;
 using namespace fa::test;
 
 namespace {
+// Messages the filter keeps while alive. A log sink runs on the thread that logs (a job worker too) and may run once
+// after remove_log_sink: the lines live in a shared, locked buffer.
+struct LogCapture {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> lines = std::make_shared<Lines>();
+    int id = 0;
+    explicit LogCapture(std::function<bool(const LogEntry&)> keep) {
+        id = add_log_sink([l = lines, keep = std::move(keep)](const LogEntry& e) {
+            if (!keep(e)) return;
+            std::lock_guard<std::mutex> lk(l->mu);
+            l->lines.push_back(e.message);
+        });
+    }
+    ~LogCapture() { stop(); }
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    void stop() {
+        if (id) remove_log_sink(id);
+        id = 0;
+    }
+    std::vector<std::string> take() {  // stops capturing and returns what was captured
+        stop();
+        std::lock_guard<std::mutex> lk(lines->mu);
+        return lines->lines;
+    }
+};
+
 Json scene_with(const Json& entities) {
     return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}});
 }
@@ -1065,10 +1100,9 @@ TEST_CASE("unknown Script.props warn once naming the entity") {
     TestHost h("propwarn");
     h.file("scripts/foo.js", kBeh);
     REQUIRE(h.start());
-    std::vector<std::string> msgs;
-    int sink = add_log_sink([&](const LogEntry& e) { if (e.level == LogLevel::Warn) msgs.push_back(e.message); });
+    LogCapture capture([](const LogEntry& e) { return e.level == LogLevel::Warn; });
     ev_ok(h, "world.spawn({id:'bad_1', components:{Script:{path:'scripts/foo.js', props:{sped: 3}}}}); world.spawn({id:'bad_2', components:{Script:{path:'scripts/foo.js', props:{sped: 4}}}})");
-    remove_log_sink(sink);
+    const std::vector<std::string> msgs = capture.take();
     CHECK(ev_ok(h, "world.find('bad_1').behaviour.sped") == 3);
     int n = 0;
     for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
@@ -1102,14 +1136,11 @@ export default class Good extends Behaviour {
 }
 )");
     REQUIRE(h.start());
-    std::vector<std::string> msgs;
-    int sink = add_log_sink([&](const LogEntry& e) {
-        if (e.level == LogLevel::Warn && e.category == "script") msgs.push_back(e.message);
-    });
+    LogCapture capture([](const LogEntry& e) { return e.level == LogLevel::Warn && e.category == "script"; });
     ev_ok(h, "for (const id of ['p1', 'p2']) world.spawn({id, components:{Script:{path:'scripts/probe.js'}}});"
              "world.spawn({id:'g', components:{Script:{path:'scripts/good.js'}}})");
     h.step_frames(1);
-    remove_log_sink(sink);
+    const std::vector<std::string> msgs = capture.take();
 
     const std::pair<const char*, const char*> expected[] = {
         {"'start()'", "'onStart()'"}, {"'update()'", "'onUpdate()'"}, {"'onupdate()'", "'onUpdate()'"},
@@ -1443,14 +1474,11 @@ import { Behaviour } from "factoria";
 export default class Fine extends Behaviour { enabled2 = true; onStart() { this.on("x", () => {}); } }
 )");
     REQUIRE(h.start());
-    std::vector<std::string> msgs;
-    int sink = add_log_sink([&](const LogEntry& e) {
-        if (e.level == LogLevel::Warn && e.category == "script") msgs.push_back(e.message);
-    });
+    LogCapture capture([](const LogEntry& e) { return e.level == LogLevel::Warn && e.category == "script"; });
     ev_ok(h, "for (const id of ['a', 'b']) world.spawn({id, components:{Script:{path:'scripts/shadow.js'}}});"
              "world.spawn({id:'f', components:{Script:{path:'scripts/fine.js'}}})");
     h.step_frames(1);
-    remove_log_sink(sink);
+    const std::vector<std::string> msgs = capture.take();
     int n = 0;
     for (const std::string& m : msgs)
         if (m.find("shadows Behaviour.on") != std::string::npos) {
