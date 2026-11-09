@@ -102,6 +102,7 @@ struct Session {
 };
 
 std::string error_text(const CommandResult& r) {
+    if (r.ok) return std::string();  // doctest -s builds the message on success too
     return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " +
            r.error.value("hint", std::string());
 }

@@ -253,7 +253,7 @@ TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and 
     CHECK(doc["events"][0]["feel"].size() == 2);
     // the clip loads with them
     auto loaded = load_anim_clip((p.dir / kWalk).generic_string());
-    REQUIRE_MESSAGE(loaded.ok(), loaded.error().message);
+    REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? std::string() : loaded.error().message));
     CHECK((*loaded)->events[0].feel.size() == 2);
 
     // a typo is refused and nothing is written

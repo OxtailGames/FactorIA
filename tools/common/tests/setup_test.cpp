@@ -2006,7 +2006,7 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
             INFO(os << "/" << arch);
             auto repo = parse_sdk_repository(xml, os, arch);
-            REQUIRE_MESSAGE(repo.ok(), repo.error().message);
+            REQUIRE_MESSAGE(repo.ok(), (repo.ok() ? std::string() : repo.error().message));
             CHECK_MESSAGE(repo->cmdlineToolsPinned, (repo->warnings.empty() ? std::string("not pinned") : repo->warnings[0]));
             CHECK(repo->cmdlineToolsPackage == kSetupAndroidCmdlineTools);
             CHECK(repo->warnings.empty());
@@ -2029,7 +2029,7 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         auto json = parse_json(testing::read_all(rq.destination), "adoptium");
         REQUIRE(json.ok());
         auto jdk = parse_adoptium_assets(*json);
-        REQUIRE_MESSAGE(jdk.ok(), jdk.error().message);
+        REQUIRE_MESSAGE(jdk.ok(), (jdk.ok() ? std::string() : jdk.error().message));
         CHECK(jdk->sha256.size() == 64);
         CHECK(jdk->size > (50u << 20));
     }
@@ -2048,7 +2048,7 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         auto json = parse_json(testing::read_all(rq.destination), "latest release");
         REQUIRE(json.ok());
         auto release = parse_github_release(*json);
-        REQUIRE_MESSAGE(release.ok(), release.error().message);
+        REQUIRE_MESSAGE(release.ok(), (release.ok() ? std::string() : release.error().message));
         CHECK(release->tag.size() > 1);
         CHECK(release->find("FactorIA-linux-x64.tar.gz") != nullptr);
     }
