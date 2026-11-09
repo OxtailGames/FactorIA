@@ -512,6 +512,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     feel_begin_frame(world, dt, scripts.system_reduce_motion());
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
+        // Everything this step reads of the input (scripts' onFixedUpdate and the events they get) answers for the fixed-step
+        // view: a press or release reaches exactly one step, however many (0 to 5) a frame runs, and one that arrives in a
+        // frame with no step waits for the next (fa/platform/input.h, "TWO VIEWS").
+        Input::FixedScope fixedInput(input);
         {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
@@ -575,6 +579,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             scripts.dispatch_events();
         }
         world.advance_clock(fixedDt);
+        input.end_fixed_step();  // what this step saw is taken: the next one gets only what arrives from now on
         ++fixedStep;
     }
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
