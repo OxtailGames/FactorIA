@@ -160,6 +160,14 @@ void MusicTransport::take_events(std::vector<MusicEvent>& out) {
     ringCount_ = 0;
 }
 
+bool MusicTransport::pop_event(MusicEvent& out) {
+    if (ringCount_ == 0) return false;
+    out = ring_[ringHead_];
+    ringHead_ = (ringHead_ + 1) % ring_.size();
+    --ringCount_;
+    return true;
+}
+
 // ---- commands -----------------------------------------------------------------------------------------------------------------
 
 namespace {
@@ -171,6 +179,29 @@ std::string section_list(const MusicMap& m) {
 }  // namespace
 
 bool MusicTransport::start(std::shared_ptr<const MusicSource> src, int section, float intensity, std::string* error) {
+    const bool ok = start(src.get(), section, intensity, error);
+    if (ok) hold(src);
+    return ok;
+}
+
+bool MusicTransport::check_start(const MusicSource* src, int section, std::string* error) {
+    if (!src || src->stems.empty()) {
+        if (error) *error = "the song has no audio to play";
+        return false;
+    }
+    if (src->stems.size() > kMusicMaxStems) {
+        if (error) *error = "the song has more than " + std::to_string(kMusicMaxStems) + " stems";
+        return false;
+    }
+    const MusicMap& m = src->map;
+    if (section >= 0 && (section >= int(m.sections.size()) || m.sections[std::size_t(section)].firstSpan < 0)) {
+        if (error) *error = "the section is not in the song; its sections are: " + section_list(m);
+        return false;
+    }
+    return true;
+}
+
+bool MusicTransport::start(const MusicSource* src, int section, float intensity, std::string* error) {
     if (!src || src->stems.empty()) {
         if (error) *error = "the song has no audio to play";
         return false;
@@ -188,7 +219,6 @@ bool MusicTransport::start(std::shared_ptr<const MusicSource> src, int section, 
         }
         pos = m.spans[std::size_t(m.sections[std::size_t(section)].firstSpan)].start;
     }
-    hold(src);
     cancel_pending();
     intensity_ = clamp(intensity, 0.0f, 1.0f);
     beats_ = bars_ = loops_ = 0;
@@ -196,7 +226,7 @@ bool MusicTransport::start(std::shared_ptr<const MusicSource> src, int section, 
     bool sounding = false;
     for (const Head& h : heads_) sounding = sounding || h.active;
     Pending p;
-    p.src = src.get();
+    p.src = src;
     p.pos = pos;
     p.fadeFrames = sounding ? frames_of(0.01f) : 0;
     do_jump(p);
@@ -323,11 +353,17 @@ void MusicTransport::duck(MusicQuantize q, float amount, float attack, float hol
 }
 
 bool MusicTransport::crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q, float fadeSeconds, std::string* error) {
+    const bool ok = crossfade_to(src.get(), section, q, fadeSeconds, error);
+    if (ok) hold(src);
+    return ok;
+}
+
+bool MusicTransport::crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds, std::string* error) {
     if (!src || src->stems.empty() || src->stems.size() > kMusicMaxStems) {
         if (error) *error = "the song has no audio to play";
         return false;
     }
-    if (main_ < 0) return start(std::move(src), section, intensity_, error);
+    if (main_ < 0) return start(src, section, intensity_, error);
     const MusicMap& m = src->map;
     double pos = 0.0;
     if (section >= 0) {
@@ -337,11 +373,10 @@ bool MusicTransport::crossfade_to(std::shared_ptr<const MusicSource> src, int se
         }
         pos = m.spans[std::size_t(m.sections[std::size_t(section)].firstSpan)].start;
     }
-    hold(src);
     Head& h = heads_[std::size_t(main_)];
     Pending p;
     p.kind = Kind::Jump;
-    p.src = src.get();
+    p.src = src;
     p.pos = pos;
     p.fadeFrames = frames_of(fadeSeconds);
     p.crossfade = true;
@@ -655,29 +690,63 @@ std::vector<float> MusicTransport::stem_gains() const {
     return out;
 }
 
-MusicStatus MusicTransport::status() const {
-    MusicStatus st;
-    st.exists = true;
-    st.playing = main_ >= 0;
-    st.ended = ended_;
-    st.volume = volume_;
-    st.intensity = intensity_;
-    st.pending = pending_count();
-    st.heads = head_count();
+void MusicTransport::capture(MusicTransportState& out) const {
+    out.playing = main_ >= 0;
+    out.ended = ended_;
+    out.active = active();
+    out.volume = volume_;
+    out.intensity = intensity_;
+    out.pending = pending_count();
+    out.heads = head_count();
+    out.mixed = mixed_;
+    out.src = source();
+    out.pos = position();
+    out.stemCount = 0;
     if (main_ >= 0) {
         const Head& h = heads_[std::size_t(main_)];
-        const MusicMap& m = h.src->map;
-        st.song = h.src->path;
-        st.mode = h.src->mode;
+        out.stemCount = std::min(h.src->stems.size(), kMusicMaxStems);
+        for (std::size_t s = 0; s < out.stemCount; ++s) out.stemGains[s] = h.gain[s];
+    }
+    out.refCount = 0;
+    auto add = [&](const MusicSource* src) {
+        for (std::size_t i = 0; i < out.refCount; ++i)
+            if (out.refs[i] == src) return;
+        if (out.refCount < out.refs.size()) out.refs[out.refCount++] = src;  // heads + pendings: it always fits
+    };
+    for (const Head& h : heads_)
+        if (h.active && h.src) add(h.src);
+    for (const Pending& p : pending_)
+        if (p.used && p.src) add(p.src);
+}
+
+MusicStatus MusicTransport::status_of(const MusicTransportState& t) {
+    MusicStatus st;
+    st.exists = true;
+    st.playing = t.playing;
+    st.ended = t.ended;
+    st.volume = t.volume;
+    st.intensity = t.intensity;
+    st.pending = t.pending;
+    st.heads = t.heads;
+    if (t.playing && t.src) {
+        const MusicMap& m = t.src->map;
+        st.song = t.src->path;
+        st.mode = t.src->mode;
         st.tempo = m.tempo;
-        st.positionSeconds = h.pos / double(kMusicRate);
-        m.position(h.pos, st.bar, st.beat);
-        const int span = m.span_at(h.pos);
+        st.positionSeconds = t.pos / double(kMusicRate);
+        m.position(t.pos, st.bar, st.beat);
+        const int span = m.span_at(t.pos);
         if (span >= 0) st.section = m.sections[std::size_t(m.spans[std::size_t(span)].section)].name;
-        for (const MusicStem& s : h.src->stems) st.stems.push_back(s.name);
-        st.stemGains = stem_gains();
+        for (const MusicStem& s : t.src->stems) st.stems.push_back(s.name);
+        st.stemGains.assign(t.stemGains.begin(), t.stemGains.begin() + std::ptrdiff_t(t.stemCount));
     }
     return st;
+}
+
+MusicStatus MusicTransport::status() const {
+    MusicTransportState t;
+    capture(t);
+    return status_of(t);
 }
 
 }  // namespace fa

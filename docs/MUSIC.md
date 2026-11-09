@@ -467,8 +467,8 @@ player; `world.on("music.beat", fn)` to all.
 - **live**: when the player starts, the engine renders the song's layers from the document into memory (the same synthesis as `music.preview`; no extra files) and the
   audio thread only mixes those buffers. A song costs a few seconds of CPU once and about 10 MB of memory per minute per layer (16-bit stereo at 44100 Hz). A windowed
   game renders on a worker thread and starts the music when it is done (`ready` is false and `music.ready` has not come until then); a headless run (`factoria call`, tests)
-  renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once) and the ones no
-  player uses are dropped when the cache passes 128 MB.
+  renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once); when the cache passes
+  128 MB the ones nothing plays are dropped, the least recently played first.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
   Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
 - **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,

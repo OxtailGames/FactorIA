@@ -508,14 +508,17 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus, onEnded })` → voice id · `stop(id)` · `stopAll()`
+- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `priority` (0..255, default 128) decides who keeps a voice when all 64 play: a new sound replaces the lowest priority voice,
+  the quietest of those, when its priority is higher, or the same and it is louder; otherwise it does not play and `play`
+  returns 0. Age never decides; music is never replaced (docs/SOUND.md, "Voice stealing").
 - `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"` or a bus of the project, see "Project buses" below; default 1; not saved: an options menu stores it)
 - `activeVoices()` lists the sounds that play now, oldest first: `[{ id, path, bus, volume, pitch, pan, loop, music, source }]`
   (`volume` is the voice's own volume as last set, the volume a `setVoiceVolume` fade moves to; `music` is true for the music
   track and its layers; `source` is the entity id of the `AudioSource` or `Video` that plays it, `""` for scripts). A game that
   caps how many sounds play at once counts this list instead of keeping its own.
 - `play(path, { onEnded })` calls `onEnded(voiceId)` once, in the step after the voice ended: the clip finished, a fade-out
-  reached silence, `audio.stop(id)` was called, or a full mixer cut it. It is not called when `stopAll()` or a scene load cut
+  reached silence, `audio.stop(id)` was called, or a sound of a higher priority took its voice. It is not called when `stopAll()` or a scene load cut
   the sound, nor for a sound that did not start (id 0): the scene that asked is gone. A looping sound ends only when stopped.
   An error thrown by the callback is reported like one from a timer.
 - A scene load (`scene.load`, reload) stops every sound and the music, then starts the new scene's `SceneSettings.music` (the same

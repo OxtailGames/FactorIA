@@ -9,9 +9,12 @@
 // A browser also starts an AudioContext suspended and lets it run only after the player did something on the page. A key that
 // does not count as a user gesture (Tab, Escape...) or a pad button must not use up the one try, so the unlock listens to every
 // pointer, touch and key event until the context really runs, then stops. The "stream running" line (audio.cpp) is logged by the
-// first callback, which only comes once the context runs.
+// game thread once the first callback came, which only happens once the context runs. The callback runs on the main thread
+// here, so a streamed voice decodes inside it when its ring is dry (the mixer's sync fill), as on the null device.
 #include <emscripten.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <vector>
 
 #include "audio_web.h"
@@ -25,7 +28,11 @@ std::vector<float> g_buffer;
 
 extern "C" EMSCRIPTEN_KEEPALIVE float* fa_web_audio_pull(int frames) {
     if (!g_callback || frames <= 0 || frames > 65536) return nullptr;
-    g_buffer.assign(std::size_t(frames) * std::size_t(g_channels), 0.0f);
+    // Grown once to the largest pull, never shrunk: the pulls after the first allocate nothing. The mixer overwrites the
+    // frames it is asked for; the zero fill keeps a buffer the mixer leaves short silent.
+    const std::size_t n = std::size_t(frames) * std::size_t(g_channels);
+    if (g_buffer.size() < n) g_buffer.resize(n);
+    std::fill(g_buffer.begin(), g_buffer.begin() + std::ptrdiff_t(n), 0.0f);
     g_callback(g_buffer.data(), frames, g_channels, g_user);
     return g_buffer.data();
 }

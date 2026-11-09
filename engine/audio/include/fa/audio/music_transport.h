@@ -1,7 +1,10 @@
 // The playheads of one music player (M56.4): reads a MusicSource, fades its stems with the intensity, changes sections and songs on
-// the beat, plays stingers and ducks, and queues the beat events. mix() runs on the audio thread: it reads buffers that exist already,
-// uses fixed-size arrays and allocates nothing. Everything else is called by the game thread; the owner (the mixer) serialises both
-// with its own lock. A MusicTransport can also run alone, offline (tests, tools): feed mix() any block sizes and the output is the same.
+// the beat, plays stingers and ducks, and queues the beat events. A transport is used by one thread at a time. In fa_audio that is
+// the thread that mixes: the game sends the commands through the mixer's command queue and reads the state from the capture()
+// copies the mixer publishes. mix(), the raw-pointer commands, pop_event() and capture() read buffers that exist already, use
+// fixed-size arrays and allocate nothing; the owner keeps the sources alive while capture() lists them in `refs`. The shared_ptr
+// commands hold their source themselves (they allocate: tools and tests). A MusicTransport can also run alone, offline (tests,
+// tools): feed mix() any block sizes and the output is the same.
 //
 // Time. `mixed` counts the output frames mixed so far; the playhead advances `ratio` song frames (kMusicRate Hz) per output frame
 // (ratio = kMusicRate / device rate, 1 on the null device). A change that waits for a boundary is scheduled at the output frame the
@@ -37,6 +40,21 @@ constexpr std::size_t kMusicMaxHeads = 8;
 constexpr std::size_t kMusicMaxPending = 24;
 constexpr std::size_t kMusicEventCapacity = 1024;
 
+// A copy of what the game side reads of a transport, fixed size: the mixer makes one after each block it mixes (capture()) and
+// hands it over without a lock. status_of() turns it into a MusicStatus.
+struct MusicTransportState {
+    bool playing = false, ended = false, active = false;
+    const MusicSource* src = nullptr;  // of the main playhead
+    double pos = 0.0;                  // song frames of the main playhead
+    float volume = 1.0f, intensity = 0.0f;
+    int pending = 0, heads = 0;
+    std::uint64_t mixed = 0;
+    std::array<float, kMusicMaxStems> stemGains{};
+    std::size_t stemCount = 0;
+    std::array<const MusicSource*, kMusicMaxHeads + kMusicMaxPending> refs{};  // every source a head or a pending reads
+    std::size_t refCount = 0;
+};
+
 class MusicTransport {
 public:
     MusicTransport();
@@ -54,6 +72,10 @@ public:
     // ---- commands (game thread). Each returns false with `error` set when it cannot be done.
     // Starts the song at section `section` (-1: the beginning) at once; whatever played is cut after a short fade.
     bool start(std::shared_ptr<const MusicSource> src, int section, float intensity, std::string* error);
+    // The same without holding the source: the caller keeps it alive while capture() lists it. Allocates nothing with a null `error`.
+    bool start(const MusicSource* src, int section, float intensity, std::string* error);
+    // What start() refuses, checked ahead (the game side validates before it queues the command): false with `error` set.
+    static bool check_start(const MusicSource* src, int section, std::string* error);
     // Fades the music out over `fade` seconds when the boundary comes (None: now).
     void stop(MusicQuantize q, float fade);
     // The layers follow `intensity` from the boundary on, each fading over the layer fade.
@@ -71,6 +93,7 @@ public:
     // fades in while the old fades out, both over `fadeSeconds`. The new song's own tempo is not changed: the boundary is a bar line of the
     // old song and the new one starts on a bar line of its own.
     bool crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q, float fadeSeconds, std::string* error);
+    bool crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds, std::string* error);  // see start()
 
     // ---- the audio thread
     // Adds `frames` stereo frames to `out`.
@@ -86,11 +109,15 @@ public:
     int head_count() const;
     const MusicSource* source() const;      // of the main playhead (null when nothing plays)
     double position() const;                // song frames of the main playhead (0 when nothing plays)
-    MusicStatus status() const;
+    MusicStatus status() const;  // status_of(capture())
+    void capture(MusicTransportState& out) const;
+    static MusicStatus status_of(const MusicTransportState& state);
     // The gain the layer fades have reached, per stem of the main head's source.
     std::vector<float> stem_gains() const;
     // Moves the queued events to `out` (oldest first).
     void take_events(std::vector<MusicEvent>& out);
+    bool pop_event(MusicEvent& out);  // moves the oldest queued event to `out`; false when none waits (allocates nothing)
+    std::size_t event_count() const { return ringCount_; }
     std::uint64_t dropped_events() const { return dropped_; }
     // True when no head or pending refers to `src` (the owner may free it).
     bool references(const MusicSource* src) const;
@@ -167,7 +194,7 @@ private:
     std::vector<std::shared_ptr<const MusicSource>> held_;   // the heads and pendings hold raw pointers: these keep the sources alive
 
 public:
-    // The owner keeps sources alive while a head may read them; call after changing the sources, under the same lock as mix().
+    // Drops the sources the shared_ptr commands hold that no head or pending reads any more (same thread as mix()).
     void prune_sources();
 };
 
