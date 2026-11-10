@@ -9,7 +9,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -20,6 +22,9 @@
 #include "fa/audio/audio.h"
 #include "fa/core/jobs.h"
 #include "fa/core/json.h"
+#include "fa/core/log.h"
+#include "fa/scene/components.h"
+#include "fa/scene/world.h"
 
 using namespace fa;
 using namespace audio_test;
@@ -425,4 +430,215 @@ TEST_CASE("audio callback: a stall merges repeated stops of everything") {
     CHECK(stat(fx.audio.stats(), "commandsCoalesced") >= 990);
     resume_device(fx.audio);
     CHECK(AudioTestAccess::mirror_voices(fx.audio) == 0);  // the one that stays still ends everything
+}
+
+// ---- a dropped setting is sent again, whatever it was (counted blocks and commands, never a time) ------------------------------
+
+namespace {
+
+// The loudest sample of a voice that plays at the volume the reference got without any stall.
+template <class Setup>
+float reference_peak(Setup setup) {
+    Fixture ref;
+    AudioTestAccess::use_manual_device(ref.audio, 48000);
+    setup(ref.audio);
+    render_blocks(ref.audio, 4);
+    const float peak = render_blocks(ref.audio, 8);
+    REQUIRE(peak > 0.01f);
+    return peak;
+}
+
+// Fills the mixer's ring and the staging queue past its limit with settings of the "ui" bus, so the commands sent after the
+// first 2100 of them (and before the 9000 more) are the oldest of their kind when the queue overflows.
+struct Stall {
+    Audio& audio;
+    explicit Stall(Audio& a) : audio(a) { send_settings(audio, 2100); }
+    void overflow() {
+        send_settings(audio, 9000);
+        const Json st = audio.stats();
+        CHECK(stat(st, "commandsDropped") + stat(st, "settingsDropped") >= 1);
+        CHECK(AudioTestAccess::staged_commands(audio) <= 8192);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("audio callback: a bus setting dropped before a bus table swap is sent to the same bus after it") {
+    const std::vector<AudioBusDef> ab{{"a", "master"}, {"b", "master"}};
+    const std::vector<AudioBusDef> ba{{"b", "master"}, {"a", "master"}};  // the indexes of the two buses trade places
+    const float expected = reference_peak([&](Audio& audio) {
+        audio.set_buses(ab);
+        audio.play("sounds/sine.wav", on("b"));
+        audio.set_bus_volume("b", 0.25f, 0.0f);
+        audio.set_buses(ba);
+    });
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.audio.set_buses(ab);
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("b"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    Stall stall(fx.audio);
+    fx.audio.set_bus_volume("b", 0.25f, 0.0f);
+    fx.audio.set_buses(ba);  // a table swap is never dropped
+    stall.overflow();
+    CHECK(stat(fx.audio.stats(), "settingsDropped") >= 1);
+
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    // Resent by index the volume would reach "a" (the bus that has that index now) and "b" would stay at 1.0.
+    CHECK(render_blocks(fx.audio, 8) == doctest::Approx(expected).epsilon(0.02));
+    CHECK(fx.audio.bus_state("b")["volume"].get<float>() == doctest::Approx(0.25f));
+    CHECK(fx.audio.bus_state("a")["volume"].get<float>() == doctest::Approx(1.0f));
+}
+
+TEST_CASE("audio callback: a bus setting dropped for a bus that a table swap removed is skipped") {
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.audio.set_buses({{"a", "master"}, {"b", "master"}});
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("sfx"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    Stall stall(fx.audio);
+    fx.audio.set_bus_volume("b", 0.25f, 0.0f);
+    fx.audio.set_buses({{"a", "master"}});  // "b" is gone
+    stall.overflow();
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    CHECK(fx.audio.bus_state("b").is_null());
+    CHECK(fx.audio.is_playing(v));
+    CHECK(render_blocks(fx.audio, 4) > 0.01f);
+}
+
+TEST_CASE("audio callback: a snapshot dropped while the device stalls is applied again to every bus") {
+    AudioSnapshots catalog;
+    AudioSnapshot quiet;
+    quiet.fade = 0.0f;
+    quiet.buses["sfx"].volume = 0.25f;
+    catalog["quiet"] = quiet;
+    const float expected = reference_peak([&](Audio& audio) {
+        audio.set_snapshots(catalog);
+        audio.play("sounds/sine.wav", on("sfx"));
+        REQUIRE(audio.apply_snapshot("quiet", 0.0f).ok());
+    });
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.audio.set_snapshots(catalog);
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("sfx"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    Stall stall(fx.audio);
+    REQUIRE(fx.audio.apply_snapshot("quiet", 0.0f).ok());
+    stall.overflow();
+    CHECK(stat(fx.audio.stats(), "settingsDropped") >= 1);
+
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    CHECK(render_blocks(fx.audio, 8) == doctest::Approx(expected).epsilon(0.02));
+    CHECK(fx.audio.current_snapshot() == "quiet");
+}
+
+TEST_CASE("audio callback: a voice's bus dropped while the device stalls is sent again") {
+    const float expected = reference_peak([&](Audio& audio) {
+        audio.set_bus_volume("music", 0.25f, 0.0f);
+        const VoiceId v = audio.play("sounds/sine.wav", on("sfx"));
+        audio.set_voice_bus(v, "music");
+    });
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.audio.set_bus_volume("music", 0.25f, 0.0f);
+    const VoiceId v = fx.audio.play("sounds/sine.wav", on("sfx"));
+    REQUIRE(v != 0);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    Stall stall(fx.audio);
+    fx.audio.set_voice_bus(v, "music");
+    stall.overflow();
+    CHECK(stat(fx.audio.stats(), "commandsDropped") >= 1);
+
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    // Still on "sfx" in the mixer it would be four times as loud.
+    CHECK(render_blocks(fx.audio, 8) == doctest::Approx(expected).epsilon(0.02));
+}
+
+TEST_CASE("audio callback: the parameters an AudioSource sent while the device stalled are sent again") {
+    auto make_source = [](World& world, float volume) {
+        Entity e = world.create("src", "src");
+        AudioSource& s = world.add<AudioSource>(e);
+        s.clip = "sounds/sine.wav";
+        s.loop = true;
+        s.playOnStart = true;
+        s.volume = volume;
+        return e;
+    };
+    float expected = 0.0f;
+    {
+        Fixture ref;
+        AudioTestAccess::use_manual_device(ref.audio, 48000);
+        World world;
+        make_source(world, 0.25f);
+        ref.audio.update(world, 1.0f / 60.0f);
+        render_blocks(ref.audio, 4);
+        expected = render_blocks(ref.audio, 8);
+        REQUIRE(expected > 0.01f);
+    }
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    World world;
+    const Entity e = make_source(world, 1.0f);
+    fx.audio.update(world, 1.0f / 60.0f);
+    render_blocks(fx.audio, 2);
+    AudioTestAccess::pump(fx.audio);
+    REQUIRE(AudioTestAccess::mirror_voices(fx.audio) == 1);
+    Stall stall(fx.audio);
+    world.get<AudioSource>(e)->volume = 0.25f;
+    fx.audio.update(world, 1.0f / 60.0f);  // send_params, a Droppable
+    stall.overflow();
+    CHECK(stat(fx.audio.stats(), "commandsDropped") >= 1);
+
+    resume_device(fx.audio);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    CHECK(render_blocks(fx.audio, 8) == doctest::Approx(expected).epsilon(0.02));
+    CHECK(world.get<AudioSource>(e)->playing);
+}
+
+TEST_CASE("audio callback: a queue of commands that must stay is kept whole, warns once and drains when the device is back") {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> warnings;
+    };
+    auto lines = std::make_shared<Lines>();
+    const int sink = add_log_sink([lines](const LogEntry& e) {
+        if (e.level != LogLevel::Warn || e.category != "audio") return;
+        std::lock_guard<std::mutex> lk(lines->mu);
+        lines->warnings.push_back(e.message);
+    });
+
+    Fixture fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    // 36000 stops and removals: 2048 in the ring, the rest staged, past the 32768 where the game is told.
+    AudioTestAccess::stage_keeps(fx.audio, 36000);
+    AudioTestAccess::stage_keeps(fx.audio, 200);  // more of them: still one line
+    const std::size_t staged = AudioTestAccess::staged_commands(fx.audio);
+    CHECK(staged > 32768);
+    const Json st = fx.audio.stats();
+    CHECK(stat(st, "commandsDropped") == 0);  // none of them is droppable
+    CHECK(stat(st, "settingsDropped") == 0);
+    resume_device(fx.audio);
+    remove_log_sink(sink);
+
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    std::lock_guard<std::mutex> lk(lines->mu);
+    int kept = 0;
+    for (const std::string& w : lines->warnings)
+        if (w.find("they are all kept") != std::string::npos) ++kept;
+    CHECK(kept == 1);
 }

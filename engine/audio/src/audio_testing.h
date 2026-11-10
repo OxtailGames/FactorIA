@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fa/audio/audio.h"
+#include "fa/scene/world.h"
 
 namespace fa {
 
@@ -33,6 +34,13 @@ struct AudioTestAccess {
     static double voice_position(Audio& audio, VoiceId voice);
     // Commands waiting in the game side's staging queue (a stalled device).
     static std::size_t staged_commands(Audio& audio);
+    // Sends `count` commands that must never be dropped (Keep, not mergeable) and do nothing: a stalled device's queue of
+    // stops and removals, without the thousands of voices or tables a real one would take.
+    static void stage_keeps(Audio& audio, std::size_t count);
+    // What the mixer has of the music player of `e`: its transport's loop flag and the bus index of its channel (false /
+    // -1 without a channel). Read from the thread that renders.
+    static bool music_loop(Audio& audio, World& world, Entity e);
+    static int music_channel_bus(Audio& audio, World& world, Entity e);
     // The songs the music cache holds ("song|mode") and their bytes, in key order.
     static std::vector<std::pair<std::string, std::size_t>> music_cache(Audio& audio);
 };

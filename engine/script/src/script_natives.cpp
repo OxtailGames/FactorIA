@@ -482,8 +482,8 @@ NATIVE(guardEnd) {
     return JS_UNDEFINED;
 }
 
-// Cuts of the watchdog so far, and the text of those after the first `since` (a test that survived a cut inside a callback
-// of its game.step fails: its result depends on the machine's speed).
+// Cuts of the watchdog so far, and the text of those after the first `since`, at most 5 of them and then "and N more" (a test
+// that survived a cut inside a callback of its game.step fails: its result depends on the machine's speed).
 NATIVE(watchdogCuts) {
     SETUP;
     const double since = arg_num(ctx, argc, argv, 0, -1);
@@ -492,7 +492,11 @@ NATIVE(watchdogCuts) {
     // `since` counts cuts from the start (what cutCount said then); the list has dropped the oldest ones.
     const double local = since - static_cast<double>(I->droppedCuts);
     const size_t first = local <= 0.0 ? 0 : local >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(local);
-    for (size_t i = first; i < I->cuts.size(); ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
+    // A test that fails with it prints the text: the first few cuts say what is slow, the rest is a count.
+    constexpr size_t kMaxCutsInText = 5;
+    const size_t shown = std::min(I->cuts.size() - first, kMaxCutsInText);
+    for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
+    if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
     return JS_NewString(ctx, text.c_str());
 }
 

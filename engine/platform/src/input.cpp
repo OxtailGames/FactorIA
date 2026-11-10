@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 
@@ -235,12 +236,15 @@ std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::st
 // What a layer remembers: the state as of its last advance (the "previous" the edges and action edges compare with), the
 // edges since then, the frame deltas and the reads a UI handler took away. Advancing makes the current state the previous
 // one and forgets the rest.
-namespace {
-bool& touch_flag(Touch& t, size_t layer) {  // kFrameLayer, kFixedLayer, kLateLayer
-    return layer == 0 ? t.pressedThisFrame : layer == 1 ? t.pressedThisStep : t.pressedLate;
+bool& Input::touch_flag(Touch& t, size_t layer) {
+    switch (layer) {
+        case kFrameLayer: return t.pressedThisFrame;
+        case kFixedLayer: return t.pressedThisStep;
+        default: return t.pressedLate;  // kLateLayer
+    }
 }
-bool touch_unseen(const Touch& t) { return t.pressedThisFrame || t.pressedThisStep || t.pressedLate; }
-}  // namespace
+
+bool Input::touch_unseen(const Touch& t) { return t.pressedThisFrame || t.pressedThisStep || t.pressedLate; }
 
 void Input::advance(size_t layer) {
     Layer& l = layers_[layer];
@@ -281,12 +285,16 @@ void Input::begin_frame() { advance(kFrameLayer); }
 // the step saw is gone and what arrived during it waits for the next step (with its press edges still edges: the
 // "previous" state is the one from before the step).
 void Input::begin_fixed_step() {
+    ++fixedDepth_;  // balanced by ~FixedScope
     if (fixedStepOpen_) return;
     fixedStepOpen_ = true;
     advance(kLateLayer);
 }
 
 void Input::end_fixed_step() {
+    // A step that runs inside another one (a script stepping the game from onFixedUpdate) leaves the outer step open: closing it
+    // here would hand what arrived since the outer step began to the outer step's own later reads and then lose it.
+    if (fixedDepth_ > 1) return;
     if (!fixedStepOpen_) {
         advance(kFixedLayer);
         return;
@@ -318,6 +326,12 @@ void Input::forget_fixed_consumption() {
         std::erase_if(l.consumedActions, [&](const std::string& a) { return !action_down(a); });
     }
     active_ = shown;
+}
+
+void Input::discard_pending_edges() {
+    for (size_t layer : {kFrameLayer, kFixedLayer, kLateLayer}) advance(layer);
+    endedTouches_.clear();
+    for (Touch& t : touches_) t.pressedThisFrame = t.pressedThisStep = t.pressedLate = false;
 }
 
 void Input::discard_idle_motion() {
@@ -536,8 +550,15 @@ bool Input::paste_pressed() const { return L().paste || (!pasteFromEvents_ && ke
 bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
 
 void Input::on_text(std::uint32_t codepoint) {
-    for (Layer& l : layers_)
-        if (l.text.size() < kMaxTextPerView) l.text.push_back(char32_t(codepoint));
+    for (Layer& l : layers_) {
+        if (l.text.size() < kMaxTextPerView) {
+            l.text.push_back(char32_t(codepoint));
+        } else if (!textCapWarned_) {
+            textCapWarned_ = true;  // one line per Input: a big paste would otherwise log once per character
+            FA_WARN("platform", "more than {} characters of text arrived before they were read (a very large paste?): the rest "
+                    "is dropped", kMaxTextPerView);
+        }
+    }
 }
 
 std::string Input::text_utf8() const {
@@ -677,6 +698,7 @@ void Input::reset_options() {
     padEvents_.clear();
     padSlotMemory_.clear();
     endedTouches_.clear();
+    for (Touch& t : touches_) t.pressedThisFrame = t.pressedThisStep = t.pressedLate = false;  // a tap of the last test is not new
 }
 
 void Input::release_all() {

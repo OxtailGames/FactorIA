@@ -2404,7 +2404,14 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
         gather_particles(world, fr);
         if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
     }
-    if (!im.lastCams.empty()) update_parallax(world, im.lastCams.front().position.xy());  // the layers were shifted for this camera
+    // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera. A renderer that
+    // has not drawn or updated yet has no cameras collected, so look them up (collect_cameras always returns at least one).
+    {
+        std::vector<CameraInfo> fresh;
+        if (im.lastCams.empty()) fresh = im.collect_cameras(world);
+        const std::vector<CameraInfo>& sceneCams = im.lastCams.empty() ? fresh : im.lastCams;
+        if (!sceneCams.empty()) update_parallax(world, sceneCams.front().position.xy());
+    }
     im.fonts->sync();
     im.ramps.sync();
 

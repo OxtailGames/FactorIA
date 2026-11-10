@@ -284,9 +284,10 @@ inline bool exact_pow(double a, int n, double& out) {
     return true;
 }
 
-// 10^n for -307 <= n <= 308: the double nearest to the true power, which is what the literal 1eN is (a compiler parses it
-// correctly rounded, the same on every platform). For n above 22 the power is not a double (10^23 is not), so pow and log10
-// cannot get it by multiplying and must agree on this value: log10 of 1e25 is 25, not 24.999999999999996.
+// 10^n for -307 <= n <= 308: the double nearest to the true power, which is what the literal 1eN is (a compiler
+// parses it correctly rounded, the same on every platform). For n above 22 the power is not a double (10^23 is not),
+// so pow and log10 cannot get it by multiplying and must agree on this value: log10 of 1e25 is 25, not
+// 24.999999999999996.
 inline double pow10_int(int n) {
     static constexpr double kPos[309] = {
         1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
