@@ -2937,6 +2937,11 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   an artifact. The Windows editor autotest sections and the iOS simulator step that failed are found from those runs'
   logs and fixed or given an honest wait. So is `mcp_http_test.cpp`'s cancel case for a client without event streams
   (PR 208, Windows MSVC tests 2/3, 2026-11-10: no `HTTP/1.1 204` after `notifications/cancelled`, the test took 127 s).
+  Frame time is gated on the median and the p95, never on the average or the maximum, which one slow frame decides:
+  PR 208's second run failed `example_kindlewatch_perf` on linux-gcc-llvmpipe with `cpuMsAvg` 274.3 > 240 while its
+  p95 was 263.1 and one frame took 4579 ms. `perf.measure` reports `cpuMsMedian` too (and keeps the average and the
+  maximum in the report, not in the gate); `perf.check` names the slowest frames, so a spike is seen, not hidden.
+  `editor_autotest_5` timed out in the same run and joins the autotest sections above.
 - M100.10 (S) Bookkeeping of the review: KW/FB-0019 gets its dawn example in ANIMATION.md (a `tween` of
   `world.settings`) with a test, ED/FB-0002's docs part is noted, and this file keeps only what is open and the
   decisions: the DONE milestone sections move out, and ROADMAP_DONE.md becomes one file per milestone under
