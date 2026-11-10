@@ -69,7 +69,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90  # a cold-ccache build (~50 min on Linux) plus the full suite went past 60 in M91
     steps:
       - uses: actions/checkout@v4
 
@@ -120,12 +120,14 @@ jobs:
           FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
-      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
-      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
+      # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
+      # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
+      # engine/runtime/tests/det_probe_tests.cpp). The tests above compare them; this step prints them even when a test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
-      - name: Physics replay hash (linux)
+      - name: Replay hashes (linux) - physics, particles, feel, scripts, nav
         if: ${{ !cancelled() }}
-        run: ctest --preset linux-release -R physics_determinism -V
+        run: ctest --preset linux-release -R "physics_determinism|det_replay_hashes|det_probe_hashes" -V
 
       - name: Upload test output on failure
         if: failure()
@@ -258,12 +260,14 @@ jobs:
         # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
-      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
-      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
+      # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
+      # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
+      # engine/runtime/tests/det_probe_tests.cpp). The tests above compare them; this step prints them even when a test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
-      - name: Physics replay hash (windows)
+      - name: Replay hashes (windows) - physics, particles, feel, scripts, nav
         if: ${{ !cancelled() && matrix.shard == 1 }}
-        run: ctest --preset windows-release -R physics_determinism -V
+        run: ctest --preset windows-release -R "physics_determinism|det_replay_hashes|det_probe_hashes" -V
 
       - name: Upload test output on failure
         if: failure()
@@ -283,7 +287,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90  # a cold-ccache build (~50 min on Linux) plus the full suite went past 60 in M91
     steps:
       - uses: actions/checkout@v4
 
@@ -330,12 +334,14 @@ jobs:
           FA_REQUIRE_SHDC: '1'
         run: ctest --preset macos-release --parallel 3  # the runner's 3 vCPUs
 
-      # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
-      # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
+      # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
+      # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
+      # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
+      # engine/runtime/tests/det_probe_tests.cpp). The tests above compare them; this step prints them even when a test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
-      - name: Physics replay hash (macos)
+      - name: Replay hashes (macos) - physics, particles, feel, scripts, nav
         if: ${{ !cancelled() }}
-        run: ctest --preset macos-release -R physics_determinism -V
+        run: ctest --preset macos-release -R "physics_determinism|det_replay_hashes|det_probe_hashes" -V
 
       - name: Upload test output on failure
         if: failure()
@@ -399,6 +405,7 @@ jobs:
           cp -R templates/2d-platformer "$game"
           cp tools/cli/tests/plugin_probe.js "$game/scripts/probe.js"
           cp tools/cli/tests/apple_probe.js "$game/scripts/apple_probe.js"
+          cp tools/cli/tests/determinism_probe.js "$game/scripts/determinism_probe.js"
           python3 - "$game" <<'PY'
           import json, pathlib, sys
           game = pathlib.Path(sys.argv[1])
@@ -414,6 +421,7 @@ jobs:
           def probes(s):
               s["entities"].append({"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js"}}})
               s["entities"].append({"id": "appleProbe", "name": "Apple probe", "components": {"Script": {"path": "scripts/apple_probe.js"}}})
+              s["entities"].append({"id": "detProbe", "name": "Determinism probe", "components": {"Script": {"path": "scripts/determinism_probe.js"}}})
           edit("scenes/main.scene.json", probes)
           PY
 
@@ -484,6 +492,7 @@ jobs:
         env:
           FA_IOS_PLUGIN_PROBE: 1
           FA_IOS_APPLE_PROBE: 1
+          FA_IOS_DET_HASH: 1
         run: ./scripts/ios-smoke.sh "$RUNNER_TEMP/factoria_player.app" dev.factoria.ci 90 build/ios-smoke
 
       - name: Upload simulator logs, screenshot and crash reports
@@ -765,6 +774,22 @@ jobs:
               json.dump(scene, f, indent=2)
           PY
 
+      # The replay hashes of the simulation scripts can reach (tools/cli/tests/determinism_probe.js, M91.3): Math.*, 2D and 3D
+      # physics and nav, logged as one FA_DET_HASH line. scripts/android-smoke.sh (FA_SMOKE_DET_HASH) compares it with
+      # tools/cli/tests/determinism_expected.txt, the committed values. The emulator is x86_64.
+      - name: Add the determinism probe (replay hashes)
+        run: |
+          cp tools/cli/tests/determinism_probe.js /tmp/ci-game/scripts/determinism_probe.js
+          python3 - <<'PY'
+          import json
+          path = "/tmp/ci-game/scenes/main.scene.json"
+          with open(path) as f:
+              scene = json.load(f)
+          scene["entities"].append({"id": "detProbe", "name": "Determinism probe", "components": {"Script": {"path": "scripts/determinism_probe.js"}}})
+          with open(path, "w") as f:
+              json.dump(scene, f, indent=2)
+          PY
+
       # Writes the Gradle project and runs ./gradlew assembleDebug in it (source mode: the engine is compiled from this
       # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk. FA_CI_PLUGINS (job env) is still
       # set: the export copies the plugin's android/ module into the project (plugins/example).
@@ -876,6 +901,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
           FA_SMOKE_BACK: probe back=consumed
+          FA_SMOKE_DET_HASH: 1
           FA_SMOKE_EXPECT: |
             probe safearea=
             probe vibrate=sent

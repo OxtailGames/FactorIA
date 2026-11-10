@@ -121,6 +121,49 @@ A class **field** with the name of a `Behaviour` member (`on`, `after`, `every`,
 instance: `on = false;` makes `this.on("x", fn)` fail. The first behaviour of the class created logs ONE warning naming the
 field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 
+### Which callback sees what (input)
+
+A frame runs 0 to 5 fixed steps (a slow frame runs several, a fast one none), so a press must not be tied to the frame
+that carries it. The engine keeps two views of the input, and a press, a release, a mouse click, a touch start, a
+gamepad button edge, the wheel, the mouse motion, typed text and Back are seen **exactly once by `onFixedUpdate` and
+exactly once by `onUpdate`**, whatever the number of steps in the frame:
+
+| Callback | Reads | An edge (`pressed`, `released`, `mouse.wheel`, `mouse.delta`, `text`, `touch.pressed`) is seen |
+|---|---|---|
+| `onFixedUpdate` | the fixed-step view | by the first fixed step that runs after it happened; not by the later steps of the same frame. A frame with 0 steps keeps it for the next frame's first step. |
+| `onUpdate`, `onLateUpdate`, `ui.on(...)` handlers, `after`/`every` timers, `input.onBack` | the frame view | by the frame that carries it, once; not by the next frame. |
+| `onCollision*`, `onTrigger*`, `onEvent` | the view of the step (or of the frame, for an event sent after the steps) that delivers them | like `onFixedUpdate` for what physics and animation send in a step, like `onUpdate` for the rest |
+
+Holds are the same in both views: `down`, `value`, `axis`, `vector`, `keyDown`, `mouse.down`, `touches` positions and
+stick values are the state at the time of the call. Consequences:
+
+- Put one-shot input (a jump, a shot, a menu choice) in either callback and it fires once. In `onFixedUpdate` it fires
+  at 30 FPS and at 144 FPS alike, and never twice in a frame of 5 steps. Movement from held input needs no care.
+- A press and its release that both happen between two fixed steps are both seen by the next step, in that order
+  (`pressed` and `released` are both true there). A press that ends before any step runs is not lost.
+- `input.consume(action)` hides the press from `pressed` for the callbacks that have not seen it yet; a fixed step that
+  already took the press is not affected, and a later press is never hidden by it. One limit: the hiding ends when the
+  input is let go, and the fixed step keeps one press flag per input, not a count. A press that was consumed and is
+  released before the next fixed step ran (a tap shorter than one step, with no step in between) therefore reaches
+  `onFixedUpdate` as a normal `pressed`, once.
+- A tap that lands and lifts between two fixed steps still shows once in `input.touches[].pressed` (position where it
+  lifted) in the next `onFixedUpdate`, and once in the next `onUpdate`; the next call after that no longer lists it.
+- Input that arrives while a fixed step runs (a script injecting a key in `onFixedUpdate`, a test) is seen by the NEXT
+  step, not lost with the one that is closing; behaviours that run later in the same step may see it too.
+- A step run from inside another step (`game.step()` called in `onFixedUpdate`) shares the outer step's view of the
+  input: a press reaches both the outer and the nested `onFixedUpdate`, and the step closes when the outer one ends.
+- `game.paused = true` (`time.scale` 0): the steps still run, as steps of time 0, but `onFixedUpdate` is not called, and
+  each step takes the edges like any other: a press made while the game is paused (a pause menu answered by the UI, a
+  `runWhilePaused` behaviour reading it in `onUpdate`) is NOT seen by the first `onFixedUpdate` after the game resumes.
+  The engine's own pause (`Engine::set_paused`, what the editor uses outside play, and the `game.pause` command) is
+  different: `frame(dt)` only redraws, no step runs and no edge is taken, so a press made meanwhile is kept for the
+  first step and the first update after it resumes.
+- `game.step(n)` in a test runs one fixed step and one frame `n` times, so each `game.press`/`tap`/`touchStart` is seen by
+  one `onFixedUpdate` and one `onUpdate` of the next `game.step`.
+- Recorded input (`input.record`) and replays are not affected: the recording keeps each event and the frame timing
+  (`dt` and the number of fixed steps), and a replay feeds the same events at the same frames, so it reproduces the same
+  fixed steps. The format did not change.
+
 ### Behaviour members
 - `this.entity` — the owning `Entity`; `this.world` — the world.
 - `this.after(seconds, fn)` / `this.every(seconds, fn)` — timers, cancelled
@@ -149,7 +192,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of a glTF, or keyframed 2D clips (`*.anim.json`), of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time`, and for 2D clips `sample(clip, t)`, `setLayerWeight(layer, w)`, `playLayer(layer, clip, fade?)` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
 | `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `paintTerrain(terrain, cells)`, `eraseTerrain(terrain, cells)`, `retile()`, `terrainAt(col, row)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
-| `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
+| `emitBurst(n)` | spawn `n` particles from this entity's `ParticleEmitter` (works with `emitting` off and in a run without graphics: the particles are born in the next simulation step) |
 | `toJSON()` | entity JSON (as in scene files) |
 
 ### entity.bounds()
@@ -175,8 +218,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   texture's pixel size (32 x 32 for a plain colour quad or a missing texture). A circle is its bounding square
   (diameter `size.x`), a line is the stroked segment from the origin to `size`, and the outline `thickness` of the other
   shapes is ignored.
-- **Text.** The laid-out text box (`pivot` and `maxWidth` as drawn). Without a renderer (headless) the size is the
-  same approximation as `ui.measureText` and logs the same one-time warning.
+- **Text.** The laid-out text box (`pivot` and `maxWidth` as drawn). The size is the same with and without
+  graphics, as for `ui.measureText`.
 - **Rotation and scale** of the world transform are applied, and the result is the box around the rotated corners.
   An entity that has several visuals (a `Sprite` and a `Text`) gets the union of their rectangles.
 - **Screen space.** A visual with `space: "screen"` is positioned on the screen, not in the world, so it has no world
@@ -508,14 +551,17 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus, onEnded })` → voice id · `stop(id)` · `stopAll()`
+- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `priority` (0..255, default 128) decides who keeps a voice when all 64 play: a new sound replaces the lowest priority voice,
+  the quietest of those, when its priority is higher, or the same and it is louder; otherwise it does not play and `play`
+  returns 0. Age never decides; music is never replaced (docs/SOUND.md, "Voice stealing").
 - `music(path, { volume, fade, persist })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"` or a bus of the project, see "Project buses" below; default 1; not saved: an options menu stores it)
 - `activeVoices()` lists the sounds that play now, oldest first: `[{ id, path, bus, volume, pitch, pan, loop, music, source }]`
   (`volume` is the voice's own volume as last set, the volume a `setVoiceVolume` fade moves to; `music` is true for the music
   track and its layers; `source` is the entity id of the `AudioSource` or `Video` that plays it, `""` for scripts). A game that
   caps how many sounds play at once counts this list instead of keeping its own.
 - `play(path, { onEnded })` calls `onEnded(voiceId)` once, in the step after the voice ended: the clip finished, a fade-out
-  reached silence, `audio.stop(id)` was called, or a full mixer cut it. It is not called when `stopAll()` or a scene load cut
+  reached silence, `audio.stop(id)` was called, or a sound of a higher priority took its voice. It is not called when `stopAll()` or a scene load cut
   the sound, nor for a sound that did not start (id 0): the scene that asked is gone. A looping sound ends only when stopped.
   An error thrown by the callback is reported like one from a timer.
 - A scene load (`scene.load`, reload) stops every sound and the music, then starts the new scene's `SceneSettings.music` (the same
@@ -825,16 +871,17 @@ theme.setIntensity(0.8, { quantize: "bar" });
 Tools: `audio.music_state` (what every player does) and `audio.music` (the same calls).
 
 ### particles / ui
-- `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
-  even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
+- `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles from a `ParticleEmitter`, even
+  with `emitting = false`. They are born in the next simulation step (or in the picture drawn before it) and the call works
+  in a run without graphics too; an entity with no emitter is ignored.
 - `ui.overflowed(entityOrId)` → `true` when the text of a `Text` with a box (`maxWidth` / `maxHeight`) or the label of a
   Button, Toggle, Slider or TouchButton still does not fit at the size it is drawn at (after `ui.textScale`,
   `maxTextScale` and `autoShrink`). See [TEXT.md](TEXT.md), "Text that fits".
 - `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` →
   `{ width, height, fontSize }` laid out exactly like `Text` rendering
   (shaped, wrapped, with the fallback fonts). `space` is `"screen"` (default: HUD text and widget labels, measured at the
-  size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
-  times `ui.textScale` for `"screen"`) and warn once. `markup` and `bold` are the `Text` fields of the same names
+  size the player's text size option makes it) or `"world"`. A run without graphics (`graphics=false`, `--no-graphics`)
+  gives the same numbers: it shapes the text on the CPU with the same fonts. `markup` and `bold` are the `Text` fields of the same names
   ([TEXT.md](TEXT.md), "Rich text").
 - `ui.markupProblems(text)` → `string[]`: what is wrong with the `[b]`, `[i]`, `[c:name]` and `[icon:name]` tags of `text`
   (unknown tag, `[` without `]`, unclosed tag, a colour or icon the project's `text` section lacks), `[]` when clean.
@@ -1850,10 +1897,33 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
 - `Math.random()` is routed to the deterministic world RNG (`rng.*`; write `rng`). `Date` is NOT replaced in game
   scripts: `Date.now()` and `new Date()` read the real wall clock, so never use them in simulation (`game.today()`).
   Only `assets.animate_svg` modules (`.anim.js`) get a fixed `Date` (ASSETS.md).
+- `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p`, `pow` (and
+  `**`), `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot` are the engine's deterministic functions
+  (`fa::det::f64`, built only from `+ - * / sqrt` on doubles): the same bits on Windows, Linux, macOS, Android, iOS and the
+  web, where the C library's last bit differs between them. They are accurate to a few units in the last place of the exact result:
+  `exp`, `log`, `log2`, `log10`, `cosh`, `cbrt` and `hypot` within 2 ulp, `sin` and `cos` within 3 (up to 1.6e6 radians),
+  `tan`, `atan`, `atan2`, `asin`, `acos`, `expm1`, `log1p` and the other hyperbolics within 6, and `pow` loses up to about 1.5 ulp per unit of
+  `|y * ln(x)|` on large results. A script sees the numbers it expects: `Math.pow(2, 10)` is exactly 1024, the integer
+  powers and roots that are exact stay exact, and `10 ** n` is the double nearest to 10^n for every `n` from -307 to 308,
+  so `Math.floor(Math.log10(1e25))` is 25. Do not compare the result of a transcendental with `===` against a number you
+  computed another way: allow a small tolerance. `Math.sqrt`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `fround`, `imul` and `clz32` are exact
+  in IEEE 754 and unchanged. This applies to EVERY script the engine runs, because there is one JavaScript engine: game
+  scripts, tests, script tools (`tools/*.js`), `scripts/autoplay.js` hooks and editor scripts all get the same `Math`; no
+  script sees the C library's. A script needs nothing to opt in.
 - Callbacks using more than 2 s of CPU time are aborted ("script took too long") and the
   behaviour is disabled until its file is reloaded. A timer, tween or `world.on`
   listener stopped this way ends alone; the scripts after it run. Exceptions are recorded once
   per (file, line, message) with a hint; the behaviour keeps running.
+  **A cut callback makes the run invalid**, because the rest of the callback was skipped at a point that depends on how fast
+  the machine is, so no replay or hash taken from the run can be trusted. It is never silent: the engine logs an error
+  naming the script and the callback ("the script watchdog stopped 'onUpdate' of scripts/boss.js (> 2 s of CPU time)"),
+  counts it, and then (1) `factoria run --headless` exits with code 1 whatever `--allow-script-errors` says and its report has
+  `"replayValid": false`, the cuts in `watchdogCuts` (the latest 100) and a line in `problems` that
+  counts them; (2) a test that ran while a callback was cut (even if its own asserts passed) fails with the script and
+  callback of the first five cuts named, then "... and N more"; (3) `game.autoplay` / `play.auto` report
+  "INVALID RUN" in their notes and the cut in `scriptErrors`; (4) a windowed run with `--frames` exits with code 1. Fix
+  the loop that spins (the cause is almost always a `while` that never ends or a pathfinding call per frame), do not raise
+  the limit. `script.trace` is the one tool that keeps running after a cut, to show where the time goes.
 - `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
   same. All listeners/timers are dropped when a scene loads.
 - Unknown input actions, keys, components and fields throw errors with

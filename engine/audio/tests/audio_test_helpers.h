@@ -14,6 +14,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 
 namespace audio_test {
 
@@ -89,6 +90,22 @@ inline Recording read_wav16(const std::string& path) {
     }
     return rec;
 }
+
+// The job pool for the length of a test (jobs::start / jobs::stop): a failed REQUIRE in the middle of the test still stops it,
+// so the pool never keeps running into the next test. Declare it before the Fixture, so the audio goes first.
+struct JobPool {
+    bool started = false;
+    explicit JobPool(const jobs::Settings& s) {
+        auto r = jobs::start(s);
+        started = r.ok();
+        REQUIRE_MESSAGE(started, (r.ok() ? "" : r.error().to_string()));
+    }
+    ~JobPool() {
+        if (started) jobs::stop();
+    }
+    JobPool(const JobPool&) = delete;
+    JobPool& operator=(const JobPool&) = delete;
+};
 
 struct Fixture {
     std::filesystem::path dir;

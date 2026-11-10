@@ -60,6 +60,26 @@ TEST_CASE("split screen: two cameras draw their own half, each with its own clea
     CHECK(near_color(img.pixel(160, 5), kDark));
 }
 
+TEST_CASE("split screen: each camera draws a Parallax layer shifted for itself, and the world keeps the first camera's offset") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    camera(w, "left", {100, 0, 0}, {0, 0, 0.5f, 1}, kGrey, 0);
+    camera(w, "right", {200, 0, 0}, {0.5f, 0, 0.5f, 1}, kDark, 1);
+    // A layer that moves at half the camera's speed: offset = camera x * (1 - 0.5).
+    const Entity layer = square(w, {100, 0, 0}, kRed);
+    w.add<Parallax>(layer).factor = {0.5f, 0.5f};
+    Image img = g.render(w);
+    // The left camera (x = 100) sees it shifted by 50, so its square (at 100 + 50) is 50 units right of that camera's centre.
+    CHECK(near_color(img.pixel(80 + 50, 90), kRed));
+    CHECK(near_color(img.pixel(80, 90), kGrey));
+    // The right camera (x = 200) sees it shifted by 100: at 200, right in the centre of its half.
+    CHECK(near_color(img.pixel(240, 90), kRed));
+    // After the frame the world keeps one offset, the first camera's, whichever camera drew last.
+    CHECK(w.get<Parallax>(layer)->offset.x == doctest::Approx(50.0f));
+    CHECK(w.get<Parallax>(layer)->offset.y == doctest::Approx(0.0f));
+}
+
 TEST_CASE("split screen: the viewport sets the aspect, so a half keeps the world scale") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

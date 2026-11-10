@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <chrono>
 #include <optional>
 
@@ -286,6 +287,14 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (st->cfg.maxFrames > 0 && ++st->framesRun >= st->cfg.maxFrames) {
             for (const ScriptError& e : st->engine.scripts().errors()) {
                 FA_ERROR("player", "script error: {}", e.to_string());
+                st->exitCode = 1;
+            }
+            if (st->engine.scripts().watchdog_cut_count() > 0) {  // a replay of this run would differ: not a valid run
+                const auto& cuts = st->engine.scripts().watchdog_cuts();
+                if (st->engine.scripts().watchdog_cut_count() > cuts.size())  // only the latest cuts are kept
+                    FA_ERROR("player", "run is NOT valid: {} cuts in all, the oldest ones are not listed",
+                             st->engine.scripts().watchdog_cut_count());
+                for (const ScriptWatchdogCut& c : cuts) FA_ERROR("player", "run is NOT valid: {}", c.to_string());
                 st->exitCode = 1;
             }
             app_request_quit();
@@ -728,6 +737,20 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     Json scriptErrs = Json::array();
     for (const ScriptError& e : engine.scripts().errors()) scriptErrs.push_back(e.to_string());
     report["scriptErrors"] = scriptErrs;
+    // The watchdog cut a callback: the simulation skipped the rest of it, at a point that depends on the machine's speed. The
+    // run (and a replay hash taken from it) is not valid, whatever --allow-script-errors says.
+    const bool watchdogCut = engine.scripts().watchdog_cut_count() > 0;
+    report["replayValid"] = !watchdogCut;
+    if (watchdogCut) {
+        Json cutList = Json::array();
+        for (const ScriptWatchdogCut& c : engine.scripts().watchdog_cuts()) cutList.push_back(c.to_string());
+        report["watchdogCuts"] = cutList;
+        replayProblems.push_back(std::format("the script watchdog stopped {} callback(s), so this run is NOT valid and cannot be replayed "
+                                             "to the same result ({}{}; watchdogCuts lists the latest cuts)",
+                                             engine.scripts().watchdog_cut_count(),
+                                             engine.scripts().watchdog_cut_count() > cutList.size() ? "the oldest one listed: " : "",
+                                             cutList.empty() ? std::string() : cutList[0].get<std::string>()));
+    }
     Json sceneErrs = Json::array();
     if (I.sceneErrorCount > 0)
         for (const std::string& s : I.sceneIssues) sceneErrs.push_back(s);
@@ -736,6 +759,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     if (!replayProblems.empty()) report["problems"] = replayProblems;
     int code = 0;
     if (options.failOnScriptError && (!scriptErrs.empty() || I.sceneErrorCount > 0)) code = 1;
+    if (watchdogCut && options.failOnWatchdogCut) code = 1;
     if (videoFailed) code = 2;
     engine.shutdown();
     return finish(code);

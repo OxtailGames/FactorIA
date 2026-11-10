@@ -6,6 +6,7 @@
 #include <format>
 #include <variant>
 
+#include "fa/core/det_math.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/camera_query.h"
@@ -634,7 +635,7 @@ void feel_fixed_update(World& w, double dtd) {
         k.lockRemaining -= dt;
         if (length(k.velocity) > 0.0f) {
             w.set_world_position(e, w.world_position(e) + k.velocity * dt);
-            k.velocity = k.velocity * std::exp(-k.decay * dt);
+            k.velocity = k.velocity * det::exp(-k.decay * dt);
             if (length(k.velocity) < 0.01f) k.velocity = {};
         }
         if (k.lockRemaining <= 0.0f && length(k.velocity) == 0.0f) rec.knock.reset();
@@ -730,8 +731,8 @@ void feel_update(World& w, double clockDtD, double gameDtD) {
             const FeelSquash& q = *rec.squash;
             const float u = std::clamp(q.time / q.duration, 0.0f, 1.0f);
             // 1 at the start, past 0 into a smaller swing the other way, settling at exactly 0: a spring that comes back.
-            const float pulse = (1.0f - u) * (1.0f - u) * std::cos(3.0f * kPi * u);
-            const float k = std::exp(q.amount * pulse);  // x * y stays 1 (with a mesh: x * y * z)
+            const float pulse = (1.0f - u) * (1.0f - u) * det::cos(3.0f * kPi * u);
+            const float k = det::exp(q.amount * pulse);  // x * y stays 1 (with a mesh: x * y * z)
             const float other = q.volume3d ? std::sqrt(k) : 1.0f;
             if (q.axis == 'y') pose.scale = {q.volume3d ? other : k, 1.0f / k, other};
             else pose.scale = {1.0f / k, q.volume3d ? other : k, other};

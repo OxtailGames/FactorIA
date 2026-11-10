@@ -991,6 +991,29 @@ std::size_t chunk_count(std::size_t count, std::size_t grain) {
     return count / grain + (count % grain ? 1 : 0);
 }
 
+std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights, std::size_t target,
+                                                                 std::size_t minTotal) {
+    std::vector<std::pair<std::size_t, std::size_t>> out;
+    if (weights.empty()) return out;
+    std::size_t total = 0;
+    for (std::size_t w : weights) total += w;
+    if (total < minTotal || jobs::worker_count() == 0) {
+        out.emplace_back(0, weights.size());
+        return out;
+    }
+    std::size_t first = 0, sum = 0;
+    for (std::size_t i = 0; i < weights.size(); ++i) {
+        sum += weights[i];
+        if (sum >= target) {
+            out.emplace_back(first, i + 1);
+            first = i + 1;
+            sum = 0;
+        }
+    }
+    if (first < weights.size()) out.emplace_back(first, weights.size());
+    return out;
+}
+
 std::uint64_t chunk_seed(std::uint64_t seed, std::size_t index) {
     std::uint64_t z = seed + 0x9e3779b97f4a7c15ULL * (std::uint64_t(index) + 1);
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;

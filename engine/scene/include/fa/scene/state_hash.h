@@ -3,7 +3,7 @@
 //
 // What goes in: every alive entity in creation order (its id, its parent's id), each of its components sorted by type
 // name (not registration order, which depends on what code registered its components first) with every reflected
-// field (runtime-only fields too, unless excluded), the World's frame, time and random generator state. Floats go in by their bits, so the hash sees any difference, even in the last digit.
+// field (runtime-only fields too, unless excluded), the live particles of every emitter (the ParticleStore: position, velocity, age and the rest of each particle), the World's frame, time and random generator state. Floats go in by their bits, so the hash sees any difference, even in the last digit.
 // It is FNV-1a 64: fast and the same on every platform, not a cryptographic hash.
 #pragma once
 
@@ -21,6 +21,9 @@ struct TypeInfo;
 struct StateHashOptions {
     bool includeRuntime = true;  // also hash fields that are not saved to scenes (velocities, timers, caches)
     bool perEntity = false;      // also return one hash per entity (find which entity differs)
+    // Not empty: hash only the components of these types (by name) and leave the particles, the clock and the random generator out, so two runs
+    // can be compared on just the sprite animators, say. An entity with none of them still counts (its id and parent).
+    std::vector<std::string> onlyComponents;
 };
 
 struct EntityHash {

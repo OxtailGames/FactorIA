@@ -794,21 +794,38 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            true, "game"},
           [&engine, &I](const Json& a) { return engine.state(a); });
 
-    I.commands.add({"game.state_hash", "One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.",
+    I.commands.add({"game.state_hash", "One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator.",
            "Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra "
            "entity, another random number drawn) changes it. Use it to check determinism: the same game with "
            "runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a "
            "replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists "
-           "one hash per entity (creation order) to find which entity differs. Example: game.state_hash {\"perEntity\":true}",
+           "one hash per entity (creation order) to find which entity differs. components limits the hash to the named component "
+           "types (and leaves the particles, the clock and the random generator out): compare two runs on, say, [\"SpriteAnimator\",\"Sprite\"] only. "
+           "Example: game.state_hash {\"perEntity\":true}",
            parse_schema(R"({"type":"object","properties":{
                "perEntity":{"type":"boolean","default":false,"description":"Also list one hash per entity, in creation order (at most maxEntities)."},
                "includeRuntime":{"type":"boolean","default":true,"description":"Hash the fields that are not saved to scenes too (velocities, timers)."},
-               "maxEntities":{"type":"integer","default":200,"minimum":0,"maximum":100000,"description":"How many entities perEntity lists."}}})"),
+               "maxEntities":{"type":"integer","default":200,"minimum":0,"maximum":100000,"description":"How many entities perEntity lists."},
+               "components":{"type":"array","items":{"type":"string"},"description":"Hash only the components of these types (names as in the component list, e.g. [\"Sprite\",\"SpriteAnimator\"]); the particles, the clock and the random generator are left out. Default: everything."}}})"),
            true, "game"},
           [&I](const Json& a) {
               StateHashOptions o;
               o.perEntity = a.value("perEntity", false);
               o.includeRuntime = a.value("includeRuntime", true);
+              if (a.contains("components") && a["components"].is_array()) {
+                  for (std::size_t i = 0; i < a["components"].size(); ++i) {
+                      const Json& n = a["components"][i];
+                      const std::string name = n.is_string() ? n.get<std::string>() : std::string();
+                      if (!TypeRegistry::global().find(name)) {
+                          const std::string hint = TypeRegistry::global().suggest(name);
+                          throw CommandError("invalid_argument",
+                                             "/components/" + std::to_string(i) + ": '" + name + "' is not a component type.",
+                                             hint.empty() ? "Component names are PascalCase: Transform, Sprite, SpriteAnimator..."
+                                                          : "Did you mean '" + hint + "'?");
+                      }
+                      o.onlyComponents.push_back(name);
+                  }
+              }
               const std::int64_t maxRaw = a.contains("maxEntities") && a["maxEntities"].is_number_integer()
                                               ? a["maxEntities"].get<std::int64_t>()
                                               : 200;

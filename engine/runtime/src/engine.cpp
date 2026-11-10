@@ -23,7 +23,9 @@
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
+#include "fa/scene/particle_store.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/vfx.h"
 #include "fa/scene/video.h"
 
@@ -161,6 +163,7 @@ void Engine::Impl::apply_project_settings() {
         richStyle = RichTextStyle{};
     }
     if (renderer) renderer->set_rich_text_style(richStyle);
+    else cpuText.set_rich_text_style(richStyle);  // the CPU measurer only works when there is no renderer
     // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
     auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
     if (network.ok()) {
@@ -179,6 +182,17 @@ Vec2 Engine::Impl::design_size() const {
     return {float(cfg.width > 0 ? cfg.width : project.width), float(cfg.height > 0 ? cfg.height : project.height)};
 }
 
+CameraTarget Engine::Impl::camera_target() const {
+    const Vec2 size = design_size();
+    CameraTarget t;
+    t.width = int(size.x);
+    t.height = int(size.y);
+    t.designWidth = cfg.width > 0 ? cfg.width : project.width;
+    t.designHeight = cfg.height > 0 ? cfg.height : project.height;
+    t.expand = project.scaleMode == ScaleMode::Expand;
+    return t;
+}
+
 VisualMeasure Engine::Impl::measure() const {
     VisualMeasure m;
     m.textScale = self->text_scale();
@@ -186,9 +200,9 @@ VisualMeasure Engine::Impl::measure() const {
         const Renderer* r = renderer.get();
         m.textSize = [r](const Text& t) { return r->measure_text(t); };
     } else {
-        // No renderer: the approximation, at the player's text size for screen-space text (as the renderer would), so
-        // autoSize widgets and fit panels grow with ui.textScale in headless runs and tests too.
-        m.textSize = [engine = self](const Text& t) { return approx_text_size(t, engine->text_scale()); };
+        // No renderer: the CPU measurer, which shapes with the very fonts and code the renderer lays text out with, so a run with
+        // no graphics measures every Text (autoSize widgets, fit panels, ui.textScale, autoShrink) to the same size as one with.
+        m.textSize = [measurer = &cpuText](const Text& t) { return measurer->measure_text(t); };
     }
     return m;
 }
@@ -268,7 +282,10 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     bind_pending_skins(world);  // a SpriteSkin records the pose the scene was authored in, before any clip moves a bone
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
-    if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
+    world.particles().clear();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
+    // The cameras the first queries of the scripts (camera.worldToScreen in onStart, before any frame ends) answer with are the new
+    // scene's, not the previous scene's or none at all. A renderer has its own, refreshed where the frame is drawn.
+    if (!renderer) cpuCameras.refresh(world, camera_target());
     scripts.on_scene_loaded();
     if (loader) loader->scene_loaded();  // files read ahead for this load are dropped at the next one
     if (renderer) renderer->debug().clear();
@@ -383,16 +400,23 @@ void Engine::Impl::cancel_script_background_loads() {
 }
 
 namespace {
-// Renderer::update(World&, float) advances animators/particles without drawing. Called when the renderer has it
-// (older renderers simulate inside render_world, which then has to run every frame).
+// Renderer::update(World&) refreshes the cameras (queries) and the parallax offsets without drawing.
 template <class R>
-void update_visuals(R& r, World& w, float dt) {
-    if constexpr (requires { r.update(w, dt); }) r.update(w, dt);
+void update_visuals(R& r, World& w) {
+    if constexpr (requires { r.update(w); }) r.update(w);
 }
 }  // namespace
 
-void Engine::Impl::draw(double dt) {
+void Engine::Impl::settle_visuals() {
+    // A clip a script changed, a burst it asked for, an emitter it spawned: shown from the next draw on, whatever the next fixed step
+    // does. Time does not move (dt 0), so this fires no frame event and ages no particle; it is the same with and without a renderer.
+    update_sprite_animators(world, 0.0f);
+    world.particles().update(world, 0.0f);
+}
+
+void Engine::Impl::draw(double dt, bool settled) {
     if (!renderer) return;
+    if (!settled) settle_visuals();  // a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
     // Textures, fonts and meshes load when they are first drawn: a capture or a runner that draws directly reads for
     // this engine too (fa/core/load_trace.h).
     const LoadTrace::ReadingFor reading(traceOwner);
@@ -410,16 +434,22 @@ void Engine::Impl::draw(double dt) {
 }
 
 void Engine::Impl::render(double dt) {
-    if (!renderer) return;
+    settle_visuals();  // with or without a renderer: the world a frame ends with does not depend on drawing
+    if (!renderer) {
+        // What Renderer::update does without drawing: the cameras the next frame's queries answer with, and the parallax layers.
+        cpuCameras.refresh(world, camera_target());
+        update_parallax(world, cpuCameras.all().front().position.xy());
+        return;
+    }
     ProfSystemScope prof(ProfSystem::Render);
-    dt *= scripts.time_scale();  // particles and sprite animators follow time.scale: frozen while paused
-    update_visuals(*renderer, world, float(dt));
+    dt *= scripts.time_scale();
+    update_visuals(*renderer, world);
     if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
         renderStale = true;
         lastRenderDt = dt;
         return;
     }
-    draw(dt);
+    draw(dt, true);  // render() settled the visuals above
 }
 
 void Engine::Impl::poll_hot_reload(bool force) {
@@ -502,6 +532,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     feel_begin_frame(world, dt, scripts.system_reduce_motion());
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
+        // Everything this step reads of the input (scripts' onFixedUpdate and the events they get) answers for the fixed-step
+        // view: a press or release reaches exactly one step, however many (0 to 5) a frame runs, and one that arrives in a
+        // frame with no step waits for the next (fa/platform/input.h, "TWO VIEWS").
+        Input::FixedScope fixedInput(input);
         {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
@@ -552,16 +586,22 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_vfx(world, float(fixedDt * scale), vfxHost);
         }
         {
+            // The SpriteAnimators (clip time, frame, frame events, clipEnded, Sprite.region) and the particles (emission, motion,
+            // deaths, autoDestroy) follow the game clock too. They live in fa_scene, not in the renderer: a game with no graphics
+            // (--no-graphics, no EGL) steps them exactly like one with a window. Before the events below are dispatched, so what
+            // a frame event or clipEnded sends reaches the scripts in this same step.
+            ProfSystemScope prof(ProfSystem::Animation);
+            update_sprite_animators(world, float(fixedDt * scale));
+            world.particles().update(world, float(fixedDt * scale));
+        }
+        {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();
         }
         world.advance_clock(fixedDt);
+        input.end_fixed_step();  // what this step saw is taken: the next one gets only what arrives from now on
         ++fixedStep;
     }
-    // The sprite animators move on and run their frame events here, before the UI and the scripts of the frame: the game events,
-    // sounds and effects an event starts are handled in this same frame, not the next one (the renderer's own update would do it
-    // after all of them). They follow time.scale like particles.
-    if (renderer) renderer->advance_animators(world, float(dt * scripts.time_scale()));
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);
@@ -729,6 +769,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             const Entity cam = pointer ? r->camera_at(*pointer) : kNullEntity;
             return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
         }
+        if (!r && !I.cpuCameras.cameras().empty()) {  // no renderer: the very maths of its camera (fa/scene/camera_geometry.h)
+            const Entity cam = pointer ? I.cpuCameras.camera_at(*pointer) : kNullEntity;
+            return I.cpuCameras.world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
+        }
         return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
     });
 
@@ -739,6 +783,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         Entity cam;
         if (r && r->initialized() && !r->cameras().empty()) {
             cam = pointer ? r->camera_at(*pointer) : r->cameras().front();
+        } else if (!r && !I.cpuCameras.cameras().empty()) {
+            cam = pointer ? I.cpuCameras.camera_at(*pointer) : I.cpuCameras.cameras().front();
         } else if (pointer) {
             cam = camera_containing(I.world, I.design_size(), *pointer);
         } else {
@@ -757,6 +803,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.world.feel().reducedEffectsSetting.reset();
     I.apply_project_settings();
     I.setup_localization();
+    // The fonts of the start language, for the CPU measurer of a run with no renderer (the renderer gets them below).
+    I.apply_fallback_fonts();
 
     // Graphics.
     if (config.graphics) {
@@ -786,6 +834,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.renderer.reset();
             if (I.gpu) I.gpu->shutdown();
             I.gpu.reset();
+            // The CPU measurer takes over; it was not kept in step while a renderer was.
+            I.cpuText.set_text_scale(I.self->text_scale());
+            I.cpuText.set_ui_scale(I.world.ui_scale());
         } else {
             if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
@@ -1009,6 +1060,7 @@ void Engine::frame(double dt) {
         I.inFrame = true;
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
+        I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
@@ -1502,14 +1554,21 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
 }
 
 void Engine::step_frames(int n) { step(n); }
+const TextMeasurer* Engine::text_measurer() const { return &impl_->cpuText; }
+const CameraSet* Engine::camera_set() const { return &impl_->cpuCameras; }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
+    else impl_->cpuText.set_text_scale(scale);  // the CPU measurer only works when there is no renderer
 }
 void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale, the project default) check the range
     ScriptHost::set_ui_scale(scale);
-    if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
-    if (impl_->renderer) impl_->renderStale = true;
+    if (impl_->renderer) {
+        impl_->renderer->set_ui_scale(scale);
+        impl_->renderStale = true;
+    } else {
+        impl_->cpuText.set_ui_scale(scale);  // the CPU measurer only works when there is no renderer
+    }
 }
 bool Engine::default_ui_mirror_rtl() const { return impl_->project.uiMirrorRtl; }
 float Engine::default_ui_scale() const { return impl_->project.uiScale; }

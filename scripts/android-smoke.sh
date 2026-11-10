@@ -33,6 +33,9 @@
 #  10. expect     optional, only when the environment variable FA_SMOKE_EXPECT is set: one extended regular expression
 #                 per line, and each must match a line of the log. CI uses it for what the game's own script logs when
 #                 it calls its native plugin (the Java class of the plugin answered through JNI).
+#  11. det hash   optional, only when FA_SMOKE_DET_HASH is set: the game also runs tools/cli/tests/determinism_probe.js, whose
+#                 "FA_DET_HASH ..." line (Math, 2D and 3D physics, nav) must carry the hashes of
+#                 tools/cli/tests/determinism_expected.txt, the committed values every desktop CI job compares with (scripts/det-hash-check.sh).
 #
 # Output (outDir, default build/android-smoke): logcat.txt (whole log), logcat-app.txt (only the app process),
 # logcat-app-relaunched.txt (the process after step 8), screen.png (what the display shows), summary.txt, state.txt on
@@ -355,6 +358,20 @@ if [ -n "${FA_SMOKE_EXPECT:-}" ]; then
         grep -m 1 -E -- "$pattern" "$OUT/logcat.txt" | tee -a "$SUMMARY" ||
             fail "expect: no line of the log matches '$pattern' (FA_SMOKE_EXPECT): the game did not log what it should have"
     done <<<"$FA_SMOKE_EXPECT"
+fi
+
+# ---- 11. det hash ---------------------------------------------------------------------------------------------------
+# The probe logs its line after 60 fixed steps; give a slow emulator time (the line is waited for in the log, not slept for).
+if [ -n "${FA_SMOKE_DET_HASH:-}" ]; then
+    t0=$SECONDS
+    while :; do
+        snapshot_log
+        grep -qF 'FA_DET_HASH ' "$OUT/logcat.txt" && break
+        (( SECONDS - t0 < 60 )) || break
+        sleep 3
+    done
+    "$(dirname "$0")/det-hash-check.sh" "$OUT/logcat.txt" | tee -a "$SUMMARY"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || fail "det hash: the replay hashes of this platform differ from the committed ones (lines above)"
 fi
 
 note "OK: $PKG ran on the emulator (pid $OLD_PID, pid $PID after the relaunch): rendered, audio stream, touch, suspend/resume, configuration change, relaunch, no crash."

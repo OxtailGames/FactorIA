@@ -449,7 +449,7 @@ section pass. A request that arrives exactly on a boundary lands on it. A change
 **Stingers.** `playStinger({clip})` plays an audio clip so that it starts on the boundary's audio frame, on the player's bus (or `bus`).
 `playStinger({section})` plays a section of the song over the music with all its layers, then `tail` seconds of what rings after it.
 `duck` (0..1) dips the music for the length of the clip or section (`duckHold` to say otherwise), over `duckAttack` seconds down and `duckRelease` seconds back.
-A clip stinger is an ordinary voice: stopping the player does not stop it.
+A clip stinger is an ordinary voice: stopping the player does not stop it. It counts toward the 64 voices of the mixer with priority 192, above the default 128 of `audio.play` and `AudioSource`, so when all voices play it replaces a sound effect and is not replaced by one (docs/SOUND.md, "Voice stealing"); set `priority` 193..255 on an effect that must still win.
 
 **Crossfades between songs.** Setting `MusicPlayer.song` while it plays, or `crossfadeTo(song)`, waits for the boundary of the song that plays, then the old song fades
 out and the new one in over `crossfadeBars` bars **of the old song** (so the length follows its tempo); the new song starts at `section` or its beginning and keeps its own
@@ -467,8 +467,8 @@ player; `world.on("music.beat", fn)` to all.
 - **live**: when the player starts, the engine renders the song's layers from the document into memory (the same synthesis as `music.preview`; no extra files) and the
   audio thread only mixes those buffers. A song costs a few seconds of CPU once and about 10 MB of memory per minute per layer (16-bit stereo at 44100 Hz). A windowed
   game renders on a worker thread and starts the music when it is done (`ready` is false and `music.ready` has not come until then); a headless run (`factoria call`, tests)
-  renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once) and the ones no
-  player uses are dropped when the cache passes 128 MB.
+  renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once); when the cache passes
+  128 MB the ones nothing plays are dropped, the least recently played first.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
   Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
 - **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,

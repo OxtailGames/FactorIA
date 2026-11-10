@@ -7,6 +7,7 @@
 #include <map>
 #include <mutex>
 
+#include "fa/core/det_math.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -38,12 +39,12 @@ double ease_in(int f, double t) {
         case 1: return t * t * t;
         case 2: return t * t * t * t;
         case 3: return t * t * t * t * t;
-        case 4: return 1 - std::cos(t * 3.14159265358979323846 / 2);
-        case 5: return t == 0 ? 0 : std::pow(2.0, 10 * t - 10);
+        case 4: return 1 - det::f64::cos(t * 3.14159265358979323846 / 2);
+        case 5: return t == 0 ? 0 : det::f64::pow(2.0, 10 * t - 10);
         case 6: return 1 - std::sqrt(1 - t * t);
         case 7: { const double c1 = 1.70158; return (c1 + 1) * t * t * t - c1 * t * t; }
         case 8:
-            return t == 0 ? 0 : t == 1 ? 1 : -std::pow(2.0, 10 * t - 10) * std::sin((t * 10 - 10.75) * (2 * 3.14159265358979323846 / 3));
+            return t == 0 ? 0 : t == 1 ? 1 : -det::f64::pow(2.0, 10 * t - 10) * det::f64::sin((t * 10 - 10.75) * (2 * 3.14159265358979323846 / 3));
         default: return 1 - bounce_out(1 - t);
     }
 }

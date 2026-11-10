@@ -44,8 +44,6 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
-    std::uint32_t animPass = 0;   // the Renderer::advance_animators pass this frame follows (0 = none ran: update_animators moves every animator)
-    bool animEarly = false;       // this is that pass itself
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
@@ -72,7 +70,6 @@ struct Frame {
     std::vector<std::uint8_t> shadowData;
     int shadowRows = 0;
     std::uint64_t shadowKey = 0;     // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
-    std::set<std::string>* warnedSpriteClip = nullptr;  // "entity|clip" pairs already warned about (per scene)
     bool* warnedSpriteMesh = nullptr;     // set once gather_2d warned about a Sprite mesh with too many cells (per scene)
     bool* warnedGradientStops = nullptr;  // set once gather_2d warned about malformed Shape2D gradientStops (per scene)
     ShadowCache* shadowCache = nullptr;  // the renderer's rows kept across frames; null = none kept
@@ -125,13 +122,11 @@ struct QuadEmitter {
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
               float secondary, const Rect& clip, int visible = -1, Color tint = Color{1, 1, 1, 1});
 
-// advance = true steps SpriteAnimator time by f.dt and runs its frame events (only when f.dt > 0); false only (re)applies the
-// current frame to Sprite.region (idempotent, used by the draw pass). After an early pass (Renderer::advance_animators, f.animEarly)
-// the later one moves only the animators that pass did not move, or whose clip changed since.
-void update_animators(World& world, Frame& f, bool advance);
-// Writes Parallax.offset of every Parallax component for a camera at `camPos` (world xy). Called by Renderer::update and
-// at the start of gather_2d, so entity.bounds() is right in headless runs too.
-void update_parallax(World& world, Vec2 camPos);
+// Writes Sprite.region of every SpriteAnimator from the frame it is on (`frame`, chosen by the simulation:
+// fa::update_sprite_animators), with the size of the GPU texture. The simulation already wrote the same rectangle from the size of the
+// file; this covers what only the GPU knows (a `runtime:` or `target:` texture) and what is drawn without a simulation step (a hidden
+// subject of a capture, a tool's own world). Idempotent: it never moves time or runs events.
+void apply_sprite_frames(World& world, Frame& f);
 void gather_2d(World& world, Frame& f);
 // Gives the point lights of f.lights2d that ask for shadows (extra[1]) a row of f.shadowData when a Tilemap with
 // occludesLight is in the scene, at most kMaxShadowLights2D (the ones ranked first); sets extra[0] to the row and counts
@@ -147,15 +142,8 @@ bool screen_clip(const World& world, Entity e, const Frame& f, Rect& clip);
 // decided here is the one `Renderer::measure_text(Text)` and `ui.overflowed` decide.
 // `ppu`: the raster size per unit the text is drawn at, relative to 1 (screen-space text: f.uiScale; world-space: 1).
 TextExtent frame_text_extent(Frame& f, float ppu = 1.0f);
-// Particle simulation (no drawing): spawns the initial burst, continuous emission, queued emit_burst()
-// requests, integrates, kills, and destroys finished autoDestroy emitters. `assets` is unused by the sim.
-void update_particles(World& world, float dt);
-// Queues `count` particles for the emitter on entity bits `e`; spawned by the next update/gather.
-void queue_particle_burst(std::uint64_t entityBits, int count);
-// Spawns queued bursts (dt = 0, no integration) so they are visible in the frame being drawn.
-void flush_particle_bursts(World& world);
-void gather_particles(World& world, Frame& f);  // draw only
-void clear_particles();
+// Draws the particles the world's ParticleStore holds (World::particles()). The runtime steps them in the fixed simulation step.
+void gather_particles(World& world, Frame& f);
 void gather_debug(DebugDrawData& dd, Frame& f);
 
 // Helpers

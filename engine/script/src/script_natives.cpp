@@ -24,12 +24,15 @@
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/render/text_measure.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
+#include "fa/scene/particle_store.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "fa/scene/serialize.h"
@@ -477,6 +480,24 @@ NATIVE(guardEnd) {
     SETUP;
     if (!I->guards.empty()) I->pop_guard(I->guards.size() - 1);
     return JS_UNDEFINED;
+}
+
+// Cuts of the watchdog so far, and the text of those after the first `since`, at most 5 of them and then "and N more" (a test
+// that survived a cut inside a callback of its game.step fails: its result depends on the machine's speed).
+NATIVE(watchdogCuts) {
+    SETUP;
+    const double since = arg_num(ctx, argc, argv, 0, -1);
+    if (since < 0) return JS_NewFloat64(ctx, static_cast<double>(I->cutCount));
+    std::string text;
+    // `since` counts cuts from the start (what cutCount said then); the list has dropped the oldest ones.
+    const double local = since - static_cast<double>(I->droppedCuts);
+    const size_t first = local <= 0.0 ? 0 : local >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(local);
+    // A test that fails with it prints the text: the first few cuts say what is slow, the rest is a count.
+    constexpr size_t kMaxCutsInText = 5;
+    const size_t shown = std::min(I->cuts.size() - first, kMaxCutsInText);
+    for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
+    if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
+    return JS_NewString(ctx, text.c_str());
 }
 
 NATIVE(logSeq) {
@@ -990,33 +1011,28 @@ NATIVE(spriteAnimCall) {
 NATIVE(particlesBurst) {
     SETUP;
     ENTITY(e, 0);
-    int count = static_cast<int>(arg_num(ctx, argc, argv, 1, 10));
-    Renderer* r = I->host->renderer();
-    if (!r || !r->initialized()) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            fa::log(LogLevel::Warn, "script", "particles.burst: no renderer in this run (headless); skipped");
-        }
-        return JS_UNDEFINED;
-    }
-    r->emit_burst(e, count);
+    const double requested = arg_num(ctx, argc, argv, 1, 10);
+    const int count = std::isfinite(requested) ? static_cast<int>(std::clamp(requested, 0.0, 1.0e6)) : 0;
+    // The particles belong to the world, not to the renderer: a run with no graphics queues the burst like any other.
+    W.particles().queue_burst(W, e, count);
     return JS_UNDEFINED;
 }
 
-// How scripts measure text: the renderer's own layout when there is one, otherwise (headless) an approximation of 0.6 em
-// per character and 1.2 em per line, with a one-time warning (`what` names the caller in it). The Text-level size includes
-// the player's text size, the maxTextScale cap and autoShrink (text_fit.h), like the renderer.
+// How scripts measure text: the renderer's own layout when there is one, otherwise (no graphics) the CPU measurer, which shapes
+// with the same fonts and code (fa/render/text_measure.h), so both give the same numbers. Only a host with neither (a test host)
+// gets an approximation of 0.6 em per character and 1.2 em per line, with a one-time warning (`what` names the caller in it).
+// The Text-level size includes the player's text size, the maxTextScale cap and autoShrink (text_fit.h), like the renderer.
 VisualMeasure script_measure(Impl* I, const char* what) {
     VisualMeasure m;
     m.textScale = I->host->text_scale();
     m.textSize = [I, what](const Text& t) {
         Renderer* r = I->host->renderer();
         if (r && r->initialized()) return r->measure_text(t);
+        if (const TextMeasurer* measurer = I->host->text_measurer()) return measurer->measure_text(t);
         static bool warned = false;
         if (!warned) {
             warned = true;
-            fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
+            fa::log(LogLevel::Warn, "script", std::string(what) + ": this host has no renderer and no text measurer; using an approximation of 0.6 * fontSize per character");
         }
         return approx_text_size(t, I->host->text_scale());
     };
@@ -2278,11 +2294,11 @@ NATIVE(inTouches) {
     SETUP;
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (const Touch& t : I->host->input().touches()) {
+    for (const Touch& t : I->host->input().touches_in_view()) {
         JSValue o = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, o, "id", JS_NewFloat64(ctx, static_cast<double>(t.id)));
         JS_SetPropertyStr(ctx, o, "position", array_of(ctx, {t.position.x, t.position.y}));
-        JS_SetPropertyStr(ctx, o, "pressed", JS_NewBool(ctx, t.pressedThisFrame));
+        JS_SetPropertyStr(ctx, o, "pressed", JS_NewBool(ctx, I->host->input().touch_pressed(t)));
         JS_SetPropertyUint32(ctx, a, i++, o);
     }
     return a;
@@ -2853,6 +2869,8 @@ NATIVE(audioPlay) {
     std::string bus = arg_str(ctx, argc, argv, 5);
     if (!bus.empty()) pp.bus = bus;
     pp.notifyEnd = arg_bool(ctx, argc, argv, 10, false);
+    const double priority = arg_num(ctx, argc, argv, 11, 128);  // clamped before the narrowing (NaN: the default)
+    pp.priority = std::isfinite(priority) ? static_cast<int>(std::clamp(priority, 0.0, 255.0)) : 128;
     const VoiceId voice = I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.
@@ -3479,7 +3497,8 @@ Vec2 design_size(Impl* I) {
     return I->host->design_size();
 }
 
-// Without a renderer (no GPU at all): the same maths as the renderer for an orthographic camera, with the camera's viewport.
+// Without a renderer the host's CameraSet answers with the renderer's own maths (fa/scene/camera_geometry.h). A host with none (a
+// test host) gets the live orthographic maths of the camera's viewport.
 using FallbackView = OrthoView;
 
 FallbackView fallback_view(Impl* I, World& W, Entity named, const Vec2* point) {
@@ -3499,6 +3518,11 @@ NATIVE(worldToScreen) {
         Vec2 s = r->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
+    // Empty before the first refresh: the live maths below answers then.
+    if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
+        const Vec2 s = cs->world_to_screen(p, camera);
+        return array_of(ctx, {s.x, s.y});
+    }
     const FallbackView fv = fallback_view(I, W, camera, nullptr);
     const Vec2 s = fv.to_screen(p);
     return array_of(ctx, {s.x, s.y});
@@ -3513,6 +3537,10 @@ NATIVE(screenToWorld) {
         Vec3 w = r->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
+    if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
+        const Vec3 w = cs->screen_to_world(sp, depth, camera);
+        return array_of(ctx, {w.x, w.y, w.z});
+    }
     const FallbackView fv = fallback_view(I, W, camera, &sp);
     const Vec3 wp = fv.to_world(sp, depth);
     return array_of(ctx, {wp.x, wp.y, wp.z});
@@ -3525,6 +3553,8 @@ NATIVE(screenRay) {
     Vec3 o, d;
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
         r->screen_ray(sp, o, d, camera);
+    } else if (const CameraSet* cs = I->host->camera_set(); cs && !cs->all().empty()) {
+        cs->screen_ray(sp, o, d, camera);
     } else {
         const FallbackView fv = fallback_view(I, W, camera, &sp);
         o = fv.to_world(sp, fv.position.z);
@@ -3538,6 +3568,9 @@ NATIVE(cameraAt) {
     Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     if (Renderer* r = I->host->renderer(); r && r->initialized() && !r->cameras().empty()) {
         const Entity e = r->camera_at(sp);
+        if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
+    } else if (const CameraSet* cs = I->host->camera_set(); cs && !cs->cameras().empty()) {
+        const Entity e = cs->camera_at(sp);
         if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
     }
     return ent_val(ctx, camera_containing(W, design_size(I), sp));
@@ -4184,7 +4217,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),

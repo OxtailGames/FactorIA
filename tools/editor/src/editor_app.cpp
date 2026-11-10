@@ -1171,6 +1171,7 @@ void Editor::play() {
         engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
         reset_feel_choices();
+        engine_->input().discard_pending_edges();  // nothing advanced the views while editing: old taps are not the first step's
         session_begin();
     }
     run_.skipNext = true;
@@ -1195,6 +1196,7 @@ void Editor::step_once() {
         engine_->begin_load_trace();
         restore_scene(playSnapshot_);
         reset_feel_choices();
+        engine_->input().discard_pending_edges();
         play_ = PlayState::Paused;
         session_begin();
     } else if (play_ == PlayState::Playing) {

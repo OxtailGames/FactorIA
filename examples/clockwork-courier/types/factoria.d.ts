@@ -392,7 +392,7 @@ declare module "factoria" {
      */
     send(method: string, ...args: any[]): any;
     /**
-     * World-space axis-aligned rectangle { x, y, w, h } of this entity's 2D visual, or null. (x, y) is the minimum corner, i.e. the BOTTOM-LEFT in the +Y-up world: the same Rect convention as physics.overlapBox and debug.rect. Tilemap: its size as drawn (rows form or width x height) times tileSize, from the top-left corner at the entity position. Sprite and Shape2D: size and pivot (a circle is its bounding square, a line its stroked segment; the outline thickness of other shapes is ignored). Text: the laid-out box (approximate when headless, like ui.measureText). Scale and rotation are applied (the box around the rotated corners) and several visuals give their union. null when the entity has no world-space 2D visual: none at all, an empty Tilemap, or only screen-space ones (space: "screen"). Children are not included. Example: const map = world.find("map").bounds();
+     * World-space axis-aligned rectangle { x, y, w, h } of this entity's 2D visual, or null. (x, y) is the minimum corner, i.e. the BOTTOM-LEFT in the +Y-up world: the same Rect convention as physics.overlapBox and debug.rect. Tilemap: its size as drawn (rows form or width x height) times tileSize, from the top-left corner at the entity position. Sprite and Shape2D: size and pivot (a circle is its bounding square, a line its stroked segment; the outline thickness of other shapes is ignored). Text: the laid-out box (the same size with and without graphics, like ui.measureText). Scale and rotation are applied (the box around the rotated corners) and several visuals give their union. null when the entity has no world-space 2D visual: none at all, an empty Tilemap, or only screen-space ones (space: "screen"). Children are not included. Example: const map = world.find("map").bounds();
      */
     bounds(): Rect | null;
     /**
@@ -408,7 +408,7 @@ declare module "factoria" {
      */
     isTouching(direction: Vec3Like, tolerance?: number): boolean;
     /**
-     * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
+     * Spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). They are born in the next simulation step (or when the frame is drawn, if that comes first), also in a run without graphics. No-op when the entity has no ParticleEmitter.
      */
     emitBurst(count?: number): void;
     /**
@@ -972,6 +972,11 @@ declare module "factoria" {
      * @since 0.16.0
      */
     variants?: number;
+    /**
+     * Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255.
+     * @since 0.21.0
+     */
+    priority?: number;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
@@ -3100,7 +3105,7 @@ declare module "factoria" {
    */
   export interface ParticlesAPI {
     /**
-     * Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer.
+     * Spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). The particles belong to the world, so it works in a run without graphics too; the burst is born in the next simulation step (or when the frame is drawn, if that comes first) at the emitter position. No-op when the entity has no ParticleEmitter.
      */
     burst(entity: Entity | string, count?: number): void;
   }
@@ -3337,7 +3342,7 @@ declare module "factoria" {
    */
   export interface UIAPI {
     /**
-     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size). The result is in UI units, like the sizes of widgets: ui.scale is not applied (ui.rectOf, which is in screen pixels, includes it). `markup` and `bold` are the fields of Text with the same names: with `markup: true` the tags are not characters, [b] and [icon:name] are measured as drawn (an icon is as tall as the line; headless it counts as two characters), and the project's "text" section (factoria.json) says which colours and icons exist. Example: ui.measureText("[b]3[/b] [icon:fish]", { fontSize: 20, markup: true }).width.
+     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. The size is the same with and without graphics: a run with `graphics=false` shapes the text on the CPU with the same fonts. maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size). The result is in UI units, like the sizes of widgets: ui.scale is not applied (ui.rectOf, which is in screen pixels, includes it). `markup` and `bold` are the fields of Text with the same names: with `markup: true` the tags are not characters, [b] and [icon:name] are measured as drawn (an icon is as tall as the line and as wide as its picture's shape allows, square when the project has no such icon), and the project's "text" section (factoria.json) says which colours and icons exist. Example: ui.measureText("[b]3[/b] [icon:fish]", { fontSize: 20, markup: true }).width.
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number; markup?: boolean; bold?: boolean }): { width: number; height: number; fontSize: number };
     /**
@@ -4765,7 +4770,7 @@ declare module "factoria" {
   }
 
   /**
-   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
+   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The animation is stepped in the fixed simulation step, with or without a renderer, so a run with no graphics plays the same frames as one that draws. Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
    * @since 0.6.0
    */
   export interface SpriteAnimatorAPI {
@@ -5699,7 +5704,7 @@ declare module "factoria" {
      */
     texture: string;
     /**
-     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every frame.
+     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every simulation step.
      */
     get region(): Rect;
     set region(value: RectLike);
@@ -5810,7 +5815,7 @@ declare module "factoria" {
     set color(value: ColorLike);
   }
   /**
-   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -5839,7 +5844,7 @@ declare module "factoria" {
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
-     * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     * Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only.
      * @since 0.2.0
      */
     readonly offset: Vec2;
@@ -5899,7 +5904,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
@@ -7583,6 +7588,11 @@ declare module "factoria" {
      * Spatial only: distance in world units where the volume reaches 0.
      */
     range: number;
+    /**
+     * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
+     * @since 0.21.0
+     */
+    priority: number;
   }
   /**
    * Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
@@ -9808,7 +9818,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

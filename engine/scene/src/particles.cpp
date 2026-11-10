@@ -994,13 +994,17 @@ void ParticleSim::step(const ParticleEmitter& em, const ParticleEnv& env, float 
     events_.clear();
     const Place place = root_place(env);
 
-    if (em.worldSpace) {
-        if (haveLastPos_ && dt > 0.0f) emitterVel_ = (place.origin - lastPos_) / dt;
-        lastPos_ = place.origin;
-        haveLastPos_ = true;
-    } else {
-        emitterVel_ = {};
-        haveLastPos_ = false;
+    // The emitter's velocity is measured between fixed steps. A settle pass (dt 0, at the end of a frame) leaves it, and the place it
+    // was last seen at, alone: what a script or a tween moved the emitter by since the last step still counts at the next one.
+    if (dt > 0.0f) {
+        if (em.worldSpace) {
+            if (haveLastPos_) emitterVel_ = (place.origin - lastPos_) / dt;
+            lastPos_ = place.origin;
+            haveLastPos_ = true;
+        } else {
+            emitterVel_ = {};
+            haveLastPos_ = false;
+        }
     }
     const Vec3 extra = em.worldSpace ? emitterVel_ * em.inheritVelocity : Vec3{};
     auto spawn_root = [&](int n) {

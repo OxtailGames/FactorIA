@@ -41,7 +41,7 @@ engine/            runtime modules (ship inside every game)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder), the picture of Video components
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes, capsules, convex hulls, static triangle meshes, rigid-body rotation, hinge/ball/fixed joints, character controller, continuous collision, shape casts)
-  audio/           fa_audio    mixer with a bus table (built-in plus project buses) with per-bus effects (low-pass, reverb, ducking) and snapshots, wav/ogg/mp3, null device + recording, the sound of Video components
+  audio/           fa_audio    mixer with a bus table (built-in plus project buses) with per-bus effects (low-pass, reverb, ducking) and snapshots, wav/ogg/mp3, null device + recording, the sound of Video components; the device callback takes no lock and allocates nothing (lock-free command and return rings, streams decoded on jobs, docs/SOUND.md "The audio callback")
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
@@ -207,6 +207,16 @@ See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
 `n` fixed frames — deterministic given seed + input.
 
+Input has two views (`engine/platform/include/fa/platform/input.h`, "TWO VIEWS"): the frame's (UI, `onUpdate`,
+`onLateUpdate`, timers, Back) and the fixed step's (`onFixedUpdate` and what a step dispatches). Holds are shared; an edge
+(press, release, wheel, mouse motion, text, Back, paste) is kept for each view until it has been read: a frame closes
+the first with `begin_frame()`, and every fixed step closes the second with `end_fixed_step()` (`Engine::run_frame` opens
+an `Input::FixedScope` per step). So an edge is taken by one step whether the frame ran 0, 1 or 5, and one that
+arrives in a frame with no step waits for the next. Every writer (`on_key`, `on_mouse_*`, `on_touch_*`, replays,
+`game.input`) marks both views, so the recorder and replays need no change (`timing` still records `[dt, steps]`).
+A paused engine only redraws and keeps the edges (`discard_idle_motion` drops wheel, motion and text, not presses). A new
+system that runs inside a fixed step and reads input needs nothing: it answers for the step's view.
+
 ### Jobs and threads
 See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
 pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,
@@ -303,7 +313,8 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
 #### Systems that run as jobs
 
 The per-frame work of these systems is split over the pool with the helpers of `engine/render/src/render_jobs.h`
-(`rjobs::split`, `rjobs::run`, `rjobs::weighted_ranges`, `rjobs::stable_sort`) or `jobs::parallel_for`. Each pass
+(`rjobs::split`, `rjobs::run`, `rjobs::stable_sort`) or `jobs::parallel_for` / `jobs::weighted_ranges` (`fa/core/jobs.h`, shared
+with the particle step of `fa_scene`). Each pass
 below its threshold, and every pass while the pool has no worker thread (stopped, `"inline"`, 0 workers), is one chunk
 on the calling thread: the reference path. The thresholds are counts of items, never times, so where the line falls
 does not depend on the machine:
@@ -312,7 +323,7 @@ does not depend on the machine:
 | --- | --- | --- | --- |
 | `render.gather_sprites` | the quads of its sprites (matrix, anchor, 9-slice, grid meshes, skinned meshes, flash, parallax repeat) | 512 sprites | 128 sprites |
 | `render.gather_tilemap` | the visible cells of a band of rows of one Tilemap | 16384 visible cells | ~4096 cells |
-| `render.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
+| `scene.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
 | `render.gather_particles` | the quads of its emitters (particles, trails) | 2048 particles | emitters of ~1024 particles |
 | `render.sort_quads`, `render.flatten_quads` | stable sort of the 2D items; copy of their vertices into the stream | 4096 items; 16384 vertices | 1024 items; 8192 vertices |
 | `render.mesh_matrices`, `render.mesh_cull` | a mesh's matrix, flash and distance; its bounds (skinned too), frustum test and blend flag | 256 meshes | 64 meshes |
@@ -547,6 +558,44 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   culling box is `skinned_bounds` (the bind box carried by every joint, joined).
 - The tween module (`tween`, `ease`) is JavaScript (`factoria.js`), advanced by the script system's update with the scaled `dt`,
   so it shares the game clock with timers.
+- **Sprite animators and particles are simulation too.** `update_sprite_animators(world, dt)` (`fa/scene/sprite_animator.h`) advances
+  every `SpriteAnimator` (frame, `clipEnded`, frame events, `Sprite.region`) and `World::particles().update(world, dt)`
+  (`fa/scene/particle_store.h`) steps every `ParticleEmitter`, runs its `autoDestroy` and spawns the bursts queued by
+  `emitBurst`. Both run in the fixed step right after `update_vfx`, with `fixedDt * time.scale`, and again with `dt` 0 before a
+  picture is drawn (`Engine::Impl::settle_visuals`: a clip a script changed this frame, or a burst, shows in this frame's
+  picture and never advances time). A `SpriteAnimator` reads the size of its sheet from the image file or the packed atlas
+  (`texture_size`, cached by file name and looked at again once per frame: the end of the `dt` 0 pass starts the next epoch, so the
+  steps of a frame and its settle pass look at a file once. On a platform whose files have no modification time,
+  like an Android APK asset, each picture is read once), never from a GPU texture, so a run with `graphics=false` and one that draws
+  give the same `Sprite.region`; the renderer only repeats the region for a texture that exists on the GPU alone
+  (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
+  editor's scene and its Play session) never share it, and `World::clear()` and every scene load empty it. The renderer
+  (`renderer.h`) keeps only camera and parallax in `Renderer::update`; `render_world` draws what the world holds.
+- **Text and cameras without a renderer (M91.1b).** Nothing the simulation reads depends on a GPU. Text is shaped and measured by
+  `FontSet` (render/src/font_set.h: fonts, the fallback chain, HarfBuzz shaping, wrapping, rich text, `textScale`/`uiScale`,
+  `maxTextScale`/`autoShrink`), which has no GPU in it: the renderer's `Fonts::layout` places glyphs on the atlas with what it
+  returns, `Renderer::measure_text` and `fa::TextMeasurer` (`fa/render/text_measure.h`, what the engine owns when there is no
+  renderer, handed to scripts, the UI and `bounds()` as `VisualMeasure.textSize`) only take the size. One implementation, so the
+  sizes are the same numbers with and without a window; `approx_text_size` is left for a built-in font that cannot be loaded, with
+  one warning. The cameras are `fa/scene/camera_geometry.h`: `camera_geometry` builds the view, projection and viewport of a
+  `Camera` for a render target size, `CameraSet` keeps the cameras of the last frame (`refresh`, the renderer's snapshot: queries
+  before the first `render()` see the default camera) and answers `world_to_screen`, `screen_to_world`, `screen_ray` and
+  `camera_at`; `update_parallax` writes `Parallax.offset` from it. The offset the world keeps is always the one for the FIRST
+  camera (with a renderer too: while it draws, each camera, render target or `CameraView` shifts the layers for itself, and the
+  first camera's offset is put back when the gathers are done). A scene load refreshes the `CameraSet`, and the script natives
+  fall back to the live orthographic maths while it has no camera. The renderer builds its `CameraInfo` from the same function and
+  `Engine::render()` without a renderer refreshes the `CameraSet` from the design size, so `input.mouse.world`,
+  `camera.worldToScreen` and Parallax give the same floats either way (the queries always use the OpenGL depth range, whatever the
+  backend). `world_state_hash` includes the live particles (`ParticleStore`: positions, ages, the emitter clocks, random sequences and
+  emission accumulators).
+  The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the WHOLE world of every scene
+  after 40 frames with a renderer that draws and with `--no-graphics` (first the Sprite, SpriteAnimator and ParticleEmitter
+  components alone, so a failure says whether the animators differ), and
+  engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame for a small project with a moving camera, a Parallax
+  layer, a fitted panel and wrapped Japanese text. engine/render/tests/text_measure_tests.cpp compares `TextMeasurer` with the
+  renderer (Latin, CJK, Arabic, the missing-glyph fallback, wrapping, rich text, the text and interface scales) with `==`, and
+  one test with no renderer at all checks fixed sizes of the bundled font (4% tolerance) so it also runs where there is no GPU. The
+  `TextMeasurer` is kept in step with the project settings only while there is no renderer.
 Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
@@ -699,3 +748,50 @@ becomes the engine roadmap.
 - Game tests: `factoria test` runs `tests/*.test.js` headless.
 - Examples: each has `example_<name>_validate` and `example_<name>_test` ctest tests, and some also an autoplay and a
   perf budget (label `example`; they run in Release builds, see docs/BUILDING.md).
+- Determinism: the maths of the simulation and the replay hashes, below.
+
+### Determinism of the maths
+
+The simulation (everything that changes the state a game, a test or a replay can see) gives the same bits on every
+platform, so replays, `game.state_hash`, lockstep play and `factoria test` results do not depend on the machine. The rules:
+
+- **Build flags.** No floating-point contraction (`-ffp-contract=off`, `/fp:precise` on MSVC), so `a * b + c` is never
+  fused on arm64 or CPUs with FMA. `+ - * /`, `sqrt`, `floor`, `ceil`, `fmod`, `fabs`, `ldexp` are exact in IEEE 754 and
+  are used as they are.
+- **No C library transcendentals in the simulation.** `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `exp2`,
+  `expm1`, `log`, `log2`, `log10`, `log1p`, `pow`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot`
+  of glibc, Apple's libm, the MSVC CRT and musl (wasm) are each within an ulp of the exact result but round differently.
+  `fa/core/det_math.h` has them for `float` (`fa::det::exp(x)`, a frozen API: the float results never change) and for
+  `double` (`fa::det::f64::exp(x)`). Both are built only from `+ - * / sqrt` on doubles, and are tested for accuracy against
+  the C library (2 ulp for `exp`/`log`, 3 for `sin`/`cos`, up to 6 for `tan`, `atan`, `atan2`, `expm1`, `log1p` and the hyperbolics, a few for `pow` of a large result; `10^n` is the double nearest to the power for `n` from -307 to 308, and `log10` of it is exactly `n`) and against a table of bit patterns
+  (`engine/core/tests/test_det_math_f64.cpp`: a platform that rounds differently fails with the input that differs). The
+  float functions compute in double and round to float once.
+- **Game scripts.** QuickJS's `Math.*` calls the C library, so the engine builds QuickJS with a force-included header
+  (`engine/script/quickjs_det/quickjs_det_math.h`, `-include` / `/FI`, C sources only) that redirects those calls to
+  `fa::det::f64` through a C++ shim (`quickjs_det_shim.cpp`). There is one QuickJS in the process, so tests, script tools and
+  editor scripts get the same `Math`; none keeps the native one. `external/` is untouched. The test
+  `engine/script/tests/test_det_math_script.cpp` compares `Math.*` with `f64` bit for bit.
+- **The source scan.** `engine/core/tests/test_det_scan.cpp` reads the sources of the simulation and fails on `std::exp`,
+  `std::pow`, `std::sin`, `std::cos`, ... and on the unqualified and C forms (`pow(`, `sinf(`), ignoring comments and string
+  literals. The file set is explicit, at the top of the test: `kSimulationDirs` (directories, every `.cpp`/`.h` below them),
+  `kSimulationFiles` (single files, for simulation code that lives in a directory the scan does not read as a whole) and
+  `kExempt` (a file that really needs the C library, with the reason). To cover new simulation code (SpriteAnimator and the
+  particle step when they move into the engine's step, M91.1a): put its path (from the repository root, forward slashes) in
+  `kSimulationFiles` or its directory in `kSimulationDirs`, run the test, and replace each call it flags with `fa::det::`.
+  Rendering, audio, the editor, tools and tests are not scanned: what they compute is never read back by the simulation.
+- **Replay hashes.** A replay feeds the exact bits of every number to a hash and compares the first 16 hex digits with a
+  value COMMITTED in the repository, on every CI platform. A hash that differs on one platform is a determinism bug of
+  that platform; one that differs on all of them is a change of the simulation, and the new value is copied from the log
+  (the line `FA_DET_HASH` / `FA_PHYSICS_REPLAY_HASH` of `ctest -V`). The replays: physics 2D and 3D (`test_determinism.cpp`,
+  `physics_determinism`), particles and feel (`engine/scene/tests/test_det_replay.cpp`, `det_replay_hashes`), and the scripts'
+  `Math` in a seeded loop, 2D and 3D physics bodies and the nav bake and search driven by a script
+  (`tools/cli/tests/determinism_probe.js`, expected values in `tools/cli/tests/determinism_expected.txt`;
+  `engine/runtime/tests/det_probe_tests.cpp`, `det_probe_hashes`). The Linux, Windows and macOS jobs run all three.
+  The script probe also runs on the Android emulator (`scripts/android-smoke.sh`), the iOS simulator
+  (`scripts/ios-smoke.sh`) and in headless Chrome for the web export (`scripts/web-smoke.sh`); each prints the line and
+  `scripts/det-hash-check.sh` compares it with the expected file. The particle and feel replays are desktop only (a script
+  cannot reach them). New scenes for a replay go in `test_det_replay.cpp` or the probe.
+- **The watchdog.** A script callback cut by the watchdog (more than 2 s of CPU time) skips the rest of its code at a point that depends
+  on the machine, so the run is invalid: `ScriptSystem::watchdog_cut_count()` / `watchdog_cuts()` expose the cuts,
+  `run_headless` reports `replayValid: false` and exits 1 (`HeadlessRunOptions::failOnWatchdogCut`, off only for
+  `script.trace`), and `factoria test` fails the test that ran with a cut (docs/SCRIPTING.md, "Runtime notes").

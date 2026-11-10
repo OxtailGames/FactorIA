@@ -6,6 +6,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/reflect.h"
+#include "fa/scene/particle_store.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -132,13 +133,19 @@ std::uint64_t entity_state_hash(Entity entity, const std::string& id, const std:
 StateHash world_state_hash(const World& world, const StateHashOptions& options) {
     StateHash out;
     Fnv all;
-    all.u64(world.frame());
-    all.f64(world.time());
-    all.u64(world.rng().state());
+    const bool filtered = !options.onlyComponents.empty();
+    if (!filtered) {
+        all.u64(world.frame());
+        all.f64(world.time());
+        all.u64(world.rng().state());
+    }
     std::vector<ComponentRef> components;
     for (Entity e : world.entities()) {
         components.clear();
         for (const TypeInfo* t : world.components_of(e)) {
+            if (filtered &&
+                std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) == options.onlyComponents.end())
+                continue;
             if (const void* obj = world.get(e, *t)) components.push_back(ComponentRef{t, obj});
         }
         out.components += int(components.size());
@@ -148,6 +155,31 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
         all.u64(h);
         ++out.entities;
         if (options.perEntity) out.perEntity.push_back(EntityHash{e, world.id_of(e), h});
+    }
+    if (!filtered) {
+        // The particles are simulation state too (they live in the world's ParticleStore, not in a component): each
+        // emitter's live particles, in birth order, and what the next step depends on (the clock, the random
+        // sequence, the emission accumulator). trailSlot is left out: it names a slot of a pool, not a value.
+        const ParticleStore& store = world.particles();
+        for (Entity e : world.entities()) {
+            const ParticleEmitterState* st = store.find(e);
+            if (!st) continue;
+            const ParticleSim& sim = st->sim;
+            all.u64(e.bits());
+            all.u64(std::uint64_t(sim.particles.size()));
+            all.u8(sim.everSpawned ? 1 : 0);
+            all.u32(std::uint32_t(sim.pending_burst()));
+            all.f64(sim.clock());
+            all.u64(sim.rng_state());         // the next particle's random draws depend on it
+            all.f32(sim.emission_accumulator());  // ...and when the next one is born
+            for (const Particle& p : sim.particles) {
+                all.f32(p.pos.x); all.f32(p.pos.y); all.f32(p.pos.z);
+                all.f32(p.vel.x); all.f32(p.vel.y); all.f32(p.vel.z);
+                all.f32(p.age); all.f32(p.life); all.f32(p.rotation); all.f32(p.spin);
+                all.f32(p.sizeScale); all.f32(p.random);
+                all.u8(p.group);
+            }
+        }
     }
     out.hash = all.h;
     return out;
