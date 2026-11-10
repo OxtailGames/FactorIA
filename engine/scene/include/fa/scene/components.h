@@ -182,7 +182,6 @@ struct SpriteAnimator {
     bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
     std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
     std::int32_t eventStep = -1;      // runtime, not reflected: the last step of the pass whose frame events ran (-1 = none yet)
-    std::uint32_t advancedPass = 0;   // runtime, not reflected: the renderer's animation pass (Renderer::advance_animators) that last moved it
 };
 
 // ----------------------------------------------------------- 2D bones ---
@@ -1155,6 +1154,7 @@ struct AudioSource {
     bool playing = false;             // runtime: true while a voice is playing; set true to play, false to stop
     bool spatial = false;             // pan/attenuate relative to the AudioListener
     float range = 800.0f;             // spatial: distance where volume reaches 0 (world units)
+    std::int32_t priority = 128;      // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 
 // How a song is played (MusicPlayer.mode): "live" synthesizes the song from its document when the player starts (the same render as

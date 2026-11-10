@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <mutex>
 
+#include "fa/core/det_math.h"
 #include "fa/core/reflect.h"
 
 namespace fa {
@@ -391,7 +392,7 @@ void register_builtin_components(TypeRegistry& r) {
                      "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("region", &Sprite::region,
                "Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size "
-               "means the whole texture. SpriteAnimator overwrites it every frame.")
+               "means the whole texture. SpriteAnimator overwrites it every simulation step.")
         .field("size", &Sprite::size,
                "Size [w, h] in world units. [0, 0] = use the region (or texture) size in pixels.")
         .field("pivot", &Sprite::pivot, "Anchor inside the sprite: [0, 0] bottom-left, [0.5, 0.5] center, [1, 1] top-right.")
@@ -489,7 +490,8 @@ void register_builtin_components(TypeRegistry& r) {
                     "like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 "
                     "is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the "
                     "drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports "
-                    "where it is drawn. Deterministic: it depends only on the camera position.",
+                    "where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer "
+                    "shifted for itself). Deterministic: it depends only on the camera position.",
                     "2D")
         .field("factor", &Parallax::factor, "[x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).")
         .field("repeatX", &Parallax::repeatX,
@@ -499,7 +501,8 @@ void register_builtin_components(TypeRegistry& r) {
         .field("repeatSize", &Parallax::repeatSize,
                "Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value "
                "to overlap soft edges, a larger one for gaps.")
-        .field("offset", &Parallax::offset, "Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame).")
+        .field("offset", &Parallax::offset, "Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, "
+               "by the renderer or by the simulation when there is no renderer).")
         .runtime_only().read_only();
 
     r.add<Light2D>("Light2D",
@@ -537,7 +540,7 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
-                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a "
+                          "overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a "
                           "named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; "
                           "`assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then "
                           "names only the texture and the clip. The numeric fields override the clip when they differ from their default "
@@ -1652,7 +1655,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("playOnStart", &AudioSource::playOnStart, "Start playing when the entity spawns / the scene loads.")
         .field("playing", &AudioSource::playing, "Runtime state: true while a voice is playing. Set true to play, false to stop.").runtime_only()
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
-        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
+        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000)
+        .field("priority", &AudioSource::priority,
+               "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest "
+               "priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise "
+               "the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard "
+               "(dialogue, alarms), lower it for ambient detail.").range(0, 255);
 
     r.add<MusicPlayer>(
           "MusicPlayer",
@@ -2399,8 +2407,8 @@ float gradient_ease_apply(GradientEase ease, float t) {
         case 1: in = [](float x) { return x * x * x; }; break;
         case 2: in = [](float x) { float q = x * x; return q * q; }; break;
         case 3: in = [](float x) { float q = x * x; return q * q * x; }; break;
-        case 4: in = [](float x) { return 1.0f - std::cos(x * 1.57079632679f); }; break;
-        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : std::pow(2.0f, 10.0f * x - 10.0f); }; break;
+        case 4: in = [](float x) { return 1.0f - det::cos(x * 1.57079632679f); }; break;
+        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : det::pow(2.0f, 10.0f * x - 10.0f); }; break;
         case 6: in = [](float x) { return 1.0f - std::sqrt(std::max(0.0f, 1.0f - x * x)); }; break;
         default: return t;
     }

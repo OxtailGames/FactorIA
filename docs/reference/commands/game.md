@@ -108,15 +108,16 @@ Filters: entities (ids), components (names to include), includeDefaults, maxEnti
 
 Since 0.19.0.
 
-One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.
+One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator.
 
-Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. Example: game.state_hash {"perEntity":true}
+Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. components limits the hash to the named component types (and leaves the particles, the clock and the random generator out): compare two runs on, say, ["SpriteAnimator","Sprite"] only. Example: game.state_hash {"perEntity":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `perEntity` | boolean | no | Also list one hash per entity, in creation order (at most maxEntities). Default false. |
 | `includeRuntime` | boolean | no | Hash the fields that are not saved to scenes too (velocities, timers). Default true. |
 | `maxEntities` | integer | no | How many entities perEntity lists. Default 200. |
+| `components` | array | no | Hash only the components of these types (names as in the component list, e.g. ["Sprite","SpriteAnimator"]); the particles, the clock and the random generator are left out. Default: everything. |
 
 ## `game.step` (modifies state)
 

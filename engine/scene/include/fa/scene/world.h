@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -58,6 +59,7 @@ struct WorldEvents {
 };
 
 class ComponentPool;  // defined in src/component_pool.h
+class ParticleStore;  // scene/particle_store.h
 
 class World {
 public:
@@ -225,6 +227,15 @@ public:
     MeshStore& meshes() { return meshes_; }
     const MeshStore& meshes() const { return meshes_; }
 
+    // The state of this world's ParticleEmitters (particle_store.h): the live particles, their random sequences and what the
+    // renderer draws. Owned by the world, so two worlds that have entities with the same handle (the editor's scene and its Play
+    // session) never see each other's emitters. clear() empties it.
+    ParticleStore& particles() { return *particles_; }
+    const ParticleStore& particles() const { return *particles_; }
+    // The "entity|clip" pairs update_sprite_animators() already warned about (a SpriteAnimator.clip its sheet does not have), so
+    // each is said once per scene. clear() forgets them.
+    std::set<std::string>& warned_sprite_clips() { return warnedSpriteClips_; }
+
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
     int on_destroy(EntityCallback cb);   // called right before an entity is erased
@@ -257,6 +268,8 @@ private:
     std::uint64_t sceneGeneration_ = 0;
     int vfxLive_ = 0;
     MeshStore meshes_;
+    std::unique_ptr<ParticleStore> particles_;
+    std::set<std::string> warnedSpriteClips_;
 };
 
 }  // namespace fa

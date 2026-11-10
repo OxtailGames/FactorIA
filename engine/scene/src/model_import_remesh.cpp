@@ -9,6 +9,7 @@
 #include <format>
 #include <limits>
 
+#include "fa/core/det_math.h"
 #include "fa/scene/model_import_clean.h"
 #include "fa/scene/model_sdf.h"
 
@@ -76,7 +77,7 @@ Result<ModelMesh> model_remesh_mesh(const ModelMesh& mesh, double voxelIn, int c
     const int nx = int(std::ceil((size.x + 2 * pad) / cell)) + 1, ny = int(std::ceil((size.y + 2 * pad) / cell)) + 1, nz = int(std::ceil((size.z + 2 * pad) / cell)) + 1;
     const std::size_t total = std::size_t(nx) * std::size_t(ny) * std::size_t(nz);
     if (total > kModelSdfMaxSamples) {
-        const double fit = std::cbrt(double(size.x + 2 * pad) * double(size.y + 2 * pad) * double(size.z + 2 * pad) / double(kModelSdfMaxSamples)) * 1.1;
+        const double fit = det::f64::cbrt(double(size.x + 2 * pad) * double(size.y + 2 * pad) * double(size.z + 2 * pad) / double(kModelSdfMaxSamples)) * 1.1;
         return make_error(std::format("remesh: a {:.4g} m voxel needs {}x{}x{} = {} samples, more than the {} allowed", double(cell), nx, ny, nz, total, kModelSdfMaxSamples),
                           std::format("Use a voxel of at least {:.3g} m (`remeshVoxel`) or fewer `remeshCells`.", fit));
     }

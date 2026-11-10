@@ -5,6 +5,7 @@
 #include <format>
 #include <map>
 
+#include "fa/core/det_math.h"
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
 #include "fa/scene/particles.h"
@@ -57,7 +58,7 @@ double quad_screens_3d(const ParticleSim& sim, const ParticleEmitter& root, cons
         double halfH = cam.orthoHalfHeight;
         if (cam.perspective) {
             if (depth <= std::max(cam.nearPlane, 1e-6)) return 0.0;
-            halfH = depth * std::tan(cam.fovDegrees * 0.5 * 3.14159265358979323846 / 180.0);
+            halfH = depth * det::f64::tan(cam.fovDegrees * 0.5 * 3.14159265358979323846 / 180.0);
         }
         if (!(halfH > 1e-9)) return 0.0;
         const double halfW = halfH * aspect;

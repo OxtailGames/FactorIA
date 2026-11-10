@@ -596,7 +596,7 @@
 
   // ============================================================================================== sprite animator
   // entity.spriteAnimator: plays the named clips of a sprite sheet (the `sheet` entry of the texture in assets.json). The
-  // SpriteAnimator component holds the state; the renderer steps it with the frame time.
+  // SpriteAnimator component holds the state; the fixed simulation step advances it.
   class SpriteAnimatorApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("SpriteAnimator")); }
@@ -1498,7 +1498,9 @@
         lastVariant.set(path, pick);
         path = N.audioVariantPath(path, pick, n);
       }
-      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
+      if (o.priority !== undefined && !(typeof o.priority === "number" && o.priority >= 0 && o.priority <= 255))
+        throw new Error(`audio.play(path, { priority }): priority is a number from 0 to 255 (default 128; higher wins a voice when all 64 play), but got ${inspect(o.priority)}`);
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },
@@ -2287,7 +2289,7 @@
   const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
   const UI_EVENTS = ["click", "change", "submit", "focus", "blur", "hover", "press", "release", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
   const ui = {
-    // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
+    // Size of `text` laid out like Text rendering: { width, height }. The same numbers with and without graphics.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
     // maxTextScale caps that scale; autoShrink (with minFontSize, maxHeight and maxWidth as the box) shrinks the font to fit,
     // exactly as Text does; `fontSize` in the result is the size it would be drawn at. markup / bold: the Text fields of
@@ -4537,6 +4539,7 @@
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
       const start = N.nowMs();
       const seq0 = N.logSeq();
+      const cuts0 = N.watchdogCuts();
       let passed = true, message = "";
       N.guardBegin(`test '${t.name}'`, 60.0);
       try {
@@ -4563,6 +4566,12 @@
           "\n  (an exception was thrown inside the test; check the game scripts too: `factoria` logs script errors)";
       }
       N.guardEnd();
+      if (N.watchdogCuts() !== cuts0) {
+        // A callback inside this test was cut by the watchdog: whatever the test saw depends on the machine's speed.
+        const cutText = N.watchdogCuts(cuts0);
+        passed = false;
+        message = (message ? message + "\n" : "") + `${cutText}. The test ran while a script callback was cut short, so its result cannot be trusted: fix the loop (a script that spins)`;
+      }
       results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();

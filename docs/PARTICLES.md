@@ -131,9 +131,21 @@ says what is being retried.
 ## Determinism and `seed`
 
 The random numbers of an emitter come from its own generator, seeded from the entity's id (never `world.rng()`), so the same scene
-plays the same particles every run, windowed or headless, on every platform, and gameplay randomness is not consumed by
+plays the same particles every run, windowed, headless or with no graphics at all, on every platform, and gameplay randomness is not consumed by
 effects. `seed` (a number, default 0) gives another, still repeatable, run of the same emitter: two torches with the same
 settings look different with different seeds. A test can compare a screenshot or the particle count (`renderStats.particles`, below).
+
+## Where the particles live
+
+Particles are simulation, not drawing. The live particles of an emitter belong to its **world** (`World::particles()`,
+`fa/scene/particle_store.h`) and move in the engine's fixed step, with or without a renderer: a `--no-graphics` run, a headless
+test and a window all age them, finish them and run `autoDestroy` (the entity goes when the emitter has stopped, has been
+born at least once and has no particle or trail left) the same way. The renderer only draws what the world holds. Because
+the state belongs to the world, the editor's scene and its Play session, or a scene loaded again, never share particles: loading a
+scene empties the store. `entity.emitBurst(n)` (`particles.burst`) queues a burst that is born in the next simulation step
+(or in the picture drawn before it, if the script ran this frame), at most a million at a time, then the emitter's own budgets
+apply. The simulation costs time in the `Animation` system of the profiler (docs/PERFORMANCE.md) and, with many particles, runs as the
+`scene.particles` job (docs/ARCHITECTURE.md, "Systems that run as jobs").
 
 ## Budgets
 

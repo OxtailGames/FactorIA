@@ -192,28 +192,19 @@ public:
     void note_commit();
 
     // --- Simulation / drawing split --------------------------------------------------------------
-    // update() advances everything time-based that lives in the renderer: SpriteAnimator frames and
-    // ParticleEmitter simulation (spawning, integration, autoDestroy -> world.destroy). It never draws and
-    // needs no begin_frame(). render_world() only DRAWS the current state: the image depends solely on the
-    // world + renderer state, so skipping render_world() on some frames (headless fast-forward) yields the
-    // same image as drawing every frame, provided update() ran every frame.
-    // Contract: call update(world, dt) once per simulated frame, then optionally render_world(). Code that
-    // only calls render_world(world, dt) keeps working: if update() was not called since the previous draw,
-    // render_world() calls it with `dt` itself.
-    void update(World& world, float dt);
-    // Moves the sprite animators on by `dt` and runs their frame events, ahead of update(): the game events, sounds and effects the
-    // events start are then handled in the same frame (the engine calls it before the UI and the scripts of the frame; update() would
-    // run them after everything else, a frame late). update() then moves only the animators this did not move (a sprite or a clip
-    // a script added in the meantime) and applies the frames. Frame events fire only when `dt` > 0: a paused game or the editor's edit
-    // mode shows the frames and fires nothing.
-    void advance_animators(World& world, float dt);
+    // Nothing time-based lives in the renderer: SpriteAnimator frames (fa::update_sprite_animators) and ParticleEmitter
+    // simulation (World::particles(), a ParticleStore) are stepped by the runtime in the fixed simulation step, with or without a
+    // renderer, and render_world() only DRAWS what the world holds: the image depends solely on the world + renderer state.
+    // update() refreshes what queries need without drawing (the cameras, so world_to_screen and entity.bounds() are right in a run
+    // that skips drawing, and the Parallax offsets); it needs no begin_frame().
+    // Parallax rule (the same without a renderer): the offset the world keeps is the one for the FIRST camera (the one that comes
+    // first in render order, which a script's camera queries default to). While a frame is drawn each camera draws the layers
+    // shifted for itself (several cameras, a render target, a CameraView), and the first camera's offset is put back when it ends.
+    // Contract: call update(world) once per frame, then optionally render_world(). Code that only calls render_world(world, dt)
+    // keeps working: if update() was not called since the previous draw, render_world() calls it itself.
+    void update(World& world);
     // Draws the world (cameras, sprites, shapes, tilemaps, text, particles, meshes, lights, debug draw).
     void render_world(World& world, float dt);
-
-    // Immediately spawns `count` particles at the ParticleEmitter on `e` (works with emitting = false; the
-    // particles appear in the next draw, positioned at the emitter's transform). Safe to call before the
-    // emitter's first update. No-op when the entity has no (active) ParticleEmitter.
-    void emit_burst(Entity e, int count);
 
     // Size {width, height} in design/world units of `text` laid out at `fontSize` with the same code as Text
     // rendering (shaping, fallback fonts, right-to-left text, wrapping at maxWidth > 0, line height). font "" =
@@ -340,10 +331,6 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
-    // Forgets every emitter's particles and its random sequence, so the emitters of the world that is loaded next start from nothing: the start
-    // burst and the `seed` behave the same on every run. The engine calls it on every scene load (so also when the editor starts and stops
-    // Play); a program that swaps the world itself calls it too. Queued emit_burst() calls are dropped with it.
-    void reset_particles();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 

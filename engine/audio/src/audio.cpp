@@ -1,9 +1,16 @@
-// Software mixer: decoded clips -> voices -> buses -> master -> (device | null sink | recorder).
+// Audio: the game side of the mixer. Decoded clips -> voices -> buses -> master -> (device | null sink | recorder).
 //
-// Threading: in device mode sokol_audio calls render() on its own thread; every piece of state shared with the
-// game thread (voices, bus volumes, recorder, clip cache) is protected by Impl::mu. The callback does no
-// allocation except when the recorder grows. Clips are decoded OUTSIDE the lock; a streamed clip is decoded inside it,
-// a few thousand frames at a time, into buffers its voice allocated when it started.
+// Threads (docs/SOUND.md, "The audio callback"). Every public call runs on the game thread side under Impl::apiMu, a
+// mutex the audio callback never takes: the mixer (audio_mixer.h) owns what it mixes and the two sides talk through
+// lock-free single-producer single-consumer rings. The game keeps a mirror of what it asked for (the voices, the buses,
+// the music players) and answers every question from it; it sends what changes as commands, and reads back the commands
+// the mixer is done with, the voices that ended, the music state and its events. So the simulation never reads state the
+// audio thread writes, the callback never waits for the game, and the mixer never allocates or frees.
+//
+// Modes. With a device the commands of one API call are staged and committed to the mixer together when the call returns
+// (the callback applies them at the start of its next block). On the null device (headless, tests, a device that failed)
+// there is no other thread: a command is applied the moment it is sent and advance_null_device() mixes on the calling
+// thread, so a run is deterministic. The web's device calls back on the main thread too.
 #include "fa/audio/audio.h"
 #include "fa/audio/sfx.h"
 
@@ -13,18 +20,23 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <functional>
+#include <iterator>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <set>
-#include <thread>
 
 #include "audio_decoder.h"
+#include "audio_mixer.h"
+#include "audio_testing.h"
 #include "bus_fx.h"
 #include "fa/audio/analysis.h"
 #include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/core/load_trace.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -44,99 +56,84 @@ namespace fa {
 
 namespace {
 
-using audio_detail::Stream;
-using audio_detail::Ramp;
+using audio_detail::BusMusic;
+using audio_detail::BusSfx;
+using audio_detail::BusUi;
+using audio_detail::BusBuiltin;
+using audio_detail::BusRuntime;
+using audio_detail::Clip;
+using audio_detail::Cmd;
+using audio_detail::CmdKind;
+using audio_detail::kFirstProjectBus;
+using audio_detail::kSyncAllBuses;
+using audio_detail::kMasterBus;
+using audio_detail::kMaxPlayers;
+using audio_detail::kMaxVoices;
+using audio_detail::kMusicStreamFrames;
+using audio_detail::kNullBlock;
+using audio_detail::kRate;
+using audio_detail::kStreamFrames;
+using audio_detail::kStreamPrefill;
+using audio_detail::kStreamRefill;
+using audio_detail::MixTable;
+using audio_detail::Mixer;
+using audio_detail::MixVoice;
+using audio_detail::MusicChannel;
+using audio_detail::MusicSnap;
+using audio_detail::PcmRing;
+using audio_detail::Ret;
+using audio_detail::SampleRing;
+using audio_detail::StreamRing;
+using audio_detail::SyncTarget;
 
-constexpr int kRate = audio_detail::kMixRate;
-constexpr std::size_t kMaxVoices = 64;
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
-constexpr int kBlock = 512;
-// Frames the mixer's scratch buffers hold from the moment the bus table is built (a device callback is 256..2048 frames in
-// practice): a bigger callback grows them once, the first time, and the next ones reuse them.
-constexpr std::size_t kScratchFrames = 4096;
 constexpr std::size_t kMaxPlayLog = 4096;
-
-// The bus table: 0..2 are the built-in buses, kMasterBus the master (its "buffer" is the output), and the project's buses
-// (factoria.json "audio.buses") follow from kFirstProjectBus.
-enum Bus { BusSfx = 0, BusMusic = 1, BusUi = 2, BusBuiltin = 3 };
 const char* const kBusNames[BusBuiltin] = {"sfx", "music", "ui"};
-constexpr int kMasterBus = BusBuiltin;
-constexpr int kFirstProjectBus = BusBuiltin + 1;
 constexpr std::size_t kMaxEnded = 1024;   // endings waiting for take_ended_voices()
-constexpr float kDuckThreshold = 0.01f;   // -40 dBFS: a bus that peaks above this ducks the buses that listen to it
-constexpr float kLowpassOpen = 20000.0f;  // where a cutoff slides from or to when the filter is switched on or off
 constexpr float kMaxBusVolume = 4.0f;
-constexpr double kReverbTail = 4.0;       // seconds the reverb keeps running after its bus went silent (it decays to -100 dB)
+// Commands staged for a device that has not taken them yet (its callback stalls, or the game sends faster than it mixes).
+// Past this many the oldest play or voice setting is dropped, then the oldest bus or music setting; stops and other Keep
+// commands are never dropped (audio_mixer.h, CmdKind). Counted in stats() as commandsDropped / settingsDropped.
+constexpr std::size_t kMaxStaged = 8192;
+// While more than this many commands wait, a Keep command replaces an earlier one of the same kind that it makes useless
+// (a second retune of the music, pause, effects reset or stop of everything), so a long stall does not pile those up. A count,
+// not a time: which commands reach the mixer never depends on the speed of the machine.
+constexpr std::size_t kCoalesceFrom = 1024;
+// Past this many staged commands, none of them droppable, the queue is only Keep commands that matter (distinct stops, bus
+// tables, music starts): they stay, and the game is told once.
+constexpr std::size_t kKeepWarnAt = kMaxStaged * 4;
+// A dropped setting is sent again once the queue is down to this many commands.
+constexpr std::size_t kResyncBelow = kMaxStaged / 2;
+constexpr int kMusicPriority = 256;   // play_music and its layers: above every priority a game can give (0..255)
+constexpr int kVideoPriority = 192;   // a Video's sound
+constexpr int kStingerPriority = 192; // a MusicPlayer's clip stinger: above the effects, so a full mixer does not drop it
+constexpr std::size_t kRecordRingFloats = std::size_t(1) << 20;  // about 12 s of 44.1 kHz stereo between two drains
 
-// The state of one bus: its gain, its effects and its ducking. [kMasterBus] is the master.
-struct BusFx {
+// A voice as the game side knows it: what it asked for. The mixer has its own copy (MixVoice) and says when it ended.
+struct GameVoice {
+    std::shared_ptr<const Clip> clip;   // kept alive here while the mixer may read it
+    std::shared_ptr<StreamRing> stream; // a streamed clip's ring (a decode job may hold it too)
+    std::shared_ptr<PcmRing> pcm;       // a voice the game feeds
+    std::string path, source;
+    int bus = BusSfx;
+    float volume = 1.0f, pitch = 1.0f, pan = 0.0f;  // as last set (the target of a ramp)
+    bool loop = false, notify = false, music = false;
+    bool stopped = false;    // stopped by the game: gone for every query, erased once the mixer confirms the end
+    bool fadingOut = false;  // fading out to its end: still playing, the first a full mixer steals
+    int priority = 128;
+    std::size_t streamBytes = 0;  // the ring and the decoder's buffer, measured when it started
+};
+
+// A bus as the game side knows it (the mixer's MixBus has the runtime: ramps, filters, the reverb).
+struct GameBus {
     std::string name;
-    int parent = kMasterBus;  // the bus this one is summed into
-    int depth = 1;            // 1 = under the master; a bus is mixed after the buses under it
-    Ramp vol;   // the volume (the player's options; audio.setVolume)
-    Ramp snap;  // the scale a snapshot sets
-    // Low-pass: the cutoff moves in octaves (log2 of Hz); lpHz is the target in Hz (0 = off).
-    bool lpOn = false, lpOffAtEnd = false, lpDirty = false;
-    Ramp lpLog;
-    float lpHz = 0.0f;
-    audio_detail::Lowpass lp;
-    // Reverb: allocated the first time it is switched on (never on the audio thread).
-    bool rvOn = false, rvOffAtEnd = false;
-    Ramp rvMix{0.0f, 0.0f, 0.0f, 0};
-    std::unique_ptr<audio_detail::Reverb> rv;
-    long rvQuiet = 0;  // frames since the bus last had a voice
-    // Ducking.
+    int parent = kMasterBus;
+    float vol = 1.0f, snap = 1.0f;  // targets
+    float lpHz = 0.0f;              // 0 = off
+    float reverb = 0.0f;            // the wet mix asked for, 0 = off
+    bool rvMade = false;            // a reverb was handed to the mixer for this bus
     int duckBy = -1;
     DuckSettings duck;
-    float duckAttack = 0.0f, duckRelease = 0.0f;  // one-pole coefficients
-    float duckGain = 1.0f, duckEnv = 0.0f;
-};
-
-struct Clip {
-    std::string path;
-    std::vector<float> data;  // interleaved stereo, 44100 Hz; empty for a streamed clip
-    std::shared_ptr<const audio_detail::Bytes> encoded;  // a streamed clip keeps its file: each voice decodes it as it plays
-    std::string ext;           // of `encoded`
-    std::size_t frames = 0;    // 44100 Hz frames (counted from the header for a streamed clip)
-    int srcChannels = 0;
-    int srcRate = 0;
-    float gain = 1.0f;         // loudness normalization (the `normalize` import setting)
-    // Loop points (the `loopStart` / `loopEnd` import settings, in seconds): a looping voice plays loopStart..loopEnd over and over
-    // after the first pass. In 44100 Hz frames; loopEnd 0 = no loop points (the whole clip loops).
-    std::size_t loopStart = 0, loopEnd = 0;
-};
-
-// A voice fed by the game instead of reading a clip: a video's sound (open_pcm_voice / push_pcm). Interleaved stereo float
-// at `rate`, read with linear interpolation; when the queue runs dry the voice is silent and stays open.
-struct PcmFeed {
-    int rate = kRate;
-    std::vector<float> queue;
-    std::size_t head = 0;  // index (in floats) of the first frame not yet consumed
-    double pos = 0.0;      // fractional frame position relative to `head`
-    std::size_t frames() const { return (queue.size() - head) / 2; }
-};
-
-struct Voice {
-    VoiceId id = 0;
-    std::shared_ptr<const Clip> clip;
-    double pos = 0.0;  // in clip frames (fractional for pitch)
-    float volume = 1.0f, pitch = 1.0f, pan = 0.0f;
-    bool loop = false;
-    int bus = BusSfx;
-    float fade = 1.0f, fadeTarget = 1.0f, fadeStep = 0.0f;
-    long fadeFrames = 0;
-    bool stopAtFadeEnd = false;
-    // A ramp of `volume` itself (set_voice_volume with a fade): per frame `volume += volStep` for volFrames frames.
-    float volTarget = 1.0f, volStep = 0.0f;
-    long volFrames = 0;
-    bool protect = false;  // music and its layers: never the voice a full mixer evicts
-    bool notify = false;   // its end goes to Impl::ended (PlayParams::notifyEnd)
-    std::string path;      // the clip (or the video file) it plays
-    std::string source;    // the entity id of the AudioSource / Video that started it
-    long delay = 0;        // output frames of silence left before it sounds (PlayParams::delayFrames)
-    bool dead = false;
-    std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
-    std::unique_ptr<PcmFeed> pcm;    // set for a voice the game feeds (no clip)
 };
 
 // A video's voice (Video components, Audio::update).
@@ -188,34 +185,44 @@ void write_le32(std::vector<std::uint8_t>& b, std::uint32_t v) {
     for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t((v >> (8 * i)) & 0xff));
 }
 
-// ---- adaptive music (MusicPlayer components): the mixer's side of one player -------------------------------------------------------
-constexpr std::size_t kMusicCacheBytes = std::size_t(128) << 20;  // sources nobody plays are dropped above this
+// ---- adaptive music (MusicPlayer components): the game's side of one player -------------------------------------------------------
+constexpr std::size_t kMusicCacheBytes = std::size_t(128) << 20;  // sources nobody plays are dropped above this, least recently used first
 
-// A song being rendered or read. A windowed player runs it on a worker thread; the null device (tests, headless) and the web run it
+// A song being rendered or read. With a device it runs as a job (fa::jobs); the null device (tests, headless) and the web run it
 // right in the call, so a headless run is deterministic and has the music from the frame it asked.
 struct MusicLoad {
     std::string key, path, note;
     MusicMode mode = MusicMode::Live;
     MusicStemPlan plan;
-    std::thread worker;
+    jobs::Handle job;
     std::atomic<bool> done{false};
     std::shared_ptr<MusicSource> source;
     std::string error;
     LoadTrace::Owner owner = LoadTrace::current_owner();  // the engine that asked: its load trace gets the reads
     void run() {
-        LoadTrace::ReadingFor reading(owner);  // on the loader thread too (fa/core/load_trace.h)
+        LoadTrace::ReadingFor reading(owner);  // on the job's thread too (fa/core/load_trace.h)
         auto r = music_load_source(path, mode, plan, &note);
         if (r) source = std::move(*r);
         else error = r.error().to_string();
-        done = true;
+        // Release: `source`, `error` and `note` are written before the game thread sees done (acquire in music_poll).
+        done.store(true, std::memory_order_release);
     }
+};
+
+// A source the mixer may read because a command named it: kept alive until the mixer's state shows it applied that command
+// and no playhead or pending change reads the source any more.
+struct HeldSource {
+    std::shared_ptr<const MusicSource> src;
+    std::uint64_t seq = 0;
 };
 
 struct MusicRt {
     Entity e;
     std::string id;
     const World* world = nullptr;
-    std::unique_ptr<MusicTransport> tr = std::make_unique<MusicTransport>();
+    std::unique_ptr<MusicChannel> ch;         // the transport in the mixer (null when every channel is taken)
+    std::vector<HeldSource> held;
+    std::uint64_t lastSeq = 0;                // the last command sent to the channel
     std::string song;                         // the song asked for (normalized path; "" = none)
     std::shared_ptr<const MusicSource> src;   // its source (null while it loads, or when it failed)
     std::shared_ptr<const MusicSource> sent;  // the source the transport was last given
@@ -226,6 +233,7 @@ struct MusicRt {
     float volume = -1.0f, intensity = -1.0f;
     bool loop = true, playing = false, stopIssued = false, first = true;
     float layerFade = -1.0f, layerRange = -1.0f;
+    bool resendLoop = false;                  // a dropped set_loop: send it again whatever the component says
     struct Entry {                            // how the source that arrives enters the transport
         bool set = false, hard = false;
         std::string section;
@@ -240,31 +248,62 @@ struct MusicRt {
     MusicMode resolved = MusicMode::Live;     // the mode of the source it asked for
 };
 
+// What the game reads of a player's transport: the mixer's latest copy once it has applied the last command sent to it
+// (`fresh`); before that, what that command will make of it.
+struct MusicView {
+    bool fresh = true, playing = false, ended = false, active = false;
+    const MusicSource* src = nullptr;
+    const MusicTransportState* state = nullptr;  // the mixer's copy (null without a channel)
+};
+
+struct CachedSong {
+    std::shared_ptr<const MusicSource> src;
+    std::uint64_t lastUse = 0;
+};
+
 }  // namespace
 
 struct Audio::Impl {
-    mutable std::mutex mu;
+    Mixer mixer;
+
+    // ---- the game side (every field below): touched only under apiMu, by the game thread or whoever calls the API
+    // Recursive: a public call may call another one (update() calls stop(), play_music() ...). The callback never takes it.
+    std::recursive_mutex apiMu;
+    int depth = 0;                    // nesting of public calls: the outermost one commits what they sent (flush())
+    std::uint64_t batchSeq = 0, curBatch = 0, cmdSeq = 0;
+    std::deque<Cmd*> staged;          // sent with a device and not in the mixer's ring yet (kMaxStaged); see stage_*()
+    // What waits in `staged`, kept by stage_push/stage_pop/stage_erase so a full queue of Keep commands (a long stall) is
+    // never walked to find out that it holds nothing to drop, coalesce or take back.
+    std::size_t stagedDroppable = 0, stagedLossy = 0, stagedPlays = 0;
+    std::map<std::uint64_t, std::size_t> stagedKeys;  // coalesceKey -> how many wait
+    std::vector<VoiceId> pendingEnds; // voices the mixer ended (or plays that never reached it): process_ends() forgets them
+    std::uint64_t commandsDropped = 0, settingsDropped = 0, voicesStolen = 0, voicesRejected = 0;
+    std::uint64_t commandsCoalesced = 0;
+    bool dropWarned = false, keepWarned = false;
+    // Settings a drop left out of step with the mixer: resync_dropped() sends their current state again.
+    std::set<VoiceId> resyncVoices;
+    std::set<std::string> resyncBuses;  // by name: a bus table swap while the queue is stalled moves the indexes
+    bool resyncMusic = false;
+    std::set<std::string> rejectWarned; // clips whose play a full mixer refused (warned once each; at most 256 names)
+
     bool inited = false;
-    bool device = false;
+    bool device = false;       // a device's callback mixes (on another thread, or on the web's main thread between frames)
     bool autoAdvance = false;  // device requested but unavailable -> run as null device driven by update()
+    bool manual = false;       // a test drives the mixer as a device (AudioTestAccess::use_manual_device)
+    bool web = false;
+    bool streamLogged = false;
+    bool streamService = true; // decode jobs refill the streamed voices (tests switch it off to make underruns)
     int deviceRate = kRate;
     int deviceChannels = 2;
-    std::atomic<bool> streamLogged{false};  // the first stream callback is logged once
 
     std::map<std::string, std::shared_ptr<const Clip>> clips;
     std::map<std::string, std::vector<std::string>> untraced;  // adopt_clip: the files of a clip not used yet (load trace)
     std::set<std::string> failedLogged;
 
-    std::vector<Voice> voices;
+    std::map<VoiceId, GameVoice> voices;  // by id: ids only grow, so this is also the order they started in
     VoiceId nextVoice = 1;
-    std::vector<BusFx> bus;                  // the bus table (see kMasterBus)
-    std::vector<int> mixOrder;               // the buses but the master, deepest first: a bus is summed into its parent
-    std::vector<std::vector<float>> busBuf;  // the sum of each bus's voices and child buses, before its parent
-    std::vector<std::vector<float>> duckGains;  // the ducking gain of each bus for the block being mixed
-    // Per-bus flags of mix_locked, one entry per bus. They live here, sized by build_mix_order, so the audio callback
-    // allocates nothing (docs/SOUND.md, "The audio callback").
-    std::vector<char> usedScratch, liveScratch, duckingScratch;
-    std::vector<VoiceId> ended;              // voices with notify that ended (take_ended_voices)
+    std::vector<GameBus> bus;             // the bus table (see kMasterBus), as the mixer's MixTable has it
+    std::vector<VoiceId> ended;           // voices with notify that ended (take_ended_voices)
     AudioSnapshots snapshots;
     std::string snapshotName;
     VoiceId musicVoice = 0;
@@ -282,14 +321,15 @@ struct Audio::Impl {
     bool recording = false;
     std::vector<float> rec;
     int recRate = kRate;
-    bool recWarned = false;
+    bool recWarned = false, recLostWarned = false;
+    std::shared_ptr<SampleRing> recRing;  // what the mixer writes the output into while recording
 
-    float lastPeak = 0.0f;
+    float lastPeak = 0.0f;  // the null device's last advance
     double carry = 0.0;
-    std::vector<float> tmp;
     std::vector<float> nullBuf;
+    std::vector<jobs::Handle> jobsInFlight;  // stream refills and song loads: shutdown() waits for them
 
-    // gameplay-side state (only touched from the game thread)
+    // gameplay-side state
     const World* lastWorld = nullptr;
     std::map<std::uint64_t, EntityAudio> ents;
     std::map<std::uint64_t, EntityVideo> videos;
@@ -298,32 +338,35 @@ struct Audio::Impl {
     std::string sceneMusic;
     float sceneMusicVolume = -1.0f;
 
-
-    // adaptive music (MusicPlayer components): the players are touched by the game thread and by the mixer, under `mu`; the rest
-    // of the state (sources, loads) by the game thread alone.
+    // adaptive music (MusicPlayer components)
     std::map<std::uint64_t, std::unique_ptr<MusicRt>> musicEnts;
     std::vector<std::unique_ptr<MusicRt>> musicOrphans;   // players whose entity is gone: they fade out (or a new player adopts them)
-    std::map<std::string, std::shared_ptr<const MusicSource>> musicCache;   // by "song|mode"
+    std::map<std::string, CachedSong> musicCache;         // by "song|mode"
+    std::uint64_t musicUse = 0;                           // the clock of the cache's least-recently-used order
+    std::size_t musicCacheBudget = kMusicCacheBytes;
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
     std::map<std::string, std::string> musicErrors;       // why a load failed, by key
-    std::vector<std::shared_ptr<MusicLoad>> musicStale;   // loads of a song that changed while they ran: joined, then dropped
     MusicDeviceProfile musicDevice;
     std::uint64_t musicEpoch = 1;                         // raised when the device profile changes (players re-resolve `auto`)
-    std::uint64_t mixedTotal = 0;
-    std::vector<MusicEvent> musicScratch;
-    std::vector<GameEvent> musicOut;
+    bool channelWarned = false;
 
     MusicRt* music_find(const World& world, Entity e);
     MusicRt& music_get(World& world, Entity e);
     void music_request(MusicRt& rt, const MusicPlayer& mp);
     void music_poll();
+    void music_trim(const std::string& keepKey);
     void music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt);
     void music_update(World& world);
+    void music_resync();
     void music_resolve(MusicRt& rt);
     void music_orphan(MusicRt* rt);
-    void music_events(World& world, MusicRt& rt);
+    void music_events(World* world, MusicRt& rt);
     void music_shutdown();
     void music_invalidate(const std::string& song);
+    void make_channel(MusicRt& rt);
+    void retire(std::unique_ptr<MusicRt> rt);
+    MusicView view(MusicRt& rt);
+    void chan_stop(MusicRt& rt, MusicQuantize q, float fade);
 
     // play log (game thread)
     const World* clockWorld = nullptr;
@@ -331,48 +374,272 @@ struct Audio::Impl {
     std::uint64_t playSeq = 0;
     std::uint64_t playDropped = 0;
 
-    Impl() { reset_bus_table(); }
+    Impl() {
+        reset_bus_table();
+        // Made once: on the null device the mixing thread is the game's, and voices ending mid-game cost no allocation.
+        pendingEnds.reserve(kMaxVoices * 4);
+        ended.reserve(kMaxEnded);
+    }
+    ~Impl() {
+        // shutdown() settled the mixer; whatever is left was never sent to it or has come back.
+        for (Cmd* c : staged) delete c;
+        Cmd* const* c = nullptr;
+        while ((c = mixer.commands.front()) != nullptr) {
+            delete *c;
+            mixer.commands.pop();
+        }
+        Ret r;
+        while (mixer.returns.pop(r)) delete r.cmd;
+    }
 
+    // ---------------------------------------------------------------------------------------------------- the API lock
+    // Every public call holds one: the lock, and on the way out of the outermost one the commit of what it sent (so the
+    // commands of one call reach the mixer together and land in the same block).
+    struct Call {
+        Impl& im;
+        explicit Call(Impl& i) : im(i) {
+            im.apiMu.lock();
+            if (im.depth++ == 0) im.curBatch = ++im.batchSeq;
+        }
+        ~Call() {
+            if (--im.depth == 0) im.flush();
+            im.apiMu.unlock();
+        }
+        Call(const Call&) = delete;
+        Call& operator=(const Call&) = delete;
+    };
+
+    // ---------------------------------------------------------------------------------------------------- commands
+    static Cmd* make(CmdKind kind, std::function<void(Mixer&, Cmd&)> run) {
+        Cmd* c = new Cmd;
+        c->kind = kind;
+        c->run = std::move(run);
+        return c;
+    }
+
+    // The staging queue and its counters (every change to `staged` goes through these).
+    void stage_push(Cmd* c) {
+        staged.push_back(c);
+        if (c->kind == CmdKind::Droppable) ++stagedDroppable;
+        else if (c->kind == CmdKind::Lossy) ++stagedLossy;
+        if (c->play != 0) ++stagedPlays;
+        if (c->coalesceKey != 0) ++stagedKeys[c->coalesceKey];
+    }
+    // `c` leaves the queue (not deleted): counted out.
+    void stage_uncount(const Cmd* c) {
+        if (c->kind == CmdKind::Droppable) --stagedDroppable;
+        else if (c->kind == CmdKind::Lossy) --stagedLossy;
+        if (c->play != 0) --stagedPlays;
+        if (c->coalesceKey != 0) {
+            const auto k = stagedKeys.find(c->coalesceKey);
+            if (k != stagedKeys.end() && --k->second == 0) stagedKeys.erase(k);
+        }
+    }
+    Cmd* stage_pop_front() {
+        Cmd* c = staged.front();
+        staged.pop_front();
+        stage_uncount(c);
+        return c;
+    }
+    void stage_erase(std::deque<Cmd*>::iterator it) {
+        stage_uncount(*it);
+        staged.erase(it);
+    }
+
+    // Sends a command; returns its sequence number. Without a device nothing else mixes, so it is applied right here; with
+    // one it is staged and committed by the outermost call (flush). `c` belongs to the queue from here on.
+    std::uint64_t send(Cmd* c) {
+        const std::uint64_t seq = ++cmdSeq;
+        c->seq = seq;
+        c->batch = curBatch;
+        if (!device) {
+            drain_returns();
+            if (!mixer.commands.push(c)) {  // cannot happen: the ring is emptied after every command here
+                delete c;
+                return seq;
+            }
+            mixer.commands.commit();
+            mixer.apply_commands();
+            drain_returns();
+            return seq;
+        }
+        // A long stall: a Keep command that the new one makes useless is taken back instead of waiting with it.
+        if (c->coalesceKey != 0 && staged.size() >= kCoalesceFrom && stagedKeys.count(c->coalesceKey) != 0) {
+            for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
+                if ((*it)->coalesceKey != c->coalesceKey) continue;
+                Cmd* useless = *it;
+                stage_erase(std::next(it).base());
+                delete useless;
+                ++commandsCoalesced;
+                break;
+            }
+        }
+        stage_push(c);
+        if (staged.size() > kMaxStaged) drop_one();
+        return seq;
+    }
+
+    // The staging queue is full: the oldest play or voice setting goes, else the oldest bus or music setting. Keep commands
+    // (stops, removals, starts of music, table swaps, the recorder) are never dropped. What a dropped setting set is marked
+    // (resync_dropped() sends it again); a dropped play ends its voice.
+    void drop_one() {
+        auto oldest = [&](CmdKind k) {
+            return std::find_if(staged.begin(), staged.end(), [&](const Cmd* c) { return c->kind == k; });
+        };
+        // The counters say what the queue holds, so a queue of Keep commands only is not walked.
+        const bool lossy = stagedDroppable == 0;
+        if (lossy && stagedLossy == 0) {
+            if (staged.size() > kKeepWarnAt && !keepWarned) {
+                keepWarned = true;
+                FA_WARN("audio", "the audio device takes no commands (its callback stalls): {} stops, removals and other "
+                                 "commands that must reach it are waiting, and they are all kept (more memory until the "
+                                 "device resumes)", staged.size());
+            }
+            return;
+        }
+        const auto it = oldest(lossy ? CmdKind::Lossy : CmdKind::Droppable);
+        if (it == staged.end()) return;  // the counters said one is staged; never dereference end() if they drift
+        Cmd* c = *it;
+        stage_erase(it);
+        if (c->play) pendingEnds.push_back(c->play);  // the voice never starts: it ends on the game side
+        switch (c->sync) {
+            case SyncTarget::Voice: resyncVoices.insert(c->syncId); break;
+            case SyncTarget::Bus:
+                if (c->syncId == kSyncAllBuses) {
+                    for (const GameBus& g : bus) resyncBuses.insert(g.name);
+                } else {
+                    resyncBuses.insert(c->syncName);
+                }
+                break;
+            case SyncTarget::Music: resyncMusic = true; break;
+            case SyncTarget::None: break;
+        }
+        delete c;
+        if (lossy) ++settingsDropped;
+        else ++commandsDropped;
+        if (!dropWarned) {
+            dropWarned = true;
+            FA_WARN("audio", "the audio device takes no commands (its callback stalls): more than {} wait, so the oldest plays "
+                             "and settings are dropped (stats(): commandsDropped, settingsDropped)", kMaxStaged);
+        }
+    }
+
+    // The commands a stall dropped left voices and buses out of step with their mirror (the game thinks the volume is 0.3,
+    // the mixer still has the one before): once the queue has emptied they are sent again from the mirror, in one call of
+    // their own. Music players do the same in music_update (resyncMusic).
+    void resync_dropped() {
+        if (staged.size() > kResyncBelow || (resyncVoices.empty() && resyncBuses.empty())) return;
+        curBatch = ++batchSeq;
+        std::set<VoiceId> vs;
+        vs.swap(resyncVoices);
+        std::set<std::string> bs;
+        bs.swap(resyncBuses);
+        for (VoiceId id : vs)
+            if (GameVoice* gv = live_voice(id)) send_voice_state(id, *gv);
+        for (const std::string& name : bs) {
+            const int b = fx_index(name);  // a bus a table swap removed has nothing to send
+            if (b >= 0) send_bus_state(b);
+        }
+    }
+
+    // Hands the staged commands to the mixer, whole calls at a time while they fit (a call bigger than the ring goes in
+    // parts, each when the ring is empty), then takes back what the mixer is done with.
+    void flush() {
+        if (device) {
+            resync_dropped();
+            bool any = false;
+            while (!staged.empty()) {
+                const std::uint64_t b = staged.front()->batch;
+                std::size_t n = 0;
+                while (n < staged.size() && staged[n]->batch == b) ++n;
+                const std::size_t room = mixer.commands.free_space();
+                if (n > room && room < mixer.commands.capacity()) break;
+                const std::size_t take = std::min(n, room);
+                for (std::size_t i = 0; i < take; ++i) mixer.commands.push(stage_pop_front());
+                any = any || take > 0;
+                if (take < n || take == 0) break;
+            }
+            if (any) mixer.commands.commit();
+            service_streams();
+        }
+        drain_returns();
+        process_ends();
+    }
+
+    // Takes back the commands the mixer applied (and frees them with what they carry) and the voices that ended.
+    void drain_returns() {
+        Ret r;
+        while (mixer.returns.pop(r)) {
+            if (r.kind == Ret::Ended) {
+                pendingEnds.push_back(r.voice);
+                continue;
+            }
+            delete r.cmd;
+        }
+    }
+
+    // The only place voices leave the mirror (never while something iterates it).
+    void process_ends() {
+        for (VoiceId id : pendingEnds) {
+            auto it = voices.find(id);
+            if (it == voices.end()) continue;
+            if (!it->second.stopped && it->second.notify) note_ended(id);
+            if (id == musicVoice) musicVoice = 0;
+            voices.erase(it);
+        }
+        pendingEnds.clear();
+    }
+
+    void note_ended(VoiceId id) {
+        if (ended.size() >= kMaxEnded) ended.erase(ended.begin());
+        ended.push_back(id);
+    }
+
+    // What the mixer said since the last call, before a query reads the mirror.
+    void sync_in() {
+        drain_returns();
+        process_ends();
+    }
+
+    // Commits, refills the streams and drains the recorder: what a frame does with a device (update(), service()).
+    void pump() {
+        flush();
+        drain_recorder();
+        // Acquire pairs with the callback's release on `callbacks`: the first callback's size is visible.
+        if (device && !streamLogged && mixer.callbacks.load(std::memory_order_acquire) > 0) {
+            streamLogged = true;
+            FA_INFO("audio", "stream running: first callback of {} frames, {} channels",
+                    mixer.firstCallbackFrames.load(std::memory_order_relaxed),
+                    mixer.firstCallbackChannels.load(std::memory_order_relaxed));
+        }
+    }
+
+    // Nothing mixes any more (shutdown): runs every command still staged or in the ring.
+    void settle() {
+        for (int guard = 0; guard < 1 << 20 && (!staged.empty() || !mixer.commands.empty()); ++guard) {
+            while (!staged.empty() && mixer.commands.free_space() > 0) mixer.commands.push(stage_pop_front());
+            mixer.commands.commit();
+            mixer.apply_commands();
+            drain_returns();
+        }
+        drain_returns();
+    }
+
+    // ---------------------------------------------------------------------------------------------------- buses
     // The built-in buses alone, all neutral.
     void reset_bus_table() {
         bus.clear();
         bus.resize(std::size_t(kFirstProjectBus));
         for (int i = 0; i < BusBuiltin; ++i) bus[std::size_t(i)].name = kBusNames[i];
         bus[std::size_t(kMasterBus)].name = "master";
-        build_mix_order();
     }
-
-    // Depths and the order buses are mixed in: the deepest first, so every bus has its children's sound when its turn comes.
-    void build_mix_order() {
-        mixOrder.clear();
-        for (std::size_t i = 0; i < bus.size(); ++i) {
-            int d = 1;
-            for (int at = int(i); at != kMasterBus && at >= 0 && d <= int(bus.size()); at = bus[std::size_t(at)].parent) ++d;
-            bus[i].depth = int(i) == kMasterBus ? 0 : d - 1;
-            if (int(i) != kMasterBus) mixOrder.push_back(int(i));
-        }
-        std::stable_sort(mixOrder.begin(), mixOrder.end(),
-                         [&](int a, int b) { return bus[std::size_t(a)].depth > bus[std::size_t(b)].depth; });
-        // Everything the callback needs, made here (outside the callback, under the lock): the callback only writes into it.
-        // Only grown: a smaller table (set_buses rebuilds from the built-ins first) keeps the buffers it already has.
-        if (busBuf.size() < bus.size()) busBuf.resize(bus.size());
-        if (duckGains.size() < bus.size()) duckGains.resize(bus.size());
-        for (std::vector<float>& b : busBuf) b.reserve(kScratchFrames * 2);
-        for (std::vector<float>& g : duckGains) g.reserve(kScratchFrames);
-        usedScratch.assign(bus.size(), 0);
-        liveScratch.assign(bus.size(), 0);
-        duckingScratch.assign(bus.size(), 0);
-        ended.reserve(kMaxEnded);
-        tmp.reserve(kScratchFrames * 2);
-    }
-
-    // The index of a bus by name (master included); -1 for an unknown name. Caller holds mu.
+    // The index of a bus by name (master included); -1 for an unknown name.
     int fx_index(std::string_view name) const {
         for (std::size_t i = 0; i < bus.size(); ++i)
             if (bus[i].name == name) return int(i);
         return -1;
     }
-    // The buses a voice can play on (not the master). Caller holds mu.
+    // The buses a voice can play on (not the master).
     int bus_index(std::string_view name) const {
         const int b = fx_index(name);
         return b == kMasterBus ? -1 : b;
@@ -383,10 +650,59 @@ struct Audio::Impl {
             if (withMaster || int(i) != kMasterBus) names.push_back(bus[i].name);
         return names;
     }
+    float lowpass_top() const { return std::min(audio_detail::kLowpassOpen, 0.49f * float(deviceRate)); }
+    Json bus_state_json(const GameBus& fx) const;
 
+    // A bus command: runs on the mixer's bus `b` (the table at the time it is applied is the one it was sent for: a table
+    // swap is a command too, in the same order).
+    template <class F>
+    void bus_cmd(int b, CmdKind kind, F fn) {
+        Cmd* c = make(kind, [b, fn](Mixer& m, Cmd& cmd) {
+            if (b >= 0 && std::size_t(b) < m.table->bus.size()) fn(m, m.table->bus[std::size_t(b)].rt, cmd);
+        });
+        c->sync = SyncTarget::Bus;
+        c->syncName = b >= 0 && std::size_t(b) < bus.size() ? bus[std::size_t(b)].name : std::string();
+        send(c);
+    }
+    // The bus gets the reverb it needs the first time one is switched on (made here: the mixer allocates nothing).
+    void give_reverb(int b) {
+        GameBus& g = bus[std::size_t(b)];
+        if (g.rvMade) return;
+        g.rvMade = true;
+        Cmd* c = make(CmdKind::Keep, [b](Mixer& m, Cmd& cmd) {
+            if (b < 0 || std::size_t(b) >= m.table->bus.size()) return;
+            BusRuntime& rt = m.table->bus[std::size_t(b)].rt;
+            if (!rt.rv) rt.rv = std::move(cmd.reverb);  // a move; one it has already goes back with the command
+        });
+        c->reverb = std::make_unique<audio_detail::Reverb>(float(deviceRate));
+        send(c);
+    }
+    void send_lowpass(int b, float hz, float fade) {
+        GameBus& g = bus[std::size_t(b)];
+        g.lpHz = hz <= 0.0f ? 0.0f : clamp(hz, 20.0f, lowpass_top());
+        bus_cmd(b, CmdKind::Lossy, [hz, fade](Mixer& m, BusRuntime& rt, Cmd&) { m.set_lowpass(rt, hz, fade); });
+    }
+    void send_reverb(int b, float mix, float fade) {
+        bus[std::size_t(b)].reverb = std::max(mix, 0.0f);
+        if (mix > 0.0f) give_reverb(b);
+        bus_cmd(b, CmdKind::Lossy, [mix, fade](Mixer& m, BusRuntime& rt, Cmd&) {
+            std::unique_ptr<audio_detail::Reverb> none;  // the reverb came with give_reverb()
+            m.set_reverb(rt, mix, fade, none);
+        });
+    }
+    void send_duck(int b, int by, const DuckSettings& duck) {
+        GameBus& g = bus[std::size_t(b)];
+        g.duckBy = by;
+        g.duck = by < 0 ? DuckSettings{} : duck;
+        const float amount = duck.amount, attack = duck.attack, release = duck.release;
+        bus_cmd(b, CmdKind::Lossy, [by, amount, attack, release](Mixer& m, BusRuntime& rt, Cmd&) {
+            m.set_duck(rt, by, amount, attack, release);
+        });
+    }
+
+    // ---------------------------------------------------------------------------------------------------- play log
     void log_play(std::string_view path, const PlayParams& p, bool music, std::string_view source, bool ok,
                   std::string_view layer = {}, VoiceId voice = 0) {
-        std::lock_guard<std::mutex> lk(mu);
         AudioEvent ev;
         ev.voice = voice;
         ev.seq = ++playSeq;
@@ -404,6 +720,9 @@ struct Audio::Impl {
         ev.source = std::string(source);
         ev.layer = std::string(layer);
         ev.ok = ok;
+        push_log(std::move(ev));
+    }
+    void push_log(AudioEvent ev) {
         playLog.push_back(std::move(ev));
         if (playLog.size() > kMaxPlayLog) {
             playLog.pop_front();
@@ -411,8 +730,303 @@ struct Audio::Impl {
         }
     }
 
-    // play() with the AudioSource entity id that requested it ("" for scripts).
-    VoiceId start(std::string_view clipPath, const PlayParams& params, std::string_view source) {
+    // ---------------------------------------------------------------------------------------------------- voices
+    // How loud a voice is for voice stealing: its own volume, its clip's normalization and its bus chain's volumes and
+    // snapshot scales (the targets the game set; the master is the same for every voice). A voice fading out to its end
+    // counts as silent.
+    float loudness(const GameVoice& v) const {
+        if (v.fadingOut) return 0.0f;
+        float g = v.volume * (v.clip ? v.clip->gain : 1.0f);
+        int b = v.bus;
+        for (std::size_t n = 0; b >= 0 && b != kMasterBus && std::size_t(b) < bus.size() && n < bus.size(); ++n) {
+            g *= bus[std::size_t(b)].vol * bus[std::size_t(b)].snap;
+            b = bus[std::size_t(b)].parent;
+        }
+        return g;
+    }
+
+    // Voice stealing (docs/SOUND.md, "Voice stealing"). With every voice taken, the new voice replaces the voice with the
+    // lowest priority, the quietest of those (ties: the one started first), when it has a higher priority, or the same
+    // priority and is louder; otherwise the new one is refused. Age never decides. True when there is room now.
+    bool make_room(int priority, float loud) {
+        std::size_t live = 0;
+        for (const auto& [id, v] : voices)
+            if (!v.stopped) ++live;
+        if (live < kMaxVoices) return true;
+        VoiceId victim = 0;
+        int vp = 0;
+        float vl = 0.0f;
+        for (const auto& [id, v] : voices) {
+            if (v.stopped) continue;
+            const float l = loudness(v);
+            if (victim == 0 || v.priority < vp || (v.priority == vp && l < vl)) {
+                victim = id;
+                vp = v.priority;
+                vl = l;
+            }
+        }
+        if (victim == 0) return true;
+        if (priority > vp || (priority == vp && loud > vl)) {
+            hard_stop(victim, true);
+            ++voicesStolen;
+            return true;
+        }
+        ++voicesRejected;
+        return false;
+    }
+
+    VoiceId next_id() {
+        for (;;) {
+            const VoiceId id = nextVoice++;
+            if (nextVoice == 0) nextVoice = 1;
+            if (id != 0 && voices.find(id) == voices.end()) return id;
+        }
+    }
+
+    // Takes a new voice into the mirror and fills the mixer's copy of it; 0 when the pool refuses it (`*rejected` set). The
+    // caller sends the play.
+    VoiceId new_voice(GameVoice gv, const PlayParams& p, MixVoice& mv, bool* rejected) {
+        int b = bus_index(p.bus);
+        if (b < 0) {
+            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus, did_you_mean(p.bus, bus_names_locked(false)));
+            b = BusSfx;
+        }
+        gv.bus = b;
+        gv.volume = std::max(p.volume, 0.0f);
+        gv.pitch = std::max(p.pitch, 0.001f);
+        gv.pan = clamp(p.pan, -1.0f, 1.0f);
+        gv.loop = p.loop;
+        gv.notify = p.notifyEnd;
+        if (!make_room(gv.priority, loudness(gv))) {
+            if (rejected) *rejected = true;
+            const std::string& key = gv.path;
+            if (rejectWarned.size() < 256 && rejectWarned.insert(key).second)
+                FA_WARN("audio", "'{}' did not play: all {} voices play sounds of a higher priority, or as high and louder "
+                                 "(hint: PlayOptions.priority / AudioSource.priority 0..255, default 128; stats().voicesRejected)",
+                        key, kMaxVoices);
+            return 0;
+        }
+        const VoiceId id = next_id();
+        mv = MixVoice{};
+        mv.id = id;
+        mv.clip = gv.pcm ? nullptr : gv.clip.get();
+        mv.stream = gv.stream.get();
+        mv.pcm = gv.pcm.get();
+        mv.volume = gv.volume;
+        mv.pitch = gv.pitch;
+        mv.pan = gv.pan;
+        mv.loop = gv.loop;
+        mv.bus = gv.bus;
+        mv.delay = long(std::clamp<std::int64_t>(p.delayFrames, 0, std::numeric_limits<std::int32_t>::max()));
+        if (gv.pcm) mv.pos = double(gv.pcm->skip());
+        voices.emplace(id, std::move(gv));
+        return id;
+    }
+
+    // The command that starts it in the mixer (a fade-in of `fadeIn` seconds when > 0).
+    void send_play(VoiceId id, const MixVoice& mv, float fadeIn, CmdKind kind) {
+        Cmd* c = make(kind, [mv, fadeIn](Mixer& m, Cmd&) {
+            MixVoice v = mv;
+            if (fadeIn > 0.0f) {
+                v.fade = 0.0f;
+                m.start_fade(v, 1.0f, fadeIn, false);
+            }
+            if (!m.add_voice(v)) {  // every slot taken (the game side keeps at most kMaxVoices: only a bug gets here)
+                m.returns.push(Ret{Ret::Ended, nullptr, v.id});
+                m.returns.commit();
+            }
+        });
+        c->play = id;
+        send(c);
+    }
+
+    // Ends a voice now (stop(), stealing, a scene load). A play still staged is taken back instead of sent.
+    void hard_stop(VoiceId id, bool noteEnd) {
+        auto it = voices.find(id);
+        if (it == voices.end() || it->second.stopped) return;
+        GameVoice& gv = it->second;
+        if (noteEnd && gv.notify) note_ended(id);
+        gv.stopped = true;
+        if (id == musicVoice) musicVoice = 0;
+        if (stagedPlays > 0) {
+            for (auto s = staged.begin(); s != staged.end(); ++s) {
+                if ((*s)->play != id) continue;
+                Cmd* taken = *s;
+                stage_erase(s);
+                delete taken;
+                pendingEnds.push_back(id);
+                return;
+            }
+        }
+        send(make(CmdKind::Keep, [id](Mixer& m, Cmd&) { m.end_voice(id); }));
+    }
+
+    // Fades a voice out over `seconds` and ends it there (0: at once).
+    void fade_stop(VoiceId id, float seconds) {
+        auto it = voices.find(id);
+        if (it == voices.end() || it->second.stopped) return;
+        if (seconds <= 0.0f) {
+            hard_stop(id, false);
+            return;
+        }
+        it->second.fadingOut = true;
+        send(make(CmdKind::Keep, [id, seconds](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) m.start_fade(*v, 0.0f, seconds, true);
+        }));
+    }
+
+    // A voice's volume, pitch and pan (an AudioSource every frame).
+    void send_params(VoiceId id, float volume, float pitch, float pan) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) {
+                v->volume = volume;
+                v->pitch = pitch;
+                v->pan = pan;
+            }
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
+    void send_voice_state(VoiceId id, const GameVoice& gv) {
+        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan;
+        const int b = gv.bus;
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, b](Mixer& m, Cmd&) {
+            MixVoice* v = m.find_voice(id);
+            if (!v) return;
+            m.start_volume_ramp(*v, volume, 0.0f);
+            v->pitch = pitch;
+            v->pan = pan;
+            if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // The same for a bus: its volume, snapshot scale, low-pass, reverb and ducking as the mirror has them.
+    void send_bus_state(int b) {
+        const GameBus& g = bus[std::size_t(b)];
+        const float vol = g.vol, snap = g.snap, lp = g.lpHz, rv = g.reverb, amount = g.duck.amount, attack = g.duck.attack,
+                    release = g.duck.release;
+        const int by = g.duckBy;
+        bus_cmd(b, CmdKind::Lossy, [vol, snap, lp, rv, by, amount, attack, release](Mixer& m, BusRuntime& rt, Cmd&) {
+            rt.vol.set(vol, m.ramp_frames(0.0f, true));
+            rt.snap.set(snap, m.ramp_frames(0.0f, true));
+            m.set_lowpass(rt, lp, 0.0f);
+            std::unique_ptr<audio_detail::Reverb> none;  // the reverb came with give_reverb()
+            m.set_reverb(rt, rv, 0.0f, none);
+            m.set_duck(rt, by, amount, attack, release);
+        });
+    }
+
+    // A live (non-stopped) voice of the mirror, or null.
+    GameVoice* live_voice(VoiceId id) {
+        auto it = voices.find(id);
+        return it == voices.end() || it->second.stopped ? nullptr : &it->second;
+    }
+
+    // Stops every layer of the current layered music, fading out over `fade` seconds (0 = at once).
+    void drop_layers(float fade) {
+        for (const Layer& l : layers) fade_stop(l.voice, fade);
+        layers.clear();
+    }
+
+    // ---------------------------------------------------------------------------------------------------- streams
+    // A new voice's decoding ring on a streamed clip, with its first frames decoded (null + *err when it cannot be opened).
+    static std::shared_ptr<StreamRing> open_ring(const Clip& clip, bool loop, std::size_t frames, std::size_t* bytes,
+                                                 std::string* err) {
+        auto decoder = audio_detail::open_decoder(clip.encoded->data(), clip.encoded->size(), clip.ext, err);
+        if (!decoder) return nullptr;
+        auto ring = std::make_shared<StreamRing>(audio_detail::Resampler(clip.encoded, std::move(decoder), loop), frames);
+        if (ring->claim()) {  // nobody else has it yet
+            ring->fill(kStreamPrefill);
+            *bytes = ring->resident_bytes();
+            ring->unclaim();
+        }
+        return ring;
+    }
+
+    // With a device: a decode job for every streamed voice that has room for at least kStreamRefill frames (the claim
+    // keeps it to one producer at a time; a voice whose job still runs is skipped).
+    void service_streams() {
+        if (!device || !streamService) return;
+        for (auto& [id, v] : voices) {
+            if (v.stopped || !v.stream) continue;
+            StreamRing& r = *v.stream;
+            if (r.room() < kStreamRefill || !r.claim()) continue;
+            std::shared_ptr<StreamRing> ring = v.stream;
+            jobsInFlight.push_back(jobs::submit("audio.stream", [ring] {
+                ring->fill(ring->room());
+                ring->unclaim();
+            }));
+        }
+        prune_jobs();
+    }
+    void prune_jobs() {
+        jobsInFlight.erase(std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
+                           jobsInFlight.end());
+    }
+
+    // ---------------------------------------------------------------------------------------------------- recorder
+    void drain_recorder() {
+        if (!recRing || !recording) return;
+        const std::size_t limit = kMaxRecordFrames * 2;
+        if (rec.size() < limit) recRing->drain(rec, limit - rec.size());
+        if (rec.size() >= limit && recRing->waiting() > 0) {
+            recRing->skip_all();
+            if (!recWarned) {
+                recWarned = true;
+                FA_WARN("audio", "audio recording reached the 10 minute limit; further audio is not recorded");
+            }
+        }
+        if (!recLostWarned && recRing->lost() > 0) {
+            recLostWarned = true;
+            FA_WARN("audio", "audio recording lost {} samples: the game did not take the recorded audio for several seconds",
+                    recRing->lost());
+        }
+    }
+    // Points the mixer's recorder at `ring` (null: off). The ring it wrote before stays alive until the command is back.
+    void send_rec(std::shared_ptr<SampleRing> ring) {
+        SampleRing* p = ring.get();
+        Cmd* c = make(CmdKind::Keep, [p](Mixer& m, Cmd&) { m.rec = p; });
+        c->rec = std::move(ring);
+        c->keep = recRing;
+        send(c);
+    }
+
+    // ---------------------------------------------------------------------------------------------------- the null device
+    void advance(double seconds) {
+        if (seconds <= 0.0 || device) return;
+        carry += seconds * kRate;
+        long total = long(std::floor(carry));
+        carry -= double(total);
+        nullBuf.resize(std::size_t(kNullBlock) * 2);
+        float peak = 0.0f;
+        drain_returns();
+        while (total > 0) {
+            const int n = int(std::min<long>(total, kNullBlock));
+            mixer.apply_commands();
+            mixer.mix_block(nullBuf.data(), n);
+            mixer.publish_music();
+            peak = std::max(peak, mixer.block_peak());
+            drain_returns();
+            drain_recorder();
+            total -= n;
+        }
+        lastPeak = peak;
+        process_ends();
+    }
+
+    static void stream_cb(float* buffer, int frames, int channels, void* user) {
+        static_cast<Impl*>(user)->mixer.render(buffer, frames, channels);
+    }
+
+    // play() with the AudioSource entity id that requested it ("" for scripts). `*rejected`: the pool refused it (the clip
+    // itself is fine).
+    VoiceId start(std::string_view clipPath, const PlayParams& params, std::string_view source, bool* rejected = nullptr) {
         if (!inited) {
             FA_ERROR("audio", "Audio::play('{}') called before Audio::init()", clipPath);
             return 0;
@@ -422,30 +1036,25 @@ struct Audio::Impl {
             log_play(clipPath, params, false, source, false);
             return 0;
         }
-        std::string err;
-        auto stream = open_stream(*clip, params.loop, &err);
-        if (clip->encoded && !stream) {
-            log_play(clipPath, params, false, source, true);
-            FA_ERROR("audio", "Audio clip '{}' cannot be streamed: {}", clipPath, err);
-            return 0;
+        GameVoice gv;
+        gv.path = clip->path;
+        gv.source = std::string(source);
+        gv.priority = std::clamp(params.priority, 0, 255);
+        if (clip->encoded) {
+            std::string err;
+            gv.stream = open_ring(*clip, params.loop, kStreamFrames, &gv.streamBytes, &err);
+            if (!gv.stream) {
+                log_play(clipPath, params, false, source, true);
+                FA_ERROR("audio", "Audio clip '{}' cannot be streamed: {}", clipPath, err);
+                return 0;
+            }
         }
-        VoiceId id = 0;
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            id = add_voice_locked(std::move(clip), params, std::move(stream));
-            if (Voice* v = find_voice(id)) v->source = std::string(source);
-        }
+        gv.clip = std::move(clip);
+        MixVoice mv;
+        const VoiceId id = new_voice(std::move(gv), params, mv, rejected);
+        if (id) send_play(id, mv, 0.0f, CmdKind::Droppable);
         log_play(clipPath, params, false, source, true, {}, id);
         return id;
-    }
-
-    // The decoding state of a new voice on a streamed clip (null for a clip decoded whole). Made outside the lock: it
-    // opens a decoder and decodes the first few thousand frames.
-    static std::unique_ptr<Stream> open_stream(const Clip& clip, bool loop, std::string* err) {
-        if (!clip.encoded) return nullptr;
-        auto decoder = audio_detail::open_decoder(clip.encoded->data(), clip.encoded->size(), clip.ext, err);
-        if (!decoder) return nullptr;
-        return std::make_unique<Stream>(audio_detail::Resampler(clip.encoded, std::move(decoder), loop));
     }
 
     // ------------------------------------------------------------ decode
@@ -546,453 +1155,71 @@ struct Audio::Impl {
         clip.gain = float(std::pow(10.0, normalization_gain_db(*loudness, target) / 20.0));
     }
 
+
     std::shared_ptr<const Clip> get_clip(std::string_view pathIn) {
         std::string path = fs::normalize(pathIn);
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            auto it = clips.find(path);
-            if (it != clips.end()) {
-                // Loaded in the background (adopt_clip): its files enter the load order on this first use.
-                if (!untraced.empty() && LoadTrace::current_ahead_tag() == 0)
-                    if (auto u = untraced.find(path); u != untraced.end()) {
-                        for (const std::string& f : u->second) LoadTrace::file_used(f);
-                        untraced.erase(u);
-                    }
-                return it->second;
-            }
+        auto it = clips.find(path);
+        if (it != clips.end()) {
+            // Loaded in the background (adopt_clip): its files enter the load order on this first use.
+            if (!untraced.empty() && LoadTrace::current_ahead_tag() == 0)
+                if (auto u = untraced.find(path); u != untraced.end()) {
+                    for (const std::string& f : u->second) LoadTrace::file_used(f);
+                    untraced.erase(u);
+                }
+            return it->second;
         }
         std::string err;
         auto clip = decode(path, &err);
-        std::lock_guard<std::mutex> lk(mu);
         if (!clip) {
             if (failedLogged.insert(path).second) FA_ERROR("audio", "{}", err);
             return nullptr;
         }
         failedLogged.erase(path);
-        auto it = clips.emplace(path, clip).first;
-        return it->second;
+        return clips.emplace(path, clip).first->second;
     }
 
-    // ------------------------------------------------------------- bus effects
-    long ramp_frames(float seconds, bool declick) const;
-    void set_lowpass_locked(BusFx& fx, float hz, float fadeSeconds);
-    void set_reverb_locked(BusFx& fx, float mix, float fadeSeconds);
-    void set_duck_locked(BusFx& fx, int by, const DuckSettings& duck);
-    Json bus_state_json(const BusFx& fx) const;
-
-    // ------------------------------------------------------------- voices
-    Voice* find_voice(VoiceId id) {
-        if (id == 0) return nullptr;
-        for (Voice& v : voices) if (v.id == id && !v.dead) return &v;
-        return nullptr;
+    // ---------------------------------------------------------------------------------------------------- music players
+    // A command to a player's transport. The channel lives until the command that removes it from the mixer comes back
+    // (retire()), and that command is sent after this one, so the pointer is valid when it runs. Only Keep commands (start,
+    // stop, add) change what view() derives from the state, so only they move `lastSeq` (a dropped setting never leaves
+    // the view waiting for a command that will not come).
+    template <class F>
+    void chan_cmd(MusicRt& rt, CmdKind kind, F fn) {
+        if (!rt.ch) return;
+        MusicChannel* ch = rt.ch.get();
+        Cmd* c = make(kind, [ch, fn](Mixer&, Cmd&) { fn(ch->tr); });
+        if (kind == CmdKind::Lossy) c->sync = SyncTarget::Music;
+        const std::uint64_t seq = send(c);
+        if (kind == CmdKind::Keep) rt.lastSeq = seq;
     }
-
-    VoiceId add_voice_locked(std::shared_ptr<const Clip> clip, const PlayParams& p, std::unique_ptr<Stream> stream) {
-        if (voices.size() >= kMaxVoices) {
-            auto it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.loop && !v.protect && v.id != musicVoice; });
-            if (it == voices.end()) it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.protect; });
-            if (it == voices.end()) it = voices.begin();
-            if (it->id == musicVoice) musicVoice = 0;
-            note_ended_locked(*it);
-            voices.erase(it);
-        }
-        Voice v;
-        v.id = nextVoice++;
-        if (nextVoice == 0) nextVoice = 1;
-        v.clip = std::move(clip);
-        v.stream = std::move(stream);
-        v.volume = std::max(p.volume, 0.0f);
-        v.pitch = std::max(p.pitch, 0.001f);
-        v.pan = clamp(p.pan, -1.0f, 1.0f);
-        v.loop = p.loop;
-        int b = bus_index(p.bus);
-        if (b < 0) {
-            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus, did_you_mean(p.bus, bus_names_locked(false)));
-            b = BusSfx;
-        }
-        v.bus = b;
-        v.notify = p.notifyEnd;
-        v.delay = long(std::max<std::int64_t>(p.delayFrames, 0));
-        if (v.clip) v.path = v.clip->path;
-        voices.push_back(std::move(v));
-        return voices.back().id;
+    void send_channel_bus(MusicChannel* ch, int b) {
+        Cmd* c = make(CmdKind::Lossy, [ch, b](Mixer& m, Cmd&) {
+            if (b >= 0 && std::size_t(b) < m.table->bus.size()) ch->bus = b;
+        });
+        c->sync = SyncTarget::Music;
+        send(c);
     }
-
-    VoiceId open_pcm(int rate, const PlayParams& p) {
-        auto feed = std::make_unique<PcmFeed>();
-        feed->rate = std::max(rate, 1);
-        std::lock_guard<std::mutex> lk(mu);
-        VoiceId id = add_voice_locked(nullptr, p, nullptr);
-        if (Voice* v = find_voice(id)) v->pcm = std::move(feed);
-        return id;
-    }
-
-    void start_fade(Voice& v, float target, float seconds, bool stopAtEnd) {
-        long frames = std::max(1L, long(std::lround(double(seconds) * deviceRate)));
-        v.fadeTarget = target;
-        v.fadeFrames = frames;
-        v.fadeStep = (target - v.fade) / float(frames);
-        v.stopAtFadeEnd = stopAtEnd;
-    }
-
-    void start_volume_ramp(Voice& v, float target, float seconds) {
-        target = std::max(target, 0.0f);
-        if (seconds <= 0.0f) {
-            v.volume = target;
-            v.volFrames = 0;
-            return;
+    // Starts `src` on the player (a crossfade when the transport plays and `hard` is false), after checking what the
+    // transport would refuse. The source stays held until the mixer's state shows nothing reads it.
+    bool send_start(MusicRt& rt, const std::shared_ptr<const MusicSource>& src, int section, float intensity,
+                    MusicQuantize q, float bars, bool hard, std::string* err) {
+        if (!rt.ch) {
+            *err = "every music channel is taken";
+            return false;
         }
-        const long frames = std::max(1L, long(std::lround(double(seconds) * deviceRate)));
-        v.volTarget = target;
-        v.volFrames = frames;
-        v.volStep = (target - v.volume) / float(frames);
-    }
-
-    // Advances the volume ramp by one frame (the mixers call it after each frame they mix).
-    static void step_volume(Voice& v) {
-        if (v.volFrames > 0) {
-            v.volume += v.volStep;
-            if (--v.volFrames == 0) v.volume = v.volTarget;
-        }
-    }
-
-    // A voice that ends goes to `ended` when its play asked to be told.
-    void note_ended_locked(const Voice& v) {
-        if (!v.notify) return;
-        if (ended.size() >= kMaxEnded) ended.erase(ended.begin());
-        ended.push_back(v.id);
-    }
-
-    void erase_voice_locked(VoiceId id) {
-        voices.erase(std::remove_if(voices.begin(), voices.end(), [&](const Voice& v) { return v.id == id; }), voices.end());
-    }
-
-    // Stops every layer of the current layered music, fading out over `fade` seconds (0 = at once).
-    void drop_layers_locked(float fade) {
-        for (const Layer& l : layers) {
-            if (Voice* v = find_voice(l.voice)) {
-                if (fade > 0.0f) start_fade(*v, 0.0f, fade, true);
-                else erase_voice_locked(l.voice);
-            }
-        }
-        layers.clear();
-    }
-
-    // ------------------------------------------------------------- mixing
-    // Adds a PCM voice into `out` (its bus's buffer): the same pan law and fade as a clip voice. A dry queue makes silence, not an end.
-    void mix_pcm_locked(Voice& v, float* out, int frames) {
-        PcmFeed& p = *v.pcm;
-        const double step = double(p.rate) / double(deviceRate);
-        const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
-        const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
-        const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-        const float base = 1.0f;  // the bus and master volumes are applied to the sum of the bus
-        const float* d = p.queue.data() + p.head;
-        const std::size_t avail = p.frames();
-        for (int f = 0; f < frames; ++f) {
-            const std::size_t i0 = std::size_t(p.pos);
-            if (i0 + 1 >= avail) break;  // underrun: wait for more samples
-            const float t = float(p.pos - double(i0));
-            const float l = d[2 * i0] + (d[2 * i0 + 2] - d[2 * i0]) * t;
-            const float r = d[2 * i0 + 1] + (d[2 * i0 + 3] - d[2 * i0 + 1]) * t;
-            const float g = base * v.volume * v.fade;
-            out[2 * f] += l * gl * g;
-            out[2 * f + 1] += r * gr * g;
-            p.pos += step;
-            step_volume(v);
-            if (v.fadeFrames > 0) {
-                v.fade += v.fadeStep;
-                if (--v.fadeFrames == 0) {
-                    v.fade = v.fadeTarget;
-                    if (v.stopAtFadeEnd) { v.dead = true; break; }
-                }
-            }
-        }
-        const std::size_t used = std::min(std::size_t(p.pos), avail);
-        p.pos -= double(used);
-        p.head += 2 * used;
-        if (p.head > 0 && p.head * 2 >= p.queue.size()) {  // compact
-            p.queue.erase(p.queue.begin(), p.queue.begin() + std::ptrdiff_t(p.head));
-            p.head = 0;
-        }
-    }
-
-    // The effects of one bus on its buffer, in order: low-pass, reverb. `used` = a voice wrote into the buffer this block.
-    // Returns whether the buffer can hold sound (a voice, or a reverb tail). A bus without an effect does no work here.
-    bool run_effects(BusFx& fx, float* buf, int frames, bool used) {
-        if (fx.lpOn) {
-            if (fx.lpLog.moving()) {
-                fx.lpLog.skip(frames);
-                fx.lpDirty = true;
-            }
-            if (fx.lpDirty) {
-                fx.lp.set_cutoff(std::exp2(fx.lpLog.cur), float(deviceRate));
-                fx.lpDirty = false;
-            }
-            if (used) fx.lp.process(buf, frames);
-            else fx.lp.clear();
-            if (!fx.lpLog.moving() && fx.lpOffAtEnd) {
-                fx.lpOn = false;
-                fx.lpOffAtEnd = false;
-                fx.lp.clear();
-            }
-        }
-        bool live = used;
-        if (fx.rvOn && fx.rv) {
-            fx.rvMix.skip(frames);
-            fx.rvQuiet = used ? 0 : std::min(fx.rvQuiet + frames, long(1) << 40);
-            if (used || double(fx.rvQuiet) <= kReverbTail * deviceRate) {
-                fx.rv->process(buf, frames, clamp(fx.rvMix.cur, 0.0f, 1.0f));
-                live = true;
-            }
-            if (!fx.rvMix.moving() && fx.rvOffAtEnd) {
-                fx.rvOn = false;
-                fx.rvOffAtEnd = false;
-                fx.rv->clear();
-            }
-        }
-        return live;
-    }
-
-    // The volume of a bus (the player's setting times the snapshot's scale) on its buffer; the ramps keep time on a silent bus.
-    static void apply_bus_gain(BusFx& fx, float* buf, int frames, bool live) {
-        if (!live) {
-            fx.vol.skip(frames);
-            fx.snap.skip(frames);
-            return;
-        }
-        if (!fx.vol.moving() && !fx.snap.moving()) {
-            const float g = fx.vol.cur * fx.snap.cur;
-            if (g != 1.0f)
-                for (int i = 0; i < frames * 2; ++i) buf[i] *= g;
-            return;
-        }
-        for (int f = 0; f < frames; ++f) {
-            const float g = fx.vol.next() * fx.snap.next();
-            buf[2 * f] *= g;
-            buf[2 * f + 1] *= g;
-        }
-    }
-
-    // The ducking gain of bus `d` for this block, from the loudness of the bus it listens to: a peak detector (instant attack,
-    // 10 ms release) says whether that bus is above the threshold, and the gain follows the target with the attack and release
-    // times. Writes the gain per frame into duckGains[d]; the detector and the gain keep their state across blocks.
-    void compute_duck(int d, int frames) {
-        BusFx& fx = bus[d];
-        const float* src = busBuf[fx.duckBy].data();
-        std::vector<float>& g = duckGains[d];
-        g.resize(std::size_t(frames));
-        const float detRelease = std::exp(-1.0f / (0.010f * float(deviceRate)));
-        const float low = 1.0f - fx.duck.amount;
-        float env = fx.duckEnv, gain = fx.duckGain;
-        for (int f = 0; f < frames; ++f) {
-            env = std::max(std::max(std::fabs(src[2 * f]), std::fabs(src[2 * f + 1])), env * detRelease);
-            const float target = env > kDuckThreshold ? low : 1.0f;
-            const float k = target < gain ? fx.duckAttack : fx.duckRelease;
-            gain = target + (gain - target) * k;
-            g[std::size_t(f)] = gain;
-        }
-        // Settle the tails so a bus that is back at full volume stops costing anything.
-        if (env < kDuckThreshold * 1e-3f) env = 0.0f;
-        if (gain > 0.99999f) gain = 1.0f;
-        fx.duckEnv = env;
-        fx.duckGain = gain;
-    }
-
-    // Mixes `frames` stereo frames into `out` (overwrites). Caller holds mu. Every voice is summed into the buffer of its bus;
-    // each bus gets its effects, volume and ducking; the buses are summed into `out`, which gets the master's.
-    void mix_locked(float* out, int frames) {
-        const std::size_t n = std::size_t(frames) * 2;
-        std::memset(out, 0, sizeof(float) * n);
-        const double rateRatio = double(kRate) / double(deviceRate);
-        std::vector<char>& used = usedScratch;
-        std::fill(used.begin(), used.end(), char(0));
-        for (std::size_t b = 0; b < bus.size(); ++b) {
-            busBuf[b].resize(n);
-            std::memset(busBuf[b].data(), 0, sizeof(float) * n);
-        }
-        for (Voice& v : voices) {
-            if (paused) break;
-            float* const dst = busBuf[std::size_t(v.bus)].data();
-            if (v.pcm) {
-                used[std::size_t(v.bus)] = 1;
-                mix_pcm_locked(v, dst, frames);
-                continue;
-            }
-            if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
-            used[std::size_t(v.bus)] = 1;
-            const Clip& c = *v.clip;
-            Stream* const stream = v.stream.get();
-            const double n = double(c.frames);
-            const double step = double(v.pitch) * rateRatio;
-            const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
-            // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side).
-            const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
-            const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-            const float base = c.gain;  // the bus and master volumes are applied to the sum of the bus
-            int first = 0;
-            if (v.delay > 0) {  // a voice that waits for its beat: silent, not advancing
-                first = int(std::min<long>(v.delay, frames));
-                v.delay -= first;
-            }
-            for (int f = first; f < frames; ++f) {
-                float l, r;
-                if (stream) {
-                    if (!stream->at(v.pos, l, r)) { v.dead = true; break; }
-                } else {
-                    // With loop points the first pass runs to loopEnd and every later one wraps inside loopStart..loopEnd.
-                    const double loopEnd = c.loopEnd > 0 ? double(c.loopEnd) : n, loopStart = double(c.loopStart);
-                    if (v.pos >= loopEnd) {
-                        if (v.loop) v.pos = loopStart + std::fmod(v.pos - loopStart, loopEnd - loopStart);
-                        else if (v.pos >= n) { v.dead = true; break; }
-                    }
-                    std::size_t i0 = std::size_t(v.pos);
-                    if (i0 >= c.frames) i0 = c.frames - 1;
-                    std::size_t i1 = i0 + 1;
-                    if (v.loop && i1 >= std::size_t(loopEnd)) i1 = c.loopStart;
-                    else if (i1 >= c.frames) i1 = i0;
-                    const float t = float(v.pos - double(i0));
-                    const float* d = c.data.data();
-                    l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;
-                    r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * t;
-                }
-                float g = base * v.volume * v.fade;
-                dst[2 * f] += l * gl * g;
-                dst[2 * f + 1] += r * gr * g;
-                v.pos += step;
-                step_volume(v);
-                if (v.fadeFrames > 0) {
-                    v.fade += v.fadeStep;
-                    if (--v.fadeFrames == 0) {
-                        v.fade = v.fadeTarget;
-                        if (v.stopAtFadeEnd) { v.dead = true; break; }
-                    }
-                }
-            }
-        }
-
-        mixedTotal += std::uint64_t(frames);
-        if (!paused) {
-            auto mix_player = [&](MusicRt& rt) {
-                float* const dst = busBuf[std::size_t(rt.bus)].data();
-                const bool was = rt.tr->active();
-                rt.tr->set_rate_ratio(rateRatio);
-                rt.tr->mix(dst, frames);
-                if (was || rt.tr->active()) used[std::size_t(rt.bus)] = 1;
-            };
-            for (auto& rt : musicOrphans) mix_player(*rt);
-            for (auto& [key, rt] : musicEnts) mix_player(*rt);
-        }
-        for (const Voice& v : voices)
-            if (v.dead) note_ended_locked(v);
-        voices.erase(std::remove_if(voices.begin(), voices.end(), [](const Voice& v) { return v.dead; }), voices.end());
-        if (!paused) {
-            // The buses go deepest first, a whole depth at a time: effects and volume of each, then the ducking (which reads
-            // the buses of that depth, or deeper, before any ducking; a bus nearer the master than the one that ducks is read as
-            // its own voices and the buses under it, before its effects), then each bus is summed into its parent.
-            std::vector<char>& live = liveScratch;
-            std::vector<char>& ducking = duckingScratch;
-            std::fill(live.begin(), live.end(), char(0));
-            std::fill(ducking.begin(), ducking.end(), char(0));
-            bool anyLive = false;
-            for (std::size_t from = 0; from < mixOrder.size();) {
-                std::size_t to = from;
-                const int depth = bus[std::size_t(mixOrder[from])].depth;
-                while (to < mixOrder.size() && bus[std::size_t(mixOrder[to])].depth == depth) ++to;
-                for (std::size_t k = from; k < to; ++k) {
-                    const std::size_t b = std::size_t(mixOrder[k]);
-                    live[b] = run_effects(bus[b], busBuf[b].data(), frames, used[b] != 0);
-                    apply_bus_gain(bus[b], busBuf[b].data(), frames, live[b] != 0);
-                }
-                for (std::size_t k = from; k < to; ++k) {
-                    const std::size_t b = std::size_t(mixOrder[k]);
-                    const BusFx& fx = bus[b];
-                    ducking[b] = fx.duckBy >= 0 && (live[b] || live[std::size_t(fx.duckBy)] || used[std::size_t(fx.duckBy)] ||
-                                                    fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
-                    if (ducking[b]) compute_duck(int(b), frames);
-                }
-                for (std::size_t k = from; k < to; ++k) {
-                    const std::size_t b = std::size_t(mixOrder[k]);
-                    if (ducking[b] && live[b]) {
-                        float* buf = busBuf[b].data();
-                        const float* g = duckGains[b].data();
-                        for (int f = 0; f < frames; ++f) {
-                            buf[2 * f] *= g[f];
-                            buf[2 * f + 1] *= g[f];
-                        }
-                    }
-                    if (live[b]) {
-                        const int parent = bus[b].parent;
-                        float* dst = parent == kMasterBus ? out : busBuf[std::size_t(parent)].data();
-                        const float* buf = busBuf[b].data();
-                        for (std::size_t i = 0; i < n; ++i) dst[i] += buf[i];
-                        if (parent == kMasterBus) anyLive = true;
-                        else used[std::size_t(parent)] = 1;
-                    }
-                }
-                from = to;
-            }
-            BusFx& master = bus[kMasterBus];
-            const bool masterLive = run_effects(master, out, frames, anyLive);
-            apply_bus_gain(master, out, frames, masterLive);
-        }
-        float peak = 0.0f;
-        for (int i = 0; i < frames * 2; ++i) {
-            float s = out[i];
-            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
-            out[i] = s;
-            peak = std::max(peak, std::fabs(s));
-        }
-        lastPeak = peak;
-        if (recording) {
-            if (rec.size() / 2 + std::size_t(frames) <= kMaxRecordFrames) {
-                rec.insert(rec.end(), out, out + std::size_t(frames) * 2);
-            } else if (!recWarned) {
-                recWarned = true;
-                FA_WARN("audio", "audio recording reached the 10 minute limit; further audio is not recorded");
-            }
-        }
-    }
-
-    // sokol_audio stream callback (audio thread).
-    void render(float* buffer, int frames, int channels) {
-        // Once per device start: proof that the platform really pulls samples (the mobile smoke tests wait for it).
-        if (!streamLogged.exchange(true)) FA_INFO("audio", "stream running: first callback of {} frames, {} channels", frames, channels);
-        std::lock_guard<std::mutex> lk(mu);
-        if (channels == 2) {
-            mix_locked(buffer, frames);
-            return;
-        }
-        tmp.resize(std::size_t(frames) * 2);
-        mix_locked(tmp.data(), frames);
-        for (int f = 0; f < frames; ++f) {
-            if (channels == 1) {
-                buffer[f] = 0.5f * (tmp[std::size_t(2 * f)] + tmp[std::size_t(2 * f + 1)]);
+        if (!MusicTransport::check_start(src.get(), section, err)) return false;
+        const MusicSource* raw = src.get();
+        chan_cmd(rt, CmdKind::Keep, [raw, section, intensity, q, bars, hard](MusicTransport& tr) {
+            const MusicSource* from = tr.source();
+            if (tr.playing() && !hard && from) {
+                const float seconds = float(double(bars) * from->map.barFrames / double(kMusicRate));
+                tr.crossfade_to(raw, section, q, seconds, nullptr);
             } else {
-                for (int c = 0; c < channels; ++c) buffer[f * channels + c] = c < 2 ? tmp[std::size_t(2 * f + c)] : 0.0f;
+                tr.start(raw, section, intensity, nullptr);
             }
-        }
-    }
-
-    static void stream_cb(float* buffer, int frames, int channels, void* user) {
-        static_cast<Impl*>(user)->render(buffer, frames, channels);
-    }
-
-    void advance(double seconds) {
-        if (seconds <= 0.0) return;
-        std::lock_guard<std::mutex> lk(mu);
-        carry += seconds * kRate;
-        long total = long(std::floor(carry));
-        carry -= double(total);
-        nullBuf.resize(std::size_t(kBlock) * 2);
-        float peak = 0.0f;
-        while (total > 0) {
-            int n = int(std::min<long>(total, kBlock));
-            mix_locked(nullBuf.data(), n);
-            peak = std::max(peak, lastPeak);
-            total -= n;
-        }
-        lastPeak = peak;
+        });
+        rt.held.push_back({src, rt.lastSeq});
+        return true;
     }
 };
 
@@ -1004,33 +1231,40 @@ Audio::~Audio() { shutdown(); }
 
 bool Audio::init(bool device, std::string* error) {
     if (impl_->inited) shutdown();
-    impl_->deviceRate = kRate;
-    impl_->deviceChannels = 2;
-    impl_->device = false;
-    impl_->autoAdvance = false;
-    impl_->streamLogged = false;
+    Impl& im = *impl_;
+    Impl::Call call(im);
+    // Nothing mixes until `armed` (the device's first callbacks may come before the rate is known: they output silence).
+    im.mixer.armed.store(false, std::memory_order_release);
+    im.deviceRate = kRate;
+    im.deviceChannels = 2;
+    im.device = false;
+    im.autoAdvance = false;
+    im.manual = false;
+    im.web = false;
+    im.streamLogged = false;
     if (device) {
 #if defined(__EMSCRIPTEN__)
         // The web has its own device (audio_web.cpp): an AudioWorkletNode, a ScriptProcessorNode as the fallback.
-        const int webRate = audio_web_open(kRate, 2, &Impl::stream_cb, impl_.get());
+        const int webRate = audio_web_open(kRate, 2, &Impl::stream_cb, &im);
         if (webRate > 0) {
-            impl_->device = true;
-            impl_->deviceRate = std::max(webRate, 8000);
-            impl_->deviceChannels = 2;
-            FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
+            im.device = true;
+            im.web = true;
+            im.deviceRate = std::max(webRate, 8000);
+            im.deviceChannels = 2;
+            FA_INFO("audio", "output device open: {} Hz, {} channels", im.deviceRate, im.deviceChannels);
             audio_web_unlock();  // the browser keeps the device silent until the player clicks, touches or presses a key
 #else
         saudio_desc desc{};
         desc.sample_rate = kRate;
         desc.num_channels = 2;
         desc.stream_userdata_cb = &Impl::stream_cb;
-        desc.user_data = impl_.get();
+        desc.user_data = &im;
         saudio_setup(&desc);
         if (saudio_isvalid()) {
-            impl_->device = true;
-            impl_->deviceRate = std::max(saudio_sample_rate(), 8000);
-            impl_->deviceChannels = std::max(saudio_channels(), 1);
-            FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
+            im.device = true;
+            im.deviceRate = std::max(saudio_sample_rate(), 8000);
+            im.deviceChannels = std::max(saudio_channels(), 1);
+            FA_INFO("audio", "output device open: {} Hz, {} channels", im.deviceRate, im.deviceChannels);
 #endif
         } else {
 #if !defined(__EMSCRIPTEN__)
@@ -1038,45 +1272,73 @@ bool Audio::init(bool device, std::string* error) {
 #endif
             FA_WARN("audio", "no audio output device available; running with a silent null device "
                              "(hint: pass --headless to silence this warning)");
-            impl_->autoAdvance = true;
+            im.autoAdvance = true;
             if (error) error->clear();
         }
     }
-    impl_->inited = true;
+    im.mixer.set_device_rate(im.deviceRate);
+    // The null device mixes on the game thread and the web's device on the main thread between frames: a streamed voice
+    // with nothing decoded decodes right there. A device thread never decodes (decode jobs keep its rings ahead).
+    im.mixer.set_sync_fill(!im.device || im.web);
+    im.inited = true;
+    // Release: the rate and the fill mode above are written before the callback that sees `armed` reads them.
+    im.mixer.armed.store(true, std::memory_order_release);
     return true;
 }
 
 void Audio::shutdown() {
-    if (!impl_->inited) return;
+    Impl& im = *impl_;
+    Impl::Call call(im);
+    if (!im.inited) return;
+    if (im.device && !im.manual) {
 #if defined(__EMSCRIPTEN__)
-    if (impl_->device) audio_web_close();
+        audio_web_close();
 #else
-    if (impl_->device) saudio_shutdown();  // joins the audio thread before we touch state
+        saudio_shutdown();  // joins the audio thread: nothing mixes from here on
 #endif
-    impl_->music_shutdown();
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->voices.clear();
-    impl_->clips.clear();
-    impl_->untraced.clear();
-    impl_->ents.clear();
-    impl_->videos.clear();
-    impl_->musicVoice = 0;
-    impl_->musicPath.clear();
-    impl_->musicPersist = false;
-    impl_->layers.clear();
-    impl_->recording = false;
-    impl_->rec.clear();
-    impl_->device = false;
-    impl_->inited = false;
-    impl_->lastWorld = nullptr;
-    impl_->sceneMusic.clear();
-    impl_->sceneMusicVolume = -1.0f;
-    impl_->clockWorld = nullptr;
-    impl_->playLog.clear();
-    impl_->playDropped = 0;
+    }
+    im.mixer.armed.store(false, std::memory_order_release);
+    im.device = false;  // from here every command runs at once, on this thread
+    im.manual = false;
+    im.web = false;
+    im.mixer.set_sync_fill(true);
+    im.settle();
+    for (auto& [id, v] : im.voices) v.stopped = true;
+    im.send(Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) { m.end_all_voices(); }));
+    im.music_shutdown();
+    if (im.recRing) {
+        im.send_rec(nullptr);
+        im.recRing.reset();
+    }
+    im.settle();
+    for (const jobs::Handle& h : im.jobsInFlight) (void)jobs::wait(h);  // a job still holds what it reads: only tidiness
+    im.jobsInFlight.clear();
+    im.process_ends();
+    im.voices.clear();
+    im.ended.clear();
+    im.clips.clear();
+    im.untraced.clear();
+    im.ents.clear();
+    im.videos.clear();
+    im.musicVoice = 0;
+    im.musicPath.clear();
+    im.musicPersist = false;
+    im.layers.clear();
+    im.recording = false;
+    im.rec.clear();
+    im.inited = false;
+    im.lastWorld = nullptr;
+    im.sceneMusic.clear();
+    im.sceneMusicVolume = -1.0f;
+    im.clockWorld = nullptr;
+    im.playLog.clear();
+    im.playDropped = 0;
 }
 
-bool Audio::load(std::string_view clipPath) { return impl_->get_clip(clipPath) != nullptr; }
+bool Audio::load(std::string_view clipPath) {
+    Impl::Call call(*impl_);
+    return impl_->get_clip(clipPath) != nullptr;
+}
 
 std::shared_ptr<const void> Audio::decode_clip(std::string_view clipPath, std::string* error) {
     std::string err;
@@ -1087,144 +1349,157 @@ std::shared_ptr<const void> Audio::decode_clip(std::string_view clipPath, std::s
 
 bool Audio::clip_loaded(std::string_view clipPath) const {
     const std::string path = fs::normalize(clipPath);
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->clips.count(path) > 0;
 }
 
 bool Audio::adopt_clip(std::string_view clipPath, std::shared_ptr<const void> decoded, std::vector<std::string> files) {
     if (!decoded) return false;
     const std::string path = fs::normalize(clipPath);
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    if (impl_->clips.count(path)) return false;  // loaded on first use meanwhile: that one stays
-    impl_->clips.emplace(path, std::static_pointer_cast<const Clip>(decoded));
-    impl_->failedLogged.erase(path);
-    if (!files.empty()) impl_->untraced[path] = std::move(files);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    if (im.clips.count(path)) return false;  // loaded on first use meanwhile: that one stays
+    im.clips.emplace(path, std::static_pointer_cast<const Clip>(decoded));
+    im.failedLogged.erase(path);
+    if (!files.empty()) im.untraced[path] = std::move(files);
     return true;
 }
 
-VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) { return impl_->start(clipPath, params, ""); }
+VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) {
+    Impl::Call call(*impl_);
+    return impl_->start(clipPath, params, "");
+}
 
 VoiceId Audio::open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source) {
-    if (!impl_->inited) {
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    if (!im.inited) {
         FA_ERROR("audio", "Audio::open_pcm_voice('{}') called before Audio::init()", path);
         return 0;
     }
-    const VoiceId id = impl_->open_pcm(sampleRate, params);
-    {
-        std::lock_guard<std::mutex> lk(impl_->mu);
-        if (Voice* v = impl_->find_voice(id)) {
-            v->path = fs::normalize(path);
-            v->source = std::string(source);
-        }
-    }
-    impl_->log_play(path, params, false, source, true, {}, id);
+    GameVoice gv;
+    gv.pcm = std::make_shared<PcmRing>(std::max(sampleRate, 1));
+    gv.path = fs::normalize(path);
+    gv.source = std::string(source);
+    gv.priority = std::clamp(params.priority, 0, 255);
+    MixVoice mv;
+    const VoiceId id = im.new_voice(std::move(gv), params, mv, nullptr);
+    if (id) im.send_play(id, mv, 0.0f, CmdKind::Droppable);
+    im.log_play(path, params, false, source, true, {}, id);
     return id;
 }
 
 void Audio::push_pcm(VoiceId voice, const float* stereo, std::size_t frames) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    Voice* v = impl_->find_voice(voice);
+    Impl::Call call(*impl_);
+    GameVoice* v = impl_->live_voice(voice);
     if (!v || !v->pcm || frames == 0) return;
-    PcmFeed& p = *v->pcm;
-    p.queue.insert(p.queue.end(), stereo, stereo + 2 * frames);
-    const std::size_t cap = std::size_t(p.rate) * 2 * 2;  // two seconds; a game that never mixes must not grow it forever
-    if (p.queue.size() - p.head > cap) {
-        p.head = p.queue.size() - cap;
-    }
+    v->pcm->push(stereo, frames);
 }
 
 double Audio::pcm_queued_frames(VoiceId voice) const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const Voice* v = impl_->find_voice(voice);
+    Impl::Call call(*impl_);
+    GameVoice* v = impl_->live_voice(voice);
     if (!v || !v->pcm) return 0.0;
-    return std::max(0.0, double(v->pcm->frames()) - v->pcm->pos);
+    return v->pcm->queued();
 }
 
 bool Audio::has_device() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->device;
 }
 
 void Audio::clear_pcm(VoiceId voice) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    Voice* v = impl_->find_voice(voice);
+    Impl::Call call(*impl_);
+    GameVoice* v = impl_->live_voice(voice);
     if (!v || !v->pcm) return;
-    v->pcm->queue.clear();
-    v->pcm->head = 0;
-    v->pcm->pos = 0.0;
+    v->pcm->clear();
 }
 
 void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    Voice* v = impl_->find_voice(voice);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    GameVoice* v = im.live_voice(voice);
     if (!v) return;
-    int b = impl_->bus_index(bus);
+    int b = im.bus_index(bus);
     if (b < 0) {
-        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, impl_->bus_names_locked(false)));
+        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, im.bus_names_locked(false)));
         b = BusSfx;
     }
     v->bus = b;
+    Cmd* c = Impl::make(CmdKind::Droppable, [voice, b](Mixer& m, Cmd&) {
+        MixVoice* mv = m.find_voice(voice);
+        if (mv && std::size_t(b) < m.table->bus.size()) mv->bus = b;
+    });
+    c->sync = SyncTarget::Voice;
+    c->syncId = voice;
+    im.send(c);
 }
 
 void Audio::stop(VoiceId voice) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    auto& vs = impl_->voices;
-    for (const Voice& v : vs)
-        if (v.id == voice) impl_->note_ended_locked(v);
-    vs.erase(std::remove_if(vs.begin(), vs.end(), [&](const Voice& v) { return v.id == voice; }), vs.end());
-    if (impl_->musicVoice == voice) impl_->musicVoice = 0;
+    Impl::Call call(*impl_);
+    impl_->hard_stop(voice, true);
 }
 
 void Audio::stop_all() {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->ended.clear();
-    impl_->voices.clear();
-    impl_->musicVoice = 0;
-    impl_->musicPath.clear();
-    impl_->musicPersist = false;
-    impl_->layers.clear();
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    im.ended.clear();
+    for (auto& [id, v] : im.voices) v.stopped = true;
+    // A play still staged reaches the mixer before this and is ended by it.
+    Cmd* c = Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) { m.end_all_voices(); });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::StopAll);  // a later one ends what this one would
+    im.send(c);
+    im.musicVoice = 0;
+    im.musicPath.clear();
+    im.musicPersist = false;
+    im.layers.clear();
     // The MusicPlayer components' music too: it fades out over 50 ms and the components read the end (playing = false).
-    for (auto& [bits, rt] : impl_->musicEnts) rt->tr->stop(MusicQuantize::None, 0.05f);
-    for (auto& rt : impl_->musicOrphans) rt->tr->stop(MusicQuantize::None, 0.05f);
+    for (auto& [bits, rt] : im.musicEnts) im.chan_stop(*rt, MusicQuantize::None, 0.05f);
+    for (auto& rt : im.musicOrphans) im.chan_stop(*rt, MusicQuantize::None, 0.05f);
 }
 
 void Audio::on_scene_load() {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
-    {
-        std::lock_guard<std::mutex> lk(im.mu);
-        im.ended.clear();  // the scene that asked to be told is gone
-        if (im.musicPersist) {
-            // The persisted track (or layers) plays on; everything else stops.
-            std::vector<VoiceId> keep;
-            if (im.musicVoice) keep.push_back(im.musicVoice);
-            for (const Impl::Layer& l : im.layers) keep.push_back(l.voice);
-            auto& vs = im.voices;
-            vs.erase(std::remove_if(vs.begin(), vs.end(),
-                                    [&](const Voice& v) { return std::find(keep.begin(), keep.end(), v.id) == keep.end(); }),
-                     vs.end());
-        } else {
-            im.voices.clear();
-            im.musicVoice = 0;
-            im.musicPath.clear();
-            im.layers.clear();
-        }
+    im.ended.clear();  // the scene that asked to be told is gone
+    std::vector<VoiceId> keep;
+    if (im.musicPersist) {
+        // The persisted track (or layers) plays on; everything else stops.
+        if (im.musicVoice) keep.push_back(im.musicVoice);
+        for (const Impl::Layer& l : im.layers) keep.push_back(l.voice);
+    } else {
+        im.musicVoice = 0;
+        im.musicPath.clear();
+        im.layers.clear();
     }
+    std::vector<VoiceId> stop;
+    for (const auto& [id, v] : im.voices)
+        if (!v.stopped && std::find(keep.begin(), keep.end(), id) == keep.end()) stop.push_back(id);
+    for (VoiceId id : stop) im.hard_stop(id, false);
     // The new scene's SceneSettings.music starts from scratch: update() sees it as a change.
     im.sceneMusic.clear();
     im.sceneMusicVolume = -1.0f;
 }
 
 bool Audio::is_playing(VoiceId voice) const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    return impl_->find_voice(voice) != nullptr;
+    Impl::Call call(*impl_);
+    impl_->sync_in();
+    return impl_->live_voice(voice) != nullptr;
 }
 
 void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds, bool log) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
-    Voice* v = im.find_voice(voice);
+    GameVoice* v = im.live_voice(voice);
     if (!v) return;
-    im.start_volume_ramp(*v, volume, fadeSeconds);
+    const float target = std::max(volume, 0.0f);
+    v->volume = target;
+    Cmd* c = Impl::make(CmdKind::Droppable, [voice, target, fadeSeconds](Mixer& m, Cmd&) {
+        if (MixVoice* mv = m.find_voice(voice)) m.start_volume_ramp(*mv, target, fadeSeconds);
+    });
+    c->sync = SyncTarget::Voice;
+    c->syncId = voice;
+    im.send(c);
     if (!log) return;
     AudioEvent ev;
     ev.kind = "setVoiceVolume";
@@ -1235,40 +1510,35 @@ void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds, boo
         ev.time = w->time();
     }
     ev.path = v->path;
-    ev.volume = std::max(volume, 0.0f);
+    ev.volume = target;
     ev.pitch = v->pitch;
     ev.pan = v->pan;
     ev.fade = std::max(fadeSeconds, 0.0f);
     ev.bus = im.bus[std::size_t(v->bus)].name;
     ev.loop = v->loop;
     ev.source = v->source;
-    im.playLog.push_back(std::move(ev));
-    if (im.playLog.size() > kMaxPlayLog) {
-        im.playLog.pop_front();
-        ++im.playDropped;
-    }
+    im.push_log(std::move(ev));
 }
 
 Json Audio::active_voices() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const Impl& im = *impl_;
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    im.sync_in();
     Json list = Json::array();
-    for (const Voice& v : im.voices) {
-        if (v.dead) continue;
-        const bool music = v.id == im.musicVoice ||
-                           std::any_of(im.layers.begin(), im.layers.end(), [&](const Impl::Layer& l) { return l.voice == v.id; });
-        list.push_back(Json::object({{"id", v.id}, {"path", v.path}, {"bus", im.bus[std::size_t(v.bus)].name},
-                                     {"volume", v.volFrames > 0 ? v.volTarget : v.volume}, {"pitch", v.pitch}, {"pan", v.pan},
-                                     {"loop", v.loop}, {"music", music}, {"source", v.source}}));
+    for (const auto& [id, v] : im.voices) {
+        if (v.stopped) continue;
+        list.push_back(Json::object({{"id", id}, {"path", v.path}, {"bus", im.bus[std::size_t(v.bus)].name},
+                                     {"volume", v.volume}, {"pitch", v.pitch}, {"pan", v.pan},
+                                     {"loop", v.loop}, {"music", v.music}, {"source", v.source}}));
     }
     return list;
 }
 
 std::vector<VoiceId> Audio::take_ended_voices() {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    // Copy and clear, not swap: `ended` keeps the capacity build_mix_order reserved, so the callback never allocates for it.
+    Impl::Call call(*impl_);
+    impl_->sync_in();
     std::vector<VoiceId> out(impl_->ended.begin(), impl_->ended.end());
-    impl_->ended.clear();
+    impl_->ended.clear();  // keeps its capacity: the next endings cost no allocation
     return out;
 }
 
@@ -1289,116 +1559,65 @@ Error unknown_bus_error(std::string_view name, const std::vector<std::string>& n
 
 }  // namespace
 
-// Frames of a fade of `seconds`; no fade (<= 0) is the short ramp that keeps a jump from clicking.
-long Audio::Impl::ramp_frames(float seconds, bool declick) const {
-    if (seconds > 0.0f) return std::max(1L, long(std::lround(double(seconds) * deviceRate)));
-    return declick ? std::max(1L, long(deviceRate / 100)) : 0L;
-}
-
 void Audio::set_bus_volume(std::string_view bus, float volume, float fadeSeconds) {
     volume = clamp(volume, 0.0f, kMaxBusVolume);
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = impl_->fx_index(bus);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    const int b = im.fx_index(bus);
     if (b < 0) {
-        FA_ERROR("audio", "{}", unknown_bus_error(bus, impl_->bus_names_locked(true), true).message);
+        FA_ERROR("audio", "{}", unknown_bus_error(bus, im.bus_names_locked(true), true).message);
         return;
     }
-    impl_->bus[b].vol.set(volume, impl_->ramp_frames(fadeSeconds, true));
+    im.bus[std::size_t(b)].vol = volume;
+    im.bus_cmd(b, CmdKind::Lossy, [volume, fadeSeconds](Mixer& m, BusRuntime& rt, Cmd&) {
+        rt.vol.set(volume, m.ramp_frames(fadeSeconds, true));
+    });
 }
 
 float Audio::bus_volume(std::string_view bus) const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     const int b = impl_->fx_index(bus);
-    return b < 0 ? -1.0f : impl_->bus[b].vol.target;
+    return b < 0 ? -1.0f : impl_->bus[std::size_t(b)].vol;
 }
 
 void Audio::set_master_volume(float volume) { set_bus_volume("master", volume, 0.0f); }
 
 Result<void> Audio::set_bus_lowpass(std::string_view bus, float hz, float fadeSeconds) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = impl_->fx_index(bus);
-    if (b < 0) return unknown_bus_error(bus, impl_->bus_names_locked(true), true);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    const int b = im.fx_index(bus);
+    if (b < 0) return unknown_bus_error(bus, im.bus_names_locked(true), true);
     if (!std::isfinite(hz) || hz < 0.0f)
         return make_error("A low-pass cutoff is a frequency in Hz, got " + std::to_string(hz),
                           "Use 20..20000 Hz, or 0 (or null in a script) to switch the filter off.");
-    impl_->set_lowpass_locked(impl_->bus[b], hz, fadeSeconds);
+    im.send_lowpass(b, hz, fadeSeconds);
     return {};
-}
-
-void Audio::Impl::set_lowpass_locked(BusFx& fx, float hz, float fadeSeconds) {
-    const long frames = ramp_frames(fadeSeconds, false);
-    if (hz <= 0.0f) {
-        fx.lpHz = 0.0f;
-        if (!fx.lpOn) return;
-        if (frames <= 0) {
-            fx.lpOn = false;
-            fx.lp.clear();
-        } else {
-            fx.lpLog.set(std::log2(kLowpassOpen), frames);
-            fx.lpOffAtEnd = true;
-        }
-        return;
-    }
-    const float top = std::min(kLowpassOpen, 0.49f * float(deviceRate));
-    hz = clamp(hz, 20.0f, top);
-    if (!fx.lpOn) {
-        fx.lpOn = true;
-        fx.lp.clear();
-        fx.lpLog.set(std::log2(top), 0);  // a new filter starts open
-    }
-    fx.lpHz = hz;
-    fx.lpOffAtEnd = false;
-    fx.lpLog.set(std::log2(hz), frames);
-    fx.lpDirty = true;
 }
 
 Result<void> Audio::set_bus_reverb(std::string_view bus, float mix, float fadeSeconds) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = impl_->fx_index(bus);
-    if (b < 0) return unknown_bus_error(bus, impl_->bus_names_locked(true), true);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    const int b = im.fx_index(bus);
+    if (b < 0) return unknown_bus_error(bus, im.bus_names_locked(true), true);
     if (!std::isfinite(mix) || mix < 0.0f || mix > 1.0f)
         return make_error("A reverb mix is a number from 0 to 1, got " + std::to_string(mix),
                           "0 is no reverb (and switches it off), 0.3 is a touch of room, 1 is all wet.");
-    impl_->set_reverb_locked(impl_->bus[b], mix, fadeSeconds);
+    im.send_reverb(b, mix, fadeSeconds);
     return {};
 }
 
-void Audio::Impl::set_reverb_locked(BusFx& fx, float mix, float fadeSeconds) {
-    const long frames = ramp_frames(fadeSeconds, false);
-    if (mix <= 0.0f) {
-        if (!fx.rvOn) return;
-        if (frames <= 0) {
-            fx.rvOn = false;
-            fx.rvMix.set(0.0f, 0);
-            if (fx.rv) fx.rv->clear();
-        } else {
-            fx.rvMix.set(0.0f, frames);
-            fx.rvOffAtEnd = true;
-        }
-        return;
-    }
-    if (!fx.rv) fx.rv = std::make_unique<audio_detail::Reverb>(float(deviceRate));
-    if (!fx.rvOn) {
-        fx.rvOn = true;
-        fx.rv->clear();
-        fx.rvQuiet = 0;
-        fx.rvMix.set(0.0f, 0);
-    }
-    fx.rvOffAtEnd = false;
-    fx.rvMix.set(mix, frames);
-}
-
 Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const int b = impl_->fx_index(bus);
-    if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, impl_->bus_names_locked(true), false);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    const int b = im.fx_index(bus);
+    if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, im.bus_names_locked(true), false);
     int by = -1;
     if (!std::isfinite(duck.amount) || duck.amount < 0.0f || duck.amount > 1.0f)
         return make_error("A duck amount is the fraction of the volume removed, 0..1, got " + std::to_string(duck.amount),
                           "0.5 halves the bus while the other one plays, 1 silences it, 0 turns ducking off.");
     if (!duck.by.empty() && duck.amount > 0.0f) {
-        by = impl_->fx_index(duck.by);
-        if (by < 0 || by == kMasterBus) return unknown_bus_error(duck.by, impl_->bus_names_locked(true), false);
+        by = im.fx_index(duck.by);
+        if (by < 0 || by == kMasterBus) return unknown_bus_error(duck.by, im.bus_names_locked(true), false);
         if (by == b)
             return make_error("The bus '" + std::string(bus) + "' cannot duck itself",
                               "Name the other bus, for example the voice-over bus that should push the music down.");
@@ -1406,35 +1625,22 @@ Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck)
             return make_error("Duck attack and release are times in seconds, 0 or more",
                               "Typical values: attack 0.05, release 0.5.");
     }
-    impl_->set_duck_locked(impl_->bus[std::size_t(b)], by, duck);
+    im.send_duck(b, by, duck);
     return {};
 }
 
-void Audio::Impl::set_duck_locked(BusFx& fx, int by, const DuckSettings& duck) {
-    fx.duckBy = by;
-    if (by < 0) {
-        fx.duck = DuckSettings{};
-        return;  // the gain and the detector settle back to 1 and 0 by themselves
-    }
-    fx.duck = duck;
-    const auto coef = [&](float seconds) { return seconds <= 0.0f ? 0.0f : std::exp(-1.0f / (seconds * float(deviceRate))); };
-    fx.duckAttack = coef(duck.attack);
-    fx.duckRelease = coef(duck.release);
-}
-
 void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
-    std::vector<BusFx> old = std::move(im.bus);
+    std::vector<GameBus> old = std::move(im.bus);
     std::vector<std::string> oldDuckBy;  // by name: the indexes change with the table
-    for (const BusFx& fx : old) oldDuckBy.push_back(fx.duckBy >= 0 ? old[std::size_t(fx.duckBy)].name : std::string());
-    const std::vector<std::string> oldNames = [&] {
-        std::vector<std::string> n;
-        for (const BusFx& fx : old) n.push_back(fx.name);
-        return n;
-    }();
+    for (const GameBus& fx : old) oldDuckBy.push_back(fx.duckBy >= 0 ? old[std::size_t(fx.duckBy)].name : std::string());
+    std::vector<std::string> oldNames;
+    for (const GameBus& fx : old) oldNames.push_back(fx.name);
     im.reset_bus_table();
-    for (int i = 0; i <= kMasterBus; ++i) im.bus[std::size_t(i)] = std::move(old[std::size_t(i)]);
+    for (int i = 0; i <= kMasterBus; ++i) im.bus[std::size_t(i)] = old[std::size_t(i)];
+    std::vector<int> fromOld;
+    for (int i = 0; i <= kMasterBus; ++i) fromOld.push_back(i);
     // Accept the buses whose parent is known, repeating until nothing more is placed (a parent may be declared after its child).
     std::vector<bool> placed(defs.size(), false);
     for (bool progress = true; progress;) {
@@ -1444,12 +1650,18 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
             const AudioBusDef& def = defs[d];
             const int parent = im.fx_index(def.parent.empty() ? "master" : def.parent);
             if (parent < 0 || im.fx_index(def.name) >= 0) continue;
-            BusFx fx;
+            GameBus fx;
+            int from = -1;
             for (std::size_t o = 0; o < oldNames.size(); ++o)
-                if (oldNames[o] == def.name) { fx = std::move(old[o]); break; }
+                if (oldNames[o] == def.name) {
+                    fx = old[o];
+                    from = int(o);
+                    break;
+                }
             fx.name = def.name;
             fx.parent = parent;
             im.bus.push_back(std::move(fx));
+            fromOld.push_back(from);
             placed[d] = true;
             progress = true;
         }
@@ -1459,48 +1671,72 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
             FA_ERROR("audio", "audio bus '{}' is skipped: its parent '{}' is not a bus, it loops, or the name is taken "
                               "(`factoria validate` checks \"audio\".\"buses\")", defs[d].name, defs[d].parent);
     for (std::size_t i = 0; i < im.bus.size(); ++i) {
-        BusFx& fx = im.bus[i];
+        GameBus& fx = im.bus[i];
+        fx.duckBy = -1;
         const auto was = std::find(oldNames.begin(), oldNames.end(), fx.name);
-        if (was == oldNames.end() || oldDuckBy[std::size_t(was - oldNames.begin())].empty()) continue;
+        if (was == oldNames.end() || oldDuckBy[std::size_t(was - oldNames.begin())].empty()) {
+            fx.duck = DuckSettings{};
+            continue;
+        }
         const int by = im.bus_index(oldDuckBy[std::size_t(was - oldNames.begin())]);
         if (by >= 0 && by != int(i)) fx.duckBy = by;
-        else im.set_duck_locked(fx, -1, DuckSettings{});
+        else fx.duck = DuckSettings{};
     }
-    im.build_mix_order();
+    // The mixer's table, built whole here: the runtimes (gains, filters, reverbs) move over by name, the voices of a bus
+    // that is gone go to sfx.
+    auto t = std::make_unique<MixTable>();
+    t->bus.resize(im.bus.size());
+    t->fromOld = fromOld;
+    t->duckBy.assign(im.bus.size(), -1);
+    for (std::size_t i = 0; i < im.bus.size(); ++i) {
+        t->bus[i].parent = im.bus[i].parent;
+        t->duckBy[i] = im.bus[i].duckBy;
+    }
+    t->voiceRemap.assign(old.size(), int(BusSfx));
+    for (std::size_t o = 0; o < old.size(); ++o) {
+        if (int(o) < BusBuiltin) t->voiceRemap[o] = int(o);
+        else if (int(o) >= kFirstProjectBus) {
+            const int now = im.bus_index(oldNames[o]);
+            t->voiceRemap[o] = now < 0 ? int(BusSfx) : now;
+        }
+    }
+    t->build();
+    for (auto& [id, v] : im.voices) v.bus = v.bus >= 0 && std::size_t(v.bus) < t->voiceRemap.size() ? t->voiceRemap[std::size_t(v.bus)] : int(BusSfx);
     // Music players follow their bus by name; one whose bus is gone plays on "music".
+    std::vector<std::pair<MusicChannel*, int>> players;
     auto follow = [&](MusicRt& rt) {
         const int b = im.bus_index(rt.busName);
         rt.bus = b < 0 ? int(BusMusic) : b;
+        if (rt.ch) players.emplace_back(rt.ch.get(), rt.bus);
     };
     for (auto& [bits, rt] : im.musicEnts) follow(*rt);
     for (auto& rt : im.musicOrphans) follow(*rt);
-    // Voices on a bus that no longer exists go to sfx.
-    for (Voice& v : im.voices) {
-        if (v.bus < kFirstProjectBus) continue;
-        const std::string& was = v.bus < int(oldNames.size()) ? oldNames[std::size_t(v.bus)] : std::string();
-        const int now = im.bus_index(was);
-        v.bus = now < 0 ? int(BusSfx) : now;
-    }
+    Cmd* c = Impl::make(CmdKind::Keep, [players](Mixer& m, Cmd& cmd) {
+        m.swap_table(cmd);
+        for (const auto& [ch, b] : players) ch->bus = b;
+    });
+    c->table = std::move(t);
+    im.send(c);
 }
 
 std::vector<std::string> Audio::bus_names() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->bus_names_locked(true);
 }
 
 Json Audio::bus_state(std::string_view bus) const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     const int b = impl_->fx_index(bus);
     if (b < 0) return Json();
     return impl_->bus_state_json(impl_->bus[std::size_t(b)]);
 }
 
-Json Audio::Impl::bus_state_json(const BusFx& fx) const {
+Json Audio::Impl::bus_state_json(const GameBus& fx) const {
     Json j = Json::object();
-    j["volume"] = fx.vol.target;
-    j["snapshotVolume"] = fx.snap.target;
+    j["volume"] = fx.vol;
+    j["snapshotVolume"] = fx.snap;
     j["lowpass"] = fx.lpHz;
-    j["reverb"] = fx.rvOn ? fx.rvMix.target : 0.0f;
+    j["reverb"] = fx.reverb;
     if (fx.duckBy >= 0) {
         j["duck"] = Json::object({{"by", bus[std::size_t(fx.duckBy)].name}, {"amount", fx.duck.amount}, {"attack", fx.duck.attack},
                                   {"release", fx.duck.release}});
@@ -1511,24 +1747,24 @@ Json Audio::Impl::bus_state_json(const BusFx& fx) const {
 }
 
 void Audio::set_snapshots(AudioSnapshots catalog) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     impl_->snapshots = std::move(catalog);
 }
 
 std::vector<std::string> Audio::snapshot_names() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     std::vector<std::string> names;
     for (const auto& [name, snap] : impl_->snapshots) names.push_back(name);
     return names;
 }
 
 std::string Audio::current_snapshot() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->snapshotName;
 }
 
 Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     auto it = im.snapshots.find(std::string(name));
     if (it == im.snapshots.end()) {
@@ -1544,90 +1780,134 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
     const AudioSnapshot& snap = it->second;
     const float fade = fadeSeconds >= 0.0f ? fadeSeconds : snap.fade;
     static const BusSnapshot neutral;
+    // One command for every bus: the whole snapshot lands in the same block.
+    struct BusWant {
+        float volume, lowpass, reverb;
+        int duckBy;
+        float amount, attack, release;
+    };
+    std::vector<BusWant> wants;
     for (int b = 0; b < int(im.bus.size()); ++b) {
-        auto entry = snap.buses.find(im.bus[std::size_t(b)].name);
+        GameBus& fx = im.bus[std::size_t(b)];
+        auto entry = snap.buses.find(fx.name);
         const BusSnapshot& want = entry != snap.buses.end() ? entry->second : neutral;
-        BusFx& fx = im.bus[std::size_t(b)];
-        fx.snap.set(want.volume, im.ramp_frames(fade, true));
-        im.set_lowpass_locked(fx, want.lowpass, fade);
-        im.set_reverb_locked(fx, want.reverb, fade);
         int by = -1;
         if (want.duck && b != kMasterBus && want.duck->amount > 0.0f) by = im.bus_index(want.duck->by);
-        if (by >= 0 && by != kMasterBus && by != b) im.set_duck_locked(fx, by, *want.duck);
-        else im.set_duck_locked(fx, -1, DuckSettings{});
+        if (by == kMasterBus || by == b) by = -1;
+        fx.snap = want.volume;
+        fx.lpHz = want.lowpass <= 0.0f ? 0.0f : clamp(want.lowpass, 20.0f, im.lowpass_top());
+        fx.reverb = std::max(want.reverb, 0.0f);
+        if (want.reverb > 0.0f) im.give_reverb(b);
+        fx.duckBy = by;
+        fx.duck = by >= 0 ? *want.duck : DuckSettings{};
+        wants.push_back({want.volume, want.lowpass, want.reverb, by, fx.duck.amount, fx.duck.attack, fx.duck.release});
     }
+    Cmd* snapCmd = Impl::make(CmdKind::Lossy, [busWants = std::move(wants), fade](Mixer& m, Cmd&) {
+        const std::size_t n = std::min(busWants.size(), m.table->bus.size());
+        for (std::size_t b = 0; b < n; ++b) {
+            BusRuntime& rt = m.table->bus[b].rt;
+            const BusWant& w = busWants[b];
+            rt.snap.set(w.volume, m.ramp_frames(fade, true));
+            m.set_lowpass(rt, w.lowpass, fade);
+            std::unique_ptr<audio_detail::Reverb> none;  // the reverb came with give_reverb()
+            m.set_reverb(rt, w.reverb, fade, none);
+            m.set_duck(rt, w.duckBy, w.amount, w.attack, w.release);
+        }
+    });
+    snapCmd->sync = SyncTarget::Bus;
+    snapCmd->syncId = kSyncAllBuses;
+    im.send(snapCmd);
     im.snapshotName = std::string(name);
     return {};
 }
 
 void Audio::reset_bus_effects() {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    for (BusFx& fx : impl_->bus) {
-        fx.snap.set(1.0f, 0);
-        impl_->set_lowpass_locked(fx, 0.0f, 0.0f);
-        impl_->set_reverb_locked(fx, 0.0f, 0.0f);
-        impl_->set_duck_locked(fx, -1, DuckSettings{});
-        fx.duckGain = 1.0f;
-        fx.duckEnv = 0.0f;
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    for (GameBus& fx : im.bus) {
+        fx.snap = 1.0f;
+        fx.lpHz = 0.0f;
+        fx.reverb = 0.0f;
+        fx.duckBy = -1;
+        fx.duck = DuckSettings{};
     }
-    impl_->snapshotName.clear();
+    Cmd* c = Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) {
+        std::unique_ptr<audio_detail::Reverb> none;
+        for (audio_detail::MixBus& mb : m.table->bus) {
+            BusRuntime& fx = mb.rt;
+            fx.snap.set(1.0f, 0);
+            m.set_lowpass(fx, 0.0f, 0.0f);
+            m.set_reverb(fx, 0.0f, 0.0f, none);
+            m.set_duck(fx, -1, 0.0f, 0.0f, 0.0f);
+            fx.duckGain = 1.0f;
+            fx.duckEnv = 0.0f;
+        }
+    });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::ResetFx);
+    im.send(c);
+    im.snapshotName.clear();
 }
 
 void Audio::play_music(std::string_view clipPath, float volume, float fadeSeconds, bool persist) {
-    auto clip = impl_->get_clip(clipPath);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    auto clip = im.get_clip(clipPath);
     PlayParams p;
     p.volume = volume;
     p.loop = true;
     p.bus = "music";
-    bool retune = false;  // the track is already playing: not a new play, so not logged
-    {
-        std::lock_guard<std::mutex> lk(impl_->mu);
-        retune = clip && impl_->find_voice(impl_->musicVoice) && impl_->musicPath == clip->path;
-    }
-    if (!retune) impl_->log_play(clipPath, p, true, "", clip != nullptr);
+    // The track is already playing: not a new play (not logged), only a retune.
+    const bool retune = clip && im.live_voice(im.musicVoice) && im.musicPath == clip->path;
+    if (!retune) im.log_play(clipPath, p, true, "", clip != nullptr);
     if (!clip) return;
-    std::string err;
-    std::unique_ptr<Stream> stream = retune ? nullptr : Impl::open_stream(*clip, true, &err);
-    if (clip->encoded && !retune && !stream) {
-        FA_ERROR("audio", "Music '{}' cannot be streamed: {}", clipPath, err);
+    if (retune) {
+        im.drop_layers(std::max(fadeSeconds, 0.0f));
+        const VoiceId id = im.musicVoice;
+        const float vol = std::max(volume, 0.0f), fade = std::max(fadeSeconds, 0.0f);
+        im.live_voice(id)->volume = vol;
+        im.musicPersist = persist;
+        Cmd* c = Impl::make(CmdKind::Keep, [id, vol, fade](Mixer& m, Cmd&) {
+            MixVoice* v = m.find_voice(id);
+            if (!v) return;
+            v->volume = vol;
+            v->volFrames = 0;
+            if (v->fadeTarget < 1.0f) m.start_fade(*v, 1.0f, fade, false);
+        });
+        c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::Retune, id);  // the last retune wins
+        im.send(c);
         return;
     }
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    Impl& im = *impl_;
-    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
-    if (Voice* cur = im.find_voice(im.musicVoice)) {
-        if (im.musicPath == clip->path) {  // already playing this track: just retune
-            cur->volume = std::max(volume, 0.0f);
-            cur->volFrames = 0;
-            im.musicPersist = persist;
-            if (cur->fadeTarget < 1.0f) im.start_fade(*cur, 1.0f, std::max(fadeSeconds, 0.0f), false);
+    GameVoice gv;
+    gv.path = clip->path;
+    gv.music = true;
+    gv.priority = kMusicPriority;
+    if (clip->encoded) {
+        std::string err;
+        gv.stream = Impl::open_ring(*clip, true, kMusicStreamFrames, &gv.streamBytes, &err);
+        if (!gv.stream) {
+            FA_ERROR("audio", "Music '{}' cannot be streamed: {}", clipPath, err);
             return;
         }
-        if (fadeSeconds > 0.0f) {
-            im.start_fade(*cur, 0.0f, fadeSeconds, true);
-        } else {
-            im.erase_voice_locked(cur->id);
-        }
     }
-    VoiceId id = im.add_voice_locked(clip, p, std::move(stream));
-    if (Voice* v = im.find_voice(id)) {
-        v->protect = true;
-        if (fadeSeconds > 0.0f) {
-            v->fade = 0.0f;
-            im.start_fade(*v, 1.0f, fadeSeconds, false);
-        }
-    }
+    gv.clip = clip;
+    im.drop_layers(std::max(fadeSeconds, 0.0f));
+    if (im.musicVoice) im.fade_stop(im.musicVoice, fadeSeconds);
+    MixVoice mv;
+    const VoiceId id = im.new_voice(std::move(gv), p, mv, nullptr);
+    if (id) im.send_play(id, mv, fadeSeconds, CmdKind::Keep);
     im.musicVoice = id;
     im.musicPath = clip->path;
     im.musicPersist = persist;
 }
 
 bool Audio::play_music_layers(const std::vector<MusicLayer>& layers, float volume, float fadeSeconds, bool persist) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     if (layers.empty()) return false;
     struct Loaded {
         std::shared_ptr<const Clip> clip;
-        std::unique_ptr<Stream> stream;
+        std::shared_ptr<StreamRing> stream;
+        std::size_t bytes = 0;
         const MusicLayer* spec;
     };
     PlayParams p;
@@ -1636,41 +1916,46 @@ bool Audio::play_music_layers(const std::vector<MusicLayer>& layers, float volum
     p.bus = "music";
     std::vector<Loaded> loaded;
     bool ok = true;
-    for (const MusicLayer& l : layers) {  // decode and open the streams outside the lock
+    for (const MusicLayer& l : layers) {
         auto clip = im.get_clip(l.path);
         im.log_play(l.path, p, true, "", clip != nullptr, l.name);
-        if (!clip) { ok = false; continue; }
-        std::string err;
-        std::unique_ptr<Stream> stream = Impl::open_stream(*clip, true, &err);
-        if (clip->encoded && !stream) {
-            FA_ERROR("audio", "Music layer '{}' ('{}') cannot be streamed: {}", l.name, l.path, err);
+        if (!clip) {
             ok = false;
             continue;
         }
-        loaded.push_back({std::move(clip), std::move(stream), &l});
+        Loaded ld{clip, nullptr, 0, &l};
+        if (clip->encoded) {
+            std::string err;
+            ld.stream = Impl::open_ring(*clip, true, kMusicStreamFrames, &ld.bytes, &err);
+            if (!ld.stream) {
+                FA_ERROR("audio", "Music layer '{}' ('{}') cannot be streamed: {}", l.name, l.path, err);
+                ok = false;
+                continue;
+            }
+        }
+        loaded.push_back(std::move(ld));
     }
     if (!ok || loaded.empty()) return false;  // all or nothing: a missing layer would drift out of the mix
-    // One lock for every voice: the device callback takes the same mutex, so no block of audio holds some layers only.
-    std::lock_guard<std::mutex> lk(im.mu);
-    if (Voice* cur = im.find_voice(im.musicVoice)) {
-        if (fadeSeconds > 0.0f) im.start_fade(*cur, 0.0f, fadeSeconds, true);
-        else im.erase_voice_locked(cur->id);
-    }
+    if (im.musicVoice) im.fade_stop(im.musicVoice, fadeSeconds);
     im.musicVoice = 0;
     im.musicPath.clear();
-    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
+    im.drop_layers(std::max(fadeSeconds, 0.0f));
+    // Every layer's play is in the commands of this one call: the mixer applies them together, so they start on the
+    // same sample.
     for (Loaded& l : loaded) {
         const float level = std::max(l.spec->level, 0.0f);
         PlayParams lp = p;
         lp.volume = volume * level;
-        const VoiceId id = im.add_voice_locked(l.clip, lp, std::move(l.stream));
-        if (Voice* v = im.find_voice(id)) {
-            v->protect = true;
-            if (fadeSeconds > 0.0f) {
-                v->fade = 0.0f;
-                im.start_fade(*v, 1.0f, fadeSeconds, false);
-            }
-        }
+        GameVoice gv;
+        gv.path = l.clip->path;
+        gv.music = true;
+        gv.priority = kMusicPriority;
+        gv.clip = l.clip;
+        gv.stream = l.stream;
+        gv.streamBytes = l.bytes;
+        MixVoice mv;
+        const VoiceId id = im.new_voice(std::move(gv), lp, mv, nullptr);
+        if (id) im.send_play(id, mv, fadeSeconds, CmdKind::Keep);
         im.layers.push_back({l.spec->name, id, level});
     }
     im.layerVolume = volume;
@@ -1679,53 +1964,75 @@ bool Audio::play_music_layers(const std::vector<MusicLayer>& layers, float volum
 }
 
 bool Audio::set_layer(std::string_view name, float level, float fadeSeconds) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     for (Impl::Layer& l : im.layers) {
         if (l.name != name) continue;
         l.level = std::max(level, 0.0f);
-        if (Voice* v = im.find_voice(l.voice)) im.start_volume_ramp(*v, im.layerVolume * l.level, fadeSeconds);
+        if (GameVoice* v = im.live_voice(l.voice)) {
+            const float target = std::max(im.layerVolume * l.level, 0.0f);
+            v->volume = target;
+            const VoiceId id = l.voice;
+            Cmd* c = Impl::make(CmdKind::Lossy, [id, target, fadeSeconds](Mixer& m, Cmd&) {
+                if (MixVoice* mv = m.find_voice(id)) m.start_volume_ramp(*mv, target, fadeSeconds);
+            });
+            c->sync = SyncTarget::Voice;
+            c->syncId = id;
+            im.send(c);
+        }
         return true;
     }
     return false;
 }
 
 std::vector<std::string> Audio::layer_names() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     std::vector<std::string> out;
     for (const Impl::Layer& l : impl_->layers) out.push_back(l.name);
     return out;
 }
 
 void Audio::stop_music(float fadeSeconds) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
-    if (Voice* cur = im.find_voice(im.musicVoice)) {
-        if (fadeSeconds > 0.0f) im.start_fade(*cur, 0.0f, fadeSeconds, true);
-        else im.erase_voice_locked(cur->id);
-    }
-    im.drop_layers_locked(std::max(fadeSeconds, 0.0f));
+    if (im.musicVoice) im.fade_stop(im.musicVoice, fadeSeconds);
+    im.drop_layers(std::max(fadeSeconds, 0.0f));
     im.musicVoice = 0;
     im.musicPath.clear();
     im.musicPersist = false;
 }
 
 void Audio::set_paused(bool paused) {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     impl_->paused = paused;
+    Cmd* c = Impl::make(CmdKind::Keep, [paused](Mixer& m, Cmd&) { m.paused = paused; });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::Paused);
+    impl_->send(c);
 }
 
 bool Audio::paused() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->paused;
 }
 
-void Audio::advance_null_device(double seconds) { impl_->advance(seconds); }
+void Audio::advance_null_device(double seconds) {
+    Impl::Call call(*impl_);
+    if (impl_->device) impl_->pump();
+    else impl_->advance(seconds);
+}
 
-void Audio::set_clock(const World* world) { impl_->clockWorld = world; }
+void Audio::service() {
+    Impl::Call call(*impl_);
+    if (impl_->inited) impl_->pump();
+}
+
+void Audio::set_clock(const World* world) {
+    Impl::Call call(*impl_);
+    impl_->clockWorld = world;
+}
 
 std::vector<AudioEvent> Audio::play_log(std::uint64_t afterSeq) const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     std::vector<AudioEvent> out;
     for (const AudioEvent& ev : impl_->playLog)
         if (ev.seq > afterSeq) out.push_back(ev);
@@ -1733,13 +2040,13 @@ std::vector<AudioEvent> Audio::play_log(std::uint64_t afterSeq) const {
 }
 
 void Audio::clear_play_log() {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     impl_->playLog.clear();
     impl_->playDropped = 0;
 }
 
 std::uint64_t Audio::play_log_dropped() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
+    Impl::Call call(*impl_);
     return impl_->playDropped;
 }
 
@@ -1750,26 +2057,35 @@ Json AudioEvent::to_json() const {
 }
 
 void Audio::start_recording() {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->rec.clear();
-    impl_->recording = true;
-    impl_->recWarned = false;
-    impl_->recRate = impl_->deviceRate;
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    im.rec.clear();
+    im.recording = true;
+    im.recWarned = false;
+    im.recLostWarned = false;
+    im.recRate = im.deviceRate;
+    auto ring = std::make_shared<SampleRing>(kRecordRingFloats);
+    im.send_rec(ring);
+    im.recRing = std::move(ring);
 }
 
 bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut, int* rateOut) {
     std::vector<float> rec;
     int rate;
     {
-        std::lock_guard<std::mutex> lk(impl_->mu);
-        if (!impl_->recording) {
+        Impl::Call call(*impl_);
+        Impl& im = *impl_;
+        if (!im.recording) {
             if (error) *error = "audio recording was not started (hint: call start_recording() first)";
             return false;
         }
-        impl_->recording = false;
-        rec = std::move(impl_->rec);
-        impl_->rec.clear();
-        rate = impl_->recRate;
+        im.drain_recorder();
+        im.recording = false;
+        im.send_rec(nullptr);
+        im.recRing.reset();
+        rec = std::move(im.rec);
+        im.rec.clear();
+        rate = im.recRate;
     }
     if (pcmOut) {  // the mix as 16-bit stereo for a video file
         pcmOut->resize(rec.size());
@@ -1801,35 +2117,47 @@ bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::ve
 }
 
 Json Audio::stats() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    const Impl& im = *impl_;
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    im.sync_in();
+    im.drain_recorder();
     Json j = Json::object();
     j["device"] = im.device;
     j["sampleRate"] = im.deviceRate;
-    j["activeVoices"] = im.voices.size();
+    std::size_t active = 0;
+    std::size_t decoded = 0;  // PCM resident: clips decoded whole, plus the buffers of the voices that stream
+    for (const auto& [id, v] : im.voices) {
+        if (v.stopped) continue;
+        ++active;
+        if (v.stream) decoded += v.streamBytes;
+    }
+    j["activeVoices"] = active;
     j["loadedClips"] = im.clips.size();
     Json names = Json::array();
     for (const auto& [path, clip] : im.clips) names.push_back(path);
     j["clips"] = names;
-    std::size_t decoded = 0;  // PCM resident: clips decoded whole, plus the buffers of the voices that stream
     Json streamed = Json::array();
     for (const auto& [path, clip] : im.clips) {
         decoded += clip->data.size() * sizeof(float);
         if (clip->encoded) streamed.push_back(path);
     }
-    for (const Voice& v : im.voices)
-        if (v.stream) decoded += v.stream->resident_bytes();
     j["decodedBytes"] = decoded;
     j["streamedClips"] = streamed;
-    j["peak"] = im.lastPeak;
-    j["master"] = im.bus[kMasterBus].vol.target;
+    float peak = im.lastPeak;
+    if (im.device) {
+        // Relaxed: a statistic, one value the mixer writes alone; any recent block's peak will do.
+        const std::uint32_t bits = im.mixer.peakBits.load(std::memory_order_relaxed);
+        std::memcpy(&peak, &bits, sizeof(peak));
+    }
+    j["peak"] = peak;
+    j["master"] = im.bus[std::size_t(kMasterBus)].vol;
     Json buses = Json::object();
     Json effects = Json::object();
     Json parents = Json::object();
     for (std::size_t i = 0; i < im.bus.size(); ++i) {
-        const BusFx& fx = im.bus[i];
+        const GameBus& fx = im.bus[i];
         if (int(i) != kMasterBus) {
-            buses[fx.name] = fx.vol.target;
+            buses[fx.name] = fx.vol;
             parents[fx.name] = im.bus[std::size_t(fx.parent)].name;
         }
         effects[fx.name] = im.bus_state_json(fx);
@@ -1841,42 +2169,80 @@ Json Audio::stats() const {
     j["music"] = im.musicPath;
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);
+    // The real-time path (docs/SOUND.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
+    j["underruns"] = im.mixer.underrunEvents.load(std::memory_order_relaxed);
+    j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed);
+    j["commandsDropped"] = im.commandsDropped;
+    j["settingsDropped"] = im.settingsDropped;
+    j["commandsCoalesced"] = im.commandsCoalesced;
+    j["voicesStolen"] = im.voicesStolen;
+    j["voicesRejected"] = im.voicesRejected;
     return j;
 }
 
 void Audio::reload_clip(std::string_view pathIn) {
     std::string path = fs::normalize(pathIn);
     std::string err;
-    auto clip = impl_->decode(path, &err);
+    auto clip = Impl::decode(path, &err);  // outside the lock: decoding takes a while
     if (!clip) {
         FA_ERROR("audio", "reload failed, keeping the previous version: {}", err);
         return;
     }
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->clips[path] = clip;
-    impl_->failedLogged.erase(path);
-    for (Voice& v : impl_->voices) {
-        // A voice that streams goes on with the file it opened; so does one on a clip that now streams.
-        if (v.clip && v.clip->path == path && !v.stream && !clip->encoded) {
-            v.clip = clip;
-            if (v.pos >= double(clip->frames)) v.pos = v.loop ? std::fmod(v.pos, double(clip->frames)) : double(clip->frames);
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    std::shared_ptr<const Clip> old;
+    if (auto it = im.clips.find(path); it != im.clips.end()) old = it->second;
+    im.clips[path] = clip;
+    im.failedLogged.erase(path);
+    // A voice that streams goes on with the file it opened; so does one on a clip that now streams.
+    if (old && !clip->encoded) {
+        bool any = false;
+        for (auto& [id, v] : im.voices)
+            if (v.clip == old && !v.stream && !v.pcm) {
+                v.clip = clip;
+                any = true;
+            }
+        if (any) {
+            const Clip* from = old.get();
+            const Clip* to = clip.get();
+            Cmd* c = Impl::make(CmdKind::Keep, [from, to](Mixer& m, Cmd&) {
+                for (std::size_t i = 0; i < m.voiceCount; ++i) {
+                    MixVoice& v = m.voices[i];
+                    if (v.clip != from || v.stream || v.pcm) continue;
+                    v.clip = to;
+                    // Where the new clip's loop (or its end) is: the loop end can lie before the position the voice had, and
+                    // the clip can be shorter than the old one. A looping voice wraps into the loop, any other ends. A loop
+                    // shorter than one frame is not wrapped into here: the voice keeps its place, between the loop end and
+                    // the end of the clip, and the mixer's own loop handling brings it back on its next frame.
+                    const double frames = double(to->frames);
+                    const double end = to->loopEnd > 0 ? std::min(double(to->loopEnd), frames) : frames;
+                    const double start = std::min(double(to->loopStart), end);
+                    if (v.pos >= end) {
+                        if (v.loop && end - start >= 1.0) v.pos = start + std::fmod(v.pos - start, end - start);
+                        else if (v.pos >= frames) v.pos = frames;
+                    }
+                }
+            });
+            c->keep = old;  // the mixer may read the old clip until this command has run
+            im.send(c);
         }
     }
     // A song played from its rendered stems has them cached: a stem file that changed is a song that changed.
     std::vector<std::string> songs;
-    for (const auto& [key, src] : impl_->musicCache)
+    for (const auto& [key, song] : im.musicCache)
         if (key.size() > 6 && key.compare(key.size() - 6, 6, "|stems") == 0) songs.push_back(key.substr(0, key.size() - 6));
     for (const std::string& song : songs) {
         const MusicStemPlan plan = music_stem_plan_of(song);
         bool uses = plan.mixPath == path;
         for (const MusicStemFile& f : plan.files) uses = uses || f.path == path;
-        if (uses) impl_->music_invalidate(song);
+        if (uses) im.music_invalidate(song);
     }
 }
 
 void Audio::reload_song(std::string_view songPath) {
     const std::string song = fs::normalize(songPath);
     if (song.empty()) return;
+    Impl::Call call(*impl_);
     impl_->music_invalidate(song);
 }
 
@@ -1908,7 +2274,7 @@ MusicRt& Audio::Impl::music_get(World& world, Entity e) {
     rt->world = &world;
     rt->seen = stamp;
     MusicRt& ref = *rt;
-    std::lock_guard<std::mutex> lk(mu);
+    make_channel(ref);
     musicEnts[e.bits()] = std::move(rt);
     return ref;
 }
@@ -1916,15 +2282,64 @@ MusicRt& Audio::Impl::music_get(World& world, Entity e) {
 // The player of a gone entity keeps sounding in `musicOrphans` (a player of the next scene with the same song adopts it; update() fades
 // the rest out).
 void Audio::Impl::music_orphan(MusicRt* rt) {
-    std::lock_guard<std::mutex> lk(mu);
     auto it = musicEnts.find(rt->e.bits());
     if (it == musicEnts.end() || it->second.get() != rt) return;
     musicOrphans.push_back(std::move(it->second));
     musicEnts.erase(it);
 }
 
-// Finds the source of rt.song for the mode its component asks: the cache, a load in flight, or a new load (on the game thread when the
-// output is the null device or the web, so a headless run has the music at once; on a worker otherwise).
+// A transport in the mixer for the player. The mixer mixes at most kMaxPlayers: past that an orphan that has finished
+// gives its channel up, else the oldest orphan; when every channel plays a live player, this one waits (music_drive asks
+// again every frame).
+void Audio::Impl::make_channel(MusicRt& rt) {
+    if (rt.ch) return;
+    std::size_t attached = 0;
+    for (const auto& [bits, p] : musicEnts)
+        if (p->ch) ++attached;
+    for (const auto& p : musicOrphans)
+        if (p->ch) ++attached;
+    if (attached >= kMaxPlayers) {
+        auto victim = musicOrphans.end();
+        for (auto o = musicOrphans.begin(); o != musicOrphans.end(); ++o) {
+            if (!(*o)->ch) continue;
+            const MusicView v = view(**o);
+            if (v.fresh && !v.active) {
+                victim = o;
+                break;
+            }
+            if (victim == musicOrphans.end()) victim = o;  // the oldest one, unless a finished one comes up
+        }
+        if (victim == musicOrphans.end()) {
+            if (!channelWarned) {
+                channelWarned = true;
+                FA_WARN("audio", "more than {} MusicPlayers play at once: '{}' waits for one of them to stop", kMaxPlayers, rt.id);
+            }
+            return;
+        }
+        std::unique_ptr<MusicRt> gone = std::move(*victim);
+        musicOrphans.erase(victim);
+        retire(std::move(gone));
+    }
+    rt.ch = std::make_unique<MusicChannel>();
+    rt.ch->bus = rt.bus;
+    MusicChannel* ch = rt.ch.get();
+    rt.lastSeq = send(make(CmdKind::Keep, [ch](Mixer& m, Cmd&) { m.add_player(ch); }));
+}
+
+// Takes the player's transport out of the mixer. The command carries the channel and the sources it may read: they are
+// freed when it comes back (drain_returns), after the mixer has let go of them.
+void Audio::Impl::retire(std::unique_ptr<MusicRt> rt) {
+    if (!rt || !rt->ch) return;
+    MusicChannel* ch = rt->ch.get();
+    Cmd* c = make(CmdKind::Keep, [ch](Mixer& m, Cmd&) { m.remove_player(ch); });
+    c->channel = std::move(rt->ch);
+    for (HeldSource& h : rt->held) c->sources.push_back(std::move(h.src));
+    rt->held.clear();
+    send(c);
+}
+
+// Finds the source of rt.song for the mode its component asks: the cache, a load in flight, or a new load (a job when a
+// device thread mixes; in the call on the null device and the web, so a headless run has the music at once).
 void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
     rt.src.reset();
     rt.error.clear();
@@ -1949,53 +2364,55 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
         load->plan = std::move(plan);
         musicLoads[key] = load;
         musicErrors.erase(key);
-#if defined(__EMSCRIPTEN__)
-        const bool async = false;
-#else
-        const bool async = device && !autoAdvance;
-#endif
-        if (async) load->worker = std::thread([load] { load->run(); });
-        else load->run();
+        if (device && !web && !autoAdvance) {
+            // The job holds the load: a load given up meanwhile (music_invalidate) finishes into nothing.
+            load->job = jobs::submit("audio.music_load", [load] { load->run(); });
+            jobsInFlight.push_back(load->job);
+        } else {
+            load->run();
+        }
     }
     music_poll();
     music_resolve(rt);
 }
 
-// Moves the loads that finished into the cache; drops the sources nobody plays when the cache is over its size.
+// Moves the loads that finished into the cache.
 void Audio::Impl::music_poll() {
-    for (auto it = musicStale.begin(); it != musicStale.end();) {
-        if (!(*it)->done) {
-            ++it;
-            continue;
-        }
-        if ((*it)->worker.joinable()) (*it)->worker.join();
-        it = musicStale.erase(it);
-    }
     for (auto it = musicLoads.begin(); it != musicLoads.end();) {
         MusicLoad& l = *it->second;
-        if (!l.done) {
+        // Acquire pairs with the release in MusicLoad::run(): source, error and note are complete.
+        if (!l.done.load(std::memory_order_acquire)) {
             ++it;
             continue;
         }
-        if (l.worker.joinable()) l.worker.join();
         if (l.source) {
             if (!l.note.empty()) FA_WARN("audio", "song '{}' plays live instead of from its stems: {}", l.path, l.note);
-            musicCache[l.key] = l.source;
-            std::size_t total = 0;
-            for (auto& [k, v] : musicCache) total += v->bytes();
-            for (auto c = musicCache.begin(); total > kMusicCacheBytes && c != musicCache.end();) {
-                if (c->first != l.key && c->second.use_count() == 1) {
-                    total -= c->second->bytes();
-                    c = musicCache.erase(c);
-                } else {
-                    ++c;
-                }
-            }
+            // A move: the load (which its job's closure may keep alive a while longer) must not hold the song, or the cache
+            // could not evict it while that lasts (music_trim counts the holders).
+            musicCache[l.key] = CachedSong{std::move(l.source), ++musicUse};
+            music_trim(l.key);
         } else {
             musicErrors[l.key] = l.error;
             FA_ERROR("audio", "the song '{}' cannot be played: {}", l.path, l.error);
         }
         it = musicLoads.erase(it);
+    }
+    prune_jobs();
+}
+
+// Over the cache's budget, the sources nobody holds go, the least recently used first (`keepKey`, just loaded, stays).
+void Audio::Impl::music_trim(const std::string& keepKey) {
+    std::size_t total = 0;
+    for (const auto& [k, c] : musicCache) total += c.src->bytes();
+    while (total > musicCacheBudget) {
+        auto victim = musicCache.end();
+        for (auto c = musicCache.begin(); c != musicCache.end(); ++c) {
+            if (c->first == keepKey || c->second.src.use_count() != 1) continue;  // a player (or the mixer) holds it
+            if (victim == musicCache.end() || c->second.lastUse < victim->second.lastUse) victim = c;
+        }
+        if (victim == musicCache.end()) break;
+        total -= victim->second.src->bytes();
+        musicCache.erase(victim);
     }
 }
 
@@ -2003,7 +2420,8 @@ void Audio::Impl::music_resolve(MusicRt& rt) {
     if (rt.waitKey.empty()) return;
     auto c = musicCache.find(rt.waitKey);
     if (c != musicCache.end()) {
-        rt.src = c->second;
+        c->second.lastUse = ++musicUse;
+        rt.src = c->second.src;
         rt.waitKey.clear();
     } else if (musicLoads.find(rt.waitKey) == musicLoads.end()) {
         auto err = musicErrors.find(rt.waitKey);
@@ -2012,13 +2430,41 @@ void Audio::Impl::music_resolve(MusicRt& rt) {
     }
 }
 
-void Audio::Impl::music_events(World& world, MusicRt& rt) {
-    musicScratch.clear();
-    {
-        std::lock_guard<std::mutex> lk(mu);
-        rt.tr->take_events(musicScratch);
+MusicView Audio::Impl::view(MusicRt& rt) {
+    MusicView v;
+    if (!rt.ch) return v;  // no transport: nothing plays
+    rt.ch->snap.update();
+    const MusicSnap& s = rt.ch->snap.front();
+    v.state = &s.state;
+    v.fresh = s.appliedSeq >= rt.lastSeq;
+    if (v.fresh) {
+        v.playing = s.state.playing;
+        v.ended = s.state.ended;
+        v.active = s.state.active;
+        v.src = s.state.src;
+    } else {  // the last start or stop has not reached the mixer: what it will make of the transport
+        v.playing = rt.sent != nullptr;
+        v.active = true;
+        v.src = rt.sent.get();
     }
-    for (const MusicEvent& ev : musicScratch) {
+    return v;
+}
+
+void Audio::Impl::chan_stop(MusicRt& rt, MusicQuantize q, float fade) {
+    chan_cmd(rt, CmdKind::Keep, [q, fade](MusicTransport& tr) { tr.stop(q, fade); });
+}
+
+// The events the player's transport queued, as game events (a null `world`: dropped, nobody listens), then the sources
+// nothing reads any more are let go.
+void Audio::Impl::music_events(World* world, MusicRt& rt) {
+    if (!rt.ch) return;
+    MusicChannel& ch = *rt.ch;
+    // The state first, then the events (the mixer pushes the events before it publishes the state): every event made before
+    // this state is in the ring now, so the sources freed below are named by no event still to come.
+    ch.snap.update();
+    MusicEvent ev;
+    while (ch.events.pop(ev)) {
+        if (!world) continue;
         const MusicMap* map = ev.src ? &ev.src->map : nullptr;
         auto section = [&](int i) { return map && i >= 0 && std::size_t(i) < map->sections.size() ? map->sections[std::size_t(i)].name : std::string(); };
         Json d = Json::object({{"id", rt.id}, {"song", ev.src ? ev.src->path : rt.song}, {"frame", ev.frame},
@@ -2061,16 +2507,24 @@ void Audio::Impl::music_events(World& world, MusicRt& rt) {
                 name = "music.crossfade";
                 break;
         }
-        world.events().game.push_back(GameEvent{name, std::move(d), rt.e});
+        world->events().game.push_back(GameEvent{name, std::move(d), rt.e});
     }
-    musicScratch.clear();
-    std::lock_guard<std::mutex> lk(mu);
-    rt.tr->prune_sources();
+    const MusicSnap& s = ch.snap.front();
+    if (s.backlog != 0) return;  // events still in the transport may name any source it had
+    rt.held.erase(std::remove_if(rt.held.begin(), rt.held.end(),
+                                 [&](const HeldSource& h) {
+                                     if (h.seq > s.appliedSeq) return false;  // its start has not run yet
+                                     for (std::size_t i = 0; i < s.state.refCount && i < s.state.refs.size(); ++i)
+                                         if (s.state.refs[i] == h.src.get()) return false;
+                                     return true;
+                                 }),
+                  rt.held.end());
 }
 
 // One MusicPlayer component against its player in the mixer: starts, stops, changes of song, volume, bus and intensity.
 void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt) {
     (void)e;
+    if (!rt.ch) make_channel(rt);
     const std::string want = mp.song.empty() ? std::string() : fs::normalize(mp.song);
     bool adopted = false;
     if (rt.first) {
@@ -2078,18 +2532,24 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         if (!want.empty() && mp.playOnStart) {
             for (auto o = musicOrphans.begin(); o != musicOrphans.end(); ++o) {
                 MusicRt& old = **o;
-                if (old.song != want || !old.src || old.sent != old.src || old.stopIssued || !old.tr->playing()) continue;
-                {
-                    std::lock_guard<std::mutex> lk(mu);
-                    rt.tr = std::move(old.tr);
-                    rt.busName = old.busName;
-                    rt.bus = old.bus;
-                    musicOrphans.erase(o);
-                }
+                if (old.song != want || !old.src || old.sent != old.src || old.stopIssued || !old.ch || !view(old).playing) continue;
+                // The new player takes the old one's transport over, where it is in the song.
+                std::unique_ptr<MusicChannel> spare = std::move(rt.ch);
+                rt.ch = std::move(old.ch);
+                rt.held = std::move(old.held);
+                rt.lastSeq = old.lastSeq;
+                rt.busName = old.busName;
+                rt.bus = old.bus;
+                old.ch = std::move(spare);  // the channel made for the new player goes with the orphan (retired below)
+                old.held.clear();
+                std::unique_ptr<MusicRt> gone = std::move(*o);
+                musicOrphans.erase(o);
+                retire(std::move(gone));
                 // `old` is gone: what is left to do uses the player that took its place.
                 break;
             }
-            adopted = rt.tr->playing() && !rt.tr->ended();
+            const MusicView v = view(rt);
+            adopted = rt.ch && v.playing && !v.ended;
         }
         if (adopted) {
             rt.song = want;
@@ -2102,23 +2562,21 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
             auto c = musicCache.find(music_cache_key(want, mode));
             if (c != musicCache.end()) {
-                rt.src = c->second;
-                rt.sent = c->second;
+                c->second.lastUse = ++musicUse;
+                rt.src = c->second.src;
+                rt.sent = c->second.src;
                 rt.resolved = mode;
                 rt.epoch = musicEpoch;
             } else {
                 adopted = false;
-                std::lock_guard<std::mutex> lk(mu);
-                rt.tr->stop(MusicQuantize::None, 0.05f);
+                chan_stop(rt, MusicQuantize::None, 0.05f);
             }
         } else if (mp.playOnStart && !mp.playing) {
             mp.playing = true;
         }
     }
-    MusicTransport& tr = *rt.tr;
 
     if (mp.bus != rt.busName) {
-        std::lock_guard<std::mutex> lk(mu);
         int b = bus_index(mp.bus);
         if (b < 0) {
             FA_ERROR("audio", "MusicPlayer on '{}': unknown audio bus '{}'. {} (using 'music')", rt.id, mp.bus,
@@ -2127,6 +2585,10 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         }
         rt.busName = mp.bus;
         rt.bus = b;
+        if (rt.ch) {
+            MusicChannel* ch = rt.ch.get();
+            send_channel_bus(ch, b);
+        }
     }
 
     if (want != rt.song) {
@@ -2135,10 +2597,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             rt.src.reset();
             rt.waitKey.clear();
             rt.error.clear();
-            if (rt.sent) {
-                std::lock_guard<std::mutex> lk(mu);
-                tr.stop(MusicQuantize::None, 0.3f);
-            }
+            if (rt.sent) chan_stop(rt, MusicQuantize::None, 0.3f);
             rt.sent.reset();
         } else {
             music_request(rt, mp);
@@ -2162,8 +2621,8 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             rt.reload = false;
             std::string current;
             if (mp.playing && rt.sent) {
-                std::lock_guard<std::mutex> lk(mu);
-                if (tr.playing()) current = tr.status().section;
+                const MusicView v = view(rt);
+                if (v.playing && v.state) current = MusicTransport::status_of(*v.state).section;
             }
             if (!current.empty()) {
                 rt.entry = MusicRt::Entry{};
@@ -2183,17 +2642,14 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
 
     // playing -> not playing
     if (mp.playing != rt.playing) {
-        if (!mp.playing && !rt.stopIssued) {
-            std::lock_guard<std::mutex> lk(mu);
-            tr.stop(MusicQuantize::None, 0.3f);
-        }
+        if (!mp.playing && !rt.stopIssued) chan_stop(rt, MusicQuantize::None, 0.3f);
         if (!mp.playing) rt.sent.reset();
         rt.stopIssued = !mp.playing;
         rt.playing = mp.playing;
     }
 
-    // hand the source to the transport
-    if (mp.playing && rt.src && rt.sent != rt.src) {
+    // hand the source to the transport (not before it has a channel: it waits for one)
+    if (mp.playing && rt.src && rt.sent != rt.src && rt.ch) {
         const MusicMap& map = rt.src->map;
         const std::string& wanted = rt.entry.section.empty() ? mp.startSection : rt.entry.section;
         int section = -1;
@@ -2204,19 +2660,9 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
                          did_you_mean(wanted, map.section_names()));
         }
         const MusicQuantize q = rt.entry.quantize.value_or(mp.quantize);
+        const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
         std::string err;
-        bool ok;
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            if (tr.playing() && !rt.entry.hard) {
-                const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
-                const MusicSource* from = tr.source();
-                const float seconds = float(double(bars) * from->map.barFrames / double(kMusicRate));
-                ok = tr.crossfade_to(rt.src, section, q, seconds, &err);
-            } else {
-                ok = tr.start(rt.src, section, music_unit(mp.intensity), &err);
-            }
-        }
+        const bool ok = send_start(rt, rt.src, section, music_unit(mp.intensity), q, bars, rt.entry.hard, &err);
         rt.entry = MusicRt::Entry{};
         if (ok) {
             rt.sent = rt.src;
@@ -2230,47 +2676,82 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         }
     }
 
-    // a song that played through to its end
-    if (mp.playing && rt.sent && tr.ended()) {
+    // a song that played through to its end (the mixer's state once it has the last start or stop)
+    const MusicView v = view(rt);
+    if (mp.playing && rt.sent && v.fresh && v.ended) {
         mp.playing = false;
         rt.playing = false;
         rt.sent.reset();
     }
 
-    {
-        std::lock_guard<std::mutex> lk(mu);
-        const float vol = clamp(std::isfinite(mp.volume) ? mp.volume : 0.0f, 0.0f, 4.0f);
-        if (vol != rt.volume) {
-            tr.set_volume(vol, rt.volume < 0.0f ? 0.0f : 0.05f);
-            rt.volume = vol;
-        }
-        if (mp.loop != rt.loop) {
-            tr.set_loop(mp.loop);
-            rt.loop = mp.loop;
-        }
-        if (mp.layerFade != rt.layerFade || mp.layerRange != rt.layerRange) {
-            tr.set_layer_fade(std::max(mp.layerFade, 0.0f), std::max(mp.layerRange, 0.0f));
-            rt.layerFade = mp.layerFade;
-            rt.layerRange = mp.layerRange;
-        }
-        const float inten = music_unit(mp.intensity);
-        if (rt.sent && inten != rt.intensity) {
-            tr.set_intensity(inten, mp.layerQuantize);
-            rt.intensity = inten;
-        }
-        // runtime fields
-        const MusicStatus st = tr.status();
-        mp.ready = rt.src != nullptr;
-        mp.section = st.section;
-        mp.bar = st.playing ? st.bar : 0;
-        mp.beat = st.playing ? st.beat : 0;
-        mp.tempo = st.playing ? float(st.tempo) : 0.0f;
-        mp.activeMode = st.playing ? st.mode : (rt.src ? rt.src->mode : std::string());
+    const float vol = clamp(std::isfinite(mp.volume) ? mp.volume : 0.0f, 0.0f, 4.0f);
+    if (vol != rt.volume && rt.ch) {
+        const float fade = rt.volume < 0.0f ? 0.0f : 0.05f;
+        chan_cmd(rt, CmdKind::Lossy, [vol, fade](MusicTransport& tr) { tr.set_volume(vol, fade); });
+        rt.volume = vol;
     }
-    music_events(world, rt);
+    if ((mp.loop != rt.loop || rt.resendLoop) && rt.ch) {
+        const bool loop = mp.loop;
+        chan_cmd(rt, CmdKind::Lossy, [loop](MusicTransport& tr) { tr.set_loop(loop); });
+        rt.loop = mp.loop;
+        rt.resendLoop = false;
+    }
+    if ((mp.layerFade != rt.layerFade || mp.layerRange != rt.layerRange) && rt.ch) {
+        const float fade = std::max(mp.layerFade, 0.0f), range = std::max(mp.layerRange, 0.0f);
+        chan_cmd(rt, CmdKind::Lossy, [fade, range](MusicTransport& tr) { tr.set_layer_fade(fade, range); });
+        rt.layerFade = mp.layerFade;
+        rt.layerRange = mp.layerRange;
+    }
+    const float inten = music_unit(mp.intensity);
+    if (rt.sent && inten != rt.intensity) {
+        const MusicQuantize q = mp.layerQuantize;
+        chan_cmd(rt, CmdKind::Lossy, [inten, q](MusicTransport& tr) { tr.set_intensity(inten, q); });
+        rt.intensity = inten;
+    }
+    // runtime fields: the mixer's latest state (a block behind the commands of this frame with a device)
+    const MusicStatus st = v.state ? MusicTransport::status_of(*v.state) : MusicStatus{};
+    mp.ready = rt.src != nullptr;
+    mp.section = st.section;
+    mp.bar = st.playing ? st.bar : 0;
+    mp.beat = st.playing ? st.beat : 0;
+    mp.tempo = st.playing ? float(st.tempo) : 0.0f;
+    mp.activeMode = st.playing ? st.mode : (rt.src ? rt.src->mode : std::string());
+    music_events(&world, rt);
+}
+
+// A music setting was dropped (the device stalled): once the queue has emptied every player sends its settings again, the
+// ones music_drive compares with what it last sent (volume, loop, layers, intensity) and its bus. The intensity goes with
+// the component's layerQuantize of that moment (the call that was dropped may have had another). A player that lost its
+// entity (an orphan, fading out) has no component to read: it gets the last values it was sent, the intensity with no
+// quantize.
+void Audio::Impl::music_resync() {
+    if (!resyncMusic || staged.size() > kResyncBelow) return;
+    resyncMusic = false;
+    for (auto& [bits, rt] : musicEnts) {
+        if (!rt->ch) continue;
+        rt->volume = -1.0f;
+        rt->layerFade = -1.0f;
+        rt->layerRange = -1.0f;
+        rt->intensity = -1.0f;
+        rt->resendLoop = true;
+        send_channel_bus(rt->ch.get(), rt->bus);
+    }
+    for (auto& rt : musicOrphans) {
+        if (!rt->ch) continue;
+        MusicRt& o = *rt;
+        if (o.volume >= 0.0f) chan_cmd(o, CmdKind::Lossy, [v = o.volume](MusicTransport& tr) { tr.set_volume(v, 0.0f); });
+        chan_cmd(o, CmdKind::Lossy, [loop = o.loop](MusicTransport& tr) { tr.set_loop(loop); });
+        if (o.layerFade >= 0.0f && o.layerRange >= 0.0f)
+            chan_cmd(o, CmdKind::Lossy, [f = o.layerFade, r = o.layerRange](MusicTransport& tr) { tr.set_layer_fade(f, r); });
+        if (o.sent && o.intensity >= 0.0f)
+            chan_cmd(o, CmdKind::Lossy, [i = o.intensity](MusicTransport& tr) { tr.set_intensity(i, MusicQuantize::None); });
+        send_channel_bus(o.ch.get(), o.bus);
+    }
 }
 
 void Audio::Impl::music_update(World& world) {
+    music_poll();
+    music_resync();
     // Players whose entity (or component) is gone, or that belong to another world, play on as orphans.
     {
         std::vector<MusicRt*> gone;
@@ -2286,68 +2767,67 @@ void Audio::Impl::music_update(World& world) {
         rt.seen = stamp;
         if (!world.active_in_hierarchy(e)) {
             if (rt.playing || mp->playing) {
-                if (!rt.stopIssued) {
-                    std::lock_guard<std::mutex> lk(mu);
-                    rt.tr->stop(MusicQuantize::None, 0.3f);
-                }
+                if (!rt.stopIssued) chan_stop(rt, MusicQuantize::None, 0.3f);
                 mp->playing = false;
                 rt.playing = false;
                 rt.stopIssued = true;
                 rt.sent.reset();
             }
             rt.first = false;
+            music_events(&world, rt);
             continue;
         }
         music_drive(world, e, *mp, rt);
     }
-    // What nobody adopted fades out and goes.
-    std::lock_guard<std::mutex> lk(mu);
+    // What nobody adopted fades out and goes once the mixer says it is silent.
     for (auto it = musicOrphans.begin(); it != musicOrphans.end();) {
         MusicRt& o = **it;
+        if (!o.ch) {
+            it = musicOrphans.erase(it);
+            continue;
+        }
         if (!o.stopIssued) {
-            o.tr->stop(MusicQuantize::None, 0.5f);
+            chan_stop(o, MusicQuantize::None, 0.5f);
             o.stopIssued = true;
         }
-        musicScratch.clear();
-        o.tr->take_events(musicScratch);  // its entity is gone: nobody listens
-        musicScratch.clear();
-        o.tr->prune_sources();
-        if (!o.tr->active()) it = musicOrphans.erase(it);
-        else ++it;
+        music_events(nullptr, o);  // its entity is gone: nobody listens
+        const MusicView v = view(o);
+        if (v.fresh && !v.active) {
+            std::unique_ptr<MusicRt> gone = std::move(*it);
+            it = musicOrphans.erase(it);
+            retire(std::move(gone));
+        } else {
+            ++it;
+        }
     }
 }
 
 void Audio::Impl::music_shutdown() {
-    for (auto& [k, l] : musicLoads)
-        if (l->worker.joinable()) l->worker.join();
-    for (auto& l : musicStale)
-        if (l->worker.joinable()) l->worker.join();
-    std::lock_guard<std::mutex> lk(mu);
-    musicLoads.clear();
-    musicStale.clear();
-    musicCache.clear();
-    musicErrors.clear();
+    for (auto& [bits, rt] : musicEnts) retire(std::move(rt));
+    for (auto& rt : musicOrphans) retire(std::move(rt));
     musicEnts.clear();
     musicOrphans.clear();
+    settle();
+    musicLoads.clear();  // a load still running is held by its job (shutdown() waits for the jobs)
+    musicCache.clear();
+    musicErrors.clear();
 }
 
 void Audio::set_music_device(const MusicDeviceProfile& device) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     const MusicDeviceProfile& old = im.musicDevice;
     if (old.formFactor != device.formFactor || old.tier != device.tier || old.web != device.web) ++im.musicEpoch;
     im.musicDevice = device;
 }
 
-// The song changed on disk: what was rendered of it is stale. The loads that run are given up, the cached sources dropped, and every
-// player of the song fetches it again and crossfades into the new render (music_drive).
+// The song changed on disk: what was rendered of it is stale. The loads that run are given up (their jobs hold them until
+// they finish), the cached sources dropped, and every player of the song fetches it again and crossfades into the new render
+// (music_drive).
 void Audio::Impl::music_invalidate(const std::string& song) {
     for (const char* mode : {"|live", "|stems"}) {
         const std::string key = song + mode;
-        auto load = musicLoads.find(key);
-        if (load != musicLoads.end()) {
-            musicStale.push_back(std::move(load->second));
-            musicLoads.erase(load);
-        }
+        musicLoads.erase(key);
         musicCache.erase(key);
         musicErrors.erase(key);
     }
@@ -2356,8 +2836,10 @@ void Audio::Impl::music_invalidate(const std::string& song) {
 }
 
 std::uint64_t Audio::mixed_frames() const {
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    return impl_->mixedTotal;
+    Impl::Call call(*impl_);
+    impl_->sync_in();
+    // Relaxed: a counter the mixer alone writes.
+    return impl_->mixer.mixedTotal.load(std::memory_order_relaxed);
 }
 
 namespace {
@@ -2373,6 +2855,7 @@ Result<void> need_song_file(const char* call, std::string_view song) {
 }  // namespace
 
 Result<void> Audio::music_play(World& world, Entity e, std::string_view song, std::string_view section, float intensity) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.play");
@@ -2397,39 +2880,40 @@ Result<void> Audio::music_play(World& world, Entity e, std::string_view song, st
 }
 
 void Audio::music_stop(World& world, Entity e, MusicQuantize quantize, float fadeSeconds) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return;
     mp->playing = false;
     MusicRt* rt = im.music_find(world, e);
     if (!rt) return;
-    {
-        std::lock_guard<std::mutex> lk(im.mu);
-        rt->tr->stop(quantize, fadeSeconds < 0.0f ? 0.3f : fadeSeconds);
-    }
+    im.chan_stop(*rt, quantize, fadeSeconds < 0.0f ? 0.3f : fadeSeconds);
     rt->sent.reset();
     rt->stopIssued = true;
     rt->playing = false;
 }
 
 void Audio::music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return;
     mp->intensity = music_unit(intensity);
     MusicRt* rt = im.music_find(world, e);
     if (!quantize || !rt || !rt->sent) return;
-    std::lock_guard<std::mutex> lk(im.mu);
-    rt->tr->set_intensity(mp->intensity, *quantize);
-    rt->intensity = mp->intensity;
+    const float inten = mp->intensity;
+    const MusicQuantize q = *quantize;
+    im.chan_cmd(*rt, CmdKind::Lossy, [inten, q](MusicTransport& tr) { tr.set_intensity(inten, q); });
+    rt->intensity = inten;
 }
 
 Result<void> Audio::music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize, float fadeSeconds) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.goToSection");
     MusicRt& rt = im.music_get(world, e);
-    const MusicSource* playing = rt.tr->source();
+    const MusicSource* playing = im.view(rt).src;
     const MusicSource* known = playing ? playing : rt.src.get();
     if (known) {
         if (known->map.section_index(section) < 0)
@@ -2442,15 +2926,16 @@ Result<void> Audio::music_go_to_section(World& world, Entity e, std::string_view
         rt.entry.section = std::string(section);
         return {};
     }
-    std::string err;
-    std::lock_guard<std::mutex> lk(im.mu);
     const int index = playing->map.section_index(section);
-    if (!rt.tr->go_to_section(index, quantize.value_or(mp->quantize), fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds, &err))
-        return make_error("music.goToSection: " + err, "Check music.status for the song that plays.");
+    const MusicQuantize q = quantize.value_or(mp->quantize);
+    const float fade = fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds;
+    // The transport checks again when the command runs (it may have stopped meanwhile): then the jump is not made.
+    im.chan_cmd(rt, CmdKind::Droppable, [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
     return {};
 }
 
 Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStingerSpec& spec) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.playStinger");
@@ -2458,12 +2943,14 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         return make_error("music.playStinger: give exactly one of \"clip\" (an audio file) and \"section\" (a section of the song)",
                           "For example playStinger({clip: 'sfx/hit.wav', quantize: 'beat'}) or playStinger({section: 'victory'}).");
     MusicRt& rt = im.music_get(world, e);
-    const MusicSource* playing = rt.tr->source();
-    if (!playing || !rt.sent)
+    const MusicSource* playing = im.view(rt).src;
+    if (!playing || !rt.sent || !rt.ch)
         return make_error("music.playStinger: nothing is playing, a stinger plays over the music",
                           "Start the music first (music.play), and wait for the 'music.ready' event when the song loads.");
     const MusicQuantize q = spec.quantize.value_or(mp->quantize);
     const float volume = std::isfinite(spec.volume) ? clamp(spec.volume, 0.0f, 4.0f) : 1.0f;
+    const float duck = spec.duck > 0.0f ? clamp(spec.duck, 0.0f, 1.0f) : 0.0f;
+    const float attack = spec.duckAttack, release = spec.duckRelease;
     if (!spec.section.empty()) {
         const int index = playing->map.section_index(spec.section);
         if (index < 0)
@@ -2473,30 +2960,46 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         const MusicSpan& span = playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)];
         const float tail = std::max(spec.tail, 0.0f);
         const float length = float((span.end - span.start) / double(kMusicRate)) + tail;
-        std::string err;
-        std::lock_guard<std::mutex> lk(im.mu);
-        if (!rt.tr->play_section_stinger(index, q, volume, tail, &err)) return make_error("music.playStinger: " + err, "");
-        if (spec.duck > 0.0f)
-            rt.tr->duck(q, clamp(spec.duck, 0.0f, 1.0f), spec.duckAttack, spec.duckHold < 0.0f ? length : spec.duckHold, spec.duckRelease);
+        const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
+        im.chan_cmd(rt, CmdKind::Droppable, [index, q, volume, tail, duck, attack, hold, release](MusicTransport& tr) {
+            if (tr.play_section_stinger(index, q, volume, tail, nullptr) && duck > 0.0f) tr.duck(q, duck, attack, hold, release);
+        });
         return {};
     }
-    // A clip: loaded and opened outside the lock; its voice then starts on the boundary's frame.
+    // A clip: its voice starts on the boundary's frame, which the mixer knows when the command runs.
     auto clip = im.get_clip(spec.clip);
     if (!clip) return make_error("music.playStinger: the clip '" + spec.clip + "' could not be loaded", "The error above says why; check the path (assets.list).");
-    std::string err;
-    auto stream = Impl::open_stream(*clip, false, &err);
-    if (!err.empty()) return make_error("music.playStinger: " + err, "");
+    GameVoice gv;
+    gv.path = clip->path;
+    gv.source = rt.id;
+    if (clip->encoded) {
+        std::string err;
+        gv.stream = Impl::open_ring(*clip, false, kStreamFrames, &gv.streamBytes, &err);
+        if (!gv.stream) return make_error("music.playStinger: " + err, "");
+    }
+    gv.clip = clip;
     PlayParams p;
     p.volume = volume;
     p.bus = spec.bus.empty() ? rt.busName : spec.bus;
+    p.priority = kStingerPriority;
+    gv.priority = kStingerPriority;
     const float length = float(double(clip->frames) / double(kRate));
-    VoiceId id = 0;
-    {
-        std::lock_guard<std::mutex> lk(im.mu);
-        p.delayFrames = rt.tr->schedule_clip_stinger(q);
-        id = im.add_voice_locked(clip, p, std::move(stream));
-        if (spec.duck > 0.0f)
-            rt.tr->duck(q, clamp(spec.duck, 0.0f, 1.0f), spec.duckAttack, spec.duckHold < 0.0f ? length : spec.duckHold, spec.duckRelease);
+    const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
+    MixVoice mv;
+    const VoiceId id = im.new_voice(std::move(gv), p, mv, nullptr);
+    if (id) {
+        MusicChannel* ch = rt.ch.get();
+        Cmd* c = Impl::make(CmdKind::Droppable, [mv, ch, q, duck, attack, hold, release](Mixer& m, Cmd&) {
+            MixVoice v = mv;
+            v.delay = long(std::clamp<std::int64_t>(ch->tr.schedule_clip_stinger(q), 0, std::numeric_limits<std::int32_t>::max()));
+            if (duck > 0.0f) ch->tr.duck(q, duck, attack, hold, release);
+            if (!m.add_voice(v)) {  // see send_play
+                m.returns.push(Ret{Ret::Ended, nullptr, v.id});
+                m.returns.commit();
+            }
+        });
+        c->play = id;
+        im.send(c);
     }
     im.log_play(spec.clip, p, false, rt.id, true, {}, id);
     return {};
@@ -2504,6 +3007,7 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
 
 Result<void> Audio::music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section, std::optional<MusicQuantize> quantize,
                                        float bars) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.crossfadeTo");
@@ -2521,49 +3025,50 @@ Result<void> Audio::music_crossfade_to(World& world, Entity e, std::string_view 
     return {};
 }
 
+namespace {
+MusicStatus status_with(const MusicTransportState* state, const MusicRt& rt) {
+    MusicStatus st = state ? MusicTransport::status_of(*state) : MusicStatus{};
+    st.exists = true;
+    st.ready = rt.src != nullptr;
+    if (rt.src) st.sections = rt.src->map.section_names();
+    st.bus = rt.busName;
+    st.error = rt.error;
+    if (st.song.empty()) st.song = rt.song;
+    return st;
+}
+}  // namespace
+
 MusicStatus Audio::music_status(World& world, Entity e) const {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicRt* rt = im.music_find(world, e);
     if (!rt) return MusicStatus{};
-    std::lock_guard<std::mutex> lk(im.mu);
-    MusicStatus st = rt->tr->status();
-    st.exists = true;
-    st.ready = rt->src != nullptr;
-    if (rt->src) st.sections = rt->src->map.section_names();
-    st.bus = rt->busName;
-    st.error = rt->error;
-    if (st.song.empty()) st.song = rt->song;
-    return st;
+    return status_with(im.view(*rt).state, *rt);
 }
 
 Json Audio::music_players() const {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
-    std::lock_guard<std::mutex> lk(im.mu);
     Json out = Json::array();
-    auto add = [&](const MusicRt& rt, bool orphan) {
-        MusicStatus st = rt.tr->status();
-        st.exists = true;
-        st.ready = rt.src != nullptr;
-        if (rt.src) st.sections = rt.src->map.section_names();
-        st.bus = rt.busName;
-        st.error = rt.error;
-        if (st.song.empty()) st.song = rt.song;
-        Json j = st.to_json();
+    auto add = [&](MusicRt& rt, bool orphan) {
+        Json j = status_with(im.view(rt).state, rt).to_json();
         j["entity"] = rt.id;
         j["orphan"] = orphan;
         out.push_back(std::move(j));
     };
-    for (const auto& [bits, rt] : im.musicEnts) add(*rt, false);
-    for (const auto& rt : im.musicOrphans) add(*rt, true);
+    for (auto& [bits, rt] : im.musicEnts) add(*rt, false);
+    for (auto& rt : im.musicOrphans) add(*rt, true);
     return out;
 }
 
 // ============================================================ world driving ==
 
 void Audio::update(World& world, float dt) {
+    Impl::Call call(*impl_);
     Impl& im = *impl_;
     if (!im.inited) return;
     if (im.autoAdvance) im.advance(dt);
+    im.pump();
 
     if (im.lastWorld != &world) {
         for (auto& [k, ea] : im.ents) if (ea.voice) stop(ea.voice);
@@ -2583,9 +3088,10 @@ void Audio::update(World& world, float dt) {
         pp.pitch = fs.options.pitch;
         pp.pan = fs.options.pan;
         pp.bus = fs.options.bus;
-        if (im.start(fs.options.path, pp, fs.source) == 0 && feel.failedSounds.size() < 256) feel.failedSounds.insert(fs.options.path);
+        bool rejected = false;  // a full mixer refusing it is no failure of the file
+        if (im.start(fs.options.path, pp, fs.source, &rejected) == 0 && !rejected && feel.failedSounds.size() < 256)
+            feel.failedSounds.insert(fs.options.path);
     }
-
     // ---- listener: AudioListener entity, else the primary (or first) camera
     bool haveListener = false;
     Vec3 lpos{}, lright{1, 0, 0};
@@ -2678,6 +3184,7 @@ void Audio::update(World& world, float dt) {
                 p.pitch = src->pitch;
                 p.pan = pan;
                 p.loop = src->loop;
+                p.priority = src->priority;
                 std::string clip = src->clip;
                 if (src->variants >= 2) {
                     // The world RNG's state (not a draw: gameplay's random numbers are untouched), the entity's id and the play
@@ -2693,14 +3200,17 @@ void Audio::update(World& world, float dt) {
                 }
                 ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
-                if (ea.voice == 0) src->playing = false;  // load failed (already logged)
+                if (ea.voice == 0) src->playing = false;  // load failed, or a full mixer refused it (both logged)
             }
         } else if (ea.voice != 0) {
-            std::lock_guard<std::mutex> lk(im.mu);
-            if (Voice* v = im.find_voice(ea.voice)) {
-                v->volume = std::max(volume, 0.0f);
-                v->pitch = std::max(src->pitch, 0.001f);
-                v->pan = pan;
+            if (GameVoice* v = im.live_voice(ea.voice)) {
+                const float vol = std::max(volume, 0.0f), pitch = std::max(src->pitch, 0.001f);
+                if (vol != v->volume || pitch != v->pitch || pan != v->pan) {  // a command only for what changed
+                    v->volume = vol;
+                    v->pitch = pitch;
+                    v->pan = pan;
+                    im.send_params(ea.voice, vol, pitch, pan);
+                }
             }
         }
     }
@@ -2746,7 +3256,8 @@ void Audio::update(World& world, float dt) {
         if (ev.voice == 0) {
             PlayParams p;
             p.volume = vid->volume;
-            p.loop = true;  // never the first voice evicted when the mixer is full
+            p.loop = true;
+            p.priority = kVideoPriority;  // above a default sound when the mixer is full
             p.bus = vid->bus;
             ev.voice = open_pcm_voice(dec->info().sampleRate, p, vid->path, ev.id);
             ev.decoder = dec;
@@ -2787,18 +3298,103 @@ void Audio::update(World& world, float dt) {
         if (ss.music.empty()) {
             stop_music(0.5f);
         } else {
-            bool keep;  // a persisted track that is the scene's own music stays persisted
-            {
-                std::lock_guard<std::mutex> lk(im.mu);
-                keep = im.musicPersist && im.musicPath == fs::normalize(ss.music);
-            }
+            // a persisted track that is the scene's own music stays persisted
+            const bool keep = im.musicPersist && im.musicPath == fs::normalize(ss.music);
             play_music(ss.music, ss.musicVolume, 0.5f, keep);
         }
     } else if (!ss.music.empty() && ss.musicVolume != im.sceneMusicVolume) {
         im.sceneMusicVolume = ss.musicVolume;
-        std::lock_guard<std::mutex> lk(im.mu);
-        if (Voice* v = im.find_voice(im.musicVoice)) v->volume = std::max(ss.musicVolume, 0.0f);
+        if (GameVoice* v = im.live_voice(im.musicVoice)) {
+            const float vol = std::max(ss.musicVolume, 0.0f);
+            const VoiceId id = im.musicVoice;
+            v->volume = vol;
+            im.send(Impl::make(CmdKind::Keep, [id, vol](Mixer& m, Cmd&) {
+                if (MixVoice* mv = m.find_voice(id)) {
+                    mv->volume = vol;
+                    mv->volFrames = 0;
+                }
+            }));
+        }
     }
+}
+
+// ============================================================ test access ==
+
+void AudioTestAccess::use_manual_device(Audio& audio, int rate) {
+    Audio::Impl& im = *audio.impl_;
+    Audio::Impl::Call call(im);
+    im.settle();
+    im.mixer.armed.store(false, std::memory_order_release);
+    im.deviceRate = rate > 0 ? rate : kRate;
+    im.mixer.set_device_rate(im.deviceRate);
+    im.device = true;
+    im.manual = true;
+    im.autoAdvance = false;
+    im.mixer.set_sync_fill(false);
+    // Release: as in init(), the rate and the fill mode are visible to the render() that sees `armed`.
+    im.mixer.armed.store(true, std::memory_order_release);
+}
+
+void AudioTestAccess::render(Audio& audio, float* out, int frames, int channels) {
+    audio.impl_->mixer.render(out, frames, channels);
+}
+
+std::recursive_mutex& AudioTestAccess::api_mutex(Audio& audio) { return audio.impl_->apiMu; }
+
+void AudioTestAccess::set_music_cache_budget(Audio& audio, std::size_t bytes) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->musicCacheBudget = bytes;
+}
+
+void AudioTestAccess::set_stream_service(Audio& audio, bool on) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->streamService = on;
+}
+
+void AudioTestAccess::pump(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->pump();
+}
+
+std::size_t AudioTestAccess::mirror_voices(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->sync_in();
+    return audio.impl_->voices.size();
+}
+
+double AudioTestAccess::voice_position(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MixVoice* v = audio.impl_->mixer.find_voice(voice);
+    return v ? v->pos : -1.0;
+}
+
+std::size_t AudioTestAccess::staged_commands(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    return audio.impl_->staged.size();
+}
+
+void AudioTestAccess::stage_keeps(Audio& audio, std::size_t count) {
+    Audio::Impl::Call call(*audio.impl_);
+    for (std::size_t i = 0; i < count; ++i) audio.impl_->send(Audio::Impl::make(CmdKind::Keep, [](Mixer&, Cmd&) {}));
+}
+
+bool AudioTestAccess::music_loop(Audio& audio, World& world, Entity e) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MusicRt* rt = audio.impl_->music_find(world, e);
+    return rt && rt->ch && rt->ch->tr.loop();
+}
+
+int AudioTestAccess::music_channel_bus(Audio& audio, World& world, Entity e) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MusicRt* rt = audio.impl_->music_find(world, e);
+    return rt && rt->ch ? rt->ch->bus : -1;
+}
+
+std::vector<std::pair<std::string, std::size_t>> AudioTestAccess::music_cache(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    std::vector<std::pair<std::string, std::size_t>> out;
+    for (const auto& [key, song] : audio.impl_->musicCache) out.emplace_back(key, song.src->bytes());
+    return out;
 }
 
 }  // namespace fa

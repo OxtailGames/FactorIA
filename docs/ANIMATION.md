@@ -388,8 +388,12 @@ fx.spriteAnimator.clips;              // ["pop", "boom"]
 fx.spriteAnimator.clipInfo("pop");    // {name, firstFrame, lastFrame, fps, loop, pivot}
 ```
 
-The renderer steps the animators with the game clock, so the animation advances in a headless run, a replay and
-`factoria test` as it does for a player (a run with no graphics at all does not draw, and does not step them).
+The simulation steps the animators with the game clock (`update_sprite_animators`, `fa/scene/sprite_animator.h`, in the
+fixed step after the vfx systems: no GPU needed), so the animation advances in a headless run, a replay, `factoria test` and
+a run with `--no-graphics` as it does for a player, and the world state is the same frame by frame with or without a
+renderer. It reads the size of the sheet from the image file (or the packed atlas) and not from a GPU texture; a texture that
+exists only on the GPU (`runtime:`, `target:`) keeps the region the renderer gives it when it draws. At `time.scale` 0
+no clip advances. A clip a script changes is shown in the same frame's picture.
 `assets.preview_sheet` shows the clips and checks them before you wire them in; the editor's Project panel plays them.
 `examples/neon-swarm` makes its kill effect this way.
 

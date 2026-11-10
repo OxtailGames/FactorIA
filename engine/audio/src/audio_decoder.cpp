@@ -19,7 +19,6 @@ namespace fa::audio_detail {
 namespace {
 
 constexpr std::size_t kSrcFrames = 2048;     // decoded source frames a Resampler holds
-constexpr std::size_t kWindowFrames = 4096;  // timeline frames a Stream holds (about 93 ms)
 
 class WavDecoder final : public Decoder {
 public:
@@ -206,29 +205,6 @@ std::size_t Resampler::pull(float* out, std::size_t frames) {
         ++made;
     }
     return made;
-}
-
-// ---------------------------------------------------------------------------------------------------- Stream
-
-Stream::Stream(Resampler source) : source_(std::move(source)), window_(2 * kWindowFrames) { reach(0); }
-
-// Makes the frame after `played` resident, keeping `played` itself: slides the window past the frames before it and
-// fills the room that opens up. False when the clip ends before that frame.
-bool Stream::reach(std::uint64_t played) {
-    while (base_ + count_ <= played + 1) {
-        if (ended_) return false;
-        const std::size_t drop = std::size_t(std::min<std::uint64_t>(played - base_, count_));
-        if (drop) {
-            std::memmove(window_.data(), window_.data() + 2 * drop, 2 * (count_ - drop) * sizeof(float));
-            base_ += drop;
-            count_ -= drop;
-        }
-        const std::size_t room = kWindowFrames - count_;
-        const std::size_t got = source_.pull(window_.data() + 2 * count_, room);
-        count_ += got;
-        if (got < room) ended_ = true;
-    }
-    return true;
 }
 
 }  // namespace fa::audio_detail

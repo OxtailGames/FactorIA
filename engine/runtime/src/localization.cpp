@@ -77,9 +77,14 @@ Result<std::string> Engine::Impl::switch_language(std::string_view requested) {
 }
 
 // The renderer falls back to the fonts of the language in use, so a Japanese table draws with the Japanese font while every Text
-// keeps `font: ""`. Called when the renderer is created (the start language is chosen before it exists) and on every switch.
+// keeps `font: ""`. Called after the start language is chosen (for the CPU measurer, which a run with no renderer measures with),
+// when the renderer is created and on every switch. Only one of the two is kept in step: the renderer's when there is one. A game
+// without languages still has its `fallbackFonts`.
 void Engine::Impl::apply_fallback_fonts() {
-    if (renderer && i18n.enabled()) renderer->set_fallback_fonts(project.localization.fallback_fonts_for(i18n.language()));
+    const std::string_view language = i18n.enabled() ? std::string_view(i18n.language()) : std::string_view();
+    const std::vector<std::string> fonts = project.localization.fallback_fonts_for(language);
+    if (renderer) renderer->set_fallback_fonts(fonts);
+    else cpuText.set_fallback_fonts(fonts);
 }
 
 namespace {

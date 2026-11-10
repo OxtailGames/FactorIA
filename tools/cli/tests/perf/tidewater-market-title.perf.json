@@ -41,7 +41,7 @@
       "cpuMsAvg": 0.807,
       "cpuMsP95": 0.851,
       "cpuMsMax": 74.244,
-      "peakMemoryMB": 85.9,
+      "peakMemoryMB": 94.7,
       "drawCalls": 10,
       "entities": 112,
       "graphics": "Metal / Apple Paravirtual device",

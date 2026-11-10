@@ -5,6 +5,7 @@
 #include "fa/core/log.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
@@ -208,10 +209,6 @@ Vec2 tile_source(int flags, float px, float py) {
 
 }  // namespace
 
-void update_parallax(World& world, Vec2 camPos) {
-    world.each<Parallax>([&](Entity, Parallax& p) { p.offset = {camPos.x * (1.0f - p.factor.x), camPos.y * (1.0f - p.factor.y)}; });
-}
-
 namespace {
 
 // Collects the Light2D entities of the frame into f.lights2d, at most kMaxLights2D: directional lights first, then the
@@ -312,23 +309,12 @@ SpriteAnimPlan animator_plan(Frame& f, const SpriteAnimator& a, const std::strin
 }
 }  // namespace
 
-void update_animators(World& world, Frame& f, bool advance) {
-    const float dt = advance ? f.dt : 0.0f;
+void apply_sprite_frames(World& world, Frame& f) {
     world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
         if (!entity_active(world, f, e)) return;
         const SpriteAnimPlan plan = animator_plan(f, a, s.texture);
-        if (!plan.error.empty() && f.warnedSpriteClip && f.warnedSpriteClip->insert(world.id_of(e) + "|" + a.clip).second)
-            FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
-        // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end. After the
-        // early pass of the frame the later one leaves alone what the early one moved (unless a script changed its clip since).
-        const bool moves = advance && (f.animEarly || f.animPass == 0 || a.advancedPass != f.animPass || a.playedClip != a.clip);
-        const bool ended = sprite_animator_step(a, plan, moves ? dt : 0.0f);
-        if (moves && f.animPass != 0) a.advancedPass = f.animPass;
-        // Frame events (SpriteAnimator::events) run before clipEnded; they only queue effects and game events, so nothing below
-        // changes the world while this loop walks it (a `spawn` instantiates its prefab in feel_update). Time that does not move
-        // (a paused game, the editor's edit mode) fires none: nothing would drain what they queue.
-        if (moves && dt > 0.0f) sprite_animator_fire_events(world, e, a, plan);
-        if (ended && moves) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
+        // dt 0: a clip a script just changed starts over and `frame` is settled; time does not move and no event runs.
+        sprite_animator_step(a, plan, 0.0f);
         TextureAsset* tex = f.assets->texture(s.texture);
         s.region = sprite_frame_rect(plan, a.frame, tex->width, tex->height);
     });
@@ -531,6 +517,8 @@ void gather_2d(World& world, Frame& f) {
     f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
     f.anyFlash = world.feel().any_flash();
     if (f.wantWorld) {
+        // The layers are drawn shifted for THIS camera; the caller puts the first camera's offset back after its gathers (the rule
+        // of a run with no renderer, see Renderer::update).
         update_parallax(world, f.cam.position.xy());
         gather_lights(world, f);
     }

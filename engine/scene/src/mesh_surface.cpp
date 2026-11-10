@@ -6,6 +6,7 @@
 #include <format>
 #include <map>
 
+#include "fa/core/det_math.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/gltf_file.h"
@@ -37,7 +38,7 @@ void add_revolved(MeshSurface& s, int segments, const std::vector<Vec3>& rings) 
     for (const Vec3& ring : rings)
         for (int i = 0; i <= segments; ++i) {
             const float a = float(i) / float(segments) * kTau;
-            s.positions.push_back({ring.x * std::cos(a), ring.y, ring.x * std::sin(a)});
+            s.positions.push_back({ring.x * det::cos(a), ring.y, ring.x * det::sin(a)});
             s.uvs.push_back({float(i) / float(segments), ring.z});
         }
     for (std::size_t r = 0; r + 1 < rings.size(); ++r)
@@ -53,8 +54,8 @@ void add_disc(MeshSurface& s, int segments, float radius, float y) {
     s.uvs.push_back({0.5f, 0.5f});
     for (int i = 0; i <= segments; ++i) {
         const float a = float(i) / float(segments) * kTau;
-        s.positions.push_back({radius * std::cos(a), y, radius * std::sin(a)});
-        s.uvs.push_back({0.5f + 0.5f * std::cos(a), 0.5f + 0.5f * std::sin(a)});
+        s.positions.push_back({radius * det::cos(a), y, radius * det::sin(a)});
+        s.uvs.push_back({0.5f + 0.5f * det::cos(a), 0.5f + 0.5f * det::sin(a)});
     }
     for (int i = 0; i < segments; ++i) s.indices.insert(s.indices.end(), {base, base + 1 + std::uint32_t(i), base + 2 + std::uint32_t(i)});
 }
@@ -76,7 +77,7 @@ bool build_primitive_surface(const std::string& name, MeshSurface& s) {
         std::vector<Vec3> r;
         for (int i = 0; i <= 16; ++i) {
             const float t = float(i) / 16.0f * kPi;
-            r.push_back({std::sin(t) * h, std::cos(t) * h, float(i) / 16.0f});
+            r.push_back({det::sin(t) * h, det::cos(t) * h, float(i) / 16.0f});
         }
         add_revolved(s, 32, r);
     } else if (name == "cylinder") {
@@ -87,11 +88,11 @@ bool build_primitive_surface(const std::string& name, MeshSurface& s) {
         std::vector<Vec3> r;
         for (int i = 0; i <= 8; ++i) {
             const float t = float(i) / 8.0f * (kPi * 0.5f);
-            r.push_back({std::sin(t) * h, std::cos(t) * h + 0.5f, float(i) / 18.0f});
+            r.push_back({det::sin(t) * h, det::cos(t) * h + 0.5f, float(i) / 18.0f});
         }
         for (int i = 0; i <= 8; ++i) {
             const float t = kPi * 0.5f + float(i) / 8.0f * (kPi * 0.5f);
-            r.push_back({std::sin(t) * h, std::cos(t) * h - 0.5f, float(9 + i) / 18.0f});
+            r.push_back({det::sin(t) * h, det::cos(t) * h - 0.5f, float(9 + i) / 18.0f});
         }
         add_revolved(s, 32, r);
     } else if (name == "cone") {

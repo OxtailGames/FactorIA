@@ -3,10 +3,13 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
 
+#include "../src/audio_testing.h"
+#include "alloc_counter.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
 #include "fa/audio/music_player.h"
@@ -14,6 +17,7 @@
 #include "fa/audio/song.h"
 #include "fa/audio/song_preview.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -566,6 +570,22 @@ TEST_CASE("music player: a clip stinger starts on the bar line and ducks the mus
     CHECK_FALSE(idle.audio.music_play_stinger(idle.world, idle.e, spec).ok());   // both given
 }
 
+TEST_CASE("music player: a clip stinger has a higher priority than the default, so a full mixer replaces a sound for it") {
+    PlayerFx fx;
+    fx.step(0.7);
+    PlayParams loop;
+    loop.loop = true;
+    for (int i = 0; i < 64; ++i) REQUIRE(fx.audio.play("sounds/sine.wav", loop) != 0);  // 64 effects as loud as the stinger
+    CHECK(fx.audio.play("sounds/sine.wav", loop) == 0);  // the 65th is refused: same priority, not louder
+    MusicStingerSpec spec;
+    spec.clip = "sounds/sine.wav";
+    spec.quantize = MusicQuantize::None;
+    REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+    const Json st = fx.audio.stats();
+    CHECK(st.at("voicesStolen").get<int>() == 1);
+    CHECK(st.at("voicesRejected").get<int>() == 1);  // the 65th effect only
+}
+
 TEST_CASE("music player: crossfading to another song keeps playing and reports the new one") {
     PlayerFx fx;
     fx.step(0.7);
@@ -752,4 +772,178 @@ TEST_CASE("music: a live render brings a `loudness: style` master to the style g
     CHECK(loud / quiet == doctest::Approx(std::pow(10.0, 21.0 / 20.0)).epsilon(0.1));   // 21 LU apart
     // A master that is not on "style" ignores the guide.
     CHECK(level(-30.0, "off") == doctest::Approx(level(-9.0, "off")));
+}
+
+// ---- the music cache and the player with a device thread ------------------------------------------------------------------------------
+
+TEST_CASE("music cache: past its budget it forgets the songs played longest ago that nothing plays") {
+    PlayerFx fx;
+    fx.mp().quantize = MusicQuantize::None;  // quick crossfades between the songs
+    fx.mp().crossfadeBars = 0.25f;
+    for (const char* n : {"a", "b", "c", "d"})
+        REQUIRE(fs::write_text(std::string("music/") + n + ".song.json", demo_json().dump()).ok());
+    auto play = [&](const char* n) {
+        fx.mp().song = std::string("music/") + n + ".song.json";
+        fx.step(1.0);  // the crossfade ends and the song before is let go
+        REQUIRE(fx.mp().playing);
+        REQUIRE(fx.mp().ready);
+    };
+    auto cached = [&] {
+        std::vector<std::string> out;
+        for (const auto& [key, bytes] : AudioTestAccess::music_cache(fx.audio)) out.push_back(key.substr(0, key.find('|')));
+        return out;
+    };
+    play("a");
+    play("b");
+    play("c");
+    play("a");  // played again: now newer than b
+    play("c");
+    const auto sizes = AudioTestAccess::music_cache(fx.audio);
+    REQUIRE(sizes.size() == 3);
+    const std::size_t song = sizes[0].second;  // the four songs are the same piece: the same size
+    REQUIRE(song > 0);
+    for (const auto& [key, bytes] : sizes) REQUIRE(bytes == song);
+
+    // Room for three: loading d lets go of b, the least recently played; a, loaded first, stays.
+    AudioTestAccess::set_music_cache_budget(fx.audio, 4 * song - 1);
+    play("d");
+    CHECK(cached() == std::vector<std::string>{"music/a.song.json", "music/c.song.json", "music/d.song.json"});
+    // Room for none: a song still sounding (d, fading out while b loads) stays whatever the budget; the others go.
+    AudioTestAccess::set_music_cache_budget(fx.audio, 1);
+    play("b");
+    CHECK(cached() == std::vector<std::string>{"music/b.song.json", "music/d.song.json"});
+}
+
+namespace {
+float render_device(Audio& audio, int blocks) {
+    thread_local std::vector<float> buf(512 * 2);
+    float peak = 0.0f;
+    for (int i = 0; i < blocks; ++i) {
+        AudioTestAccess::render(audio, buf.data(), 512, 2);
+        for (float v : buf) peak = std::max(peak, std::fabs(v));
+    }
+    return peak;
+}
+}  // namespace
+
+TEST_CASE("music player: with a device thread the song loads on a job and the transport's commands mix without allocating") {
+    audio_test::JobPool pool(jobs::Settings::threads(2));
+    {
+        PlayerFx fx;
+        fx.mp().quantize = MusicQuantize::Beat;
+        fx.mp().crossfadeBars = 0.25f;
+        fx.mp().intensity = 0.4f;  // the rhythm layer (the harmony one comes in at 0.5)
+        AudioTestAccess::use_manual_device(fx.audio, 48000);
+        (void)render_device(fx.audio, 0);  // makes this thread's output buffer
+        std::size_t allocs = 0;
+        auto frame = [&](int blocks) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);  // the game's frame: commit, refill, take back
+            audio_test::AllocCounter::Scope scope;
+            const float peak = render_device(fx.audio, blocks);
+            allocs += scope.count();
+            return peak;
+        };
+        // The load runs on a worker while the game keeps going (a safety net far above the time it takes).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (!fx.mp().ready && std::chrono::steady_clock::now() < deadline) frame(2);
+        REQUIRE(fx.mp().ready);
+        float peak = 0.0f;
+        for (int i = 0; i < 60; ++i) peak = std::max(peak, frame(2));
+        CHECK(peak > 0.01f);
+        CHECK(fx.mp().playing);
+
+        // Intensity changes, a section jump, a stinger and a crossfade to another song: commands the callback applies.
+        fx.audio.music_set_intensity(fx.world, fx.e, 1.0f);
+        for (int i = 0; i < 30; ++i) frame(2);
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "main", MusicQuantize::Beat).ok());
+        MusicStingerSpec spec;
+        spec.clip = "sounds/sine.wav";
+        spec.quantize = MusicQuantize::Beat;
+        spec.duck = 0.5f;
+        REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+        for (int i = 0; i < 60; ++i) frame(2);
+        fx.mp().song = "music/other.song.json";
+        const auto again = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (fx.mp().tempo != 90.0f && std::chrono::steady_clock::now() < again) frame(2);
+        CHECK(fx.mp().tempo == doctest::Approx(90.0f));
+        for (int i = 0; i < 60; ++i) frame(2);
+        CHECK(fx.mp().playing);
+        CHECK_MESSAGE(allocs == 0, "the device callback allocated " << allocs << " times while the music played");
+    }
+}
+
+// ---- a stalled device: the music settings that were dropped come back -------------------------------------------------------------
+
+namespace {
+
+// The game's frames while the device runs again: a count of frames, each one update and two blocks.
+void run_frames(PlayerFx& fx, int frames) {
+    for (int i = 0; i < frames; ++i) {
+        fx.audio.update(fx.world, 1.0f / 60.0f);
+        (void)render_device(fx.audio, 2);
+        AudioTestAccess::pump(fx.audio);
+    }
+}
+
+// Settings of the "ui" bus: they fill the mixer's ring (2048) and then overflow the staging queue (8192) of a device that
+// takes nothing, so the oldest music settings are dropped.
+void stall_junk(Audio& audio, int count) {
+    for (int i = 0; i < count; ++i) audio.set_bus_volume("ui", 0.5f + 0.0001f * float(i % 100), 0.0f);
+}
+
+}  // namespace
+
+TEST_CASE("music player: volume, loop, intensity and bus dropped while the device stalls are sent again") {
+    PlayerFx fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.mp().volume = 1.0f;
+    run_frames(fx, 6);
+    REQUIRE(fx.mp().playing);
+    REQUIRE(fx.mp().ready);
+    REQUIRE(fx.audio.music_status(fx.world, fx.e).volume == doctest::Approx(1.0f));
+    REQUIRE(AudioTestAccess::music_loop(fx.audio, fx.world, fx.e));
+    const int busBefore = AudioTestAccess::music_channel_bus(fx.audio, fx.world, fx.e);
+    REQUIRE(busBefore >= 0);
+
+    stall_junk(fx.audio, 2100);
+    fx.mp().volume = 0.25f;
+    fx.mp().loop = false;
+    fx.mp().intensity = 0.8f;
+    fx.audio.update(fx.world, 1.0f / 60.0f);  // the three settings are staged (Lossy), older than the junk that follows
+    stall_junk(fx.audio, 9000);
+    CHECK(fx.audio.stats()["settingsDropped"].get<int>() >= 3);
+    // Nothing of it reached the mixer.
+    CHECK(fx.audio.music_status(fx.world, fx.e).volume == doctest::Approx(1.0f));
+
+    run_frames(fx, 40);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    const MusicStatus st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.volume == doctest::Approx(0.25f));
+    CHECK(st.intensity == doctest::Approx(0.8f));
+    CHECK_FALSE(AudioTestAccess::music_loop(fx.audio, fx.world, fx.e));
+    CHECK(AudioTestAccess::music_channel_bus(fx.audio, fx.world, fx.e) == busBefore);
+    CHECK(fx.mp().playing);
+}
+
+TEST_CASE("music player: a player that lost its entity gets its last settings again after a stall") {
+    PlayerFx fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    run_frames(fx, 6);
+    REQUIRE(fx.mp().playing);
+    REQUIRE(fx.mp().ready);
+
+    stall_junk(fx.audio, 2100);
+    fx.mp().volume = 0.25f;
+    fx.audio.update(fx.world, 1.0f / 60.0f);  // staged
+    fx.world.destroy_immediate(fx.e);         // the player plays on as an orphan and fades out
+    fx.audio.update(fx.world, 1.0f / 60.0f);
+    stall_junk(fx.audio, 9000);
+    CHECK(fx.audio.stats()["settingsDropped"].get<int>() >= 1);
+
+    // A few frames only: the orphan is gone once its fade has run (about 0.5 s), long after the queue has emptied.
+    run_frames(fx, 6);
+    Json players = fx.audio.music_players();
+    REQUIRE(players.size() == 1);
+    CHECK(players[0]["orphan"].get<bool>());
+    CHECK(players[0]["volume"].get<float>() == doctest::Approx(0.25f));
 }

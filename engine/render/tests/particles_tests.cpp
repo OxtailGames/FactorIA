@@ -32,8 +32,8 @@ int lit_pixels(const Image& img) {
     return n;
 }
 
-// Emitter states are kept per entity id across worlds in one renderer: every test starts and ends with none, so it neither sees
-// another test's particles nor leaves its own for the next.
+// The emitters are kept by their World (World::particles()), so no test sees another one's particles; this only empties the asset caches so
+// every test loads the textures it uses itself.
 struct CleanEmitters {
     CleanEmitters() { gfx().renderer.clear_asset_cache(); }
     ~CleanEmitters() { gfx().renderer.clear_asset_cache(); }
@@ -184,7 +184,7 @@ TEST_CASE("particles: a bad curve is logged once and the emitter still draws") {
     CHECK(logged == 1);
 }
 
-TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, and reset_particles makes the next run start the same") {
+TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, and a cleared store makes the next run start the same") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanEmitters clean;
@@ -204,17 +204,21 @@ TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, 
     build(w1);
     const Image a = run(w1);
     CHECK(g.renderer.stats().particles == kParticleHardCap);
-    // A scene loaded again (Play, then Stop): the emitter of the same id starts from its seed, not where the last run was.
-    g.renderer.reset_particles();
+    // A scene loaded again (Play, then Stop): a new world starts the emitter of the same id from its seed ...
     World w2;
     build(w2);
     const Image b = run(w2);
     ImageDiff d = diff_images(a, b, 1.0f / 255.0f);
     CHECK(d.meanError < 0.0005);
     CHECK(lit_pixels(a) > 400);
-    // Without the reset the second run goes on from the state the first left behind.
+    // ... and so does the same world after its store was cleared (what every scene load does).
+    w1.particles().clear();
+    const Image c = run(w1);
+    CHECK(diff_images(a, c, 1.0f / 255.0f).meanError < 0.0005);
+    // Without the clear the world goes on from the state the first run left behind.
     World w3;
     build(w3);
-    const Image c = run(w3);
-    CHECK(diff_images(a, c, 1.0f / 255.0f).meanError > d.meanError);
+    run(w3);
+    const Image e = run(w3);
+    CHECK(diff_images(a, e, 1.0f / 255.0f).meanError > d.meanError);
 }

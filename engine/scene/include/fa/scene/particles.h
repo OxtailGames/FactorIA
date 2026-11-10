@@ -135,6 +135,8 @@ public:
     void seed(std::uint64_t s);
     bool seeded() const { return seeded_; }
     double clock() const { return clock_; }          // seconds simulated so far (trail points are stamped with it)
+    std::uint64_t rng_state() const { return rng_.state(); }  // where the emitter's random sequence is (the world hash reads it)
+    float emission_accumulator() const { return acc_; }       // the fraction of a particle the continuous emission still owes
 
     // `count` particles born at the next step (or at flush()): the bursts scripts ask for.
     void queue_burst(int count) { pendingBurst_ += count; }

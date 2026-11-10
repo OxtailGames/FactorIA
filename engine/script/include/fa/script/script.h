@@ -46,6 +46,8 @@ class Input;
 class Audio;
 class Physics;
 class Renderer;
+class TextMeasurer;
+class CameraSet;
 class UiSystem;
 class Clipboard;
 class PlatformServices;
@@ -90,6 +92,12 @@ public:
     virtual Audio& audio() = 0;
     virtual Physics& physics() = 0;
     virtual Renderer* renderer() = 0;  // nullptr when running without graphics
+    // Measures text on the CPU with the renderer's fonts and shaping (fa/render/text_measure.h) for a run without graphics. nullptr: the
+    // host cannot (a test host), and measuring falls back to approx_text_size.
+    virtual const TextMeasurer* text_measurer() const { return nullptr; }
+    // The cameras of a run without graphics (fa/scene/camera_geometry.h), which answer camera.worldToScreen, screenToWorld, screenRay
+    // and at exactly like the renderer's. nullptr: the host has none (a test host), and the natives use the live orthographic maths.
+    virtual const CameraSet* camera_set() const { return nullptr; }
     virtual UiSystem* ui() { return nullptr; }  // the game UI (ui.focus, ui.focused, ui.hovered); nullptr without one
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;
@@ -320,6 +328,17 @@ struct TestCaseResult {
     std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };
 
+// A callback, test, eval or module load the script watchdog stopped (docs/SCRIPTING.md, "Watchdog"). A cut changes what the
+// simulation did (the rest of that callback never ran), and it depends on how fast the machine is: a run with a cut is
+// INVALID (a replay hash from it means nothing), so it is reported apart from the ordinary script errors, which a quiet call
+// or a repeated message can hide.
+struct ScriptWatchdogCut {
+    std::string script;    // project-relative file of the behaviour or test file; empty when the label has none (eval)
+    std::string callback;  // the method ("update"), "test 'name'", "eval", "loading <file>", "promise job"...
+    std::string limit;     // "> 2 s of CPU time" or "> 16 s on the clock"
+    std::string to_string() const;
+};
+
 struct TestReport {
     std::vector<TestCaseResult> cases;
     int passed = 0;
@@ -508,6 +527,13 @@ public:
     // How many script exceptions were raised since init, counting the repeats of one error that the log shows once
     // (errors() and the log list each distinct error one time). A bot reads it to tell an exception loop from one slip.
     std::uint64_t error_events() const;
+    // Every cut of the script watchdog since init (a debugger terminate is not one): how many (`watchdog_cut_count`) and the
+    // latest 100 (`watchdog_cuts`, oldest first: when there are more, the front is the oldest one KEPT, not the first of
+    // the run; a run with more cuts is invalid anyway). Each cut also logs an error naming the script and the callback, even
+    // when the same error was logged before. A run with a count above 0 is invalid: `factoria run --headless` exits 1 and
+    // reports "watchdogCuts" and "replayValid": false, `factoria test` fails the test during which it happened.
+    std::uint64_t watchdog_cut_count() const;
+    const std::vector<ScriptWatchdogCut>& watchdog_cuts() const;
 
     struct Impl;
 

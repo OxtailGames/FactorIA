@@ -1,8 +1,10 @@
 // Engine: owns every subsystem and runs the game loop.
 //
 // One frame (Engine::frame):
-//   input.begin_frame (events were fed by the platform/injection)
-//   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events
+//   (events were fed by the platform/injection since the last frame; input.begin_frame at the END of a simulated frame)
+//   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events -> input.end_fixed_step
+//     (each step reads the input in an Input::FixedScope: a press or release reaches exactly one step, see "TWO VIEWS"
+//      in fa/platform/input.h; everything after the steps reads the frame's own view)
 //   ui.update (layout, focus, widget events) -> scripts.dispatch_events
 //   scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
 //   physics.step and animators/particles are scaled by scripts.time_scale() (game.paused: frozen)
@@ -46,7 +48,7 @@ namespace fa {
 
 // When Engine::step/frame draws the world.
 //   Always:   every frame is drawn (windowed play, the editor).
-//   OnDemand: every frame is SIMULATED (scripts, physics, audio, animators/particles via Renderer::update) but the
+//   OnDemand: every frame is SIMULATED (scripts, physics, audio, sprite animators and particles in the fixed step) but the
 //             world is only drawn when a picture is requested: Engine::screenshot() (and game.screenshot) draws the
 //             current state first, Engine::render_now() draws explicitly, and a headless `factoria run` draws its
 //             last frame. A screenshot at frame N is pixel-identical in both modes. Headless tests and
@@ -235,6 +237,8 @@ public:
     Audio& audio() override;
     Physics& physics() override;
     Renderer* renderer() override;
+    const TextMeasurer* text_measurer() const override;
+    const CameraSet* camera_set() const override;
     UiSystem* ui() override;
     CommandRegistry& commands() override;
     Json project_settings() const override;
@@ -367,6 +371,10 @@ struct HeadlessRunOptions {
     // for (a run that quits early ends below the total). The CLI prints it as progress lines.
     std::function<void(int written, int total)> videoProgress;
     bool failOnScriptError = true;
+    // The script watchdog stopped a callback (ScriptSystem::watchdog_cuts): the run is not valid (its result depends on the
+    // machine's speed), so the exit code is 1 and the report has "watchdogCuts" and "replayValid": false. Only a tool that
+    // wants the partial result anyway (script.trace) turns this off; the report still lists the cuts.
+    bool failOnWatchdogCut = true;
     // Profile the run (fa/core/profiler.h): report["profile"] summarises the frames after `profileWarmup` (the first frames
     // load assets and warm caches): per system and per behaviour class ms, GPU ms or null + reason, memory. Wall-clock
     // numbers, never part of the state or replay. perf.profile uses it.

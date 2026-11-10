@@ -2,8 +2,10 @@
 
 #include <set>
 
+#include "../src/audio_testing.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/scene/feel.h"
@@ -155,6 +157,40 @@ TEST_CASE("audio: reload_clip swaps the data of a loaded clip") {
     fx.audio.play("sounds/sine.wav");
     fx.run(1.0);
     CHECK(fx.finish().sound_end() == doctest::Approx(22050.0).epsilon(0.01));
+}
+
+TEST_CASE("audio: reload_clip moves a playing voice into the new clip's loop points, and ends one past the new end") {
+    constexpr double kRate = 44100.0;
+    Fixture fx;
+    auto set_loop = [](double start, double end) {
+        REQUIRE(assets::update_entry("sounds/sine.wav", [&](Json& e) {
+                    e["import"]["loopStart"] = start;
+                    e["import"]["loopEnd"] = end;
+                }).ok());
+    };
+    set_loop(0.1, 1.0);
+    PlayParams lp;
+    lp.loop = true;
+    const VoiceId looping = fx.audio.play("sounds/sine.wav", lp);
+    const VoiceId once = fx.audio.play("sounds/sine.wav");
+    REQUIRE(looping != 0);
+    REQUIRE(once != 0);
+    fx.run(0.8);
+    CHECK(AudioTestAccess::voice_position(fx.audio, looping) == doctest::Approx(0.8 * kRate).epsilon(0.02));
+
+    // The file is now half as long and loops inside 0.1..0.4 s: the voices were at 0.8 s.
+    write_sine_wav(fx.dir / "sounds/sine.wav", 0.5);
+    set_loop(0.1, 0.4);
+    fx.audio.reload_clip("sounds/sine.wav");
+    const double pos = AudioTestAccess::voice_position(fx.audio, looping);  // the null device applies the command at once
+    CHECK(pos >= 0.1 * kRate - 1.0);
+    CHECK(pos < 0.4 * kRate);
+    // A voice that does not loop and was past the new clip's end is put at its end.
+    const double pos1 = AudioTestAccess::voice_position(fx.audio, once);
+    CHECK(pos1 == doctest::Approx(0.5 * kRate));  // it ends in the next block
+    fx.run(0.1);
+    CHECK_FALSE(fx.audio.is_playing(once));
+    CHECK(fx.audio.is_playing(looping));
 }
 
 TEST_CASE("audio: a feel sound plays on its bus with the entity that asked for it; a clip that cannot play is not tried again in the scene") {
