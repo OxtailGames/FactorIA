@@ -5,29 +5,7 @@
 
 #include "quickjs_det_math.h"
 
-// This file must NOT see the macros of quickjs_det_math.h (they would rename fa::det::f64::sin): they are only for C.
-#undef sin
-#undef cos
-#undef tan
-#undef asin
-#undef acos
-#undef atan
-#undef atan2
-#undef exp
-#undef expm1
-#undef log
-#undef log2
-#undef log10
-#undef log1p
-#undef pow
-#undef sinh
-#undef cosh
-#undef tanh
-#undef asinh
-#undef acosh
-#undef atanh
-#undef cbrt
-#undef hypot
+// quickjs_det_math.h defines its sin(x) -> fa_det_sin(x) macros for C only, so fa::det::f64::sin keeps its name here.
 
 namespace dm = fa::det::f64;
 

@@ -18,9 +18,11 @@ target_sources(fa_ext_quickjs PRIVATE ${FA_QUICKJS_DET_DIR}/quickjs_det_shim.cpp
 target_include_directories(fa_ext_quickjs PRIVATE ${FA_QUICKJS_DET_DIR} ${FA_ROOT}/engine/core/include)
 # The header is named without a directory: it is found through the include directory above (-include / /FI search the include
 # path like #include "..."), so a checkout path with spaces needs no quoting in either option. SHELL: keeps "-include" and
-# its argument together when CMake removes duplicate options.
+# its argument together when CMake removes duplicate options. It applies to the whole target, C++ shim included (the header
+# defines its macros for C only): the Visual Studio and Xcode generators evaluate $<COMPILE_LANGUAGE:C> as CXX for every
+# source of a target that has a C++ file, so a C-only genex never reached quickjs.c there.
 if(MSVC)
-    target_compile_options(fa_ext_quickjs PRIVATE "$<$<COMPILE_LANGUAGE:C>:/FIquickjs_det_math.h>")
+    target_compile_options(fa_ext_quickjs PRIVATE /FIquickjs_det_math.h)
 else()
-    target_compile_options(fa_ext_quickjs PRIVATE "$<$<COMPILE_LANGUAGE:C>:SHELL:-include quickjs_det_math.h>")
+    target_compile_options(fa_ext_quickjs PRIVATE "SHELL:-include quickjs_det_math.h")
 endif()

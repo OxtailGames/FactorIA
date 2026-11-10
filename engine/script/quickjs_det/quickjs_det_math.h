@@ -3,9 +3,10 @@
  * QuickJS calls the C library for Math.sin, cos, tan, asin, acos, atan, atan2, exp, log, log2, log10, log1p, expm1, pow
  * (and so the ** operator), sinh, cosh, tanh, asinh, acosh, atanh, cbrt and hypot. glibc, Apple's libm, the MSVC CRT and
  * musl (WebAssembly) each round them differently, so a script that uses Math.pow or Math.sin could not give the same replay
- * on two machines. This header is FORCE-INCLUDED into the four QuickJS C files (engine/script/CMakeLists.txt: -include / /FI,
- * C sources only), after the system's <math.h>, and turns those calls into calls of fa_det_* in quickjs_det_shim.cpp, which
- * forwards to fa::det::f64 (engine/core/include/fa/core/det_math.h): the same bits on every platform.
+ * on two machines. This header is FORCE-INCLUDED into every source of fa_ext_quickjs (engine/script/CMakeLists.txt: -include
+ * / /FI), after the system's <math.h>, and in the four QuickJS C files turns those calls into calls of fa_det_* in
+ * quickjs_det_shim.cpp, which forwards to fa::det::f64 (engine/core/include/fa/core/det_math.h): the same bits on every
+ * platform. The macros are defined for C only: the shim is C++ and must keep fa::det::f64::sin and friends as they are.
  *
  * Why a macro and not an edit of external/quickjs: external/ stays as released, and a link-time override of `sin` would
  * change the whole program (Box2D, the renderer...). sqrt, floor, ceil, trunc, fmod, fabs, scalbn and frexp are exact in
@@ -47,6 +48,10 @@ double fa_det_hypot(double x, double y);
 }
 #endif
 
+/* C only. The force-include covers the whole target, shim included, because the Visual Studio and Xcode generators evaluate
+ * $<COMPILE_LANGUAGE:C> as CXX for every file of a target that has a C++ source, so a C-only option never reached the C files
+ * there (M91 CI: Windows ran Math.sin on the CRT). */
+#ifndef __cplusplus
 #define sin(x) fa_det_sin(x)
 #define cos(x) fa_det_cos(x)
 #define tan(x) fa_det_tan(x)
@@ -69,5 +74,6 @@ double fa_det_hypot(double x, double y);
 #define atanh(x) fa_det_atanh(x)
 #define cbrt(x) fa_det_cbrt(x)
 #define hypot(x, y) fa_det_hypot(x, y)
+#endif /* !__cplusplus */
 
 #endif /* FA_QUICKJS_DET_MATH_H */
