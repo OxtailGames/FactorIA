@@ -332,6 +332,7 @@ void Input::discard_pending_edges() {
     for (size_t layer : {kFrameLayer, kFixedLayer, kLateLayer}) advance(layer);
     endedTouches_.clear();
     for (Touch& t : touches_) t.pressedThisFrame = t.pressedThisStep = t.pressedLate = false;
+    textCapWarned_ = false;  // a new play session warns again about a burst of text over the cap
 }
 
 void Input::discard_idle_motion() {

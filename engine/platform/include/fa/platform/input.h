@@ -189,7 +189,9 @@ public:
     void end_fixed_step();
     // The most typed characters one view keeps (the rest of a burst is dropped): a view nobody advances cannot grow.
     static constexpr size_t kMaxTextPerView = 4096;
-    // While alive, every read (key_pressed, action_pressed, mouse_delta, touches...) answers for the fixed-step view. Nests.
+    // While alive, every read (key_pressed, action_pressed, mouse_delta, touches...) answers for the fixed-step view.
+    // Nests: a step run from inside another step (game.step in onFixedUpdate) shares the outer step's view, so it sees the
+    // same presses, and only the outermost scope's end_fixed_step closes the step.
     class FixedScope {
     public:
         explicit FixedScope(Input& in) : in_(in), prev_(in.active_) {

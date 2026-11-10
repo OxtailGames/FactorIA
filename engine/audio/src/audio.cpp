@@ -497,6 +497,7 @@ struct Audio::Impl {
             return;
         }
         const auto it = oldest(lossy ? CmdKind::Lossy : CmdKind::Droppable);
+        if (it == staged.end()) return;  // the counters said one is staged; never dereference end() if they drift
         Cmd* c = *it;
         stage_erase(it);
         if (c->play) pendingEnds.push_back(c->play);  // the voice never starts: it ends on the game side
