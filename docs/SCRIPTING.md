@@ -150,6 +150,8 @@ stick values are the state at the time of the call. Consequences:
   lifted) in the next `onFixedUpdate`, and once in the next `onUpdate`; the next call after that no longer lists it.
 - Input that arrives while a fixed step runs (a script injecting a key in `onFixedUpdate`, a test) is seen by the NEXT
   step, not lost with the one that is closing; behaviours that run later in the same step may see it too.
+- A step run from inside another step (`game.step()` called in `onFixedUpdate`) shares the outer step's view of the
+  input: a press reaches both the outer and the nested `onFixedUpdate`, and the step closes when the outer one ends.
 - `game.paused = true` (`time.scale` 0): the steps still run, as steps of time 0, but `onFixedUpdate` is not called, and
   each step takes the edges like any other: a press made while the game is paused (a pause menu answered by the UI, a
   `runWhilePaused` behaviour reading it in `onUpdate`) is NOT seen by the first `onFixedUpdate` after the game resumes.
