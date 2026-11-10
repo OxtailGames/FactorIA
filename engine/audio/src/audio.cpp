@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <map>
