@@ -142,7 +142,10 @@ stick values are the state at the time of the call. Consequences:
 - A press and its release that both happen between two fixed steps are both seen by the next step, in that order
   (`pressed` and `released` are both true there). A press that ends before any step runs is not lost.
 - `input.consume(action)` hides the press from `pressed` for the callbacks that have not seen it yet; a fixed step that
-  already took the press is not affected, and a later press is never hidden by it.
+  already took the press is not affected, and a later press is never hidden by it. One limit: the hiding ends when the
+  input is let go, and the fixed step keeps one press flag per input, not a count. A press that was consumed and is
+  released before the next fixed step ran (a tap shorter than one step, with no step in between) therefore reaches
+  `onFixedUpdate` as a normal `pressed`, once.
 - A tap that lands and lifts between two fixed steps still shows once in `input.touches[].pressed` (position where it
   lifted) in the next `onFixedUpdate`, and once in the next `onUpdate`; the next call after that no longer lists it.
 - Input that arrives while a fixed step runs (a script injecting a key in `onFixedUpdate`, a test) is seen by the NEXT
@@ -1897,7 +1900,7 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
   (`fa::det::f64`, built only from `+ - * / sqrt` on doubles): the same bits on Windows, Linux, macOS, Android, iOS and the
   web, where the C library's last bit differs between them. They are accurate to a few units in the last place of the exact result:
   `exp`, `log`, `log2`, `log10`, `cosh`, `cbrt` and `hypot` within 2 ulp, `sin` and `cos` within 3 (up to 1.6e6 radians),
-  `tan`, `atan`, `atan2`, `asin`, `acos` and the other hyperbolics within 6, and `pow` loses up to about 1.5 ulp per unit of
+  `tan`, `atan`, `atan2`, `asin`, `acos`, `expm1`, `log1p` and the other hyperbolics within 6, and `pow` loses up to about 1.5 ulp per unit of
   `|y * ln(x)|` on large results. A script sees the numbers it expects: `Math.pow(2, 10)` is exactly 1024, the integer
   powers and roots that are exact stay exact, and `10 ** n` is the double nearest to 10^n for every `n` from -307 to 308,
   so `Math.floor(Math.log10(1e25))` is 25. Do not compare the result of a transcendental with `===` against a number you
@@ -1913,8 +1916,9 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
   the machine is, so no replay or hash taken from the run can be trusted. It is never silent: the engine logs an error
   naming the script and the callback ("the script watchdog stopped 'onUpdate' of scripts/boss.js (> 2 s of CPU time)"),
   counts it, and then (1) `factoria run --headless` exits with code 1 whatever `--allow-script-errors` says and its report has
-  `"replayValid": false`, the cuts in `watchdogCuts` and a line in `problems`; (2) a test that ran while a callback was cut
-  (even if its own asserts passed) fails with the script and callback named; (3) `game.autoplay` / `play.auto` report
+  `"replayValid": false`, the cuts in `watchdogCuts` (the latest 100) and a line in `problems` that
+  counts them; (2) a test that ran while a callback was cut (even if its own asserts passed) fails with the script and
+  callback of the first five cuts named, then "... and N more"; (3) `game.autoplay` / `play.auto` report
   "INVALID RUN" in their notes and the cut in `scriptErrors`; (4) a windowed run with `--frames` exits with code 1. Fix
   the loop that spins (the cause is almost always a `while` that never ends or a pathfinding call per frame), do not raise
   the limit. `script.trace` is the one tool that keeps running after a cut, to show where the time goes.

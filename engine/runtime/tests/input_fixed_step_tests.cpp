@@ -278,8 +278,8 @@ TEST_CASE("input per fixed step: a tap that lands and lifts before any step is s
 namespace {
 
 double position_of(const Json& state, const char* id, int axis) {
-    for (const Json& ent : state["entities"])
-        if (ent.value("id", "") == id) return ent["components"]["Transform"]["position"][std::size_t(axis)].get<double>();
+    for (const Json& ent : state.at("entities"))
+        if (ent.value("id", "") == id) return ent.at("components").at("Transform").at("position").at(std::size_t(axis)).get<double>();
     FAIL("no entity " << id << " in the state");
     return -1.0;
 }

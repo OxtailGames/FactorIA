@@ -871,3 +871,79 @@ TEST_CASE("music player: with a device thread the song loads on a job and the tr
         CHECK_MESSAGE(allocs == 0, "the device callback allocated " << allocs << " times while the music played");
     }
 }
+
+// ---- a stalled device: the music settings that were dropped come back -------------------------------------------------------------
+
+namespace {
+
+// The game's frames while the device runs again: a count of frames, each one update and two blocks.
+void run_frames(PlayerFx& fx, int frames) {
+    for (int i = 0; i < frames; ++i) {
+        fx.audio.update(fx.world, 1.0f / 60.0f);
+        (void)render_device(fx.audio, 2);
+        AudioTestAccess::pump(fx.audio);
+    }
+}
+
+// Settings of the "ui" bus: they fill the mixer's ring (2048) and then overflow the staging queue (8192) of a device that
+// takes nothing, so the oldest music settings are dropped.
+void stall_junk(Audio& audio, int count) {
+    for (int i = 0; i < count; ++i) audio.set_bus_volume("ui", 0.5f + 0.0001f * float(i % 100), 0.0f);
+}
+
+}  // namespace
+
+TEST_CASE("music player: volume, loop, intensity and bus dropped while the device stalls are sent again") {
+    PlayerFx fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    fx.mp().volume = 1.0f;
+    run_frames(fx, 6);
+    REQUIRE(fx.mp().playing);
+    REQUIRE(fx.mp().ready);
+    REQUIRE(fx.audio.music_status(fx.world, fx.e).volume == doctest::Approx(1.0f));
+    REQUIRE(AudioTestAccess::music_loop(fx.audio, fx.world, fx.e));
+    const int busBefore = AudioTestAccess::music_channel_bus(fx.audio, fx.world, fx.e);
+    REQUIRE(busBefore >= 0);
+
+    stall_junk(fx.audio, 2100);
+    fx.mp().volume = 0.25f;
+    fx.mp().loop = false;
+    fx.mp().intensity = 0.8f;
+    fx.audio.update(fx.world, 1.0f / 60.0f);  // the three settings are staged (Lossy), older than the junk that follows
+    stall_junk(fx.audio, 9000);
+    CHECK(fx.audio.stats()["settingsDropped"].get<int>() >= 3);
+    // Nothing of it reached the mixer.
+    CHECK(fx.audio.music_status(fx.world, fx.e).volume == doctest::Approx(1.0f));
+
+    run_frames(fx, 40);
+    CHECK(AudioTestAccess::staged_commands(fx.audio) == 0);
+    const MusicStatus st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.volume == doctest::Approx(0.25f));
+    CHECK(st.intensity == doctest::Approx(0.8f));
+    CHECK_FALSE(AudioTestAccess::music_loop(fx.audio, fx.world, fx.e));
+    CHECK(AudioTestAccess::music_channel_bus(fx.audio, fx.world, fx.e) == busBefore);
+    CHECK(fx.mp().playing);
+}
+
+TEST_CASE("music player: a player that lost its entity gets its last settings again after a stall") {
+    PlayerFx fx;
+    AudioTestAccess::use_manual_device(fx.audio, 48000);
+    run_frames(fx, 6);
+    REQUIRE(fx.mp().playing);
+    REQUIRE(fx.mp().ready);
+
+    stall_junk(fx.audio, 2100);
+    fx.mp().volume = 0.25f;
+    fx.audio.update(fx.world, 1.0f / 60.0f);  // staged
+    fx.world.destroy_immediate(fx.e);         // the player plays on as an orphan and fades out
+    fx.audio.update(fx.world, 1.0f / 60.0f);
+    stall_junk(fx.audio, 9000);
+    CHECK(fx.audio.stats()["settingsDropped"].get<int>() >= 1);
+
+    // A few frames only: the orphan is gone once its fade has run (about 0.5 s), long after the queue has emptied.
+    run_frames(fx, 6);
+    Json players = fx.audio.music_players();
+    REQUIRE(players.size() == 1);
+    CHECK(players[0]["orphan"].get<bool>());
+    CHECK(players[0]["volume"].get<float>() == doctest::Approx(0.25f));
+}

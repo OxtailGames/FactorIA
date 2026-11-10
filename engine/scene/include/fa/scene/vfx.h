@@ -30,7 +30,9 @@ constexpr int kVfxMaxCommands = 8;         // of those, commands
 constexpr double kVfxMaxDuration = 30.0;   // seconds: the longest an effect, or a part of it, may last
 constexpr double kVfxMaxLifespan = 30.0;   // seconds: the longest one particle of an emitter of an effect may be seen (lifetime with variance, plus trailTime); parse_vfx refuses more
 constexpr double kVfxMinLoop = 0.1;        // seconds: a looping effect shorter than this waits until it is this long before it restarts
-constexpr double kVfxDrainSlack = 0.1;     // seconds added to the time an emitter's particles need to die before its entity is removed (particles are stepped in whole fixed steps)
+// seconds added to the time an emitter's particles need to die before its entity is removed (particles are stepped in
+// whole fixed steps)
+constexpr double kVfxDrainSlack = 0.1;
 constexpr int kVfxMaxPlaying = 64;         // Vfx playing, or still holding emitters and lights, at once: a play past this is dropped (and logged once)
 constexpr int kVfxMaxLiveParticles = 4000; // warning: the emitters of one effect may hold more live particles than this together
 
@@ -117,12 +119,13 @@ struct VfxHost {
     std::function<std::shared_ptr<const VfxDoc>(const std::string& effect)> load;
 };
 
-// Advances every active Vfx by `dt` seconds (dt 0: only a change of `playing` or `effect` applies): loads its document, starts
-// the parts whose time has come (children of the Vfx entity: ParticleEmitter, Light2D / Light), animates the lights, and at the
-// end of the effect clears `playing`, ends its lights and stops its emitters. A stopped emitter's entity is removed a fixed time
-// later, the longest its particles (and those of its sub-emitters) can live, so the entities that exist depend only on the
-// document (the particles themselves are stepped in the fixed step, with or without a renderer). With `autoDestroy` the Vfx entity
-// goes with its last emitter. A document that cannot be read is logged once per file and change. Run once per FIXED step, like update_videos().
+// Advances every active Vfx by `dt` seconds (dt 0: only a change of `playing` or `effect` applies): loads its
+// document, starts the parts whose time has come (children of the Vfx entity: ParticleEmitter, Light2D / Light),
+// animates the lights, and at the end of the effect clears `playing`, ends its lights and stops its emitters. A
+// stopped emitter's entity is removed a fixed time later, the longest its particles (and those of its sub-emitters)
+// can live, so the entities that exist depend only on the document (the particles themselves are stepped in the fixed
+// step, with or without a renderer). With `autoDestroy` the Vfx entity goes with its last emitter. A document that
+// cannot be read is logged once per file and change. Run once per FIXED step, like update_videos().
 void update_vfx(World& world, float dt, const VfxHost& host);
 
 // Starts an effect: a new entity with a Vfx component (autoDestroy on), at `position` in the world, or a child of `parent` at

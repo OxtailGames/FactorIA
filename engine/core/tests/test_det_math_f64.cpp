@@ -3,6 +3,7 @@
 // computes them differently fails right here, not as a different replay or a different Math.pow in a game script.
 #include <doctest.h>
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -222,6 +223,17 @@ TEST_CASE("det math f64: results that must be exact") {
     CHECK(dm::pow(10.0, -307.0) == 1e-307);
     CHECK(dm::pow(-10.0, 25.0) == -1e25);
     CHECK(dm::pow(-10.0, 24.0) == 1e24);
+    // The literals above are parsed by the compiler; these bit patterns are the correctly rounded doubles, written down, so a
+    // compiler that parsed one differently could not make the table and the test agree on a wrong value.
+    struct Pow10Bits { int n; double lit; std::uint64_t bits; };
+    for (const Pow10Bits& c : {Pow10Bits{23, 1e23, 0x44B52D02C7E14AF6ull}, Pow10Bits{25, 1e25, 0x45208B2A2C280291ull},
+                               Pow10Bits{300, 1e300, 0x7E37E43C8800759Cull}, Pow10Bits{308, 1e308, 0x7FE1CCF385EBC8A0ull},
+                               Pow10Bits{-307, 1e-307, 0x0031FA182C40C60Dull}}) {
+        INFO("10^" << c.n);
+        CHECK(std::bit_cast<std::uint64_t>(c.lit) == c.bits);
+        CHECK(std::bit_cast<std::uint64_t>(dm::pow(10.0, double(c.n))) == c.bits);
+        CHECK(std::bit_cast<std::uint64_t>(dm::d::pow10_int(c.n)) == c.bits);
+    }
     CHECK(dm::log10(1e23) == 23.0);
     CHECK(dm::log10(1e25) == 25.0);
     CHECK(dm::log10(1e-25) == -25.0);
