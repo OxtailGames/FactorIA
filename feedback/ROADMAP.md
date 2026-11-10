@@ -86,7 +86,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 
 # Next engine milestones
 
-**What comes next (2026-11-09):** M90 is done (0.20.0). Next M91, M92 and M93, then M94 and M95, and only then M71: M71 needs M95's
+**What comes next (2026-11-10):** M90 (0.20.0) and M91 (0.21.0) are done. Next M92 and M93, then M94 and M95, and only then M71: M71 needs M95's
 frame graph and M75 needs M94.4, so the order of M70-M80 starts after them. M83-M89, M96, M97 and M98 fit in between as
 their "Order" lines say; M99 waits for the user's hardware and accounts. The reasons are in "M90-M99", at the end of
 this file. Update this paragraph when a milestone lands.
@@ -2408,7 +2408,7 @@ when the user has the hardware and the accounts.
 - M90.5 (S) No allocation in the audio callback: `used`, `live` and `ducking` become preallocated scratch, and a test
   counts allocations in the callback (the mixer without locks is M91.4).
 
-## M91. A runtime that does not depend on the renderer (L; 4 packages) — outside review, 2026-11-09
+## M91. A runtime that does not depend on the renderer (L; 4 packages) — DONE (0.21.0)
 
 - M91.1 (L) Simulation without a renderer: the `SpriteAnimator` advance and the particle lifetimes and `autoDestroy`
   move into the simulation step; particle state belongs to its `World` (today a static map keyed by entity bits, so two
@@ -2422,14 +2422,16 @@ when the user has the hardware and the accounts.
   used by `feel` and every simulation system (a test fails on `std::exp`, `pow`, `sin` or `cos` in simulation sources),
   and game scripts' `Math.*` routed to them; a callback cut by the watchdog fails the run loudly, never as a different
   result. Replay hashes for more scenes (2D and 3D physics, scripts, particles, nav, feel), on Android, iOS and the web
-  as well. Done on branch m91/3-det-math: `det::f64` and the float wrappers, the source scan (file list in
-  engine/core/tests/test_det_scan.cpp), QuickJS `Math` routed to them, the watchdog cut is an invalid run. The hashes are
-  committed from arm64 macOS only; the first CI run on x86-64 Linux/Windows and the Android, iOS and web jobs confirms them
-  (a platform that differs shows its value next to the expected one). Particles and feel hashes are desktop only.
+  as well. Built: `det::f64` and the float wrappers, the source scan (file list in engine/core/tests/test_det_scan.cpp),
+  QuickJS `Math` routed to them, the watchdog cut is an invalid run. The script hashes are compared on Linux, Windows,
+  macOS, Android, iOS and the web; the particles and feel hashes on the desktop jobs only.
 - M91.4 (L) Audio that never waits: the game talks to the mixer through a lock-free queue; streamed music and long
   sounds decode on the job system into ring buffers ahead of the callback, which takes no lock and allocates nothing;
   voices are stolen by priority and loudness, not age; the music cache evicts the least recently used song and loads on
   the job system, not on a thread of its own. A stress test of play and stop from many threads, under TSan (M93.1).
+  Built as planned; TSan was run by hand when the mixer was written, and no CI job runs it yet (M93.1).
+- Left open: an animator or particle advances once per fixed step, with no interpolation above `fixedHz`; a press the UI
+  consumes can still reach `onFixedUpdate` when it is released within one fixed step (documented in SCRIPTING.md).
 
 ## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09
 
