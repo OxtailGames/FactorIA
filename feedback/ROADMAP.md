@@ -2935,7 +2935,8 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   only past a wide band (warn inside it), so a baseline is never refreshed to pass; a `provisional: true` entry
   enforces only the counters; a `workflow_dispatch` job runs `perf.baseline` on each runner and uploads the entries as
   an artifact. The Windows editor autotest sections and the iOS simulator step that failed are found from those runs'
-  logs and fixed or given an honest wait.
+  logs and fixed or given an honest wait. So is `mcp_http_test.cpp`'s cancel case for a client without event streams
+  (PR 208, Windows MSVC tests 2/3, 2026-11-10: no `HTTP/1.1 204` after `notifications/cancelled`, the test took 127 s).
 - M100.10 (S) Bookkeeping of the review: KW/FB-0019 gets its dawn example in ANIMATION.md (a `tween` of
   `world.settings`) with a test, ED/FB-0002's docs part is noted, and this file keeps only what is open and the
   decisions: the DONE milestone sections move out, and ROADMAP_DONE.md becomes one file per milestone under
