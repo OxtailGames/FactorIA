@@ -974,7 +974,7 @@ declare module "factoria" {
     variants?: number;
     /**
      * Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255.
-     * @since unreleased
+     * @since 0.21.0
      */
     priority?: number;
     /**
@@ -4770,7 +4770,7 @@ declare module "factoria" {
   }
 
   /**
-   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
+   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The animation is stepped in the fixed simulation step, with or without a renderer, so a run with no graphics plays the same frames as one that draws. Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
    * @since 0.6.0
    */
   export interface SpriteAnimatorAPI {
@@ -5815,7 +5815,7 @@ declare module "factoria" {
     set color(value: ColorLike);
   }
   /**
-   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -5844,7 +5844,7 @@ declare module "factoria" {
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
-     * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     * Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only.
      * @since 0.2.0
      */
     readonly offset: Vec2;
@@ -7590,7 +7590,7 @@ declare module "factoria" {
     range: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
-     * @since unreleased
+     * @since 0.21.0
      */
     priority: number;
   }

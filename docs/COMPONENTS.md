@@ -100,7 +100,7 @@ Multiplies a colour (and an opacity) into every 2D visual of this entity and of 
 
 Since 0.2.0.
 
-Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -108,7 +108,7 @@ Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, 
 | `repeatX` | bool | `false` | Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them. |
 | `repeatY` | bool | `false` | Sprite only. Same as repeatX, up and down. |
 | `repeatSize` | vec2 | `[0.0,0.0]` | Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps. |
-| `offset` | vec2 | `[0.0,0.0]` | Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only. Runtime-only (not saved). |
+| `offset` | vec2 | `[0.0,0.0]` | Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only. Runtime-only (not saved). |
 
 ### Light2D
 
@@ -628,7 +628,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `playing` | bool | `false` | Runtime state: true while a voice is playing. Set true to play, false to stop. Runtime-only (not saved). |
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0. Range 0.0..1000000.0. |
-| `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (not released yet, on main after 0.20.0) |
+| `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (since 0.21.0) |
 
 ### MusicPlayer
 
@@ -9105,7 +9105,7 @@ declare module "factoria" {
     variants?: number;
     /**
      * Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255.
-     * @since unreleased
+     * @since 0.21.0
      */
     priority?: number;
     /**
@@ -13946,7 +13946,7 @@ declare module "factoria" {
     set color(value: ColorLike);
   }
   /**
-   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -13975,7 +13975,7 @@ declare module "factoria" {
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
-     * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     * Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only.
      * @since 0.2.0
      */
     readonly offset: Vec2;
@@ -15721,7 +15721,7 @@ declare module "factoria" {
     range: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
-     * @since unreleased
+     * @since 0.21.0
      */
     priority: number;
   }

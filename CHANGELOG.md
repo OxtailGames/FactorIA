@@ -2,7 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.21.0
+
+FactorIA 0.21.0 (M91) makes the runtime independent of the renderer. Sprite animators and particles advance in the
+fixed step, text is measured on the CPU with the renderer's fonts and shaping, and cameras and parallax follow the
+simulation, so a run without graphics gives the same whole-world hash as one that draws, for every scene of every
+example. A press reaches one `onFixedUpdate` step and one `onUpdate` frame whatever the frame rate. `Math` in scripts
+gives the same bits on every platform, and a callback cut by the watchdog makes the run invalid. The audio callback
+takes no lock and never waits, and when all voices play, the voice to replace is chosen by priority, then loudness.
 
 ### Changes
 
