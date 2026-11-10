@@ -594,7 +594,11 @@
       ],
       "suggestion": "Nothing to change in the engine, the error already names the right path; a `factoria validate` check of clip paths against the prefab would find it before running.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "c96ddbbd",
+      "notes": [
+        "Fixed in c96ddbbd (M42.3): factoria validate checks every clip track path against the scene or prefab (tools/common/src/validate_anim.cpp, check_animator_clips) and names the right path (triage 2026-11-10)."
+      ]
     },
     {
       "id": "FB-0027",

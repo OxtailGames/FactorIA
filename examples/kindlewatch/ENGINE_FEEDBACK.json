@@ -48,7 +48,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "479c7bd2",
+      "notes": [
+        "Fixed in 479c7bd2 (M60): schemas/assets.schema.json takes provenance kind \"prefab\" and `extras`; model.game_ready then factoria validate gives 0 errors (triage 2026-11-10). The suggested schema test of every recipe command's output is M101.6."
+      ]
     },
     {
       "id": "FB-0003",
