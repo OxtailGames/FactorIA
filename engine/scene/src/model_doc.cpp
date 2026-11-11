@@ -390,7 +390,7 @@ const std::vector<ModelFieldInfo>& model_common_fields() {
         f.push_back(field("id", "string", "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."));
         f.push_back(field("note", "string", "A comment for the next person (or AI) reading the document; it has no effect."));
         f.push_back(boolean("enabled", "false leaves the node (and everything below it) out without deleting it.", true));
-        f.push_back(field("part", "string", "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."));
+        f.push_back(field("part", "string", "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."));
         f.push_back(field("material", "string", "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."));
         f.push_back(field("color", "color", "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."));
         f.push_back(field("position", "vec3", "Where the node's origin goes, [x, y, z] in metres, relative to the group above.", Json::array({0, 0, 0})));
@@ -849,6 +849,11 @@ ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth, 
             continue;
         }
         const std::string s = it->get<std::string>();
+        if (std::string(key) == "part" && s.find('+') != std::string::npos) {
+            r.err(ptr, "part \"" + s + "\" contains \"+\", which joins the names of the parts rig.bake merges into one submesh (\"a+b\"), so model.game_ready's collider.part could not tell it from two parts",
+                  "Use another character, e.g. \"" + replace_all(s, "+", "_") + "\".");
+            continue;
+        }
         if (std::string(key) == "part") n.part = s;
         else {
             if (std::find(r.materialNames.begin(), r.materialNames.end(), s) == r.materialNames.end())

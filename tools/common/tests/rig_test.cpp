@@ -392,6 +392,11 @@ TEST_CASE("rig.bake mergeParts: parts that share a material become one submesh, 
     CHECK(p.manifest()["assets"][kGlb]["provenance"]["recipe"]["args"]["mergeParts"] == true);
     p.ok("rig.bake", {{"path", kRig}, {"mergeParts", false}});
     CHECK(bytes_of(p.file(kGlb)) == unmerged);
+    // with no path, an explicit mergeParts bakes only the documents whose choice changes: the others would write the same bytes
+    CHECK(p.ok("rig.bake", {{"mergeParts", false}})["count"] == 0);
+    CHECK(p.ok("rig.bake", {{"mergeParts", true}})["count"] == 1);
+    CHECK(p.ok("rig.bake", {{"mergeParts", true}})["count"] == 0);
+    p.ok("rig.bake", {{"path", kRig}, {"mergeParts", false}});
 
     // the merge itself: same vertex arrays, same set of triangles, one submesh per material
     auto doc = load_rig_document(p.dir, kRig);
