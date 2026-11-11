@@ -287,8 +287,12 @@ Result<Sound> measure_sound(const std::string& projectDir, const std::string& pa
         std::optional<am::LoopPoints> loop;
         {
             const double a = tooling_detail::number_setting(s.analysis.settings, "loopStart", 0.0), b = tooling_detail::number_setting(s.analysis.settings, "loopEnd", 0.0);
-            if (b > a && a >= 0.0 && decoded->rate > 0)
-                loop = am::LoopPoints{std::size_t(std::llround(a * decoded->rate)), std::size_t(std::llround(b * decoded->rate))};
+            if (b > a && a >= 0.0 && decoded->rate > 0) {
+                // The engine clamps a loopEnd past the end of the file to the last frame and plays loopStart..end.
+                const std::size_t frames = decoded->frames();
+                const std::size_t start = std::size_t(std::llround(a * decoded->rate)), end = std::min(frames, std::size_t(std::llround(b * decoded->rate)));
+                if (end > start) loop = am::LoopPoints{start, end};
+            }
         }
         if (!loop && fs::extension(file->path) == ".wav") loop = wav_loop_points(file->bytes);
         s.metrics = am::measure(*decoded, loop);

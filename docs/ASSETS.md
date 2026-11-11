@@ -912,6 +912,10 @@ of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
   An asset that `{"stale": true}` leaves alone is listed in `skipped` with `reason: "up to date..."` and `compared`: the
   inputs it hashed now (`{path, sha256}`, the same hash the recipe recorded) and the style-guide values it compared, so
   an "up to date" answer shows what it looked at: only the files in the recipe's `inputs`, not any file the command could read.
+  `compared` lists at most 8 entries and `comparedCount` is how many there are in all. An asset whose inputs no longer exist is
+  in `failed` with code `missing_input`, `missingInputs` (the first 8 paths) and `missingCount`.
+  `assets.check_mix` takes the loop points of a sound from assets.json `import.loopStart`/`loopEnd` first (a `loopEnd` past the
+  end of the file is the end) and from a WAV's `smpl` chunk only as a fallback; the engine plays only the assets.json points.
   There is no list of commands: any `assets.*` command that records a recipe works, and so do `anim3d.generate` and
   `anim3d.retarget` (a clip's inputs are its rig, plus the source clip and the source rig for a retarget: a re-fit of the rig
   makes the clips stale). An edit of a clip (`anim3d.set_keys` and the other editing commands) removes its recipe, so
