@@ -194,3 +194,52 @@ test("loads a scene whose script cannot load", () => {
     CHECK_FALSE(rep.cases[0].passed);
     CHECK(contains(rep.cases[0].message, "top level exploded"));
 }
+
+// A promise a test leaves rejected is logged when the jobs run. That must happen inside the test that made it: not in the next
+// one (which would fail for no reason) and not after the last one of the file (where nothing would fail).
+TEST_CASE("test errors: a rejection a synchronous test leaves behind fails that test, not the next one") {
+    TestHost h("testerr_reject");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { world } from "factoria";
+async function explode(tag) { throw new Error("async boom " + tag); }
+test("calls an async function and ends", () => {
+  explode("sync");
+  expect(1).toBe(1);
+});
+test("an innocent test after it", () => {
+  expect(1).toBe(1);
+});
+test("an async listener of world.emit rejects", () => {
+  world.on("ping", async () => { throw new Error("listener boom"); });
+  world.emit("ping", {});
+  game.step(1);
+});
+test("an async test that catches what it awaits passes", async () => {
+  try { await explode("caught"); } catch (e) { /* handled */ }
+  expect(1).toBe(1);
+});
+test("an async test that does not await the rejection fails", async () => {
+  explode("not awaited");
+  await Promise.resolve();
+});
+test("the last test of the file leaves a rejection", () => {
+  explode("last");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 6);
+    CHECK_FALSE(rep.cases[0].passed);
+    CHECK(contains(rep.cases[0].message, "async boom sync"));
+    CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+    CHECK_FALSE(rep.cases[2].passed);
+    CHECK(contains(rep.cases[2].message, "listener boom"));
+    CHECK_MESSAGE(rep.cases[3].passed, rep.cases[3].message);
+    CHECK_FALSE(rep.cases[4].passed);
+    CHECK(contains(rep.cases[4].message, "async boom not awaited"));
+    CHECK_FALSE(rep.cases[5].passed);
+    CHECK(contains(rep.cases[5].message, "async boom last"));
+    CHECK(rep.cases[5].loggedError);
+}
