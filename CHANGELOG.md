@@ -13,6 +13,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   `audio.music_state` lists the cached songs with their bytes per stem (`cache`, `cacheBytes`); `perf.profile` memory has
   `musicMB`; the `perf.measure` sample reports `audioDecodedMB` and `musicMB` (never gated, not in baselines).
   docs/MUSIC.md has the MB per minute per layer.
+- **Validate (M101.9b, SH/FB-0024):** `validate` warns about a scene entity that repeats the components of a prefab inline
+  (same name or component set, at most two differences) instead of being an instance, and about an instance that also saves
+  two or more components with the prefab's own values. The warning names the file and JSON pointer, the prefab, and the
+  `{id, prefab, differences}` entry that replaces the copy (what `scene.save` writes since M101.9a).
 - **Music (M101.2, pending state):** the music of a scene that reloads no longer fires what the scene before had queued:
   the new `MusicPlayer` adopts the music that is playing and drops a crossfade or section change that waited for a bar line
   (or takes the target song when the crossfade had started). `entity.music.status` and `audio.music_state` show the queue
