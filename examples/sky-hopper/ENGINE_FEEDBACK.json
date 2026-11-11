@@ -552,7 +552,11 @@
       ],
       "suggestion": "Have the generator (or scene.import_ascii) write `prefab` references only, and let validate warn about a committed scene whose entity repeats the components of its prefab.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "46f61b78",
+      "notes": [
+        "Fixed in 46f61b78: `validate` warns about a scene entity that repeats a prefab's components inline (with the replacement {id, prefab, differences} entry in the hint), and scene.import_ascii / scene.save write prefab references (M101.9a). sky-hopper's scenes validate clean."
+      ]
     },
     {
       "id": "FB-0025",
