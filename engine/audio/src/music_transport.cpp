@@ -840,11 +840,15 @@ void MusicTransport::capture(MusicTransportState& out) const {
             const Head& h = heads_[std::size_t(i)];
             if (h.active && i != main_) want(h.src, h.pos, limit_of(h), h.armed, h.wrapStart);
         }
-        for (const Pending& p : pending_)
-            if (p.used && p.src && (p.kind == Kind::Jump || p.kind == Kind::Overlay)) want(p.src, p.pos, 0.0, false, 0.0);
+        for (const Pending& p : pending_) {
+            if (!p.used || !p.src) continue;
+            if (p.kind == Kind::Jump) want(p.src, p.pos, 0.0, false, 0.0);  // plays on to the end of the song
+            // A stinger ends where its section does (and its tail rings on): the look-ahead stops there, as the head it becomes will.
+            if (p.kind == Kind::Overlay) want(p.src, p.pos, p.end + double(p.fadeFrames) * ratio_, false, 0.0);
+        }
     }
     out.refCount = 0;
-    auto add =[&](const MusicSource* src) {
+    auto add = [&](const MusicSource* src) {
         for (std::size_t i = 0; i < out.refCount; ++i)
             if (out.refs[i] == src) return;
         if (out.refCount < out.refs.size()) out.refs[out.refCount++] = src;  // heads + pendings: it always fits

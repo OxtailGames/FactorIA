@@ -21,7 +21,8 @@ commands.
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
 `sample` together with the `runner` id. The sample also reports `audioDecodedMB` (decoded sounds, streaming buffers and music)
-and `musicMB` (the decoded music alone), the max over the run; they are never gated and never written to a baseline.
+and `musicMB` (the decoded music alone), the max over the run (`musicMB` after every frame; `audioDecodedMB` every 8th frame and at
+the end, so a spike of a few frames in between can be missed); in MiB (1048576 bytes); they are never gated and never written to a baseline.
 
 ## Runners and baselines
 

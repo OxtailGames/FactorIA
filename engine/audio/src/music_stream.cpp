@@ -163,10 +163,10 @@ bool MusicStemStream::ensure(std::int64_t chunk, bool respectWanted) {
     return true;
 }
 
-std::size_t MusicStemStream::fill_wanted(std::size_t most) {
+std::size_t MusicStemStream::fill_wanted(std::size_t most, std::size_t upTo) {
     std::size_t made = 0;
     const std::int64_t count = chunk_count();
-    for (std::size_t i = 0; i < wantedCount_ && made < most; ++i) {
+    for (std::size_t i = 0; i < wantedCount_ && i < upTo && made < most; ++i) {
         if (waiters_.load(std::memory_order_relaxed) > 0) break;  // the game primes a jump: it gets the claim after this chunk
         const std::int64_t c = wanted_[i];
         if (c < 0 || c >= count || resident(c)) continue;
@@ -192,7 +192,8 @@ bool MusicStemStream::decode_now(std::int64_t chunk) { return ensure(chunk, fals
 bool MusicStemStream::claim_wait() {
     if (claim()) return true;
     waiters_.fetch_add(1, std::memory_order_relaxed);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);  // a safety net: the wait is a chunk's decode
+    // A safety net: the wait is a chunk's decode.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(claimWaitMs_.load(std::memory_order_relaxed));
     bool got = false;
     while (!(got = claim()) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
     waiters_.fetch_sub(1, std::memory_order_relaxed);
@@ -221,14 +222,15 @@ void MusicStemStream::publish_head(std::uint64_t seq, double pos, double end, do
 
 bool MusicStemStream::live(std::uint64_t mixSeq) const {
     const std::uint64_t at = stamp_.load(std::memory_order_acquire);
-    return at != 0 && mixSeq - at <= 3;
+    // `at + 3` and not `mixSeq - at`: the mixer may have published after the pass read mixSeq, and an unsigned difference would wrap.
+    return at != 0 && at + 3 >= mixSeq;
 }
 
 // The chunks the published heads read from now on: a window ahead of each playhead, across the wrap of a loop; the first kMusicUrgent of
 // every head before the rest.
 void MusicStemStream::refresh_wanted() {
     std::array<std::int64_t, kMusicWantedMax> list{};
-    std::size_t n = 0;
+    std::size_t n = 0, urgent = 0;
     auto add = [&](std::int64_t c) {
         for (std::size_t i = 0; i < n; ++i)
             if (list[i] == c) return;
@@ -237,6 +239,7 @@ void MusicStemStream::refresh_wanted() {
     const std::int64_t count = chunk_count();
     const std::size_t heads = std::min(headCount_.load(std::memory_order_relaxed), heads_.size());
     for (int round = 0; round < 2; ++round) {
+        if (round == 1) urgent = n;
         for (std::size_t h = 0; h < heads; ++h) {
             const std::uint64_t packed = heads_[h].load(std::memory_order_relaxed);
             std::int64_t c = std::int64_t(packed & kChunkMask);
@@ -255,14 +258,17 @@ void MusicStemStream::refresh_wanted() {
         }
     }
     set_wanted(list.data(), n);
+    urgentCount_ = std::min(urgent, n);
 }
 
-bool MusicStemStream::service(std::uint64_t mixSeq) {
+bool MusicStemStream::service(std::uint64_t mixSeq, bool urgentOnly) {
     if (!live(mixSeq)) return false;
     if (!claim()) return true;  // the game primes, or a test holds it: look again soon
     refresh_wanted();
-    fill_wanted(kMusicWantedMax);
-    const bool more = missing_any();
+    const std::size_t made = fill_wanted(kMusicWantedMax, urgentOnly ? urgentCount_ : kMusicWantedMax);
+    // Come back soon only when that can change something: a chunk was decoded, or the decoder stepped aside for the game. When every
+    // slot holds a chunk that is wanted (or primed) a wanted chunk stays missing and trying again every 2 ms would only burn the battery.
+    const bool more = missing_any() && (made > 0 || waiters_.load(std::memory_order_relaxed) > 0);
     unclaim();
     return more;
 }

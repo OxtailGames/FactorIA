@@ -506,27 +506,30 @@ outro plays its tail out, or a 20 ms fade when more music follows the outro).
 
 ### What the music costs in memory
 
-A stem decoded whole is 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**. A streamed stem holds a window of 24 chunks of 8192 frames
-(4.5 s of float stereo, 1.5 MiB), the decoder's scratch buffer and its encoded `.ogg` (typically well under 1 MB a minute): about **2 to 3 MiB per stem, whatever its length**.
-Every song played stays cached until the 128 MB budget drops the ones nothing plays.
+A stem decoded whole is 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**. A streamed stem holds a window of 32 chunks of 8192 frames
+(6 s of float stereo, 2 MiB), the decoder's scratch buffer and its encoded `.ogg` (typically well under 1 MiB a minute): about **2.5 to 3.5 MiB per stem, whatever its length**.
+Every song played stays cached until the 128 MiB budget drops the ones nothing plays. All sizes here are binary (1 MiB = 1048576 bytes), as the `...MB` fields of `perf.measure`, `perf.profile` and the editor's Profiler panel.
 
 | Song | Stems | One minute | Three minutes |
 | --- | --- | --- | --- |
-| one flat mix, whole (live, or stems under 20 s) | 1 | 10.1 MB | 30.3 MB |
-| 4 layers, whole | 4 | 40.4 MB | 121 MB |
-| 4 layers + mix stem, whole | 5 | 50.5 MB | 152 MB |
-| 4 layers, streamed (stems) | 4 | about 8 to 12 MB | about 8 to 12 MB |
-| 4 layers + mix stem, streamed | 5 | about 10 to 15 MB | about 10 to 15 MB |
+| one flat mix, whole (live, or stems under 20 s) | 1 | 10.1 MiB | 30.3 MiB |
+| 4 layers, whole | 4 | 40.4 MiB | 121 MiB |
+| 4 layers + mix stem, whole | 5 | 50.5 MiB | 152 MiB |
+| 4 layers, streamed (stems) | 4 | about 10 to 14 MiB | about 10 to 14 MiB |
+| 4 layers + mix stem, streamed | 5 | about 12 to 18 MiB | about 12 to 18 MiB |
 
 (Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song: `song`, `mode`, `bytes`, `streamed`, `underruns`, and `stems` with each stem's `name`, `bytes` and `streamed`) and `cacheBytes`;
-`game.state` has `audio.musicBytes`, `streamedSongs`, `musicUnderruns` and `musicUnderrunFrames`; `perf.profile` has `memory.*.musicMB` and `perf.measure` the sample's `musicMB`, which are also part
+`game.state` has `audio.musicBytes`, `streamedSongs`, `musicUnderruns` and `musicUnderrunFrames`; `perf.profile` has `memory.*.musicMB` (the editor's Profiler panel shows it next to the audio total) and `perf.measure` the sample's `musicMB`, which are also part
 of `audioDecodedMB`. A streamed stem counts its window, scratch and encoded bytes, not the whole song, and the number is constant for its life.
+What `musicBytes` / `cacheBytes` count: the songs in the cache, the sources a player still plays after the cache let go of them (a song that changed on disk, until its crossfade ends) and the loads that finished but are not in the cache yet;
+a load that is still decoding is not counted (its size is not known until it ends). `musicUnderruns` counts every streamed stem the cache ever took, also one that has left it. In `perf.measure`, `musicMB` is the largest value seen
+after any frame; `audioDecodedMB` (clips, streaming buffers and music) is read every 8th frame and at the end, so a spike of a few frames in between can be missed.
 
 How a streamed stem plays: the mixer reads only decoded chunks and never decodes, waits or allocates in its callback. Each time it publishes the music's state it also publishes, per stem, where it is
 about to read (the playing position, the target of a queued section jump or crossfade, the loop's start). The **audio service thread** (one per audio device, started with it) reads that and decodes the
 chunks 2.2 s ahead of each of those places, every 2 to 10 ms, so the music does not depend on the game thread: a long scene load, a breakpoint or a minimized window does not silence it. A section jump,
 a loop wrap and a crossfade land on the same sample as with a whole song. The first chunks are decoded before the song plays, and the game decodes the target's first chunks before it sends a jump, stinger or
-crossfade (if the service thread is decoding that stem at that moment, the game waits for the chunk it is on, a millisecond or so, never for the whole refill; so a jump with `quantize: "none"` never plays dry). The null device
+crossfade (if the service thread is decoding that stem at that moment, the game waits for the chunk it is on, a millisecond or so, never for the whole refill; so a jump with `quantize: "none"` never plays dry). That decode of two chunks per stem runs on the game thread: for Kindlewatch's night song (four stems) it took under 1 ms per jump on a laptop. The null device
 (headless runs and tests) and the web decode a missing chunk on the spot in the mixer, so their output is the same on every machine. If a chunk is still missing when the real device needs it (a very slow disk or an overloaded machine), that stem plays silence for the frames it lacks (the music does not wait, so the other stems stay in time) and `underruns` / `musicUnderruns` / `musicUnderrunFrames` count it; it comes back in time once its chunks are decoded.
 
 ### Hot reload

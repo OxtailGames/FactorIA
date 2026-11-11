@@ -2,14 +2,14 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <memory>
-
 #include "fa/audio/audio.h"
+#include "fa/audio/music_player.h"
 #include "fa/scene/world.h"
 #include "music_stream.h"
 
@@ -32,6 +32,9 @@ struct AudioTestAccess {
     // One pass of the music service (what its thread does every few ms): decodes the streamed stems' missing chunks that the mixer
     // published as read soon. Takes no API lock and needs no call of the game. True when a chunk is still missing.
     static bool music_service_pass(Audio& audio);
+    // How long the game waits for a stem the service is decoding (claim_wait, a safety net of 500 ms by default) on every streamed stem
+    // of the cache: a test that holds a stem by hand gives it a limit a loaded machine cannot reach.
+    static void set_claim_wait_limit(Audio& audio, int milliseconds);
     // Starts the music service's own thread on a manual device, as init() does with a real one (shutdown() stops it).
     static void start_music_thread(Audio& audio);
     // What a frame does with a device: commit, refill, take what came back.
@@ -53,6 +56,9 @@ struct AudioTestAccess {
     static int music_channel_bus(Audio& audio, World& world, Entity e);
     // The songs the music cache holds ("song|mode") and their bytes, in key order.
     static std::vector<std::pair<std::string, std::size_t>> music_cache(Audio& audio);
+    // Puts a ready-made source in the music cache, as a finished load would (its path and mode make the key): a song the loader would
+    // refuse or that a file cannot make, such as one with more stems than a player mixes.
+    static void put_music_source(Audio& audio, std::shared_ptr<const MusicSource> src);
 };
 
 }  // namespace fa
