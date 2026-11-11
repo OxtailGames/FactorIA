@@ -152,7 +152,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad`, `touch`, `clipboard` and `http` (the answers of the game's `http.fetch` calls, `docs/NETWORKING.md`; see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `actions` (`{"move_left": true}`: an action forced down or released, what `input.record` writes for `game.input` by action name), `mouse`, `gamepad`, `touch`, `clipboard` and `http` (the answers of the game's `http.fetch` calls, `docs/NETWORKING.md`; see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
 | `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a `Camera.colorFilter` of the game is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |
@@ -165,6 +165,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--date YYYY-MM-DD[THH:MM[:SS]]` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
+| `--touch` | Show the touch interface on a desktop: touch-only controls (`TouchStick`, `TouchButton`) are drawn and `input.lastDevice` says `"touch"`, windowed or headless (the same switch as the `ui.force_touch` command and `game.screenshot {forceTouch}`) |
 | `--persist-storage` | Let scripts' `storage.*` use the real save file (default headless: in memory, so runs do not leak state) |
 | `--json` | Print the report as JSON (lists the PNG paths) |
 

@@ -1,7 +1,7 @@
 // Records the input a game receives, in the input replay format (`factoria run --headless --input`, game.input):
 //   {"frames": {"<n>": {"keys": {"Space": true}, "mouse": {"position": [x, y], "left": true},
 //                       "gamepad": [{"index": 0, "buttons": {"A": true}, "axes": {"LeftX": 0.5}}],
-//                       "touch": [{"id": 1, "position": [x, y], "down": true}], "back": true, "clipboard": "text",
+//                       "touch": [{"id": 1, "position": [x, y], "down": true}], "actions": {"move_left": true}, "back": true, "clipboard": "text",
 //                       "http": [{"result": {"status": 200, "headers": {}, "text": "..."}}], "loadUnits": 3}},
 //    "timing": [[dt, steps], ...], "date": "2026-10-23"}
 // Frame numbers are relative to the start of the recording; an entry is applied BEFORE that frame runs, which is what the
@@ -53,6 +53,8 @@ public:
     void touch_move(std::uint64_t frame, std::uint64_t id, Vec2 p);
     void touch_end(std::uint64_t frame, std::uint64_t id);
     void back(std::uint64_t frame);
+    // An action forced down or released ("actions" of the replay entry, played back with set_action_override).
+    void action(std::uint64_t frame, const std::string& name, bool down);
     // What a clipboard read returned during `frame` ("clipboard" of the replay entry): the replay puts that text on the
     // clipboard before the frame, so a paste plays back the same. The first read of a frame wins (a later one may be a
     // text the game wrote).
@@ -87,6 +89,7 @@ public:
     void observe_gamepad_button(int index, GamepadButton b, bool down) override;
     void observe_gamepad_axis(int index, GamepadAxis a, float value) override;
     void observe_back() override;
+    void observe_action(const std::string& name, bool down) override;
     void observe_release_all() override;
     // A clipboard read of the running game, in the current frame.
     void clipboard_read(const std::string& text);
@@ -112,6 +115,7 @@ private:
     std::set<Key> keys_;
     std::set<MouseButton> buttons_;
     std::set<std::uint64_t> fingers_;
+    std::set<std::string> actions_;
     std::array<Pad, kMaxGamepads> pads_;
 };
 

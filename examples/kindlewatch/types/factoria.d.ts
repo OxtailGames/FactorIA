@@ -565,6 +565,9 @@ declare module "factoria" {
      * Every entity with this name, in creation order. Skips the ones destroyed this frame.
      */
     findAll(name: string): Entity[];
+    /**
+     * Every alive entity that has this tag, in creation order, without the ones destroyed this frame.
+     */
     findByTag(tag: string): Entity[];
     /**
      * All alive entities in creation order, without the ones destroyed this frame.
@@ -8937,7 +8940,7 @@ declare module "factoria" {
     get knobColor(): Color;
     set knobColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -9086,7 +9089,7 @@ declare module "factoria" {
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -10405,7 +10408,20 @@ declare module "factoria:test" {
      * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
      */
     touchEnd(id?: number): void;
+    /**
+     * Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame.
+     */
     find(idOrName: string): Entity | null;
+    /**
+     * Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame.
+     * @since unreleased
+     */
+    findAll(name: string): Entity[];
+    /**
+     * Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag("wolf").length.
+     * @since unreleased
+     */
+    findByTag(tag: string): Entity[];
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**

@@ -136,6 +136,11 @@ Json review_json(const Review& r, bool withText) {
 
 }  // namespace
 
+void register_test_asset_commands(CommandRegistry& registry, std::function<std::string()> projectDir) {
+    if (registry.has("assets.provenance")) return;
+    register_read_only_asset_commands(registry, std::move(projectDir));
+}
+
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     auto opts = std::make_shared<AiCommandOptions>(std::move(options));
     auto project_dir = [opts]() -> std::string {

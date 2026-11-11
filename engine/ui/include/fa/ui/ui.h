@@ -185,6 +185,10 @@ public:
     // writes their runtime fields (value, pressed, shown) back from the touch pad.
     void update(World& world, Input& input, Vec2 designSize, float dt, const VisualMeasure& measure);
 
+    // The touch-controls part of update() alone: hands the rectangles to input and writes `shown` back. The runtime calls it
+    // when the touch interface is forced (Input::set_force_touch) before a picture, so the controls show without a step.
+    void sync_touch_controls(World& world, Input& input, Vec2 designSize);
+
     // Lays out Panel (layout != none) and ScrollList children only, in UI units (ui_rect.h: the world's ui_scale()), and holds a
     // Panel between its minSize and maxSize. update() calls it first; the runtime calls it again
     // right before drawing so changes a script made during the frame are drawn in place. `warn` false (ui.layout() from a

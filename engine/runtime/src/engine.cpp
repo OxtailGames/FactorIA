@@ -87,6 +87,7 @@ void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
+    if (cfg.forceTouch) input.set_force_touch(true);
     // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
     // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
     if (project.uiScale != appliedProjectUiScale) {
@@ -414,6 +415,13 @@ void Engine::Impl::settle_visuals() {
     world.particles().update(world, 0.0f);
 }
 
+void Engine::set_force_touch(bool on) {
+    Impl& I = *impl_;
+    I.input.set_force_touch(on);
+    I.ui.sync_touch_controls(I.world, I.input, I.design_size());
+    I.renderStale = true;
+}
+
 void Engine::Impl::draw(double dt, bool settled) {
     if (!renderer) return;
     if (!settled) settle_visuals();  // a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
@@ -422,6 +430,7 @@ void Engine::Impl::draw(double dt, bool settled) {
     const LoadTrace::ReadingFor reading(traceOwner);
     apply_localization();  // entities created or keyed since the frame ended (a paused game, the editor) are drawn translated
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
+    if (input.force_touch()) ui.sync_touch_controls(world, input, design_size());  // a scene loaded since the last step
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
     renderer->end_frame();

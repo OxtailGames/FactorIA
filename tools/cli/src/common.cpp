@@ -241,6 +241,8 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
 // ---------------------------------------------------------------------------
 
 TestReport run_project_tests(Engine& engine, const std::string& nameFilter, const std::vector<std::string>& testFiles) {
+    // fa.call in a test: the engine's and the project's commands plus the read-only asset ones (docs/SCRIPTING.md).
+    ai::register_test_asset_commands(engine.commands(), [dir = engine.config().projectDir]() { return dir; });
     auto files = resolve_test_files(testFiles);
     if (!files.ok()) throw CliError(files.error().message, files.error().hint);
     if (files->empty()) return {};
