@@ -11,6 +11,7 @@ extern "C" {  // audio_vorbis.c
 void* fa_vorbis_open(const unsigned char* data, int size, int* channels, int* rate, unsigned int* frames);
 int fa_vorbis_read(void* v, int channels, float* out, int frames);
 int fa_vorbis_rewind(void* v);
+int fa_vorbis_seek(void* v, unsigned int frame);
 void fa_vorbis_close(void* v);
 }
 
@@ -86,6 +87,9 @@ public:
         return n > 0 ? std::size_t(n) : 0;
     }
     bool rewind() override { return fa_vorbis_rewind(v_) != 0; }
+    bool seek(std::uint64_t frame) override {
+        return frame <= 0x7fffffffu && fa_vorbis_seek(v_, unsigned(frame)) != 0;
+    }
 
 private:
     void* v_ = nullptr;

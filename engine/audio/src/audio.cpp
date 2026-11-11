@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -27,11 +29,13 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 
 #include "audio_decoder.h"
 #include "audio_mixer.h"
 #include "audio_testing.h"
 #include "bus_fx.h"
+#include "music_stream.h"
 #include "fa/audio/analysis.h"
 #include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
@@ -293,7 +297,7 @@ struct Audio::Impl {
     bool manual = false;       // a test drives the mixer as a device (AudioTestAccess::use_manual_device)
     bool web = false;
     bool streamLogged = false;
-    bool streamService = true; // decode jobs refill the streamed voices (tests switch it off to make underruns)
+    std::atomic<bool> streamService{true};  // the clip decode jobs and the music service refill the streams (tests switch it off)
     int deviceRate = kRate;
     int deviceChannels = 2;
 
@@ -345,6 +349,7 @@ struct Audio::Impl {
     std::map<std::string, CachedSong> musicCache;         // by "song|mode"
     std::uint64_t musicUse = 0;                           // the clock of the cache's least-recently-used order
     std::size_t musicCacheBudget = kMusicCacheBytes;
+    std::uint64_t musicUnderrunsGone = 0, musicUnderrunFramesGone = 0;  // underruns of the streamed songs the cache let go
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
     std::map<std::string, std::string> musicErrors;       // why a load failed, by key
     MusicDeviceProfile musicDevice;
@@ -384,6 +389,7 @@ struct Audio::Impl {
         ended.reserve(kMaxEnded);
     }
     ~Impl() {
+        stop_music_service();
         // shutdown() settled the mixer; whatever is left was never sent to it or has come back.
         for (Cmd* c : staged) delete c;
         Cmd* const* c = nullptr;
@@ -968,6 +974,109 @@ struct Audio::Impl {
         }
         prune_jobs();
     }
+
+    // ------------------------------------------------------------------------------------------------ the music service
+    // Keeps the streamed stems' windows decoded ahead of every playhead on a thread of its own, so a game that stalls (a long scene load, a
+    // breakpoint, a minimized window) does not silence the music. It reads what the mixer published for each stem (music_stream.h) and none
+    // of the game's state, so it needs neither the API lock nor a call from the game. It runs only with a device thread: on the null device
+    // and the web the mixer decodes what it needs itself.
+    struct MusicService {
+        std::mutex mu;                                                      // guards the four below
+        std::condition_variable cv;
+        std::vector<std::weak_ptr<audio_detail::MusicStemStream>> streams;  // every streamed stem of every song the cache took
+        bool stop = false;
+        std::thread thread;
+        std::mutex passMu;                                                  // one pass at a time (the thread, or a test's hook)
+        std::vector<std::shared_ptr<audio_detail::MusicStemStream>> scratch;
+        std::uint64_t passNo = 0;
+    } svc;
+
+    // A song entered the cache: its streamed stems are the service's from now on (they stay while anything holds them).
+    void music_register(const MusicSource& src) {
+        std::lock_guard<std::mutex> lk(svc.mu);
+        for (const MusicStem& s : src.stems) {
+            if (!s.stream) continue;
+            const std::weak_ptr<audio_detail::MusicStemStream> w = s.stream;
+            const bool known = std::any_of(svc.streams.begin(), svc.streams.end(),
+                                           [&](const auto& o) { return !o.owner_before(w) && !w.owner_before(o); });
+            if (!known) svc.streams.push_back(w);
+        }
+    }
+
+    // One pass over the streamed stems: true when a chunk is still missing somewhere. Takes no lock of the game's.
+    bool music_service_pass() {
+        if (!streamService.load(std::memory_order_relaxed)) return false;
+        std::lock_guard<std::mutex> pass(svc.passMu);
+        svc.scratch.clear();
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            for (std::size_t i = 0; i < svc.streams.size();) {
+                if (auto s = svc.streams[i].lock()) {
+                    svc.scratch.push_back(std::move(s));
+                    ++i;
+                } else {
+                    svc.streams[i] = svc.streams.back();  // gone: nobody plays it
+                    svc.streams.pop_back();
+                }
+            }
+        }
+        const std::uint64_t seq = mixer.musicSeq.load(std::memory_order_relaxed);
+        ++svc.passNo;
+        bool more = false;
+        for (const auto& s : svc.scratch) {
+            s->tick(svc.passNo);
+            more = s->service(seq) || more;
+        }
+        svc.scratch.clear();
+        return more;
+    }
+
+    // The mode `asked` comes to for `song` with its stem plan. "auto" with stems that were rendered from another version of the song plays
+    // it live, and says so once (until the stems are current again): a song edit is heard in a running game, as a live song's is.
+    std::set<std::string> staleLogged;
+    MusicMode music_mode_of(MusicMode asked, const std::string& song, const MusicStemPlan& plan, std::string* why = nullptr) {
+        const bool stale = asked == MusicMode::Auto && plan.stale && !plan.files.empty();
+        if (!stale) staleLogged.erase(song);
+        else if (staleLogged.insert(song).second)
+            FA_WARN("audio", "the stems of '{}' were rendered from an older version of the song; it plays live instead "
+                             "(hint: run music.render on it to use the stems again)", song);
+        return music_resolve_mode(asked, musicDevice, !plan.files.empty(), why, plan.stale);
+    }
+
+    void start_music_service() {
+#if !defined(__EMSCRIPTEN__)
+        if (svc.thread.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            svc.stop = false;
+        }
+        svc.thread = std::thread([this] {
+            std::unique_lock<std::mutex> lk(svc.mu);
+            while (!svc.stop) {
+                lk.unlock();
+                const bool more = music_service_pass();
+                lk.lock();
+                if (svc.stop) break;
+                // Quick while a chunk is missing, slow when the windows are full: the look-ahead is seconds.
+                svc.cv.wait_for(lk, std::chrono::milliseconds(more ? 2 : 10), [this] { return svc.stop; });
+            }
+        });
+#endif
+    }
+
+    // Waits for the thread to end (a pass that is decoding finishes its chunk first).
+    void stop_music_service() {
+        if (!svc.thread.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            svc.stop = true;
+        }
+        svc.cv.notify_all();
+        svc.thread.join();
+        std::lock_guard<std::mutex> lk(svc.mu);
+        svc.streams.clear();
+    }
+
     void prune_jobs() {
         jobsInFlight.erase(std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
                            jobsInFlight.end());
@@ -1212,6 +1321,10 @@ struct Audio::Impl {
         }
         if (!MusicTransport::check_start(src.get(), section, err)) return false;
         const MusicSource* raw = src.get();
+        // A streamed song has the first chunks of where it starts decoded before the command runs.
+        music_prime(*raw, section >= 0 && std::size_t(section) < raw->map.sections.size()
+                              ? raw->map.spans[std::size_t(raw->map.sections[std::size_t(section)].firstSpan)].start
+                              : 0.0);
         chan_cmd(rt, CmdKind::Keep, [raw, section, intensity, q, bars, hard](MusicTransport& tr) {
             const MusicSource* from = tr.source();
             if (tr.playing() && !hard && from) {
@@ -1286,6 +1399,7 @@ bool Audio::init(bool device, std::string* error) {
     im.inited = true;
     // Release: the rate and the fill mode above are written before the callback that sees `armed` reads them.
     im.mixer.armed.store(true, std::memory_order_release);
+    if (im.device && !im.web) im.start_music_service();  // streamed music is kept decoded without the game (Impl::MusicService)
     return true;
 }
 
@@ -1300,6 +1414,7 @@ void Audio::shutdown() {
         saudio_shutdown();  // joins the audio thread: nothing mixes from here on
 #endif
     }
+    im.stop_music_service();  // after the device: it reads what the mixer published, and songs are released below
     im.mixer.armed.store(false, std::memory_order_release);
     im.device = false;  // from here every command runs at once, on this thread
     im.manual = false;
@@ -2151,8 +2266,16 @@ Json Audio::stats() const {
         if (clip->encoded) streamed.push_back(path);
     }
     std::size_t music = 0;
-    for (const auto& [key, song] : im.musicCache) music += song.src->bytes();
+    std::uint64_t musicUnderruns = im.musicUnderrunsGone, musicUnderrunFrames = im.musicUnderrunFramesGone;
+    std::size_t streamedSongs = 0;
+    for (const auto& [key, song] : im.musicCache) {
+        music += song.src->bytes();
+        musicUnderruns += song.src->underrun_events();
+        musicUnderrunFrames += song.src->underrun_frames();
+        streamedSongs += song.src->streamed() ? 1 : 0;
+    }
     j["musicBytes"] = music;
+    j["streamedSongs"] = streamedSongs;
     j["decodedBytes"] = decoded + music;
     j["streamedClips"] = streamed;
     float peak = im.lastPeak;
@@ -2182,8 +2305,11 @@ Json Audio::stats() const {
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);
     // The real-time path (docs/SOUND.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
-    j["underruns"] = im.mixer.underrunEvents.load(std::memory_order_relaxed);
-    j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed);
+    j["musicUnderruns"] = musicUnderruns;
+    j["musicUnderrunFrames"] = musicUnderrunFrames;
+    // Streamed clips and streamed music together.
+    j["underruns"] = im.mixer.underrunEvents.load(std::memory_order_relaxed) + musicUnderruns;
+    j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed) + musicUnderrunFrames;
     j["commandsDropped"] = im.commandsDropped;
     j["settingsDropped"] = im.settingsDropped;
     j["commandsCoalesced"] = im.commandsCoalesced;
@@ -2360,7 +2486,7 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
     if (rt.song.empty()) return;
     MusicStemPlan plan = music_stem_plan_of(rt.song);
     std::string why;
-    const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+    const MusicMode mode = music_mode_of(mp.mode, rt.song, plan, &why);
     if (mp.mode == MusicMode::Stems && plan.files.empty())
         FA_WARN("audio", "MusicPlayer on '{}': mode is \"stems\" but '{}' has no stem files in assets.json; playing it live "
                          "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")", rt.id, rt.song);
@@ -2401,6 +2527,7 @@ void Audio::Impl::music_poll() {
             if (!l.note.empty()) FA_WARN("audio", "song '{}' plays live instead of from its stems: {}", l.path, l.note);
             // A move: the load (which its job's closure may keep alive a while longer) must not hold the song, or the cache
             // could not evict it while that lasts (music_trim counts the holders).
+            music_register(*l.source);
             musicCache[l.key] = CachedSong{std::move(l.source), ++musicUse};
             music_trim(l.key);
         } else {
@@ -2424,6 +2551,8 @@ void Audio::Impl::music_trim(const std::string& keepKey) {
         }
         if (victim == musicCache.end()) break;
         total -= victim->second.src->bytes();
+        musicUnderrunsGone += victim->second.src->underrun_events();
+        musicUnderrunFramesGone += victim->second.src->underrun_frames();
         musicCache.erase(victim);
     }
 }
@@ -2547,7 +2676,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             // The mode this player would play the song in: the source of the cache for it is what the adopted transport must be playing.
             std::string why;
             const MusicStemPlan plan = music_stem_plan_of(want);
-            const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+            const MusicMode mode = music_mode_of(mp.mode, want, plan, &why);
             const auto cached = musicCache.find(music_cache_key(want, mode));
             for (auto o = musicOrphans.begin(); o != musicOrphans.end() && cached != musicCache.end(); ++o) {
                 MusicRt& old = **o;
@@ -2632,7 +2761,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             rt.epoch = musicEpoch;
             if (mp.mode == MusicMode::Auto) {
                 const MusicStemPlan plan = music_stem_plan_of(rt.song);
-                refetch = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty()) != rt.resolved;
+                refetch = music_mode_of(mp.mode, rt.song, plan) != rt.resolved;
             }
         }
         if (refetch) {
@@ -2867,7 +2996,12 @@ void Audio::Impl::music_invalidate(const std::string& song) {
     for (const char* mode : {"|live", "|stems"}) {
         const std::string key = song + mode;
         musicLoads.erase(key);
-        musicCache.erase(key);
+        auto cached = musicCache.find(key);
+        if (cached != musicCache.end()) {
+            musicUnderrunsGone += cached->second.src->underrun_events();
+            musicUnderrunFramesGone += cached->second.src->underrun_frames();
+            musicCache.erase(cached);
+        }
         musicErrors.erase(key);
     }
     for (auto& [bits, rt] : musicEnts)
@@ -2977,6 +3111,7 @@ Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::stri
     const MusicQuantize q = quantize.value_or(mp->quantize);
     const float fade = fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds;
     const MusicChange change = im.music_predict(rt, q);
+    music_prime(*playing, playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)].start);  // streamed: the target is decoded
     // The transport checks again when the command runs (it may have stopped meanwhile): then the jump is not made.
     im.chan_cmd(rt, CmdKind::Droppable, [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
     return change;
@@ -3009,6 +3144,7 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         const float tail = std::max(spec.tail, 0.0f);
         const float length = float((span.end - span.start) / double(kMusicRate)) + tail;
         const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
+        music_prime(*playing, span.start);  // streamed: the stinger's first chunks are decoded
         im.chan_cmd(rt, CmdKind::Droppable, [index, q, volume, tail, duck, attack, hold, release](MusicTransport& tr) {
             if (tr.play_section_stinger(index, q, volume, tail, nullptr) && duck > 0.0f) tr.duck(q, duck, attack, hold, release);
         });
@@ -3141,8 +3277,9 @@ Json Audio::music_cache_json() const {
         const MusicSource& src = *song.src;
         Json stems = Json::array();
         for (const MusicStem& s : src.stems)
-            stems.push_back(Json::object({{"name", s.name}, {"bytes", s.pcm.size() * sizeof(std::int16_t)}}));
-        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"stems", stems}}));
+            stems.push_back(Json::object({{"name", s.name}, {"bytes", s.bytes()}, {"streamed", s.stream != nullptr}}));
+        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"streamed", src.streamed()},
+                                    {"underruns", src.underrun_events()}, {"stems", stems}}));
     }
     return out;
 }
@@ -3478,6 +3615,22 @@ void AudioTestAccess::set_music_cache_budget(Audio& audio, std::size_t bytes) {
 void AudioTestAccess::set_stream_service(Audio& audio, bool on) {
     Audio::Impl::Call call(*audio.impl_);
     audio.impl_->streamService = on;
+}
+
+std::vector<std::shared_ptr<audio_detail::MusicStemStream>> AudioTestAccess::music_streams(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    std::vector<std::shared_ptr<audio_detail::MusicStemStream>> out;
+    for (const auto& [key, song] : audio.impl_->musicCache)
+        for (const MusicStem& s : song.src->stems)
+            if (s.stream) out.push_back(s.stream);
+    return out;
+}
+
+bool AudioTestAccess::music_service_pass(Audio& audio) { return audio.impl_->music_service_pass(); }  // no API lock, as the service thread
+
+void AudioTestAccess::start_music_thread(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->start_music_service();
 }
 
 void AudioTestAccess::pump(Audio& audio) {

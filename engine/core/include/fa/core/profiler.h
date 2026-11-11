@@ -87,7 +87,7 @@ struct ProfMemory {
     std::uint64_t jsHeapBytes = 0;        // QuickJS heap
     std::uint64_t textureBytes = 0;       // textures the renderer holds
     std::uint64_t audioDecodedBytes = 0;  // decoded audio: clips, streaming buffers and music (musicBytes is part of it)
-    std::uint64_t musicBytes = 0;         // decoded stems of the music cache
+    std::uint64_t musicBytes = 0;         // music cache: decoded stems and the windows of streamed ones
     int entities = 0;
 };
 

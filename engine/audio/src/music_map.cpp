@@ -4,11 +4,13 @@
 #include <cmath>
 
 #include "audio_decoder.h"
+#include "music_stream.h"
 #include "fa/audio/analysis.h"
 #include "fa/audio/music_player.h"
 #include "fa/audio/song_preview.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
@@ -16,6 +18,7 @@ namespace fa {
 
 namespace {
 constexpr double kEps = 1e-6;
+constexpr std::int64_t kMusicStreamAutoFrames = 20 * std::int64_t(kMusicRate);  // import.music.stream "auto": stems of 20 s or more stream
 }
 
 const char* music_quantize_name(MusicQuantize q) {
@@ -46,7 +49,7 @@ float music_layer_gain(float intensity, float threshold, float range) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why) {
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why, bool stemsStale) {
     auto say = [&](const char* text) { if (why) *why = text; };
     if (mode == MusicMode::Live) { say("mode is live"); return MusicMode::Live; }
     if (mode == MusicMode::Stems) {
@@ -55,10 +58,21 @@ MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool s
         return MusicMode::Live;
     }
     const bool handheld = d.formFactor == "phone" || d.formFactor == "tablet";
-    const bool wantStems = d.web || d.tier == "low" || (handheld && d.tier != "high");
-    if (!wantStems) { say("auto: this device renders the song live"); return MusicMode::Live; }
-    if (!stemsAvailable) { say("auto would use stems on this device but the song has none (run music.render)"); return MusicMode::Live; }
-    say(d.web ? "auto: stems on the web" : d.tier == "low" ? "auto: stems on a low-tier device" : "auto: stems on a phone or tablet that is not high-tier");
+    const bool needsStems = d.web || d.tier == "low" || (handheld && d.tier != "high");
+    if (!stemsAvailable) {
+        say(needsStems ? "auto would use stems on this device but the song has none (run music.render)"
+                       : "auto: the song has no stem files, so it renders live (run music.render to stream it from its stems)");
+        return MusicMode::Live;
+    }
+    if (stemsStale) {
+        say("auto: the song changed after music.render wrote its stems, so it plays live (run music.render again to use the stems)");
+        return MusicMode::Live;
+    }
+    // A song with stem files plays from them on every device: a long stem streams from its encoded ogg in memory (a window of a few MB
+    // instead of 10 MB per minute per stem), and there is no render to wait for.
+    say(d.web ? "auto: stems on the web" : d.tier == "low" ? "auto: stems on a low-tier device"
+        : needsStems ? "auto: stems on a phone or tablet that is not high-tier"
+                     : "auto: the song has stem files, which play from their encoded ogg instead of rendering the song in memory");
     return MusicMode::Stems;
 }
 
@@ -214,10 +228,41 @@ double music_boundary(const MusicMap& map, double pos, MusicQuantize q, double l
 
 // ---- stems and sources ---------------------------------------------------------------------------------------------------------
 
+std::size_t MusicStem::bytes() const { return stream ? stream->resident_bytes() : pcm.size() * sizeof(std::int16_t); }
+
 std::size_t MusicSource::bytes() const {
     std::size_t n = 0;
-    for (const MusicStem& s : stems) n += s.pcm.size() * sizeof(std::int16_t);
+    for (const MusicStem& s : stems) n += s.bytes();
     return n;
+}
+
+bool MusicSource::streamed() const {
+    for (const MusicStem& s : stems)
+        if (s.stream) return true;
+    return false;
+}
+
+std::uint64_t MusicSource::underrun_events() const {
+    std::uint64_t n = 0;
+    for (const MusicStem& s : stems) n += s.stream ? s.stream->underrun_events() : 0;
+    return n;
+}
+
+std::uint64_t MusicSource::underrun_frames() const {
+    std::uint64_t n = 0;
+    for (const MusicStem& s : stems) n += s.stream ? s.stream->underrun_frames() : 0;
+    return n;
+}
+
+void music_prime(const MusicSource& src, double pos) {
+    const std::int64_t chunk = std::int64_t(std::max(pos, 0.0)) >> audio_detail::kMusicChunkShift;
+    for (const MusicStem& s : src.stems) {
+        if (!s.stream) continue;
+        // The service thread may be decoding: it gives the claim up after the chunk it is on (claim_wait), so the jump never plays dry.
+        if (!s.stream->claim_wait()) continue;
+        s.stream->prime(chunk, 2);
+        s.stream->unclaim();
+    }
 }
 
 MusicStem music_make_stem(std::string name, float threshold, const std::vector<float>& interleaved) {
@@ -298,6 +343,22 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
         const Json& m = imp["music"];
         if (m.value("role", std::string()) != "mix" || fs::normalize(m.value("song", std::string())) != song) continue;
         plan.mixPath = it.key();
+        std::string recordedSha;  // the song's hash when music.render ran (provenance.recipe.inputs)
+        if (it->contains("provenance") && (*it)["provenance"].is_object() && (*it)["provenance"].contains("recipe") &&
+            (*it)["provenance"]["recipe"].is_object() && (*it)["provenance"]["recipe"].contains("inputs") &&
+            (*it)["provenance"]["recipe"]["inputs"].is_array()) {
+            for (const Json& in : (*it)["provenance"]["recipe"]["inputs"])
+                if (in.is_object() && in.contains("path") && in["path"].is_string() && fs::normalize(in["path"].get<std::string>()) == song)
+                    recordedSha = in.value("sha256", std::string());
+        }
+        if (m.contains("stream") && m["stream"].is_string()) {
+            const std::string mode = m["stream"].get<std::string>();
+            if (mode == "auto" || mode == "always" || mode == "never") {
+                plan.stream = mode;
+            } else {
+                FA_WARN("audio", "assets.json '{}': import.music.stream is \"{}\"; use \"auto\", \"always\" or \"never\" (taken as \"auto\")", it.key(), mode);
+            }
+        }
         if (!m.contains("stems") || !m["stems"].is_array()) return plan;
         for (const Json& s : m["stems"]) {
             if (!s.is_object() || !s.contains("path") || !s["path"].is_string()) continue;
@@ -306,6 +367,10 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
             f.name = s.value("name", std::string());
             f.threshold = s.contains("intensity") && s["intensity"].is_number() ? s["intensity"].get<float>() : 0.0f;
             plan.files.push_back(std::move(f));
+        }
+        if (!plan.files.empty() && !recordedSha.empty()) {
+            auto bytes = fs::read_bytes(song);
+            plan.stale = bytes && sha256_hex(bytes->data(), bytes->size()) != recordedSha;
         }
         return plan;
     }
@@ -333,6 +398,30 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
         auto decoder = audio_detail::open_decoder(bytes->data(), bytes->size(), ext, &problem);
         if (!decoder) return make_error("stem '" + f.path + "' " + problem, "Run music.render again.");
         const std::uint64_t expected = decoder->frames();
+        const std::string stemName = f.name.empty() ? fs::stem(f.path) : f.name;
+        // A long ogg stem streams: it keeps its encoded bytes and a window of decoded chunks (docs/MUSIC.md, "What the music costs in memory").
+        const bool wantStream = ext == ".ogg" && plan.stream != "never" && expected > 0 &&
+                                (plan.stream == "always" || expected >= std::uint64_t(kMusicStreamAutoFrames));
+        if (wantStream) {
+            std::string why;
+            auto stream = audio_detail::MusicStemStream::open(bytes, ext, &why);
+            if (stream) {
+                const std::int64_t n = stream->frames();
+                if (frames != 0 && n != frames)
+                    return make_error("stem '" + f.path + "' is " + std::to_string(n) + " frames long but the others are " + std::to_string(frames),
+                                      "The stems are from different renders: run music.render again.");
+                frames = n;
+                MusicStem stem;
+                stem.name = stemName;
+                stem.threshold = f.threshold;
+                stem.streamFrames = n;
+                stem.stream = std::move(stream);
+                src->stems.push_back(std::move(stem));
+                continue;
+            }
+            if (plan.stream == "always")
+                FA_WARN("audio", "stem '{}' of '{}' cannot stream ({}), so it is decoded whole (import.music.stream is \"always\")", f.path, src->path, why);
+        }
         audio_detail::Resampler resampler(bytes, std::move(decoder), false);
         std::vector<float> data;
         data.reserve(std::size_t(expected) * 2 + 32768);
@@ -349,7 +438,7 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
             return make_error("stem '" + f.path + "' is " + std::to_string(n) + " frames long but the others are " + std::to_string(frames),
                               "The stems are from different renders: run music.render again.");
         frames = n;
-        src->stems.push_back(music_make_stem(f.name.empty() ? fs::stem(f.path) : f.name, f.threshold, data));
+        src->stems.push_back(music_make_stem(stemName, f.threshold, data));
     }
     auto map = music_map_build(song, timeline, frames);
     if (!map) return map.error();
@@ -358,6 +447,9 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
                               " frames: the song changed after they were rendered",
                           "Run music.render again (assets.regenerate {\"stale\": true} does it), or play the song live.");
     src->map = std::move(*map);
+    // The first chunks of a streamed song are decoded before it plays, so the first block of the music is not an underrun.
+    music_prime(*src, 0.0);
+    if (src->map.hasLoop) music_prime(*src, src->map.loopStart);
     return src;
 }
 
