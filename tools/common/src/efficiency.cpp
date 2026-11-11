@@ -144,6 +144,8 @@ void resolve_cli_call(EfficiencyToolCall& c, const Json& input) {
     c.ref = ref_of(input);
     const std::string cmdline = jstr(input, "command");
     if (cmdline.empty()) return;
+    c.shell = cmdline.substr(0, 200);
+    while (!c.shell.empty() && c.shell.size() < cmdline.size() && (static_cast<unsigned char>(cmdline[c.shell.size()]) & 0xC0) == 0x80) c.shell.pop_back();
     auto words = [](std::string_view s) {
         std::vector<std::string> out;
         std::string cur;
@@ -163,10 +165,13 @@ void resolve_cli_call(EfficiencyToolCall& c, const Json& input) {
         const std::string bin = u8text(path_of_text(w[i]).stem());
         if (bin != "factoria" || i + 1 >= w.size()) continue;
         if (w[i + 1] == "call" && i + 2 < w.size()) {
-            c.command = w[i + 2];
+            std::size_t cmdAt = i + 2;  // `factoria call --project . play.auto`: the options come before the command
+            while (cmdAt + 1 < w.size() && w[cmdAt].size() > 1 && w[cmdAt][0] == '-') cmdAt += w[cmdAt] == "--project" ? 2 : 1;
+            if (cmdAt >= w.size()) cmdAt = i + 2;
+            c.command = w[cmdAt];
             c.ref.clear();
             // the first plain word after the command is what it acted on
-            for (std::size_t k = i + 3; k < w.size() && k < i + 6; ++k) {
+            for (std::size_t k = cmdAt + 1; k < w.size() && k < cmdAt + 4; ++k) {
                 if (!w[k].empty() && w[k][0] != '-' && w[k][0] != '{' && w[k] != "--project") { c.ref = w[k]; break; }
                 if (w[k] == "--project") ++k;
             }
@@ -915,6 +920,122 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
                                  : "This saving justifies: " + ok + ". Would one of those remove the waste? If so report that fix; if not, it is not worth filing.");
     }
     return std::nullopt;
+}
+
+// ---------------------------------------------------------------------------------------------- Claude Code stream-json --
+namespace {
+// "error: unknown_command: Unknown command 'x'" (what `factoria` prints on exit 1, alone or after other output): the code word, or "".
+std::string cli_error_code(const std::string& text) {
+    std::size_t at = 0;
+    if (text.rfind("error: ", 0) == 0) {
+        at = 7;
+    } else {
+        at = text.find("\nerror: ");
+        if (at == std::string::npos) return {};
+        at += 8;
+    }
+    std::size_t end = at;
+    while (end < text.size() && (std::islower(static_cast<unsigned char>(text[end])) || text[end] == '_' || std::isdigit(static_cast<unsigned char>(text[end])))) ++end;
+    if (end == at || end >= text.size() || text[end] != ':') return {};
+    return text.substr(at, end - at);
+}
+// The text of a tool_result block's content (a string, or [{type:"text", text}]).
+std::string stream_result_text(const Json& block) {
+    const Json* c = jchild(block, "content");
+    if (!c) return {};
+    if (c->is_string()) return c->get<std::string>();
+    std::string out;
+    if (c->is_array())
+        for (const Json& p : *c) out += jstr(p, "text");
+    return out;
+}
+}  // namespace
+
+EfficiencySession read_claude_stream_session(const std::string& text, const std::string& id) {
+    EfficiencySession s;
+    s.id = id;
+    s.agent = "cli";
+    std::map<std::string, std::pair<std::size_t, std::size_t>> pending;  // tool_use id -> (step, call)
+    std::string lastMessage;
+    std::uint64_t in = 0, out = 0, cw = 0, cr = 0;  // the usage of the step being read: the largest each field reached
+    auto close_step = [&]() {
+        if (!s.steps.empty()) s.steps.back().tokens = in + out + cw + cr;
+        in = out = cw = cr = 0;
+    };
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t eol = text.find('\n', pos);
+        if (eol == std::string::npos) eol = text.size();
+        const std::size_t len = eol - pos;
+        const Json j = len > kEfficiencyMaxLine ? Json() : Json::parse(text.begin() + static_cast<std::ptrdiff_t>(pos), text.begin() + static_cast<std::ptrdiff_t>(eol), nullptr, false);
+        pos = eol + 1;
+        if (!j.is_object()) { if (len > 0) ++s.skippedLines; continue; }
+        std::int64_t t = 0;
+        if (parse_iso_utc_ms(jstr(j, "timestamp"), t) && t > 0) {
+            if (s.startMs == 0) s.startMs = t;
+            s.hasTimes = true;
+        }
+        const std::string type = jstr(j, "type");
+        const Json* msg = jchild(j, "message");
+        if (type == "assistant" && msg) {
+            const std::string mid = jstr(*msg, "id");
+            if (s.steps.empty() || mid.empty() || mid != lastMessage) {
+                if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) { s.truncated = true; break; }
+                close_step();
+                EfficiencyStep st;
+                st.number = static_cast<int>(s.steps.size()) + 1;
+                st.endMs = t > 0 ? t : (s.steps.empty() ? 0 : s.steps.back().endMs);
+                s.steps.push_back(std::move(st));
+                lastMessage = mid;
+            }
+            EfficiencyStep& st = s.steps.back();
+            if (t > 0) st.endMs = t;
+            if (const Json* u = jchild(*msg, "usage"); u && u->is_object()) {
+                in = std::max(in, juint(*u, "input_tokens"));
+                out = std::max(out, juint(*u, "output_tokens"));
+                cw = std::max(cw, juint(*u, "cache_creation_input_tokens"));
+                cr = std::max(cr, juint(*u, "cache_read_input_tokens"));
+            }
+            const Json* content = jchild(*msg, "content");
+            if (content && content->is_array()) {
+                for (const Json& b : *content) {
+                    if (jstr(b, "type") != "tool_use") continue;
+                    EfficiencyToolCall call;
+                    call.id = jstr(b, "id");
+                    call.name = jstr(b, "name");
+                    resolve_cli_call(call, b.contains("input") ? b["input"] : Json::object());
+                    st.calls.push_back(std::move(call));
+                    if (!st.calls.back().id.empty()) pending[st.calls.back().id] = {s.steps.size() - 1, st.calls.size() - 1};
+                }
+            }
+        } else if (type == "user" && msg) {
+            const Json* content = jchild(*msg, "content");
+            if (!content || !content->is_array()) continue;
+            for (const Json& b : *content) {
+                if (jstr(b, "type") != "tool_result") continue;
+                auto it = pending.find(jstr(b, "tool_use_id"));
+                if (it == pending.end() || it->second.first >= s.steps.size()) continue;
+                EfficiencyStep& st = s.steps[it->second.first];
+                EfficiencyToolCall& call = st.calls[it->second.second];
+                const std::string result = stream_result_text(b);
+                call.resultBytes = result.size();
+                const Json* err = jchild(b, "is_error");
+                call.failed = err && err->is_boolean() && err->get<bool>();
+                if (call.failed) {
+                    call.code = cli_error_code(result);
+                    if (call.code.empty()) call.code = code_of_text(result);
+                }
+                if (t > 0) st.endMs = std::max(st.endMs, t);
+            }
+        }
+    }
+    close_step();
+    std::int64_t prev = s.startMs;
+    for (EfficiencyStep& st : s.steps) {
+        if (st.endMs < prev) st.endMs = prev;
+        prev = st.endMs;
+    }
+    return s;
 }
 
 }  // namespace fa

@@ -17,6 +17,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
   command and prints the paging hint (next call and contents) on stderr when it cuts.
 - The MCP server's instructions and the generated `AGENTS.md` tell the AI to read `ai-guide` by section, never whole.
 - **For game authors and AIs (M100.4):** `factoria validate` checks scripts against the engine, not only their syntax. Each issue is `file:line:column` with a "did you mean": a name imported from `"factoria"` or `"factoria:test"` that does not exist (error), a member that the engine's own objects do not have (`physics.raycats`, `ns.member` after `import * as ns from "factoria"`; error), a literal component name in `entity.get/add/has/remove` that is not a component or differs only in case (warning), and a `fa.call("project.<name>")` in a game script when a module under `tools/` defines the command, which an export leaves out (warning with the line; `factoria export` gives the line too). Every script is also loaded the way the game loads it (`ScriptSystem::check_load`), so a module whose top level throws is an error with its own file and line. A colour array that mixes a channel over 1 with a channel at most 1 (`[255, 255, 255, 1]`, read as 0..255, an alpha of 1/255) is a warning with its JSON pointer and both readings, and the colour shape message says that 0..255 is read when any channel is over 1. docs/SCRIPTING.md, "What `factoria validate` checks in a script".
+- `scripts/agent-cost.sh` measures what a game costs an AI with no context: it starts an AI CLI (Claude Code) in an empty folder with
+  only the installed `factoria` on the PATH and a fixed brief ("a platformer with three levels"), records the transcript and reports
+  it with the new command `agent.cost`: steps, tokens and minutes to the first playable build, the engine errors the AI met and
+  the script errors no test caught. Results go to `feedback/agent-cost/<version>-<cli>.json`; the numbers and how to run it
+  (it spends quota) are in docs/AI_COSTS.md. The measured AI runs confined (a copy of the engine, a throw-away HOME, a short
+  allow-list of `factoria` subcommands, caps on turns, dollars and wall-clock time); "reached the last level" means a `play.auto`
+  that ended "won" with at least three distinct phases.
 
 ## 0.21.0
 

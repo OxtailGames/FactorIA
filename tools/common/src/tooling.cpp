@@ -8,6 +8,7 @@
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/play_auto.h"
+#include "fa/tooling/agent_cost.h"
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/serve_web.h"
 #include "fa/tooling/sign.h"
@@ -18,6 +19,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_feedback_commands(registry, projectDir);
     register_docs_commands(registry);
     register_api_export_commands(registry);
+    register_agent_cost_commands(registry);
     register_fs_commands(registry, projectDir);
     register_asset_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
@@ -90,6 +92,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
+        register_agent_cost_commands(registry);
         register_setup_commands(registry);
     }
     register_api_reference_command(registry, engine.scripts());
