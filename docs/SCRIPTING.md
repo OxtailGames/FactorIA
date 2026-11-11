@@ -609,7 +609,10 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority, position, range })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `position: [x, y, z]` (`[x, y]` in a 2D game, or `{x, y, z}`) plays the sound from a place without an entity, heard from the
+  `AudioListener` like an `AudioSource` with `spatial: true`; `range` is the distance where it reaches 0 (default 800). It
+  does not follow anything (docs/SOUND.md, "A sound at a place").
 - `priority` (0..255, default 128) decides who keeps a voice when all 64 play: a new sound replaces the lowest priority voice,
   the quietest of those, when its priority is higher, or the same and it is louder; otherwise it does not play and `play`
   returns 0. Age never decides; music is never replaced (docs/SOUND.md, "Voice stealing").

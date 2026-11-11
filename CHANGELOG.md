@@ -8,6 +8,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **audio.play at a place (M101.3, KW/FB-0006):** `audio.play(path, { position: [x, y, z], range })` plays a one-shot from a
+  point with no entity, attenuated and panned by the `AudioListener` as an `AudioSource` with `spatial: true` is (linear
+  fall-off to 0 at `range`, default 800; `[x, y]` in 2D). Out of range it plays nothing and returns 0. It does not follow
+  anything after it starts. Kindlewatch drops its hand-made `playAt`.
 - **Music memory is counted (M101.1a):** `Audio::stats()` (and `game.state`'s `audio`) reports `musicBytes`, the decoded
   stems the music cache holds, and `decodedBytes` now includes them, so `audioDecodedMB` explains the process size.
   `audio.music_state` lists the cached songs with their bytes per stem (`cache`, `cacheBytes`); `perf.profile` memory has
