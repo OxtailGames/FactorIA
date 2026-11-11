@@ -27,6 +27,15 @@ struct JsScan {
     bool quoted(std::string& out);
 };
 
+// `code`: the source with comments blanked. `bare`: also with the inside of strings and templates blanked. Same length as the
+// source (newlines are kept), so an offset means the same in all three.
+struct Masked {
+    std::string code;
+    std::string bare;
+};
+
+Masked mask_source(const std::string& t);
+
 // 1-based line and column of byte `offset` in `text`.
 struct SourcePos {
     int line = 1;

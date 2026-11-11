@@ -243,3 +243,38 @@ test("the last test of the file leaves a rejection", () => {
     CHECK(contains(rep.cases[5].message, "async boom last"));
     CHECK(rep.cases[5].loggedError);
 }
+
+TEST_CASE("test errors: once-per-run errors reach every test, a chatty test keeps an earlier error, test.skip checks options") {
+    TestHost h("testerr_polish");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { audio } from "factoria";
+test("first plays a missing sound", () => { audio.play("assets/sfx/nope.wav"); }, { expectErrors: [/nope.wav/] });
+test("second plays it too", () => { audio.play("assets/sfx/nope.wav"); });
+test("errors then noise", () => {
+  audio.play("assets/sfx/other-nope.wav");
+  for (let i = 0; i < 6000; i++) console.log("noise " + i);
+});
+test("a quiet one", () => { expect(1).toBe(1); });
+)JS");
+    h.file("tests/skip.test.js", R"JS(
+import { test } from "factoria:test";
+test.skip("skipped", () => {}, { expectError: [/x/] });
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    CHECK(rep.cases[0].passed);
+    CHECK_FALSE(rep.cases[1].passed);  // not hidden by the log-once of the test before
+    CHECK(contains(rep.cases[1].message, "nope.wav"));
+    CHECK_FALSE(rep.cases[2].passed);  // 6000 log lines after the error do not push it out
+    CHECK(contains(rep.cases[2].message, "other-nope.wav"));
+    CHECK(rep.cases[3].passed);
+    TestReport only = h.scripts.run_tests({"tests/t.test.js"}, "second");
+    REQUIRE(only.cases.size() == 1);
+    CHECK_FALSE(only.cases[0].passed);  // the same result with --filter
+    TestReport skip = h.scripts.run_tests({"tests/skip.test.js"});
+    REQUIRE(skip.loadErrors.size() == 1);
+    CHECK(contains(skip.loadErrors[0].message, "unknown option 'expectError'"));
+}

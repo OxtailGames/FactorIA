@@ -158,8 +158,11 @@ const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc)
     const TypeRegistry& reg = TypeRegistry::global();
     const TypeInfo* t = reg.find(name);
     if (!t) {
+        auto& fixed = impl_of(ctx)->caseFixed;
+        if (const auto hit = fixed.find(name); hit != fixed.end()) return hit->second;  // a wrong case seen before: no search, no warning
         t = reg.find_ci(name);
         // Names are case-sensitive everywhere else (scene files, commands, the typings): it works here, once, with a warning.
+        if (t && fixed.size() < 1024) fixed.emplace(name, t);
         if (t && impl_of(ctx)->caseWarned.insert(name).second)
             log(LogLevel::Warn, "script",
                 "the component is called '" + t->name + "', not '" + name + "': use entity.get(\"" + t->name +
@@ -522,26 +525,35 @@ NATIVE(logSeq) {
 }
 
 // The ERROR log records after `since` (a seq from logSeq), oldest first, as [{ category, message }]. A test that ran while the game
-// logged an error fails (testRun in factoria.js). The ring keeps 4096 records; errors are rare, so that is far more than a test makes.
+// logged an error fails (testRun in factoria.js). During a test run the records come from run_tests' own ERROR-only sink, which a
+// chatty test cannot push out; otherwise from the log ring (the last 4096 records of every level).
 NATIVE(logErrors) {
-    (void)thisv;
+    SETUP;
     const std::uint64_t since = static_cast<std::uint64_t>(std::max(0.0, arg_num(ctx, argc, argv, 0, 0)));
     JSValue arr = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (const LogEntry& e : recent_logs(4096, LogLevel::Error, since)) {
+    auto add = [&](const LogEntry& e) {
         JSValue o = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, o, "category", JS_NewString(ctx, e.category.c_str()));
         JS_SetPropertyStr(ctx, o, "message", JS_NewString(ctx, e.message.c_str()));
         JS_SetPropertyUint32(ctx, arr, i++, o);
+    };
+    if (I->testErrors) {
+        std::lock_guard<std::mutex> lk(I->testErrors->mu);
+        for (const LogEntry& e : I->testErrors->list)
+            if (e.seq > since) add(e);
+    } else {
+        for (const LogEntry& e : recent_logs(4096, LogLevel::Error, since)) add(e);
     }
     return arr;
 }
 
 // A script error is logged once per file:line:message (a repeat is dropped). Each test forgets them at its start, so a test whose
-// game throws the same error as the test before still sees it and fails.
+// game throws the same error as the test before still sees it and fails. The same goes for the engine's own once-per-run errors.
 NATIVE(forgetLoggedErrors) {
     SETUP;
     I->loggedKeys.clear();
+    I->host->audio().forget_logged_warnings();  // the audio system's "missing file" errors are logged once per path too
     return JS_UNDEFINED;
 }
 

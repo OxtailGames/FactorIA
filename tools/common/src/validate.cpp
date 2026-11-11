@@ -198,8 +198,9 @@ void check_color_array(Ctx& c, const std::string& file, const std::string& point
     }
     c.warn(file, pointer,
            "The colour " + color_text(ch, v.size()) + " mixes channels over 1 with channels at most 1. The engine reads a colour as "
-           "0..255 when any channel is over 1, so it is " + color_text(bytes, v.size()) + " (0..1), not " + color_text(unit, v.size()) +
-           " (what the 0..1 reading of the small channels would suggest).",
+           "0..255 when any channel is over 1, so every channel is divided by 255: it is " + color_text(bytes, v.size()) +
+           " (0..1). If you meant " + color_text(unit, v.size()) + " (the 0..1 reading of the small channels), it is not; if you "
+           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine.",
            "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
 }
 

@@ -36,7 +36,7 @@
     return new Proxy(Object.prototype, {
       get(target, key, recv) {
         if (typeof key === "symbol" || key in target || key === "then" || key === "toJSON") return Reflect.get(target, key, recv);
-        const names = namesOf(recv), sug = closest(key, names);
+        const names = namesOf(recv), sug = closest(key, names);  // namesOf lists the object's own (game) fields first: the list below is cut at 60
         throw new Error(`'${label}' has no '${key}'.${sug ? ` Did you mean '${sug}'?` : ""} Its members: ` +
           `${names.length > 60 ? names.slice(0, 60).join(", ") + `, ... (${names.length - 60} more)` : names.join(", ")}.${advice ? " " + advice : ""}`);
       },
@@ -587,7 +587,7 @@
   }
   if (STRICT) {
     const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor");
-    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...entityMembers, ...Object.keys(e).filter((k) => k !== "$h")],
+    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...Object.keys(e).filter((k) => k !== "$h"), ...entityMembers],
       "An entity has no field of your own until you assign one (entity.hp = 3); keep game state in the Behaviour (this.hp) or in a component's fields, and read a component with entity.get(\"Name\")."));
   }
 
@@ -4156,26 +4156,35 @@
     return out;
   }
   const errorMatches = (e, message) => (e.pattern instanceof RegExp ? new RegExp(e.pattern.source, e.pattern.flags.replace(/[gy]/g, "")).test(message) : message.includes(e.pattern));
-  function test(name, fn, options) {
-    if (typeof fn !== "function") throw new Error(`test('${name}', fn): the second argument must be a function`);
+  // Checks the arguments of test() and test.skip() (a mistake in a skipped test shows before the test is switched on) and returns the
+  // test's expected errors.
+  function testArgs(who, name, fn, options) {
+    if (typeof fn !== "function") throw new Error(`${who}('${name}', fn): the second argument must be a function`);
     let expected = [];
     if (options !== undefined) {
-      if (!isObj(options)) throw new Error(`test('${name}', fn, options): options must be an object like { expectErrors: [/pattern/] }, but got ${inspect(options)}`);
+      if (!isObj(options)) throw new Error(`${who}('${name}', fn, options): options must be an object like { expectErrors: [/pattern/] }, but got ${inspect(options)}`);
       for (const k of Object.keys(options)) {
-        if (k !== "expectErrors") throw new Error(`test('${name}', fn, options): unknown option '${k}'; the only option is expectErrors`);
+        if (k !== "expectErrors") throw new Error(`${who}('${name}', fn, options): unknown option '${k}'; the only option is expectErrors`);
       }
       if (options.expectErrors !== undefined) {
-        if (!Array.isArray(options.expectErrors)) throw new Error(`test('${name}', fn, options): expectErrors must be an array of RegExp or strings, but got ${inspect(options.expectErrors)}`);
-        expected = errorPatterns(options.expectErrors, `test('${name}', fn, { expectErrors })`);
+        if (!Array.isArray(options.expectErrors)) throw new Error(`${who}('${name}', fn, options): expectErrors must be an array of RegExp or strings, but got ${inspect(options.expectErrors)}`);
+        expected = errorPatterns(options.expectErrors, `${who}('${name}', fn, { expectErrors })`);
       }
     }
+    return expected;
+  }
+  function test(name, fn, options) {
+    const expected = testArgs("test", name, fn, options);
     tests.push({
       name: [...suiteStack.map((s) => s.name), name].join(" > "),
       fn, skip: suiteStack.some((s) => s.skip), expected,
       before: suiteStack.flatMap((s) => s.beforeEach), after: suiteStack.flatMap((s) => s.afterEach),
     });
   }
-  test.skip = (name, fn) => { tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, expected: [], before: [], after: [] }); };
+  test.skip = (name, fn, options) => {
+    testArgs("test.skip", name, fn, options);
+    tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, expected: [], before: [], after: [] });
+  };
   const beforeEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].beforeEach.push(fn); else throw new Error("beforeEach must be called inside describe()"); };
   const afterEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].afterEach.push(fn); else throw new Error("afterEach must be called inside describe()"); };
 
@@ -4627,6 +4636,8 @@
       if (f && !t.name.toLowerCase().includes(f)) continue;
       if (t.skip) { results.push({ name: t.name, skipped: true, passed: true, ms: 0 }); continue; }
       testCurrentName = t.name;
+      N.forgetLoggedErrors();  // a script error is logged once per place and text: this test must see again the ones it causes
+      const seq0 = N.logSeq();  // before the resets below: an error they log counts for this test
       N.resetInput();
       N.audioLog(true);
       N.audioFxReset();
@@ -4644,11 +4655,9 @@
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
       const start = N.nowMs();
-      N.forgetLoggedErrors();  // a script error is logged once per place and text: this test must see again the ones it causes
       consoleErrorTexts.clear();
       consoleErrorsOn = true;
       testExpected = t.expected.map((e) => ({ pattern: e.pattern, hit: false }));
-      const seq0 = N.logSeq();
       const cuts0 = N.watchdogCuts();
       let passed = true, message = "", loggedError = false;
       N.guardBegin(`test '${t.name}'`, 60.0);
