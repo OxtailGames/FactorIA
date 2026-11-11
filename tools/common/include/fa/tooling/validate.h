@@ -10,7 +10,9 @@
 // the string tables (locales/<language>.json: missing, extra and misspelled keys, placeholders, plural forms), the `key`s of
 // scenes and prefabs, and whether the fonts have a glyph for every character the game shows (docs/LOCALIZATION.md,
 // "Checks"), scripts
-// (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks), and every
+// (via optional hooks installed by the CLI once the script module exists: syntax, a top level that throws, Script.props,
+// misspelled hooks; and a text scan against the scripting API: imported names, `ns.member`, literal component names,
+// `fa.call("project.*")` calls that an export would break), and every
 // custom material (*.material.json: the file against schemas/material.schema.json, then its snippet compiled for every shader
 // dialect when sokol-shdc is found; a warning says so when it is not; fa/tooling/shaders.h).
 #pragma once
@@ -59,10 +61,16 @@ using ScriptPropsCheckHook = std::function<std::vector<std::string>(const std::s
 // misspelled lifecycle hook (`update()` for onUpdate). Reported as warnings (ScriptSystem::check_hooks).
 using ScriptHooksCheckHook = std::function<std::vector<std::string>(const std::string& modulePath)>;
 
+// Loads one script the way the game does (imports resolved, top level run) and returns why it fails, with "file:line:column:"
+// first in the message; ScriptSystem::check_load. Only called for scripts that passed the syntax check.
+using ScriptLoadCheckHook = std::function<Result<void>(const std::string& scriptPath)>;
+
 struct ValidateOptions {
     ScriptPropsCheckHook propsCheck;  // empty: Script.props are not checked
     ScriptHooksCheckHook hooksCheck;  // empty: behaviour method names are not checked
     ScriptCheckHook scriptCheck;      // empty: scripts are counted, not compiled
+    ScriptLoadCheckHook loadCheck;    // empty: a module whose top level throws is not found
+    Json scriptApi;                   // ScriptSystem::api_manifest(); null: imported names, members and component names are not checked
     bool checkScenes = true;      // load scenes into a temporary World
     SetupContext shaderContext;   // where sokol-shdc is looked for and how it is started, for the snippets of custom materials (tests change it)
 };

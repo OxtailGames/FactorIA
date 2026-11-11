@@ -1,6 +1,8 @@
 #include "fa/tooling/validate.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -48,6 +50,8 @@
 #include "validate_anim.h"
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
+#include "js_scan.h"
+#include "script_lint.h"
 #include "util.h"
 
 namespace fa {
@@ -163,10 +167,48 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
     }
 }
 
+std::string color_text(const std::array<double, 4>& v, std::size_t n) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < n; ++i) {
+        std::ostringstream o;
+        o << std::round(v[i] * 1000.0) / 1000.0;
+        out += (i ? ", " : "") + o.str();
+    }
+    return out + "]";
+}
+
+// A colour written as numbers is read as 0..255 when ANY channel is over 1 (json_to<Color>), so [255, 255, 255, 1] is an
+// alpha of 1/255 (nearly invisible) and [1, 1, 1, 255] a black of 1/255. All bytes ([255, 128, 0, 255]) or all 0..1 is fine, and
+// a channel of 0 is the same in both.
+void check_color_array(Ctx& c, const std::string& file, const std::string& pointer, const Json& v) {
+    if (!v.is_array() || v.size() < 3 || v.size() > 4) return;
+    std::array<double, 4> ch{0, 0, 0, 1};
+    bool over = false, small = false;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (!v[i].is_number()) return;
+        ch[i] = v[i].get<double>();
+        over = over || ch[i] > 1.0;
+        small = small || (ch[i] > 0.0 && ch[i] <= 1.0);
+    }
+    if (!over || !small) return;
+    std::array<double, 4> bytes = ch, unit = ch;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        bytes[i] = ch[i] / 255.0;
+        unit[i] = std::min(1.0, ch[i]);
+    }
+    c.warn(file, pointer,
+           "The colour " + color_text(ch, v.size()) + " mixes channels over 1 with channels at most 1. The engine reads a colour as "
+           "0..255 when any channel is over 1, so it is " + color_text(bytes, v.size()) + " (0..1), not " + color_text(unit, v.size()) +
+           " (what the 0..1 reading of the small channels would suggest).",
+           "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+}
+
 void check_component_assets(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
                             const Json& fields) {
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
+    for (const FieldInfo& f : t->fields)
+        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name]);
     for (const FieldInfo& f : t->fields) {
         if (f.kind != FieldKind::Asset || !fields.contains(f.name)) continue;
         check_asset_value(c, file, pointer + "/" + f.name, f, fields[f.name]);
@@ -265,6 +307,7 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
         bool ok = v.is_array() && (v.size() == 3 || v.size() == 4);
         if (ok)
             for (const Json& n : v) ok = ok && n.is_number();
+        if (ok) check_color_array(c, file, base + "/" + it.key(), v);
         if (!ok)
             c.error(file, base + "/" + it.key(), "The colour of material '" + it.key() + "' must be [r, g, b] or [r, g, b, a] numbers.",
                     "Example: [0.2, 0.8, 0.7, 1].");
@@ -1089,6 +1132,52 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 return o.file == issue.file && o.pointer == issue.pointer && o.message == issue.message;
             };
             if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+        }
+    }
+    // The scripts against the engine's API (a text scan: names, members, literal component names, project.* calls), then each
+    // module loaded the way the game loads it, which finds a top level that throws.
+    {
+        std::map<std::string, std::string> toolCommands;
+        bool toolsRead = false;
+        std::set<std::string> lintFailed;
+        for (const auto& s : scripts) {
+            if (failedScripts.count(s) || !stdfs::exists(stdfs::path(c.dir) / s)) continue;
+            auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
+            if (!text) continue;
+            if (!options.scriptApi.is_null()) {
+                tooling_detail::ScriptLintResult lint = tooling_detail::lint_script(s, *text, options.scriptApi);
+                if (!lint.errors.empty()) lintFailed.insert(s);
+                for (auto& i : lint.errors) c.report.errors.push_back(std::move(i));
+                for (auto& i : lint.warnings) c.report.warnings.push_back(std::move(i));
+            }
+            if (s.rfind("tools/", 0) != 0 && text->size() <= tooling_detail::kMaxScanScriptBytes) {
+                if (!toolsRead) {
+                    toolCommands = tooling_detail::tool_commands(c.dir);
+                    toolsRead = true;
+                }
+                for (const tooling_detail::ProjectCall& call : tooling_detail::literal_project_calls(*text)) {
+                    const auto tool = toolCommands.find(call.name);
+                    if (tool == toolCommands.end()) continue;
+                    c.warn(s, "", tooling_detail::tool_only_call_message(s, call, tool->second),
+                           "Tools are for working on the game and are not exported; move what the game needs into scripts/.");
+                }
+            }
+        }
+        if (options.loadCheck) {
+            for (const auto& s : scripts) {
+                if (failedScripts.count(s) || lintFailed.count(s) || !stdfs::exists(stdfs::path(c.dir) / s)) continue;
+                Result<void> loaded = options.loadCheck(s);
+                if (loaded.ok()) continue;
+                failedScripts.insert(s);
+                ValidationIssue issue{s, "", loaded.error().message, loaded.error().hint};
+                // "scripts/util.js:12:5: ..." names the module that throws, which an importer shares: report it once.
+                if (const std::size_t colon = issue.message.find(':'); colon != std::string::npos && colon + 1 < issue.message.size() &&
+                                                                       std::isdigit(static_cast<unsigned char>(issue.message[colon + 1])))
+                    issue.file = issue.message.substr(0, colon);
+                issue.message = "The module fails to load: " + issue.message;
+                auto same = [&](const ValidationIssue& o) { return o.file == issue.file && o.message == issue.message; };
+                if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+            }
         }
     }
     if (!c.networkDeclared) {

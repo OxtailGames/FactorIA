@@ -2232,7 +2232,8 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 - Reading raw keys in gameplay. Declare an action in `factoria.json` and read the action.
 - Using `Date.now()` or `new Date()` (the real clock) or `Math.random` (it works, drawing from `rng`, but write `rng`).
   Use `rng`, `dt` and `game.today()`.
-- Writing colours as 0..255. Use 0..1, or `"#rrggbb"`.
+- Mixing colour scales. `[255, 128, 0, 255]` is read as 0..255 because a channel is over 1, so `[255, 255, 255, 1]` has an alpha of 1/255 and `[1, 1, 1, 255]` is black; use 0..1 for every channel, or `"#rrggbb"`. `factoria validate` warns about a mixed array (JSON pointer, both readings).
+- Misspelling what a script imports or calls: a wrong name in `import { Behaviour } from "factoria"`, `physics.raycats`, `entity.get("Transfrom")`, a `fa.call("project.<tool>")` in a game script (tools are not exported), or a top level that throws. `factoria validate` reports each with `file:line:column` and a "did you mean" (docs/SCRIPTING.md, "What `factoria validate` checks in a script"); run it after every script edit.
 - Expecting +Y to point down in the world. In the world +Y is up. Only screen-space UI has +Y down.
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.
 - Forgetting the primary `Camera`.
