@@ -13,7 +13,7 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
   range no longer adds its caption, and `Audio::play_at` returns 0 only out of range (a silent in-range sound still gets an id).
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
-  keeps a window of 4.5 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
+  keeps a window of 6 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls
   does not dry the music (a jump to a section decodes its first chunks before it plays, waiting for the service for one chunk at
   most); section jumps, loops, crossfades and layer fades land on the same frames as before and the audio callback still takes
@@ -75,6 +75,13 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   return `{frame, time, quantize}`, where the change lands. `crossfadeTo` without `section` starts the other song at its
   beginning, never at the component's `startSection`. `appliedIntensity` (what the layers follow) and `requestedIntensity`
   (the last value set) sit beside `intensity`.
+- **Music polish (M101.P1):** `pendingSong` is only set while a crossfade's song loads or is on its way to the mixer (not for
+  a song that failed to load, which shows in `error`); `crossfadeTo` answers with an error and a hint when the transport
+  refuses the song. A streamed song's window is 32 chunks (6 s, 2 MiB per stem) so a crossfade inside one song keeps its
+  look-ahead; the music service decodes the first chunks of every stem before filling any window and no longer wakes every
+  2 ms when nothing can change. The underruns and the bytes of a song the cache let go of while it still plays stay in
+  `stats()`, `audio.music_state` and `musicMB`, `audioDecodedMB` is the run's maximum, and the editor's profiler shows the
+  music memory.
 - `input.record` records an action pressed with `game.input` by name (`"actions"` in the replay frame) and the headless replay
   plays it back, so a recording made by action name replays to the same state.
 - `fa.call` in a test has the read-only `assets.provenance` and `assets.disclosure`; docs/SCRIPTING.md lists the commands a

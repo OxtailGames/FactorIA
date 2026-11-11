@@ -349,7 +349,10 @@ struct Audio::Impl {
     std::map<std::string, CachedSong> musicCache;         // by "song|mode"
     std::uint64_t musicUse = 0;                           // the clock of the cache's least-recently-used order
     std::size_t musicCacheBudget = kMusicCacheBytes;
-    std::uint64_t musicUnderrunsGone = 0, musicUnderrunFramesGone = 0;  // underruns of the streamed songs the cache let go
+    // Every underrun of every streamed stem the cache ever took, also of a source that left the cache (invalidated, evicted) and still plays.
+    std::shared_ptr<audio_detail::MusicTally> musicTally = std::make_shared<audio_detail::MusicTally>();
+    // Sources music_invalidate took out of the cache while a player or the mixer still held them: their memory stays until they let go.
+    std::vector<std::weak_ptr<const MusicSource>> musicDeparted;
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
     std::map<std::string, std::string> musicErrors;       // why a load failed, by key
     MusicDeviceProfile musicDevice;
@@ -362,7 +365,7 @@ struct Audio::Impl {
     void music_poll();
     void music_trim(const std::string& keepKey);
     void music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt);
-    bool music_hand_over(MusicRt& rt, MusicPlayer& mp);
+    bool music_hand_over(MusicRt& rt, MusicPlayer& mp, std::string* refusal = nullptr);
     MusicChange music_predict(MusicRt& rt, MusicQuantize q);
     void music_update(World& world);
     void music_resync();
@@ -371,6 +374,7 @@ struct Audio::Impl {
     void music_events(World* world, MusicRt& rt);
     void music_shutdown();
     void music_invalidate(const std::string& song);
+    std::size_t music_resident_bytes();
     void make_channel(MusicRt& rt);
     void retire(std::unique_ptr<MusicRt> rt);
     MusicView view(MusicRt& rt);
@@ -992,10 +996,14 @@ struct Audio::Impl {
     } svc;
 
     // A song entered the cache: its streamed stems are the service's from now on (they stay while anything holds them).
+    // Only with a device thread (the stems of a null device or the web are decoded by the mixer): otherwise nothing would ever prune the
+    // list of expired streams. Every streamed stem counts its underruns in the tally of the Audio, wherever the song ends up.
     void music_register(const MusicSource& src) {
         std::lock_guard<std::mutex> lk(svc.mu);
         for (const MusicStem& s : src.stems) {
             if (!s.stream) continue;
+            s.stream->set_tally(musicTally);
+            if (!device || web) continue;
             const std::weak_ptr<audio_detail::MusicStemStream> w = s.stream;
             const bool known = std::any_of(svc.streams.begin(), svc.streams.end(),
                                            [&](const auto& o) { return !o.owner_before(w) && !w.owner_before(o); });
@@ -1023,10 +1031,10 @@ struct Audio::Impl {
         const std::uint64_t seq = mixer.musicSeq.load(std::memory_order_relaxed);
         ++svc.passNo;
         bool more = false;
-        for (const auto& s : svc.scratch) {
-            s->tick(svc.passNo);
-            more = s->service(seq) || more;
-        }
+        for (const auto& s : svc.scratch) s->tick(svc.passNo);
+        // The urgent chunks of every stem first, then the rest of each window: one stem with a long way to fill does not keep the others waiting.
+        for (const bool urgentOnly : {true, false})
+            for (const auto& s : svc.scratch) more = s->service(seq, urgentOnly) || more;
         svc.scratch.clear();
         return more;
     }
@@ -1057,7 +1065,9 @@ struct Audio::Impl {
                 const bool more = music_service_pass();
                 lk.lock();
                 if (svc.stop) break;
-                // Quick while a chunk is missing, slow when the windows are full: the look-ahead is seconds.
+                // Quick while a chunk is missing, slow when the windows are full: the look-ahead is seconds. On Windows a wait ends on
+                // the system timer's tick (about 15 ms), so the 2 ms is "as soon as the timer allows" there: the look-ahead (2.2 s) and the
+                // window (6 s) are far above that, and the game's own priming (prime) covers a jump.
                 svc.cv.wait_for(lk, std::chrono::milliseconds(more ? 2 : 10), [this] { return svc.stop; });
             }
         });
@@ -2265,15 +2275,11 @@ Json Audio::stats() const {
         decoded += clip->data.size() * sizeof(float);
         if (clip->encoded) streamed.push_back(path);
     }
-    std::size_t music = 0;
-    std::uint64_t musicUnderruns = im.musicUnderrunsGone, musicUnderrunFrames = im.musicUnderrunFramesGone;
+    const std::size_t music = im.music_resident_bytes();
+    const std::uint64_t musicUnderruns = im.musicTally->events.load(std::memory_order_relaxed);
+    const std::uint64_t musicUnderrunFrames = im.musicTally->frames.load(std::memory_order_relaxed);
     std::size_t streamedSongs = 0;
-    for (const auto& [key, song] : im.musicCache) {
-        music += song.src->bytes();
-        musicUnderruns += song.src->underrun_events();
-        musicUnderrunFrames += song.src->underrun_frames();
-        streamedSongs += song.src->streamed() ? 1 : 0;
-    }
+    for (const auto& [key, song] : im.musicCache) streamedSongs += song.src->streamed() ? 1 : 0;
     j["musicBytes"] = music;
     j["streamedSongs"] = streamedSongs;
     j["decodedBytes"] = decoded + music;
@@ -2551,8 +2557,6 @@ void Audio::Impl::music_trim(const std::string& keepKey) {
         }
         if (victim == musicCache.end()) break;
         total -= victim->second.src->bytes();
-        musicUnderrunsGone += victim->second.src->underrun_events();
-        musicUnderrunFramesGone += victim->second.src->underrun_frames();
         musicCache.erase(victim);
     }
 }
@@ -2843,8 +2847,8 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
 
 // Gives the transport the source the player waits to play: a crossfade when it plays and the start is not hard, else a start.
 // False when there is nothing to hand over yet (no source, no channel, already given) or the transport refused (then the
-// player stops and says why in `error`).
-bool Audio::Impl::music_hand_over(MusicRt& rt, MusicPlayer& mp) {
+// player stops and says why in `error`, and in `*refusal` when given: empty when the answer is false for another reason).
+bool Audio::Impl::music_hand_over(MusicRt& rt, MusicPlayer& mp, std::string* refusal) {
     if (!(mp.playing && rt.src && rt.sent != rt.src && rt.ch)) return false;
     const MusicMap& map = rt.src->map;
     // A crossfade to another song starts it at its beginning (`begin`): the component's startSection names a section of the first song.
@@ -2867,6 +2871,7 @@ bool Audio::Impl::music_hand_over(MusicRt& rt, MusicPlayer& mp) {
         rt.error.clear();
     } else {
         rt.error = err;
+        if (refusal) *refusal = err;
         FA_ERROR("audio", "MusicPlayer on '{}' cannot play '{}': {}", rt.id, rt.song, err);
         mp.playing = false;
         rt.playing = false;
@@ -2978,6 +2983,7 @@ void Audio::Impl::music_shutdown() {
     settle();
     musicLoads.clear();  // a load still running is held by its job (shutdown() waits for the jobs)
     musicCache.clear();
+    musicDeparted.clear();
     musicErrors.clear();
 }
 
@@ -2998,14 +3004,31 @@ void Audio::Impl::music_invalidate(const std::string& song) {
         musicLoads.erase(key);
         auto cached = musicCache.find(key);
         if (cached != musicCache.end()) {
-            musicUnderrunsGone += cached->second.src->underrun_events();
-            musicUnderrunFramesGone += cached->second.src->underrun_frames();
+            if (cached->second.src.use_count() > 1) musicDeparted.push_back(cached->second.src);  // a player still plays it
             musicCache.erase(cached);
         }
         musicErrors.erase(key);
     }
     for (auto& [bits, rt] : musicEnts)
         if (rt->song == song) rt->reload = true;
+}
+
+// What the music holds in memory: the cache, the sources a player still plays after the cache let go of them (music_invalidate), and the
+// loads that finished but were not moved into the cache yet. A load that is still decoding is not counted (its size is not known).
+std::size_t Audio::Impl::music_resident_bytes() {
+    std::size_t total = 0;
+    for (const auto& [key, song] : musicCache) total += song.src->bytes();
+    for (auto it = musicDeparted.begin(); it != musicDeparted.end();) {
+        if (auto src = it->lock()) {
+            total += src->bytes();
+            ++it;
+        } else {
+            it = musicDeparted.erase(it);
+        }
+    }
+    for (const auto& [key, load] : musicLoads)
+        if (load->done.load(std::memory_order_acquire) && load->source) total += load->source->bytes();
+    return total;
 }
 
 std::uint64_t Audio::mixed_frames() const {
@@ -3221,7 +3244,14 @@ Result<MusicChange> Audio::music_crossfade_to(World& world, Entity e, std::strin
     // The source is in the cache (or loads at once on the null device): hand it over now, so that the frame above is the one it lands
     // on. Otherwise the next update does it, when the load is done, and the frame is not known yet.
     if (crossfade && rt.src) {
-        if (!im.music_hand_over(rt, *mp)) change = MusicChange{.quantize = q};
+        std::string refusal;
+        if (!im.music_hand_over(rt, *mp, &refusal)) {
+            if (!refusal.empty())
+                return make_error("music.crossfadeTo: cannot play '" + target + "': " + refusal,
+                                  "The player has stopped (audio.music_state shows the same text in `error`). Fix the song "
+                                  "(music.check lists its problems) or name a section it has, and play it again.");
+            change = MusicChange{.quantize = q};
+        }
     } else {
         change = MusicChange{.quantize = q};
     }
@@ -3237,8 +3267,11 @@ MusicStatus status_with(const MusicTransportState* state, const MusicRt& rt, con
     st.bus = rt.busName;
     st.error = rt.error;
     // The song the player was asked for while another one is audible (a crossfade that the mixer does not have yet: the song is
-    // still loading, or its command is on the way): queued, but with no frame yet. A queued jump the transport holds says more.
-    if (st.playing && st.pendingSong.empty() && !rt.song.empty() && rt.song != st.song) {
+    // still loading, or loaded and its command is on the way): queued, but with no frame yet. A queued jump the transport holds says more.
+    // Only for a player with a component (an orphan asks for nothing), and not when the song failed to load (no load is waited for and
+    // the source is still the old one).
+    const bool waiting = !rt.waitKey.empty() || (rt.src && rt.src->path == rt.song);
+    if (mp && st.playing && st.pendingSong.empty() && !rt.song.empty() && rt.song != st.song && waiting) {
         st.pendingSong = rt.song;
         if (rt.src && rt.src->path == rt.song) {
             const MusicMap& m = rt.src->map;
@@ -3265,9 +3298,7 @@ MusicStatus Audio::music_status(World& world, Entity e) const {
 
 std::size_t Audio::music_bytes() const {
     Impl::Call call(*impl_);
-    std::size_t n = 0;
-    for (const auto& [key, song] : impl_->musicCache) n += song.src->bytes();
-    return n;
+    return impl_->music_resident_bytes();
 }
 
 Json Audio::music_cache_json() const {
@@ -3647,6 +3678,10 @@ std::vector<std::shared_ptr<audio_detail::MusicStemStream>> AudioTestAccess::mus
 
 bool AudioTestAccess::music_service_pass(Audio& audio) { return audio.impl_->music_service_pass(); }  // no API lock, as the service thread
 
+void AudioTestAccess::set_claim_wait_limit(Audio& audio, int milliseconds) {
+    for (const auto& s : music_streams(audio)) s->set_claim_wait_limit(milliseconds);
+}
+
 void AudioTestAccess::start_music_thread(Audio& audio) {
     Audio::Impl::Call call(*audio.impl_);
     audio.impl_->start_music_service();
@@ -3696,6 +3731,13 @@ std::vector<std::pair<std::string, std::size_t>> AudioTestAccess::music_cache(Au
     std::vector<std::pair<std::string, std::size_t>> out;
     for (const auto& [key, song] : audio.impl_->musicCache) out.emplace_back(key, song.src->bytes());
     return out;
+}
+
+void AudioTestAccess::put_music_source(Audio& audio, std::shared_ptr<const MusicSource> src) {
+    Audio::Impl::Call call(*audio.impl_);
+    Audio::Impl& im = *audio.impl_;
+    const std::string key = music_cache_key(src->path, src->mode == "stems" ? MusicMode::Stems : MusicMode::Live);
+    im.musicCache[key] = CachedSong{std::move(src), ++im.musicUse};
 }
 
 }  // namespace fa

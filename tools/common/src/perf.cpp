@@ -68,8 +68,9 @@ PerfSample perf_sample_from_json(const Json& j) {
     s.peakMemoryMB = num(j, "peakMemoryMB");
     s.drawCalls = int(num(j, "drawCalls"));
     s.entities = int(num(j, "entities"));
-    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights}, {"textureMB", &s.textureMB}, {"startupMs", &s.startupMs},
-                                                                           {"audioDecodedMB", &s.audioDecodedMB}, {"musicMB", &s.musicMB}})
+    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights},
+                          {"textureMB", &s.textureMB}, {"startupMs", &s.startupMs},
+                          {"audioDecodedMB", &s.audioDecodedMB}, {"musicMB", &s.musicMB}})
         if (auto it = j.find(f.first); it != j.end() && it->is_number()) *f.second = it->get<double>();
     if (auto it = j.find("graphics"); it != j.end() && it->is_string()) s.graphics = it->get<std::string>();
     return s;
@@ -379,7 +380,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.description =
         "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
         "{runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB and musicMB (decoded audio, music alone: whole decoded stems plus the windows of the streamed ones; not gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB and musicMB (decoded audio, the music alone; not gated; read every 8th frame), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
         "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{
