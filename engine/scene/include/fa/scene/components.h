@@ -225,6 +225,10 @@ struct IK2D {
     IKBend bend = IKBend::Positive;   // twoBone: which way the middle joint bends
     float weight = 1.0f;              // 0 = keep the animated pose, 1 = the solved pose; in between blends the angles
     IKSolver solver = IKSolver::TwoBone;
+    std::int32_t groundMask = 0;      // physics layers the foot ray hits (bitmask); 0 = ground snapping off (the target is reached as it is)
+    float groundReach = 24.0f;        // the ray looks this far above and below the target (world units)
+    float groundOffset = 0.0f;        // distance from the hit point up to where the tip rests (world units)
+    float groundRest = 0.0f;          // height of the target over the character root's origin when the foot is planted on flat ground
     bool warned = false;              // runtime, not reflected: a problem was already logged for this component
 };
 

@@ -6130,6 +6130,22 @@ declare module "factoria" {
      * @since 0.7.0
      */
     solver: "twoBone" | "ccd";
+    /**
+     * Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is. The colliders of the chain's character (the topmost ancestor of this entity and everything under it) are ignored. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.
+     */
+    groundMask: number;
+    /**
+     * Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. 24 by default.
+     */
+    groundReach: number;
+    /**
+     * Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). 0 by default.
+     */
+    groundOffset: number;
+    /**
+     * Ground snapping: the height of the target above the ORIGIN of the character (the topmost ancestor of this entity) when the foot is planted on flat ground, in world units (negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.
+     */
+    groundRest: number;
   }
   /**
    * Untextured 2D primitive for prototypes, UI panels and debug visuals.
@@ -9865,7 +9881,7 @@ declare module "factoria" {
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
-    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
+    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
