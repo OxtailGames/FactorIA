@@ -1204,7 +1204,7 @@ menu to pose it with a different baked `*.rig.glb`). Nothing here needs a scene 
   one colour per bone) shows how the mesh is skinned. A sheet is a picture made when the button was pressed: the window warns when
   the clip has changed since, and only the button redraws it. The weights need the `*.rig.json` the rig was baked from.
 - **Undo.** Every write is a command (`anim3d.*`, `ik3d.key`), so it appears on the Console and an AI can make the same edit. Each
-  returns the call that undoes it (`anim3d.restore` with the whole previous document) and the panel puts it on the editor's undo
+  returns the call that undoes it (`anim3d.restore` with the whole previous document and the clip's previous `provenance` record) and the panel puts it on the editor's undo
   stack with the scene edits (Ctrl+Z): a key, a drag, a generated clip are each one step. The clip file on disk is already written;
   the panel reads it again when it changes outside the panel (a command from the Console, the AI, a script).
 

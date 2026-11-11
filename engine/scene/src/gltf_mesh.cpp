@@ -132,6 +132,7 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
     std::vector<float> positions, normals, uvs, colors;
     bool allNormals = true, anyUvs = false, allUvs = true, anyColors = false, allColors = true;
     std::vector<Group> groups;
+    std::vector<std::string> plusParts;  // part names with a "+" already warned about
     std::size_t skipped = 0, skinned = 0;
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
@@ -211,6 +212,11 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
 
             const std::size_t material = material_of(prim.material);
             const std::string part = primitive_part(data, prim);
+            if (part.find('+') != std::string::npos && std::find(plusParts.begin(), plusParts.end(), part) == plusParts.end()) {
+                plusParts.push_back(part);
+                out.warnings.push_back(std::format("the part name \"{}\" contains \"+\", which joins the names of merged parts (rig.bake mergeParts), so model.game_ready's collider.part cannot pick it on its own; "
+                                                   "rename it in the file's primitive extras (e.g. \"{}\")", part, replace_all(part, "+", "_")));
+            }
             auto it = std::find_if(groups.begin(), groups.end(), [&](const Group& g) { return g.material == material && g.part == part; });
             if (it == groups.end()) {
                 groups.push_back({material, part, {}});

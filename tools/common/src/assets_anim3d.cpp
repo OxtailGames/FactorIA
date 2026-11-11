@@ -596,8 +596,18 @@ Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
     const std::string rel = clip_path_arg("anim3d.restore", a, "path");
     if (!a.contains("clip")) fail("invalid_argument", "anim3d.restore: give `clip`, the whole document to write, or null to delete the file.", "Every writing anim3d.* command returns the call that undoes it as `undo`.");
     const bool hasProv = a.contains("provenance");
-    if (hasProv && !a["provenance"].is_null() && !a["provenance"].is_object())
-        fail("invalid_argument", "anim3d.restore: `provenance` is " + describe_json_value(a["provenance"]) + ", not an object or null.", "Pass the `provenance` the undo returned, or leave it out.");
+    if (hasProv && !a["provenance"].is_null()) {
+        const Json& pv = a["provenance"];
+        if (!pv.is_object())
+            fail("invalid_argument", "anim3d.restore: `provenance` is " + describe_json_value(pv) + ", not an object or null.", "Pass the `provenance` the undo returned, or leave it out.");
+        const std::string origin = pv.contains("origin") && pv["origin"].is_string() ? pv["origin"].get<std::string>() : std::string();
+        if (origin != "generated" && origin != "imported" && origin != "original")
+            fail("invalid_argument", "anim3d.restore: /provenance/origin is " + (pv.contains("origin") ? describe_json_value(pv["origin"]) : std::string("missing")) + ", not \"generated\", \"imported\" or \"original\".",
+                 "A provenance record needs `origin` and `date` (schemas/assets.schema.json); pass the `provenance` the undo returned.");
+        if (!pv.contains("date") || !pv["date"].is_string())
+            fail("invalid_argument", "anim3d.restore: /provenance/date is " + (pv.contains("date") ? describe_json_value(pv["date"]) : std::string("missing")) + ", not a string like \"2026-01-31\".",
+                 "A provenance record needs `origin` and `date` (schemas/assets.schema.json); pass the `provenance` the undo returned.");
+    }
     require_usable_manifest(projectDir);
     const Json before = clip_before(projectDir, rel);
     if (a["clip"].is_null()) {
@@ -615,7 +625,9 @@ Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
             e.erase("provenance");
         });
         if (!upd.ok()) fail("failed", "The clip '" + rel + "' was deleted, but assets.json was not updated: " + upd.error().message, upd.error().hint);
-        return obj({{"path", rel}, {"deleted", true}, {"undo", undo_restore(rel, before, previous)}});
+        Json deleted = obj({{"path", rel}, {"deleted", true}, {"undo", undo_restore(rel, before, previous)}});
+        if (hasProv && !a["provenance"].is_null()) deleted["warnings"] = Json::array({"`provenance` was ignored: deleting a clip removes its record too."});
+        return deleted;
     }
     if (!a["clip"].is_object() || !is_anim3d_json(a["clip"]))
         fail("invalid_argument", "anim3d.restore: `clip` is " + describe_json_value(a["clip"]) + ", not a 3D clip document.", "Pass the whole document (format \"" + std::string(kAnim3DFormat) + "\") or null.");
@@ -1435,7 +1447,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         info.summary = "Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.";
         info.description =
             "Every writing anim3d.* command returns `undo` = {command: \"anim3d.restore\", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a "
-            "command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly, null removes it; without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}";
+            "command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly (it needs `origin` and `date`), null removes it; with `clip: null` it is ignored (the record is removed with the file); without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "clip"})},
                                          {"properties", obj({{"path", pathProp}, {"clip", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The whole clip document to write, or null to delete the file."}})},
                                                                   {"provenance", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it."}})}})}});
