@@ -144,7 +144,7 @@ TEST_CASE("validate: many inline copies list the first five and count the rest; 
         if (i.file == "prefabs/holder.prefab.json") {
             ++inPrefab;
             CHECK(i.pointer == "/entity/children/0");
-        } else if (i.pointer.empty()) {
+        } else if (i.pointer == "/entities" || i.pointer == "/entity/children") {
             ++summary;
             CHECK(i.message.find("7 more") != std::string::npos);
         } else {
@@ -154,4 +154,30 @@ TEST_CASE("validate: many inline copies list the first five and count the rest; 
     CHECK(inScene == 5);
     CHECK(summary == 1);
     CHECK(inPrefab == 1);
+}
+
+TEST_CASE("validate: whether a part's id is named elsewhere is decided per scene, whatever the order of the scenes") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    stdfs::create_directories(dir / "prefabs");
+    Json prefab = Json::parse(R"({"format":"factoria.prefab/1","entity":{"name":"Panel","components":{"Sprite":{"layer":1}},
+        "children":[{"id":"title","name":"Title","components":{"Text":{"text":"Hello"}}}]}})");
+    REQUIRE(save_scene_json_file((dir / "prefabs/panel.prefab.json").string(), prefab).ok());
+    const auto write_scene = [&](const char* name, bool referenced) {
+        Json s = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"p","name":"Panel","components":{"Sprite":{"layer":1}},
+            "children":[{"id":"title_2","name":"Title","components":{"Text":{"text":"Hello"}}}]}]})");
+        if (referenced) s["entities"].push_back(Json::parse(R"({"id":"label","components":{"Text":{"text":"title_2"}}})"));
+        REQUIRE(save_scene_json_file((dir / "scenes" / name).string(), s).ok());
+    };
+    write_scene("a_ref.scene.json", true);
+    write_scene("b_plain.scene.json", false);
+    write_scene("c_plain.scene.json", false);
+    write_scene("d_ref.scene.json", true);
+    std::set<std::string> warned;
+    for (const ValidationIssue& i : inline_copy_warnings(validate_project(dir.string()))) warned.insert(i.file);
+    CHECK(warned.count("scenes/a_ref.scene.json") == 0);  // a string names the part's id: not an instance candidate
+    CHECK(warned.count("scenes/b_plain.scene.json") == 1);
+    CHECK(warned.count("scenes/c_plain.scene.json") == 1);
+    CHECK(warned.count("scenes/d_ref.scene.json") == 0);
 }
