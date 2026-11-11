@@ -2150,7 +2150,10 @@ Json Audio::stats() const {
         decoded += clip->data.size() * sizeof(float);
         if (clip->encoded) streamed.push_back(path);
     }
-    j["decodedBytes"] = decoded;
+    std::size_t music = 0;
+    for (const auto& [key, song] : im.musicCache) music += song.src->bytes();
+    j["musicBytes"] = music;
+    j["decodedBytes"] = decoded + music;
     j["streamedClips"] = streamed;
     float peak = im.lastPeak;
     if (im.device) {
@@ -3122,6 +3125,26 @@ MusicStatus Audio::music_status(World& world, Entity e) const {
     if (!rt) return MusicStatus{};
     const MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     return status_with(im.view(*rt).state, *rt, mp);
+}
+
+std::size_t Audio::music_bytes() const {
+    Impl::Call call(*impl_);
+    std::size_t n = 0;
+    for (const auto& [key, song] : impl_->musicCache) n += song.src->bytes();
+    return n;
+}
+
+Json Audio::music_cache_json() const {
+    Impl::Call call(*impl_);
+    Json out = Json::array();
+    for (const auto& [key, song] : impl_->musicCache) {
+        const MusicSource& src = *song.src;
+        Json stems = Json::array();
+        for (const MusicStem& s : src.stems)
+            stems.push_back(Json::object({{"name", s.name}, {"bytes", s.pcm.size() * sizeof(std::int16_t)}}));
+        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"stems", stems}}));
+    }
+    return out;
 }
 
 Json Audio::music_players() const {
