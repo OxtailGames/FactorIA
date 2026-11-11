@@ -117,6 +117,16 @@ TEST_CASE("audio.music_state: the player of the scene plays, and audio.music dri
     r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"goToSection","section":"outro","quantize":"bar","fade":0.1})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["player"]["pending"] == 1);
+    // The answer says where the jump lands; audio.music_state keeps saying so until it does.
+    REQUIRE(r.result["change"]["frame"].is_number());
+    CHECK(r.result["change"]["quantize"] == "bar");
+    const Json frame = r.result["change"]["frame"];
+    r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
+    CHECK(r.result["players"][0]["pendingSong"].is_string());
+    CHECK(r.result["players"][0]["pendingSection"] == "outro");
+    CHECK(r.result["players"][0]["pendingAt"] == frame);
+    CHECK(r.result["players"][0]["appliedIntensity"] == 1.0);
+    CHECK(r.result["players"][0]["requestedIntensity"] == 1.0);
     e.step(130);  // 2.2 s: the bar line at 2 s passed
     r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
     CHECK(r.result["players"][0]["section"] == "outro");

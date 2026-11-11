@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "fa/audio/music_player.h"
@@ -51,6 +52,15 @@ struct MusicTransportState {
     std::uint64_t mixed = 0;
     std::array<float, kMusicMaxStems> stemGains{};
     std::size_t stemCount = 0;
+    double limit = 0.0;                // where the main playhead wraps or ends (song frames; 0 = no limit)
+    double ratio = 1.0;                // song frames per output frame
+    // The earliest quantized jump that waits (a section change or a crossfade): the source and position it lands on, and the
+    // output frame. The latest intensity change that waits, if any.
+    const MusicSource* pendingSrc = nullptr;
+    double pendingPos = 0.0;
+    std::uint64_t pendingAt = 0;
+    bool hasPendingIntensity = false;
+    float pendingIntensity = 0.0f;
     std::array<const MusicSource*, kMusicMaxHeads + kMusicMaxPending> refs{};  // every source a head or a pending reads
     std::size_t refCount = 0;
 };
@@ -87,6 +97,11 @@ public:
     // A stinger that is not a section (a clip the mixer plays itself): the output-frame delay until the boundary, so the mixer can start
     // its voice on the same frame; schedules the stinger event. Returns that delay.
     std::int64_t schedule_clip_stinger(MusicQuantize q);
+    // Drops the section changes, crossfades and intensity changes that wait for their boundary (the player of the next scene adopted
+    // this transport and wants none of what the previous one asked for). A crossfade that has started is not undone.
+    void drop_pending_changes();
+    // The output frame a change with `q` requested now (when the mixer is in `state`) lands on; empty when nothing plays.
+    static std::optional<std::uint64_t> schedule_of(const MusicTransportState& state, MusicQuantize q);
     // Dips the music while a stinger plays, from the boundary on: down by `amount` (0..1) in `attack` seconds, held for `hold` seconds, back in `release`.
     void duck(MusicQuantize q, float amount, float attack, float hold, float release);
     // Crosses over to another song: from the boundary (of the song now playing), the new one starts at `section` (-1: the beginning) and

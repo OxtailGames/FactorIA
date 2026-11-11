@@ -18,16 +18,15 @@ export default class MusicDirector extends Behaviour {
   onStart() {
     this.level = 0.1;
     this.section = "intro";
-    this.song = NIGHT;
     this.wait = 0;
     this.over = false;
     this.player = this.entity.music;
-    // A hard start of the night song: a crossfade left pending by the scene before (a retry during the dawn) must not decide it.
-    this.player.play({ song: NIGHT, section: "intro", intensity: this.level });
+    // The scene's own MusicPlayer starts the night song at its intro. A crossfade the scene before left pending (a retry
+    // during the dawn) is dropped when this player takes over the music that is playing.
     this.unsubscribes = [
-      world.on("dawn_start", () => this.cross(DAWN, "loop")),
-      world.on("night_start", (d) => d.n > 1 && this.cross(NIGHT, "intro")),
-      world.on("game_end", (d) => !d.won && this.cross(DEFEAT, "loop")),
+      world.on("dawn_start", () => this.cross(DAWN)),
+      world.on("night_start", (d) => d.n > 1 && this.cross(NIGHT)),
+      world.on("game_end", (d) => !d.won && this.cross(DEFEAT)),
       world.on("wolf_roar", (d) => d.kind === "alpha" && this.player.playStinger({ clip: "assets/audio/alpha_howl.wav", quantize: "beat", duck: 0.45 })),
     ];
   }
@@ -36,12 +35,12 @@ export default class MusicDirector extends Behaviour {
     for (const off of this.unsubscribes ?? []) off();
   }
 
-  cross(song, section) {
-    if (this.song === song) return;
-    this.song = song;
+  /** Crossfades to `song`, which starts at its beginning. The component's `song` is the song asked for last. */
+  cross(song) {
+    if (this.player.component.song === song) return;
     this.over = song === DEFEAT;
     this.level = song === NIGHT ? 0.1 : this.level;
-    this.player.crossfadeTo(song, { quantize: "bar", bars: 2, ...(section ? { section } : {}) });
+    this.player.crossfadeTo(song, { quantize: "bar", bars: 2 });
   }
 
   /** 0..1: how dangerous the moment is. */
@@ -59,7 +58,7 @@ export default class MusicDirector extends Behaviour {
   }
 
   onUpdate(dt) {
-    if (this.song !== NIGHT || !this.player) return;
+    if (!this.player || this.player.component.song !== NIGHT) return;
     const game = behaviourOf("game");
     const target = this.danger();
     this.level += Math.sign(target - this.level) * Math.min(Math.abs(target - this.level), this.follow * dt);

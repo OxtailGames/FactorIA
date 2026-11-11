@@ -2913,7 +2913,7 @@ Since 0.16.0.
 
 Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
 
-The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary. `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}
+The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary (from its beginning unless `section` is given). `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`, `pendingSong`, `pendingSection` and `pendingAt`); setIntensity, goToSection and crossfadeTo answer `change`: {frame, time, quantize}, the audio frame it lands on (null before the song plays or while it loads). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2940,7 +2940,7 @@ Since 0.16.0.
 
 What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
 
-Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, volume, bus, stems, stemGains, pending, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `stemGains` is the gain each layer has now (it follows `intensity` with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). Example: audio.music_state {"entity":"music"}
+Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, appliedIntensity, requestedIntensity, volume, bus, stems, stemGains, pending, pendingSong, pendingSection, pendingAt, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `song` and `section` are what is audible now; `pendingSong`, `pendingSection` and `pendingAt` (the audio frame, as in the events' `frame`) say where the next queued section change or crossfade lands (null when none waits). `intensity` = `appliedIntensity` is the value the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). `stemGains` is the gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). Example: audio.music_state {"entity":"music"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -13334,6 +13334,28 @@ declare module "factoria" {
   }
 
   /**
+   * What music.setIntensity, goToSection and crossfadeTo return: where the change lands. The frame is worked out from the mixer's latest state, so it is exact on the null device (headless runs, tests) and a block or two off with a sound device that has not caught up; the "section" or "crossfade" event carries the real one.
+   * @since unreleased
+   */
+  export interface MusicChange {
+    /**
+     * The audio frame the change lands on (the same count as `frame` in the music events and audio.music_state's mixedFrames); null when it cannot be placed yet (nothing plays, or the song is still loading).
+     * @since unreleased
+     */
+    frame: number | null;
+    /**
+     * That frame in seconds of the audio clock; null with the frame.
+     * @since unreleased
+     */
+    time: number | null;
+    /**
+     * The boundary used: the one given or the player's own default.
+     * @since unreleased
+     */
+    quantize: "none" | "beat" | "bar" | "section";
+  }
+
+  /**
    * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
    * @since 0.16.0
    */
@@ -13349,35 +13371,35 @@ declare module "factoria" {
      */
     stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
-     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
+     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade. `entity.music.intensity` is the new value at once; `appliedIntensity` (and `status.intensity`) is the one the layers follow, which changes at that boundary. Returns where the layers start to follow it: {frame, time, quantize} (frame and time are null before the song plays).
      * @since 0.16.0
      */
-    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
+    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): MusicChange;
     /**
-     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
+     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the audible song does not have, listing the ones it has. Before the song is loaded it only sets where it will start. Returns {frame, time, quantize}: the audio frame the jump lands on, the `frame` of the "section" event it fires (null when nothing plays yet); `pendingSection` and `pendingAt` show it until then.
      * @since 0.16.0
      */
-    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
+    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): MusicChange;
     /**
      * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
      * @since 0.16.0
      */
     playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
     /**
-     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
+     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default the beginning of that song, never the component's startSection). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song. The component's `song` field is the new song at once while the old one stays audible until the boundary: `status.song` is the audible one and `pendingSong` the queued one. Returns {frame, time, quantize}: the audio frame the crossfade starts on (null while the song loads or when nothing plays). A scene loaded before that frame drops the change.
      * @since 0.16.0
      */
-    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
+    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): MusicChange;
     /**
      * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
      * @since 0.16.0
      */
     on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
     /**
-     * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
+     * A snapshot of the player (what audio.music_state shows). `song` and `section` are what is audible now. `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `pendingSong`, `pendingSection` and `pendingAt` (an audio frame, as `frame` in the events) say where the next queued section change or crossfade lands, null when none waits (a song asked for but not scheduled yet has no `pendingAt`). `intensity` = `appliedIntensity` is what the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last value set. `error` why it could not start.
      * @since 0.16.0
      */
-    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
+    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; appliedIntensity: number; requestedIntensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; pendingSong: string | null; pendingSection: string | null; pendingAt: number | null; heads: number; error: string };
     /**
      * True once the song is loaded and can sound.
      * @since 0.16.0
@@ -13389,7 +13411,7 @@ declare module "factoria" {
      */
     readonly playing: boolean;
     /**
-     * The song that plays (or is loading).
+     * The song that is audible now (status.song), or the one asked for while nothing plays. After crossfadeTo it is still the old song until the crossfade starts: pendingSong is the new one (the component's `song` field is already the new one).
      * @since 0.16.0
      */
     readonly song: string;
@@ -13414,10 +13436,35 @@ declare module "factoria" {
      */
     readonly tempo: number;
     /**
-     * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
+     * MusicPlayer.intensity: the value last set (= requestedIntensity), not what the layers follow (appliedIntensity) nor their fades (status.stemGains).
      * @since 0.16.0
      */
     readonly intensity: number;
+    /**
+     * The intensity last set (MusicPlayer.intensity): the layers follow it from the layerQuantize boundary on.
+     * @since unreleased
+     */
+    readonly requestedIntensity: number;
+    /**
+     * The intensity the layers follow now (status.intensity); it changes on the layerQuantize boundary after a setIntensity, so it differs from `intensity` until then.
+     * @since unreleased
+     */
+    readonly appliedIntensity: number;
+    /**
+     * The song the next queued section change or crossfade lands in (status.pendingSong); null when none waits. `song` stays the audible one until then.
+     * @since unreleased
+     */
+    readonly pendingSong: string | null;
+    /**
+     * The section that queued change lands in (status.pendingSection); null when none waits.
+     * @since unreleased
+     */
+    readonly pendingSection: string | null;
+    /**
+     * The audio frame that queued change lands on (the `frame` of the "section" or "crossfade" event it fires); null when none waits or it is not scheduled yet.
+     * @since unreleased
+     */
+    readonly pendingAt: number | null;
     /**
      * The section names of the song, in order; empty until it is loaded.
      * @since 0.16.0

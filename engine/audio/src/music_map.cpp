@@ -389,6 +389,11 @@ Json MusicStatus::to_json() const {
     j["positionSeconds"] = positionSeconds;
     j["tempo"] = tempo;
     j["intensity"] = intensity;
+    j["appliedIntensity"] = appliedIntensity;
+    j["requestedIntensity"] = requestedIntensity;
+    j["pendingSong"] = pendingSong.empty() ? Json(nullptr) : Json(pendingSong);
+    j["pendingSection"] = pendingSection.empty() ? Json(nullptr) : Json(pendingSection);
+    j["pendingAt"] = pendingAt ? Json(*pendingAt) : Json(nullptr);
     j["volume"] = volume;
     j["bus"] = bus;
     j["sections"] = sections;
@@ -397,6 +402,14 @@ Json MusicStatus::to_json() const {
     j["pending"] = pending;
     j["heads"] = heads;
     j["error"] = error;
+    return j;
+}
+
+Json MusicChange::to_json() const {
+    Json j = Json::object();
+    j["frame"] = frame ? Json(*frame) : Json(nullptr);
+    j["time"] = frame ? Json(time) : Json(nullptr);
+    j["quantize"] = music_quantize_name(quantize);
     return j;
 }
 
