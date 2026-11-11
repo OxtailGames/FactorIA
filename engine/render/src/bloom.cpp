@@ -97,7 +97,7 @@ void Bloom::release() {
     targetW_ = targetH_ = 0;
 }
 
-bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond) {
+bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond, sg_pixel_format fmt) {
     Level& l = levels_[level];
     const int div = 2 << level;
     l.w = std::max(1, (targetW + div - 1) / div);
@@ -108,7 +108,7 @@ bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond) {
         d.usage.color_attachment = true;
         d.width = l.w;
         d.height = l.h;
-        d.pixel_format = SG_PIXELFORMAT_RGBA8;
+        d.pixel_format = fmt;
         d.sample_count = 1;
         d.label = "bloom-level";
         l.img[i] = make_image(d);
@@ -142,7 +142,7 @@ int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_
     }
     const Plan plan = plan_for(s.radius);
     for (int l = plan.first; l <= plan.level; ++l) {
-        if (!ensure(l, targetW, targetH, l == plan.level)) return 0;
+        if (!ensure(l, targetW, targetH, l == plan.level, gpu.scene_format())) return 0;
     }
 
     int passes = 0;

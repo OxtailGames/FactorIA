@@ -323,6 +323,11 @@ public:
     // Native handle of the game target color image (sg_image id) for the editor viewport.
     std::uint32_t game_target_image_id() const;
     std::uint32_t game_target_view_id() const;  // texture view (sg_view id) for sampling
+    // True when the game target holds colours above white (a 16-bit float format): MeshRenderer.emissiveStrength above 1 then
+    // reaches Camera.bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
+    // requested multisampling (or with FA_SCENE_FORMAT=rgba8): everything clamps at white, bloom included. The screen and
+    // screenshots show 8 bits either way.
+    bool hdr_scene() const;
 
     // Asset cache control (textures, meshes, fonts are loaded on first use by path).
     void reload_asset(std::string_view path);  // hot reload (a .material.json, or a snippet a material uses, rebuilds it)
