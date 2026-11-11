@@ -7013,8 +7013,12 @@ void Editor::at_build_tools_script() {
         });
         step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
         step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
-        // the one-line toolbar fits the panel: its last widget is inside the visible part of the window
-        step(2, [this, current] { at_check(current() && at_shown("img:checker"), "the whole toolbar fits in the panel (the Checker box is inside it)"); });
+        // the one-line toolbar fits the panel: the right edge of its widest item is inside the panel, which is inside the window
+        step(2, [this, current] {
+            const float right = image_.toolbarRight, limit = image_.toolbarLimit, display = ImGui::GetMainViewport()->Size.x;
+            at_check(current() && right > 0 && right <= limit && right <= display,
+                     "the whole toolbar fits in the panel (right edge " + std::to_string(int(right)) + ", panel " + std::to_string(int(limit)) + ", window " + std::to_string(int(display)) + ")");
+        });
 
         // ---- Save bakes
         click_widget("img:save");

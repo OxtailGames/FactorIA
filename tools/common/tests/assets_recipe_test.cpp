@@ -228,6 +228,25 @@ TEST_CASE("assets.regenerate keeps the style role of the provenance") {
     CHECK(prov.contains("recipe"));
 }
 
+TEST_CASE("assets.draw_icon and assets.generate_texture draw over a file again and keep the style role of its provenance") {
+    AssetsProject p;
+    const Json icon = Json::parse(R"({"background":{"color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})");
+    p.ok("assets.draw_icon", icon);
+    set_provenance(p, "assets/icon.png", {{"origin", "original"}, {"role", "icon"}});
+    p.ok("assets.draw_icon", icon);
+    CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"]["role"] == "icon");
+    CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"].contains("recipe"));
+
+    const Json tex = {{"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 32}, {"height", 32}, {"normalMap", true}};
+    p.ok("assets.generate_texture", tex);
+    set_provenance(p, "assets/tex/paper.png", {{"origin", "original"}, {"role", "effect"}});
+    Json again = tex;
+    again["overwrite"] = true;
+    p.ok("assets.generate_texture", again);
+    CHECK(p.manifest()["assets"]["assets/tex/paper.png"]["provenance"]["role"] == "effect");
+    CHECK_FALSE(p.manifest()["assets"]["assets/tex/paper_n.png"]["provenance"].contains("role"));  // the normal map had none
+}
+
 TEST_CASE("assets.regenerate: errors say what to do") {
     AssetsProject p;
     write_all(p.file("assets/art/coin.svg"), kSvg);

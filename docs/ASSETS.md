@@ -873,7 +873,7 @@ itself. Three ways to leave a rule out, from the narrowest:
   `path` is a project path: a `..` segment is refused, a name such as `a..b.png` is fine.
 - A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`; `remove: true` deletes the glob), and
   `assets.set_provenance` accepts `role` for one asset (it wins over a glob; assets.set_provenance without `role` keeps it, and
-  `assets.regenerate`, importing the file again and `assets.generate_image` with `overwrite` keep it too). `role: ""` (or null) in
+  `assets.regenerate`, importing the file again, `assets.generate_image`, `assets.generate_texture` and `assets.draw_icon` over the file keep it too). `role: ""` (or null) in
   `assets.set_provenance` takes the asset's role back. `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
   `effect` also turns off `outline`, `value` and `saturation`. The other rules keep checking.
 - `texelsPerUnit` is only judged for textures a scene draws; a texture no scene uses is left out already.

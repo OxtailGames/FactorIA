@@ -268,7 +268,7 @@ there; with `center` every side moves (an odd difference puts the extra pixel at
 that offset (a group takes its children along); a fill, gradient or procedural layer with no size just covers the new canvas, unless
 it has `masks`: masks are in the layer's own pixels, so (when the offset is not 0, 0) the layer becomes a box of the OLD canvas size
 (`width` / `height`, or the `texture` size) and moves with the anchor like any other layer, and it no longer covers the area a bigger
-canvas adds. An `adjustment` layer with masks moves too (its masks go with it); one without masks needs no move. The text rows of an
+canvas adds (the result's `warnings` name each layer that became a box). An `adjustment` layer with masks moves too (its masks go with it); one without masks needs no move. An `indexed` layer cannot have masks (the document is refused), so cropping its rows at the left or top never leaves a mask behind. The text rows of an
 `indexed` layer and of its cels are CUT to the part inside the new canvas, never padded (each keeps its place through its `x` / `y`, a
 picture wholly outside becomes one transparent pixel), so a small pixel-art layer on a 4096 x 4096 canvas stays small; a resize that
 would keep more than 64 MB of rows fails and changes nothing. Positions are clamped to the +-100000 a document allows. `palette`, `ramps`,
