@@ -11,6 +11,11 @@ range) and its base. Read the whole diff (`git diff <base>...<branch>`) and the 
 seen the worker's report on purpose, so judge the code, not what it claims. Do not edit files, commit or build:
 report only. You may run read-only commands (git, grep) and an existing test binary if the brief gives a build dir.
 
+Every turn of yours sends your whole context again, so a review costs its number of turns. Start with
+`git diff --stat <base>...<branch>`, then put independent calls in ONE message: the diff of several files, the Grep
+for a symbol's callers, the Read of the code around a change (`offset`, `limit`; never page through a file with
+`sed -n`, and do not read again what is already in your context).
+
 Look first for what CI finds and the orchestrator's machine does not:
 - Compilers: MSVC and GCC warnings (shadowing, narrowing, unused, sign compare), missing includes that one standard
   library pulls in and another does not, non-portable extensions.

@@ -152,6 +152,59 @@ test with its output, and the summary. Exit status 0 means everything passed. `-
 Release build of `factoria` in `<build dir>-release` and `ctest -L example` (the example games, see "Running tests");
 `-Test -Examples` is the full check before a push, `-ExamplesOnly` skips the Debug part.
 
+### Linux and macOS, short output: `scripts/agent-build.sh`
+
+```bash
+scripts/agent-build.sh <build dir> [--target t1,t2] [--test | --tests REGEX] [--examples | --examples-only] [--jobs 8]
+scripts/agent-build.sh <build dir> --wait | --status | --stop
+```
+
+The same idea for Linux and macOS, made for AI agents. It configures the directory the first time (Ninja, Debug; CMake
+finds ccache itself), builds it and, with `--test` (every test) or `--tests` (`ctest -R`), runs the tests three at a
+time (`--ctest-jobs`). The full output goes to `agent-configure.log`, `agent-build.log` and `agent-ctest.log` in the
+build directory. The console shows, with paths relative to the checkout:
+
+- the errors of a failed configure or build (at most 40 lines);
+- each distinct warning of the files the branch changes compared with `origin/main` (committed or not), and one line
+  with the count of the warnings in the rest of the tree, so a new warning is not lost among the old ones;
+- every failing test with its output: at most 80 lines, and without the engine's log lines when it is a doctest program
+  (the cases that provoke an error on purpose fill the output with them);
+- ctest's summary and the time of each step.
+
+`--examples` adds a Release build of `factoria` in `<build dir>-release` and `ctest -L example`; `--test --examples` is
+the full check before a push, `--examples-only` skips the Debug part.
+
+**The Debug tree is compiled with `-O1 -g1`** instead of CMake's `-g` (`FA_AGENT_DEBUG_FLAGS`, read when the directory
+is first configured). Assertions stay on and a crash still names functions and lines. Measured on a MacBook Air M5,
+all 64 tests passing either way:
+
+| Debug flags | Full build, empty compiler cache | Debug suite (`ctest -j3`) | `tooling` test | Build tree |
+|---|---|---|---|---|
+| `-g` (CMake's default) | 348 s | 414 s | 315 s | 8.0 GB |
+| `-O1 -g1` | 449 s | 188 s | 92 s | 2.6 GB |
+| `-O2 -g1` | 530 s | 176 s | 86 s | 2.6 GB |
+
+An agent seldom builds everything from an empty cache and runs tests after every change, so the tests are what counts.
+A debugger does not show local variables in such a tree: for a debugging session use a plain Debug tree (the presets,
+`scripts/test-all.sh`) or a new directory with `FA_AGENT_DEBUG_FLAGS=-g`. A directory keeps the flags it was
+configured with, and trees with different flags do not share compiler-cache entries, so agents keep the default.
+
+**It never runs longer than 100 seconds.** An agent's harness stops a command, or moves it to the background, after two
+or three minutes, and the agent then spends a turn on every look at it (measured over three milestones: one tool call
+in ten was a wait or a look at a build). So the work runs as a job of its own, detached from the shell, and the command
+waits for it for at most `--wait-s` seconds (default 100). The last line tells what happened:
+
+| Last line | Exit status | Meaning |
+|---|---|---|
+| `agent-build: DONE ok` | 0 | Everything asked for passed. |
+| `agent-build: DONE FAILED` | 1 | The lines above say what failed. |
+| `agent-build: RUNNING (<step>: <last line of its log>)` | 3 | Still working: run `scripts/agent-build.sh <build dir> --wait` again until it says `DONE`. |
+
+`--status` reports without waiting and `--stop` ends the job with everything it started. One job runs per build
+directory: the same command again waits for the job that is running, a different one is refused until it ends.
+`FA_AGENT_JOBS`, `FA_AGENT_CTEST_JOBS` and `FA_AGENT_WAIT_S` set the defaults of `--jobs`, `--ctest-jobs` and
+`--wait-s`.
+
 ### Linux release: `scripts/build-sniper.sh`
 
 ```bash
@@ -305,7 +358,9 @@ cmake --build build/my-build -j 2
   every target in Debug and runs the whole Debug suite, then builds `factoria` in Release (`build/release`) and runs
   `ctest -L example`. `--debug-only` and `--examples-only` run one half; `FA_TEST_DEBUG_DIR`, `FA_TEST_RELEASE_DIR`,
   `FA_TEST_JOBS` and `FA_TEST_CTEST_JOBS` (default 3) tune it; ccache is used when installed. CI already builds Release,
-  so its `ctest` runs the examples with no extra job.
+  so its `ctest` runs the examples with no extra job. An AI agent runs that check as
+  `scripts/agent-build.sh <dir> --test --examples`, which prints only what failed, never blocks for more than 100 s and
+  builds its Debug tree with `-O1 -g1` (the suite takes less than half the time; see the script's section above).
 - **A scratch shader cache in tests.** `add_test` also gives every test `FA_CACHE_DIR=<build dir>/test-cache`, so a test run never
   reads or writes your real per-user cache folder (`fs::cache_dir()`, docs/PERFORMANCE.md "Startup"); delete the folder for a cold-cache run.
 - **Windows file rules in tests (macOS and Linux).** Two Windows behaviours broke the engine and only the Windows CI job
@@ -734,6 +789,49 @@ The perf budget tests (`*_perf`) are left out of the WSL run, as in `scripts/ci-
 10% more peak memory than GitHub's runner with the same commit, so they would fail without a regression
 (`FA_CI_WSL_PERF=1` runs them). The CI job on GitHub's runner checks them, and `scripts/test-all.sh` runs them on this host.
 
+## What the agents cost
+
+The engine is developed with Claude Code: a main session (the orchestrator) that hands packages to subagents (workers
+and reviewers; CLAUDE.md, "Agent work"). `scripts/agent-usage.py` adds up what each of them really used, from the
+transcripts Claude Code keeps on this machine (`~/.claude/projects/`); nothing is sent anywhere.
+
+```bash
+python3 scripts/agent-usage.py                 # the 5 sessions of this checkout that changed last
+python3 scripts/agent-usage.py --agents 24b6   # one session (the start of its id), one line per subagent
+```
+
+Every model call sends the whole context again, so an agent costs its calls times its context, not the tokens it
+wrote: the token count the Agent tool reports for a subagent is not its cost. The script prints, for the main session,
+for all its subagents and for each kind and model of subagent:
+
+- `calls`: model calls, one per turn of the agent. `ctx`: the context of a call, median and largest.
+- `in`, `write`, `read`, `out`: new input tokens, tokens written to the prompt cache, tokens read from it, output.
+- `units`: one number for the row, in input tokens of its model: input + 1.25 x cache writes (2 x for the one-hour
+  cache) + 0.1 x cache reads + 5 x output. A unit of a bigger model costs more: compare rows of the same model.
+- `compact`: how many times the context filled up and was summarized. Each time the agent loses details and reads
+  files again. `rewrites`: calls that wrote most of their context to the cache again (after a summary, or after a pause
+  longer than the cache keeps it).
+
+What three milestones (M70, M90, M91) showed, and what the rules in CLAUDE.md and `.claude/agents/` come from:
+
+- The subagents are about four fifths of a milestone: the workers two thirds to three quarters, the reviewers an
+  eighth. The orchestrator is the rest, in tokens of the biggest model.
+- A worker made 243 calls on average with a context near 90,000 tokens, and 94% of its messages carried one tool call.
+  Independent calls in one message (three files, two searches) are the cheapest saving there is.
+- A package that ends within about 150 calls fills its context once at most. One that filled it again and again (534
+  calls, 19 summaries) used five times what an average worker does. Split packages until none is large.
+- That worker ran on a bigger model and used more than half of what the eight workers on the middle model used
+  together, in tokens that cost more; a bigger model did not save review rounds either (M70). The bigger model is for
+  code this machine cannot test, not for big packages.
+- One tool call in ten was a wait or a look at a build that the harness had moved to the background:
+  `scripts/agent-build.sh` above exists for that.
+- An agent whose file in `.claude/agents/` has a `tools:` list starts with about 12,000 tokens of context. A
+  `general-purpose` agent starts with 52,000 and an `Explore` one with 36,000: they carry the definition of every tool
+  of the session, and every call sends it again. Audits, triage and research go to the `researcher` agent for that
+  reason (those runs were 8% of all the subagents' units, about a third of it tool definitions they never used).
+- A one-hour prompt cache would cost more than it saves here (a one-hour write costs 2 x, a five-minute one 1.25 x,
+  and most rewrites follow a summary or a pause of hours).
+
 ## Troubleshooting
 
 **`CMake Error: Could not use disabled preset "windows-release"`**
@@ -820,6 +918,12 @@ dependencies. English messages (`VSLANG=1033` with Visual Studio's English langu
 (`/Z7`) instead of one `.pdb` per target, which ccache needs. Tests find the checkout through the generated
 `fa_test_paths.h` (`FA_REPO_ROOT`...); include it only where a test needs a path, so the other tests keep sharing the
 cache.
+ccache's default size, 5 GB, is too small for this repository once several build trees exist (Debug, Release, the
+players, one tree per agent worktree): the cache evicts what the next build needs and half the compiles miss
+(`ccache -s` shows it: a cache size at its limit, thousands of cleanups and a hit rate near 50%). Give it room once
+per machine: `ccache -M 20G`.
+Do not pass `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache` yourself: CMake then uses ccache without the settings that make the
+checkouts share the cache, and that build tree compiles everything again.
 The engine version lives in a generated header (`fa/core/engine_version.h`, written by `configure_file` only when the
 version changes), not in a compile definition, so a version bump only recompiles the files that include it instead of
 missing the whole cache.
