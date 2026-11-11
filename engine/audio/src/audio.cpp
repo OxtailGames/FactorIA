@@ -236,6 +236,7 @@ struct MusicRt {
     bool resendLoop = false;                  // a dropped set_loop: send it again whatever the component says
     struct Entry {                            // how the source that arrives enters the transport
         bool set = false, hard = false;
+        bool begin = false;                   // crossfadeTo: the other song starts at its beginning, not at the component's startSection
         std::string section;
         std::optional<MusicQuantize> quantize;
         float bars = -1.0f;
@@ -356,6 +357,8 @@ struct Audio::Impl {
     void music_poll();
     void music_trim(const std::string& keepKey);
     void music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt);
+    bool music_hand_over(MusicRt& rt, MusicPlayer& mp);
+    MusicChange music_predict(MusicRt& rt, MusicQuantize q);
     void music_update(World& world);
     void music_resync();
     void music_resolve(MusicRt& rt);
@@ -2533,12 +2536,23 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     if (!rt.ch) make_channel(rt);
     const std::string want = mp.song.empty() ? std::string() : fs::normalize(mp.song);
     bool adopted = false;
+    std::shared_ptr<const MusicSource> adoptedSrc;   // what the transport of an orphan this player took over is playing
+    MusicMode adoptedMode = MusicMode::Live;
     if (rt.first) {
         rt.first = false;
         if (!want.empty() && mp.playOnStart) {
-            for (auto o = musicOrphans.begin(); o != musicOrphans.end(); ++o) {
+            // The mode this player would play the song in: the source of the cache for it is what the adopted transport must be playing.
+            std::string why;
+            const MusicStemPlan plan = music_stem_plan_of(want);
+            const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+            const auto cached = musicCache.find(music_cache_key(want, mode));
+            for (auto o = musicOrphans.begin(); o != musicOrphans.end() && cached != musicCache.end(); ++o) {
                 MusicRt& old = **o;
-                if (old.song != want || !old.src || old.sent != old.src || old.stopIssued || !old.ch || !view(old).playing) continue;
+                if (!old.ch || old.stopIssued) continue;
+                // What matters is the song the transport SOUNDS, not the one its player last asked for: a crossfade the old scene
+                // started (its component already named the new song) is still waiting for its bar, and the transport plays the old one.
+                const MusicView ov = view(old);
+                if (!ov.fresh || !ov.playing || ov.ended || ov.src != cached->second.src.get()) continue;
                 // The new player takes the old one's transport over, where it is in the song.
                 std::unique_ptr<MusicChannel> spare = std::move(rt.ch);
                 rt.ch = std::move(old.ch);
@@ -2551,32 +2565,27 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
                 std::unique_ptr<MusicRt> gone = std::move(*o);
                 musicOrphans.erase(o);
                 retire(std::move(gone));
+                // Whatever the old scene queued for a bar that has not come (a section change, a crossfade, a layer change) is not
+                // this scene's: the transport goes on in the song it plays now. A Keep command: a stalled queue never drops it.
+                chan_cmd(rt, CmdKind::Keep, [](MusicTransport& tr) { tr.drop_pending_changes(); });
                 // `old` is gone: what is left to do uses the player that took its place.
+                adopted = true;
+                adoptedSrc = cached->second.src;
+                adoptedMode = mode;
+                cached->second.lastUse = ++musicUse;
                 break;
             }
-            const MusicView v = view(rt);
-            adopted = rt.ch && v.playing && !v.ended;
         }
         if (adopted) {
             rt.song = want;
             rt.playing = true;
             mp.playing = true;
-            // The source the adopted transport plays: ask the cache (it still holds it) so rt.src matches what is sounding.
+            // The source the adopted transport plays is the cache's (checked above), so rt.src matches what is sounding.
             rt.waitKey.clear();
-            std::string why;
-            const MusicStemPlan plan = music_stem_plan_of(want);
-            const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
-            auto c = musicCache.find(music_cache_key(want, mode));
-            if (c != musicCache.end()) {
-                c->second.lastUse = ++musicUse;
-                rt.src = c->second.src;
-                rt.sent = c->second.src;
-                rt.resolved = mode;
-                rt.epoch = musicEpoch;
-            } else {
-                adopted = false;
-                chan_stop(rt, MusicQuantize::None, 0.05f);
-            }
+            rt.src = adoptedSrc;
+            rt.sent = adoptedSrc;
+            rt.resolved = adoptedMode;
+            rt.epoch = musicEpoch;
         } else if (mp.playOnStart && !mp.playing) {
             mp.playing = true;
         }
@@ -2655,32 +2664,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     }
 
     // hand the source to the transport (not before it has a channel: it waits for one)
-    if (mp.playing && rt.src && rt.sent != rt.src && rt.ch) {
-        const MusicMap& map = rt.src->map;
-        const std::string& wanted = rt.entry.section.empty() ? mp.startSection : rt.entry.section;
-        int section = -1;
-        if (!wanted.empty()) {
-            section = map.section_index(wanted);
-            if (section < 0 && !rt.entry.lenient)
-                FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)", rt.id, rt.song, wanted,
-                         did_you_mean(wanted, map.section_names()));
-        }
-        const MusicQuantize q = rt.entry.quantize.value_or(mp.quantize);
-        const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
-        std::string err;
-        const bool ok = send_start(rt, rt.src, section, music_unit(mp.intensity), q, bars, rt.entry.hard, &err);
-        rt.entry = MusicRt::Entry{};
-        if (ok) {
-            rt.sent = rt.src;
-            rt.intensity = music_unit(mp.intensity);
-            rt.error.clear();
-        } else {
-            rt.error = err;
-            FA_ERROR("audio", "MusicPlayer on '{}' cannot play '{}': {}", rt.id, rt.song, err);
-            mp.playing = false;
-            rt.playing = false;
-        }
-    }
+    music_hand_over(rt, mp);
 
     // a song that played through to its end (the mixer's state once it has the last start or stop)
     const MusicView v = view(rt);
@@ -2723,6 +2707,52 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     mp.tempo = st.playing ? float(st.tempo) : 0.0f;
     mp.activeMode = st.playing ? st.mode : (rt.src ? rt.src->mode : std::string());
     music_events(&world, rt);
+}
+
+// Gives the transport the source the player waits to play: a crossfade when it plays and the start is not hard, else a start.
+// False when there is nothing to hand over yet (no source, no channel, already given) or the transport refused (then the
+// player stops and says why in `error`).
+bool Audio::Impl::music_hand_over(MusicRt& rt, MusicPlayer& mp) {
+    if (!(mp.playing && rt.src && rt.sent != rt.src && rt.ch)) return false;
+    const MusicMap& map = rt.src->map;
+    // A crossfade to another song starts it at its beginning (`begin`): the component's startSection names a section of the first song.
+    const std::string wanted = !rt.entry.section.empty() ? rt.entry.section : rt.entry.begin ? std::string() : mp.startSection;
+    int section = -1;
+    if (!wanted.empty()) {
+        section = map.section_index(wanted);
+        if (section < 0 && !rt.entry.lenient)
+            FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)", rt.id, rt.song, wanted,
+                     did_you_mean(wanted, map.section_names()));
+    }
+    const MusicQuantize q = rt.entry.quantize.value_or(mp.quantize);
+    const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
+    std::string err;
+    const bool ok = send_start(rt, rt.src, section, music_unit(mp.intensity), q, bars, rt.entry.hard, &err);
+    rt.entry = MusicRt::Entry{};
+    if (ok) {
+        rt.sent = rt.src;
+        rt.intensity = music_unit(mp.intensity);
+        rt.error.clear();
+    } else {
+        rt.error = err;
+        FA_ERROR("audio", "MusicPlayer on '{}' cannot play '{}': {}", rt.id, rt.song, err);
+        mp.playing = false;
+        rt.playing = false;
+    }
+    return ok;
+}
+
+// Where a change with `q` requested now lands, from the mixer's latest state. The frame stays empty when it cannot be told: nothing
+// plays, or the transport has not caught up with the last start or stop.
+MusicChange Audio::Impl::music_predict(MusicRt& rt, MusicQuantize q) {
+    MusicChange c;
+    c.quantize = q;
+    const MusicView v = view(rt);
+    if (v.fresh && v.state && v.playing) {
+        c.frame = MusicTransport::schedule_of(*v.state, q);
+        if (c.frame) c.time = double(*c.frame) / double(std::max(deviceRate, 1));
+    }
+    return c;
 }
 
 // A music setting was dropped (the device stalled): once the queue has emptied every player sends its settings again, the
@@ -2899,21 +2929,27 @@ void Audio::music_stop(World& world, Entity e, MusicQuantize quantize, float fad
     rt->playing = false;
 }
 
-void Audio::music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize) {
+MusicChange Audio::music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
-    if (!mp) return;
+    MusicChange none;
+    if (!mp) return none;
     mp->intensity = music_unit(intensity);
+    const MusicQuantize q = quantize.value_or(mp->layerQuantize);
+    none.quantize = q;
     MusicRt* rt = im.music_find(world, e);
-    if (!quantize || !rt || !rt->sent) return;
+    // Not started yet: the intensity is the one the song starts with. Started: it goes to the transport now (not at the next
+    // update), so that the frame the layers follow it from is the one the transport will work out from this very state.
+    if (!rt || !rt->sent) return none;
     const float inten = mp->intensity;
-    const MusicQuantize q = *quantize;
+    const MusicChange change = im.music_predict(*rt, q);
     im.chan_cmd(*rt, CmdKind::Lossy, [inten, q](MusicTransport& tr) { tr.set_intensity(inten, q); });
     rt->intensity = inten;
+    return change;
 }
 
-Result<void> Audio::music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize, float fadeSeconds) {
+Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize, float fadeSeconds) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
@@ -2930,14 +2966,17 @@ Result<void> Audio::music_go_to_section(World& world, Entity e, std::string_view
     if (!playing || !rt.sent) {  // not started: only where it will start
         mp->startSection = std::string(section);
         rt.entry.section = std::string(section);
-        return {};
+        MusicChange unplaced;
+        unplaced.quantize = quantize.value_or(mp->quantize);
+        return unplaced;
     }
     const int index = playing->map.section_index(section);
     const MusicQuantize q = quantize.value_or(mp->quantize);
     const float fade = fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds;
+    const MusicChange change = im.music_predict(rt, q);
     // The transport checks again when the command runs (it may have stopped meanwhile): then the jump is not made.
     im.chan_cmd(rt, CmdKind::Droppable, [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
-    return {};
+    return change;
 }
 
 Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStingerSpec& spec) {
@@ -3011,35 +3050,67 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
     return {};
 }
 
-Result<void> Audio::music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section, std::optional<MusicQuantize> quantize,
-                                       float bars) {
+Result<MusicChange> Audio::music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section,
+                                              std::optional<MusicQuantize> quantize, float bars) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.crossfadeTo");
     if (song.empty())
         return make_error("music.crossfadeTo: no song given", "Pass the asset path of a *.song.json, music.crossfadeTo('music/battle.song.json').");
-    if (auto ok = need_song_file("music.crossfadeTo", song); !ok) return ok;
+    if (auto ok = need_song_file("music.crossfadeTo", song); !ok) return ok.error();
     MusicRt& rt = im.music_get(world, e);
+    const MusicQuantize q = quantize.value_or(mp->quantize);
+    // Playing already (the transport has a song): where the crossfade will land, worked out before this call's own commands.
+    const bool crossfade = rt.sent && rt.playing && !rt.first;
+    MusicChange change = crossfade ? im.music_predict(rt, q) : MusicChange{};
+    change.quantize = q;
     mp->song = std::string(song);
     mp->playing = true;
     rt.entry = MusicRt::Entry{};
     rt.entry.section = std::string(section);
+    rt.entry.begin = true;  // never the component's startSection: that names a section of the first song
     rt.entry.quantize = quantize;
     rt.entry.bars = bars;
-    if (fs::normalize(song) == rt.song) rt.sent.reset();  // the same song again: a crossfade to its start (or section)
-    return {};
+    const std::string target = fs::normalize(song);
+    if (target == rt.song) {
+        rt.sent.reset();  // the same song again: a crossfade to its start (or section)
+    } else if (crossfade) {
+        rt.song = target;
+        im.music_request(rt, *mp);
+    }
+    // The source is in the cache (or loads at once on the null device): hand it over now, so that the frame above is the one it lands
+    // on. Otherwise the next update does it, when the load is done, and the frame is not known yet.
+    if (crossfade && rt.src) {
+        if (!im.music_hand_over(rt, *mp)) change = MusicChange{.quantize = q};
+    } else {
+        change = MusicChange{.quantize = q};
+    }
+    return change;
 }
 
 namespace {
-MusicStatus status_with(const MusicTransportState* state, const MusicRt& rt) {
+MusicStatus status_with(const MusicTransportState* state, const MusicRt& rt, const MusicPlayer* mp) {
     MusicStatus st = state ? MusicTransport::status_of(*state) : MusicStatus{};
     st.exists = true;
     st.ready = rt.src != nullptr;
     if (rt.src) st.sections = rt.src->map.section_names();
     st.bus = rt.busName;
     st.error = rt.error;
+    // The song the player was asked for while another one is audible (a crossfade that the mixer does not have yet: the song is
+    // still loading, or its command is on the way): queued, but with no frame yet. A queued jump the transport holds says more.
+    if (st.playing && st.pendingSong.empty() && !rt.song.empty() && rt.song != st.song) {
+        st.pendingSong = rt.song;
+        if (rt.src && rt.src->path == rt.song) {
+            const MusicMap& m = rt.src->map;
+            int idx = rt.entry.section.empty() ? -1 : m.section_index(rt.entry.section);
+            if (idx < 0 && !m.spans.empty()) idx = m.spans.front().section;
+            if (idx >= 0 && std::size_t(idx) < m.sections.size()) st.pendingSection = m.sections[std::size_t(idx)].name;
+        }
+    }
     if (st.song.empty()) st.song = rt.song;
+    if (mp) st.requestedIntensity = music_unit(mp->intensity);
+    else if (rt.intensity >= 0.0f) st.requestedIntensity = rt.intensity;
     return st;
 }
 }  // namespace
@@ -3049,7 +3120,8 @@ MusicStatus Audio::music_status(World& world, Entity e) const {
     Impl& im = *impl_;
     MusicRt* rt = im.music_find(world, e);
     if (!rt) return MusicStatus{};
-    return status_with(im.view(*rt).state, *rt);
+    const MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    return status_with(im.view(*rt).state, *rt, mp);
 }
 
 Json Audio::music_players() const {
@@ -3057,7 +3129,8 @@ Json Audio::music_players() const {
     Impl& im = *impl_;
     Json out = Json::array();
     auto add = [&](MusicRt& rt, bool orphan) {
-        Json j = status_with(im.view(rt).state, rt).to_json();
+        // No component here (an orphan has none): the requested intensity is the last one sent to the transport.
+        Json j = status_with(im.view(rt).state, rt, nullptr).to_json();
         j["entity"] = rt.id;
         j["orphan"] = orphan;
         out.push_back(std::move(j));

@@ -1002,8 +1002,8 @@ NATIVE(animCall) {
 }
 
 // MusicPlayer calls of entity.music: (entity, method, options). `options` is a plain object the JS side has checked (known keys,
-// numbers, strings). Methods: play, stop, setIntensity, goToSection, playStinger, crossfadeTo, status. Only "status" returns
-// something (the MusicStatus); the rest throw a teaching Error when the call cannot be made (unknown section, missing clip).
+// numbers, strings). Methods: play, stop, setIntensity, goToSection, playStinger, crossfadeTo, status. "status" returns the
+// MusicStatus; setIntensity, goToSection and crossfadeTo return {frame, time, quantize} of the change; the rest throw a teaching Error when the call cannot be made (unknown section, missing clip).
 NATIVE(musicCall) {
     SETUP;
     ENTITY(e, 0);
@@ -1025,9 +1025,11 @@ NATIVE(musicCall) {
     } else if (m == "stop") {
         audio.music_stop(W, e, q.value_or(MusicQuantize::None), num("fade", -1.0f));
     } else if (m == "setIntensity") {
-        audio.music_set_intensity(W, e, num("intensity", 0.0f), q);
+        return I->from_json(audio.music_set_intensity(W, e, num("intensity", 0.0f), q).to_json());
     } else if (m == "goToSection") {
-        r = audio.music_go_to_section(W, e, str("section"), q, num("fade", -1.0f));
+        auto c = audio.music_go_to_section(W, e, str("section"), q, num("fade", -1.0f));
+        if (!c) return throw_err(ctx, c.error().to_string());
+        return I->from_json(c->to_json());
     } else if (m == "playStinger") {
         MusicStingerSpec s;
         s.clip = str("clip");
@@ -1042,7 +1044,9 @@ NATIVE(musicCall) {
         s.duckRelease = num("duckRelease", 0.5f);
         r = audio.music_play_stinger(W, e, s);
     } else if (m == "crossfadeTo") {
-        r = audio.music_crossfade_to(W, e, str("song"), str("section"), q, num("bars", -1.0f));
+        auto c = audio.music_crossfade_to(W, e, str("song"), str("section"), q, num("bars", -1.0f));
+        if (!c) return throw_err(ctx, c.error().to_string());
+        return I->from_json(c->to_json());
     } else if (m == "status") {
         return I->from_json(audio.music_status(W, e).to_json());
     } else {

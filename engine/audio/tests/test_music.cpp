@@ -947,3 +947,184 @@ TEST_CASE("music player: a player that lost its entity gets its last settings ag
     CHECK(players[0]["orphan"].get<bool>());
     CHECK(players[0]["volume"].get<float>() == doctest::Approx(0.25f));
 }
+
+// ---- Pending state (M101.2): what is audible versus what is queued, and what a call reports -----------------------------------------
+
+namespace {
+
+// A song whose only section is `loop`: it lacks the `intro` and `main` of the demo song.
+void write_loop_only_song() {
+    Json j = demo_json();
+    j["sections"] = Json::array({Json::object({{"name", "loop"}, {"kind", "loop"}, {"play", Json::object({{"pad", "a"}, {"drums", "g*2"}})}})});
+    REQUIRE(fs::write_text("music/loop.song.json", j.dump()).ok());
+}
+
+// A player of "the next scene" for `song`: the old entity is gone, the new one is the fixture's.
+Entity next_scene_player(PlayerFx& fx, const std::string& song) {
+    fx.world.destroy(fx.e);
+    fx.world.flush();
+    Entity again = fx.world.create("music2", "music2");
+    MusicPlayer& mp = fx.world.add<MusicPlayer>(again);
+    mp.song = song;
+    mp.volume = 1.0f;
+    mp.layerFade = 0.1f;
+    fx.e = again;
+    return again;
+}
+
+}  // namespace
+
+TEST_CASE("music player: a queued crossfade shows as pendingSong / pendingSection / pendingAt until it starts, and the call says its frame") {
+    PlayerFx fx;
+    fx.step(0.7);
+    auto before = fx.audio.music_status(fx.world, fx.e);
+    CHECK(before.pendingSong.empty());
+    CHECK_FALSE(before.pendingAt.has_value());
+    CHECK(before.to_json()["pendingSong"].is_null());
+
+    auto change = fx.audio.music_crossfade_to(fx.world, fx.e, "music/other.song.json", "", MusicQuantize::Bar, 1.0f);
+    REQUIRE(change.ok());
+    REQUIRE(change->frame.has_value());
+    CHECK(*change->frame == kBar);                         // the bar line at 2 s
+    CHECK(change->time == doctest::Approx(2.0));
+    CHECK(change->quantize == MusicQuantize::Bar);
+    CHECK(change->to_json()["quantize"] == "bar");
+    fx.world.events().game.clear();
+    fx.step(0.3);
+    // The component already names the new song; what is audible, and what waits, is in the status.
+    CHECK(fx.mp().song == "music/other.song.json");
+    auto st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.song == "music/test.song.json");
+    CHECK(st.pendingSong == "music/other.song.json");
+    CHECK(st.pendingSection == "intro");                   // the beginning of the other song
+    REQUIRE(st.pendingAt.has_value());
+    CHECK(*st.pendingAt == *change->frame);
+    CHECK(st.to_json()["pendingAt"] == kBar);
+    CHECK(st.pending == 1);
+
+    fx.step(1.5);
+    auto crossed = fx.events("music.crossfade");
+    REQUIRE(crossed.size() == 1);
+    CHECK(crossed[0].data["frame"] == *change->frame);      // the frame the call promised
+    auto after = fx.audio.music_status(fx.world, fx.e);
+    CHECK(after.song == "music/other.song.json");
+    CHECK(after.pendingSong.empty());
+    CHECK_FALSE(after.pendingAt.has_value());
+}
+
+TEST_CASE("music player: goToSection and setIntensity say the frame they land on; the applied intensity follows at that frame") {
+    PlayerFx fx;
+    fx.step(0.7);
+    auto go = fx.audio.music_go_to_section(fx.world, fx.e, "main", MusicQuantize::Bar, 0.0f);
+    REQUIRE(go.ok());
+    REQUIRE(go->frame.has_value());
+    CHECK(*go->frame == kBar);
+    fx.step(0.1);
+    auto st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.song == "music/test.song.json");
+    CHECK(st.pendingSong == "music/test.song.json");
+    CHECK(st.pendingSection == "main");
+    CHECK(st.pendingAt == kBar);
+    fx.world.events().game.clear();
+
+    // A quantized intensity: requested at once, applied at the frame.
+    auto inten = fx.audio.music_set_intensity(fx.world, fx.e, 1.0f, MusicQuantize::Bar);
+    REQUIRE(inten.frame.has_value());
+    CHECK(*inten.frame == kBar);
+    fx.step(0.1);
+    st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.intensity == doctest::Approx(0.0f));
+    CHECK(st.appliedIntensity == doctest::Approx(0.0f));
+    CHECK(st.requestedIntensity == doctest::Approx(1.0f));
+    fx.step(1.4);
+    st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.section == "main");
+    CHECK(st.intensity == doctest::Approx(1.0f));
+    CHECK(st.appliedIntensity == doctest::Approx(1.0f));
+    CHECK(st.requestedIntensity == doctest::Approx(1.0f));
+    CHECK_FALSE(st.pendingAt.has_value());
+    auto sections = fx.events("music.section");
+    REQUIRE_FALSE(sections.empty());
+    CHECK(sections.back().data["frame"] == *go->frame);
+
+    // Not started yet: nothing to place.
+    PlayerFx idle;
+    idle.mp().playOnStart = false;
+    idle.audio.update(idle.world, 1.0f / 60.0f);
+    auto none = idle.audio.music_set_intensity(idle.world, idle.e, 0.5f, MusicQuantize::Beat);
+    CHECK_FALSE(none.frame.has_value());
+    CHECK(none.to_json()["frame"].is_null());
+    CHECK(none.to_json()["time"].is_null());
+}
+
+TEST_CASE("music player: crossfadeTo without a section starts the other song at its beginning, not at the component's startSection") {
+    PlayerFx fx;
+    write_loop_only_song();
+    fx.mp().startSection = "main";                         // a section of the first song only
+    fx.step(0.7);
+    CHECK(fx.mp().section == "main");
+    REQUIRE(fx.audio.music_crossfade_to(fx.world, fx.e, "music/loop.song.json", "", MusicQuantize::Beat, 0.5f).ok());
+    fx.step(1.5);
+    CHECK(fx.mp().song == "music/loop.song.json");
+    CHECK(fx.mp().playing);
+    CHECK(fx.mp().section == "loop");
+    auto st = fx.audio.music_status(fx.world, fx.e);
+    CHECK(st.song == "music/loop.song.json");
+    CHECK(st.error.empty());
+
+    // A section given still wins.
+    PlayerFx named;
+    named.step(0.7);
+    REQUIRE(named.audio.music_crossfade_to(named.world, named.e, "music/other.song.json", "main", MusicQuantize::Beat, 0.5f).ok());
+    named.step(1.5);
+    CHECK(named.mp().section == "main");
+}
+
+TEST_CASE("music player: a crossfade queued by the previous scene is dropped when the next scene's player takes the transport over") {
+    PlayerFx fx;
+    fx.step(0.7);
+    REQUIRE(fx.audio.music_crossfade_to(fx.world, fx.e, "music/other.song.json", "", MusicQuantize::Bar, 1.0f).ok());
+    REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "outro", MusicQuantize::Bar, 0.0f).ok());
+    fx.step(0.3);                                          // before the bar line at 2 s
+    REQUIRE(fx.audio.music_status(fx.world, fx.e).pending == 2);
+
+    // The scene reloads: its player wants the song that was audible.
+    const Entity again = next_scene_player(fx, "music/test.song.json");
+    fx.world.events().game.clear();
+    fx.step(0.1);
+    REQUIRE(fx.audio.music_players().size() == 1);
+    CHECK(fx.audio.music_players()[0]["orphan"] == false);
+    auto st = fx.audio.music_status(fx.world, again);
+    CHECK(st.song == "music/test.song.json");
+    CHECK(st.pending == 0);
+    CHECK(st.pendingSong.empty());
+    CHECK_FALSE(st.pendingAt.has_value());
+    CHECK(st.positionSeconds > 0.9);                       // not restarted: it plays on from where it was (1.0 s)
+    CHECK(st.positionSeconds < 1.2);
+
+    // The bar line comes: neither the crossfade nor the section jump happens, and the new scene's own calls run against the song it hears.
+    fx.step(2.5);
+    CHECK(fx.events("music.crossfade").empty());
+    st = fx.audio.music_status(fx.world, again);
+    CHECK(st.song == "music/test.song.json");
+    CHECK(fx.world.get<MusicPlayer>(again)->section == "main");   // the intro ended into main: no jump to outro
+    CHECK(fx.audio.music_go_to_section(fx.world, again, "main", MusicQuantize::Bar).ok());
+}
+
+TEST_CASE("music player: a crossfade that had started when the scene changed is adopted with its target song") {
+    PlayerFx fx;
+    fx.step(0.7);
+    REQUIRE(fx.audio.music_crossfade_to(fx.world, fx.e, "music/other.song.json", "", MusicQuantize::Bar, 1.0f).ok());
+    fx.step(2.5);                                          // the crossfade started at 2 s and lasts 2 s
+    REQUIRE(fx.audio.music_status(fx.world, fx.e).song == "music/other.song.json");
+
+    const Entity again = next_scene_player(fx, "music/other.song.json");
+    fx.step(0.1);
+    REQUIRE(fx.audio.music_players().size() == 1);
+    CHECK(fx.audio.music_players()[0]["orphan"] == false);
+    auto st = fx.audio.music_status(fx.world, again);
+    CHECK(st.song == "music/other.song.json");
+    CHECK(st.tempo == doctest::Approx(90.0));
+    CHECK(st.positionSeconds > 0.5);                       // still the same playhead: not restarted
+    CHECK(fx.audio.music_go_to_section(fx.world, again, "main", MusicQuantize::Bar).ok());
+}
