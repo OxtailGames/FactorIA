@@ -1651,10 +1651,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] "
            "(cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} "
            "or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. "
-           "Deterministic. Scripts: nav.findTilePath(map, from, to, opts); a script that asks many times on one map keeps it with "
+           "Deterministic. Example: nav.find_tile_path {\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3],\"diagonals\":true}."
+           FA_COMMAND_DETAILS
+           "Scripts: nav.findTilePath(map, from, to, opts); a script that asks many times on one map keeps it with "
            "nav.createGrid (the command is stateless: it reads the map you give it on every call). nav.flow_field is the "
-           "one-to-many form. Example: nav.find_tile_path "
-           "{\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3],\"diagonals\":true}",
+           "one-to-many form.",
            parse_schema(R"({"type":"object","required":["from","to"],"properties":{
                "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
                "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y] top-left corner, cellSize?: number | [w,h]}."},

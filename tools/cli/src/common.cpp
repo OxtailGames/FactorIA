@@ -272,7 +272,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         ci.summary = "Create a new game project from a template.";
         ci.description =
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
-            "scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
+            "scripts, a test, AGENTS.md (the guide for AI agents; CLAUDE.md imports it), ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
             "`factoria mcp --project <dir>` to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
         ci.readOnly = false;
         ci.category = "project";

@@ -56,7 +56,7 @@ std::set<std::string> words_of(const std::string& text) {
     return out;
 }
 
-// The engine reference the model works from: every command name by area, the commands whose name or summary share words with
+// The engine reference the model works from: every command name by area, the commands whose name, summary or details share words with
 // the entry (with their summaries), and the documentation passages that match the entry.
 std::string engine_reference(CommandRegistry& registry, const Json& entry, const Json& share) {
     const std::string text = field_of(share, "title") + " " + field_of(share, "missing") + " " + field_of(share, "suggestion") + " " +
@@ -71,7 +71,11 @@ std::string engine_reference(CommandRegistry& registry, const Json& entry, const
         const std::size_t dot = c->name.find('.');
         byArea[dot == std::string::npos ? c->name : c->name.substr(0, dot)].push_back(dot == std::string::npos ? c->name : c->name.substr(dot + 1));
         int score = 0;
+        // Name and summary say what the command is; `details` is where a long description keeps what it also does (and how), so
+        // a command can be the answer to a gap its name does not hint at: a word there counts too, less.
         for (const std::string& w : words_of(c->name + " " + c->summary))
+            if (words.count(w)) score += 2;
+        for (const std::string& w : words_of(c->details))
             if (words.count(w)) ++score;
         if (score > 0) scored.emplace_back(score, c);
     }
