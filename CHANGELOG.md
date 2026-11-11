@@ -19,8 +19,8 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 - **For engine developers (M100.10):** bookkeeping of the review. docs/ANIMATION.md has a dawn recipe, a `tween` of
   `world.settings` (sky, ambient light, fog), kept true by a script test (KW/FB-0019 closed). `feedback/ROADMAP.md`
   keeps only open work and decisions; finished milestones are one file each in `feedback/done/` (index in
-  `feedback/done/README.md`, replacing ROADMAP_DONE.md). CHANGELOG.md keeps `## Unreleased` and the newest version
-  (the release workflow reads it there); older minor versions are in `changelog/0.<n>.md`.
+  `feedback/done/README.md`, replacing ROADMAP_DONE.md). CHANGELOG.md keeps `## Unreleased` and the newest minor version
+  with its patches (the release workflow reads it there); older minor versions are in `changelog/0.<n>.md`.
 - **For engine developers (M100.6):** the feedback loop cannot fall behind silently. The doctest case "feedback/ROADMAP.md counts and names what the examples have open" (`tools/common/tests/feedback_roadmap_test.cpp`, ctest `tooling`) runs `feedback collect` over `examples/*` and fails when `feedback/ROADMAP.md`'s count line differs or an open entry is named nowhere below "# Next engine milestones" (it says which ids, the line to add and the regeneration command). A new example needs a row in the test's prefix table. CLAUDE.md's finishing steps mention it; the ranked list in ROADMAP.md is regenerated (it still listed a closed perf entry and lacked CC/FB-0057, the missing HDR glow, which is now triaged under M101).
 - **For game authors and AIs (M100.5):** output once. `factoria validate` captures the engine's log while it opens the
   project and folds load errors and warnings into its report, each once, instead of printing them on stderr as well

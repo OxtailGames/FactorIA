@@ -1,6 +1,6 @@
 # Tidewater Market — guide for AI agents
 
-This is a **FactorIA** game project (engine 0.21.0, created 2026-11-11). You build the
+This is a **FactorIA** game project (engine 0.21.0, created 2026-10-26). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
 is text; you never need a GUI. The guide (`ai-guide`) is long: run
 `factoria docs read ai-guide --contents` for its headings, then read only the sections you need with `--heading`.

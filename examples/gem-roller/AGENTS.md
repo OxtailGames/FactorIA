@@ -1,6 +1,6 @@
 # Gem Roller — guide for AI agents
 
-This is a **FactorIA** game project (engine 0.21.0, created 2026-11-11). You build the
+This is a **FactorIA** game project (engine 0.21.0, created 2026-10-13). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
 is text; you never need a GUI. The guide (`ai-guide`) is long: run
 `factoria docs read ai-guide --contents` for its headings, then read only the sections you need with `--heading`.
@@ -54,6 +54,8 @@ logged. A green run means a script can finish the game, not that a person finds 
 | `tests/*.test.js` | headless tests run by `factoria test` |
 | `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, skill `tile-levels`) |
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
+| `assets/vfx/*.vfx.json` | effect documents (`factoria.vfx/1`): emitters, a light flash and sounds on one timeline, played with `vfx.play`; here `gem_burst`, the pickup effect of a gem. Grade one with `vfx.check`, `vfx.budget` and `vfx.filmstrip` (in this 3D game it plays the effect a few metres in front of the main camera unless you give a `position`; `vfx.budget` projects the 3D emitters through that camera) |
+| `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `tools/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
 | `REVIEW.md` | the note the art critics and game reviewers read first (never exported, skill `review-ready`) |
@@ -134,6 +136,28 @@ Longer guides are skills (the Agent Skills format: `skills/<name>/SKILL.md`), re
 `tile-levels`, `physics-3d`, `web-requests`, `menus-and-finishing`, `publishing-and-exporting`, `inspect-the-picture`,
 `make-art`, `make-audio` and `review-ready` (keep `REVIEW.md` current so the art critics and game reviewers can play the build:
 read it before you finish a feature). This project can have its own in `skills/` (`skills_new`; `factoria validate` checks them).
+
+## Gem Roller: what the engine does, so the scripts do not
+
+Do not emulate these in JavaScript (earlier versions did; the engine now covers them):
+
+- **Moving platforms and rolling.** The ball is a dynamic sphere `RigidBody3D`; `scripts/mover.js` only sets the
+  `velocity` of kinematic `RigidBody3D` platforms. Bodies resting on a kinematic platform ride it, and a sphere on
+  the ground spins to match its motion (`rollWithMotion`, default true). So `ball.js` sets `velocity` relative to the
+  ground and never touches `Transform.rotation`. A rolling sphere is slowed by `RigidBody3D.rollingFriction`
+  (default 0.02), not by the collider's sliding `friction`, which is 0 here anyway.
+- **Raycasts.** `physics.raycast3d(origin, dir, dist, { ignore: this.entity })` (arrays are fine). No collider layers
+  are needed to stop the ball hitting itself.
+- **HUD.** Screen-space items use `anchor` and `pivot` (top-left `[0, 0]`, top-right `[1, 0]`, centre `[0.5, 0.5]`), so
+  `position` is an offset from that point and never needs half a size added by hand (AI guide 9.4).
+- **One-shot effects.** `assets/vfx/gem_burst.vfx.json` bundles the sparks, a flash of light and the pickup sound:
+  `vfx.play(path, { position })` and forget it. No timer cleans it up.
+- **Ids.** `world.destroy()` frees an id at once: spawn with the plain id (`gem_1`), no `_rN` suffixes.
+- **Scenes** are saved in the compact layout by the engine. After editing `scenes/main.scene.json` by hand, run
+  `factoria call scene.save '{}' --scene scenes/main.scene.json` to normalise it. It only drops default values, and
+  a fresh call has not stepped yet, so `game.js` has not scattered gems into the world it saves.
+- **Tests** do not draw, so `game.step(5400)` (the whole 90 s) is cheap: let time run instead of poking `timeLeft`,
+  and assert sounds with `expect(game.audioLog()).toContainPlayed("gem.wav")`.
 
 ## Recording engine gaps (IMPORTANT)
 
