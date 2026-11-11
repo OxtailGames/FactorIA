@@ -23,7 +23,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "a7ed0921",
+      "notes": [
+        "Fixed in a7ed0921 (M101.1b, after M101.1a counted the music): the stems of a song stream from their ogg (a window of 4.5 s of decoded audio per stem, about 2 to 3 MB, instead of 10.1 MB per minute per stem), filled ahead by audio.stream jobs; mode auto plays the stem files whenever the song has them. perf.measure of scenes/game.scene.json on the Mac: musicMB 45.05 -> 7.01 (the 65 s night song has four stems that stream; the 11 s and 16 s songs are decoded whole), peakMemoryMB 131.9 -> 72.0, drawCalls 38 and entities 164 unchanged. The menu's 80 s title song has no stem files (a single mix), so it still renders live and holds 13.71 MB (a flat mix is not streamed yet). docs/MUSIC.md has the MB per minute per mode."
+      ]
     },
     {
       "id": "FB-0002",
