@@ -156,7 +156,7 @@
           "inputs": [
             {
               "path": "assets/models/warden.rig.glb",
-              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
+              "sha256": "6460df6c1752e0575f0eeac233512b50761b2b02dadab7e788e6eafa24bdbf9d"
             }
           ]
         }
@@ -191,7 +191,7 @@
           "inputs": [
             {
               "path": "assets/models/warden.rig.glb",
-              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
+              "sha256": "6460df6c1752e0575f0eeac233512b50761b2b02dadab7e788e6eafa24bdbf9d"
             }
           ]
         }
@@ -278,7 +278,7 @@
           "inputs": [
             {
               "path": "assets/models/wolf.rig.glb",
-              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
+              "sha256": "20d2205c63371b464f375cc21046b5259b6c0c822c942abe04a1815cd55246c8"
             }
           ]
         }
@@ -313,7 +313,7 @@
           "inputs": [
             {
               "path": "assets/models/wolf.rig.glb",
-              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
+              "sha256": "20d2205c63371b464f375cc21046b5259b6c0c822c942abe04a1815cd55246c8"
             }
           ]
         }
