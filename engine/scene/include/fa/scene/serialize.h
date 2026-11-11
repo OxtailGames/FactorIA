@@ -180,6 +180,10 @@ public:
     ~PrefabBaseCache();
     PrefabBaseCache(const PrefabBaseCache&) = delete;
     PrefabBaseCache& operator=(const PrefabBaseCache&) = delete;
+    // The cache also remembers what the strings of the World being saved say (to find out whether an id is named
+    // elsewhere): it serves ONE World. Call this before using the cache with another one (a World's address is no key:
+    // the next World often sits at the same place).
+    void forget_world();
     struct Impl;
     Impl& impl() { return *impl_; }
 private:

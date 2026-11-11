@@ -1413,6 +1413,7 @@ void Engine::start_input_recording() {
             if (const float v = in.gamepad_raw_axis(p, GamepadAxis(a)); v != 0.0f) I.recorder.gamepad_axis(f, p, GamepadAxis(a), v);
     }
     for (const Touch& t : in.touches()) I.recorder.touch_begin(f, t.id, t.position);
+    for (const std::string& name : in.action_overrides()) I.recorder.action(f, name, true);  // game.input actions held now
 }
 Json Engine::stop_input_recording() {
     Impl& I = *impl_;

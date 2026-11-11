@@ -738,6 +738,10 @@ void Editor::install_command_overrides() {
                 for (std::size_t i = 0; i < expanded.size() && i < 10; ++i)
                     list.push_back(Json::object({{"id", expanded[i].id}, {"prefab", expanded[i].prefab}, {"reason", expanded[i].reason}}));
                 out["expandedPrefabs"] = Json::object({{"count", expanded.size()}, {"first", list}});
+                out["prefabHint"] = "Wrote " + std::to_string(expanded.size()) + " prefab instance(s) as inline entities because a scene entry "
+                                    "{\"prefab\", differences} cannot say how they differ (see `reason`); they no longer follow later changes of "
+                                    "their prefab file. Undo that difference in the world (do not remove parts of the prefab from an instance) "
+                                    "and save again to keep them as instances.";
             }
             return out;
         });
@@ -1141,9 +1145,13 @@ bool Editor::save_scene_now() {
     dirty_ = false;
     project_files_changed();
     notify("Saved " + scenePath_);
-    if (!expanded.empty())
-        notify(std::to_string(expanded.size()) + " prefab instance(s) were saved as inline entities (" + expanded.front().id + ": " +
-                   expanded.front().reason + "); they no longer follow their prefab file.", 1);
+    if (!expanded.empty()) {
+        std::string ids;
+        for (std::size_t i = 0; i < expanded.size() && i < 3; ++i) ids += (i ? ", " : "") + expanded[i].id;
+        if (expanded.size() > 3) ids += ", ...";
+        notify(std::to_string(expanded.size()) + " prefab instance(s) were saved as inline entities (" + ids + "; " + expanded.front().id +
+                   ": " + expanded.front().reason + "); they no longer follow their prefab file.", 1);
+    }
     return true;
 }
 

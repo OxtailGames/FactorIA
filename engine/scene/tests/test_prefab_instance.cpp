@@ -178,6 +178,39 @@ TEST_CASE("prefab instances: what an instance cannot say is written inline and r
     CHECK(again.children(again.find_by_id("b")).size() == 2);
 }
 
+TEST_CASE("prefab instances: a part whose id differs from the prefab's stays an instance unless a string elsewhere names it") {
+    TempProject p;
+    write_panel();
+    const char* withTwo = R"({"format":"factoria.scene/1","entities":[
+        {"id":"a","prefab":"prefabs/panel.prefab.json"},{"id":"b","prefab":"prefabs/panel.prefab.json"}%s]})";
+    char buf[1024];
+    {
+        std::snprintf(buf, sizeof buf, withTwo, "");
+        World w;
+        load(w, buf);
+        REQUIRE(w.find_by_id("title_2").is_null() == false);  // the second instance's part got the suffixed id
+        std::vector<PrefabExpanded> expanded;
+        Json scene = Json::parse(saved_text(w, &expanded));
+        CHECK(expanded.empty());
+        CHECK(scene["entities"][1]["prefab"] == "prefabs/panel.prefab.json");
+    }
+    {
+        std::snprintf(buf, sizeof buf, withTwo, R"(,{"id":"label","components":{"Text":{"text":"title_2"}}})");
+        World w;
+        load(w, buf);
+        std::vector<PrefabExpanded> expanded;
+        Json scene = Json::parse(saved_text(w, &expanded));
+        REQUIRE(expanded.size() == 1);
+        CHECK(expanded[0].id == "b");
+        CHECK(expanded[0].reason.find("title_2") != std::string::npos);
+        CHECK(expanded[0].reason.find("string") != std::string::npos);
+        CHECK_FALSE(scene["entities"][1].contains("prefab"));
+        World again;
+        REQUIRE(load_scene(again, scene, "x").ok());
+        CHECK_FALSE(again.find_by_id("title_2").is_null());  // the id the string names still exists
+    }
+}
+
 TEST_CASE("prefab instances: diff_entity_with_prefab compares an entity built by hand") {
     TempProject p;
     write_panel();
