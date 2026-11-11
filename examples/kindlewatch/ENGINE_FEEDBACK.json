@@ -204,7 +204,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA unreleased (M101.9a)",
+      "notes": [
+        "Fixed in 15988dfd (M101.9a, branch m101/9a-prefab-save): the world remembers which entities a prefab made, and scene.save (and the editor's Save) writes an instance as {id, prefab, only the differences} (components, overrides, added children), so the file keeps following the prefab; an instance that form cannot express is written inline and listed under expandedPrefabs in the result. The workaround (restoring the reference by hand) is no longer needed."
+      ]
     },
     {
       "id": "FB-0009",
