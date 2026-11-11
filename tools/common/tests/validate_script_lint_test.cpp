@@ -187,3 +187,23 @@ TEST_CASE("validate scripts: a default import of factoria is the whole module an
     CHECK(find_issue(r.errors, "scripts/dflt.js:5") == nullptr);
     CHECK(find_issue(r.errors, "scripts/dflt.js:6:7") != nullptr);  // G.wrold
 }
+
+TEST_CASE("validate scripts: plural receivers, the case caveat, later declarators and commented tool calls") {
+    testing::TempDir tmp;
+    const std::string dir = make_game(tmp);
+    write_script(dir, "tools/scatter.js", "export default { name: \"scatter\", summary: \"x\", run() { return {}; } };\n");
+    write_script(dir, "scripts/polish.js",
+                 "import { Behaviour, physics } from \"factoria\";\nexport default class P extends Behaviour {\n"
+                 "  onStart() {\n    const levels = new Set();\n    levels.has(\"Intro\");\n    this.entity.has(\"transform\");\n"
+                 "    let a = 1, physics = { nothing: 2 };\n    return physics.nothing + a;\n  }\n}\n"
+                 "// fa.call(\"project.scatter\")\n/* fa.call(\"project.scatter\") */\nconst text = 'fa.call(\"project.scatter\")';\n");
+    const ValidationReport r = validate_with_engine(dir);
+    for (const ValidationIssue& i : r.warnings) MESSAGE("warning: " << i.to_string());
+    for (const ValidationIssue& i : r.errors) MESSAGE("error: " << i.to_string());
+    CHECK(find_issue(r.warnings, "scripts/polish.js:5") == nullptr);  // levels.has("Intro"): a plural is a collection
+    const ValidationIssue* ci = find_issue(r.warnings, "scripts/polish.js:6");
+    REQUIRE(ci != nullptr);
+    CHECK(ci->message.find("if this is not an entity, ignore this warning") != std::string::npos);
+    CHECK(find_issue(r.errors, "scripts/polish.js:8") == nullptr);  // `physics` is declared by `let a = 1, physics = ...`
+    CHECK(find_issue(r.warnings, "project.scatter") == nullptr);    // only in a comment and a string
+}

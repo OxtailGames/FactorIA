@@ -806,8 +806,8 @@ await tween(world.settings, {                           // five seconds to dawn
 }, { duration: 5, ease: "sineInOut" }).finished;
 ```
 
-Fields the tween does not name keep their value. The tween belongs to the scene: a scene load drops it, so after the
-`await` check that the scene you started in is still the current one before you act on it. A directional `Light`
+Fields the tween does not name keep their value. The tween belongs to the scene: if another scene loads, the tween is
+dropped and the `await` never returns, so nothing after it runs. A directional `Light`
 entity (the sun or moon) is tweened the same way, `tween(sun.get("Light"), { color: "#ffcc88", intensity: 1.2 }, ...)`.
 
 ## Example: a character that walks, runs and jumps

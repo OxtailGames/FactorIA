@@ -123,8 +123,8 @@ TEST_CASE("tween: world.settings moves the sky, ambient light and fog together (
     const double r05 = num(h, "world.settings.skyColor.r");
     CHECK(r05 > 0.1);
     CHECK(r05 < 0.95);
-    CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.325).epsilon(0.03));
-    CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.045).epsilon(0.03));
+    CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.325).epsilon(0.002));
+    CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.045).epsilon(0.002));
     h.step_frames(10);
     CHECK(num(h, "world.settings.skyColor.r") > r05);           // still moving
     h.step_frames(40);

@@ -363,6 +363,8 @@ bool parse_first_user_frame(const std::string& stack, std::string& file, int& li
 
 std::string hint_for(const std::string& msg) {
     auto has = [&](const char* s) { return msg.find(s) != std::string::npos; };
+    // "'x' has no 'y'. ... Its members: a, b, ..." lists names: a member called null or undefined is not a null value.
+    if (has(" has no '") && has("Its members:")) return "";
     if (has("was destroyed")) return "Check entity.alive before using an entity that may have been destroyed.";
     if (has("took too long")) return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
     // "not a function" comes first: the message of a call the player lacks says both, and the name to check is the useful part.
