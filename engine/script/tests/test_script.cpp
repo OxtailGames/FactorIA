@@ -181,7 +181,7 @@ TEST_CASE("templates: scripts, tools and test files load on the minimal host") {
                 ++checked;
             }
         }
-        CHECK(empty ? checked == 0 : checked >= 3);
+        CHECK((empty ? checked == 0 : checked >= 3));
         REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
         h.step_frames(30);
         for (const auto& e : h.scripts.errors()) MESSAGE(e.to_string());
