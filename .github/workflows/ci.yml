@@ -17,6 +17,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      perfBaselines:
+        description: 'Only record the examples'' performance baselines on each runner (the "Perf baselines" job); builds and tests nothing else'
+        type: boolean
+        default: false
 
 # Keep only the newest run per branch or pull request.
 concurrency:
@@ -43,7 +48,14 @@ jobs:
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PERF_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.perfBaselines }}
         run: |
+          # "Run workflow" with perfBaselines ticked builds and tests nothing: only the `perf-baselines` job runs.
+          if [[ "$PERF_ONLY" == "true" ]]; then
+            echo "Only the perf baselines run"
+            { echo "code=false"; echo "mobile=false"; echo "web=false"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
           if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
             echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
@@ -353,6 +365,89 @@ jobs:
             build/**/test-output/**/*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  # Perf baselines: "Run workflow" with perfBaselines ticked (the `changes` job then skips every other job). Builds factoria
+  # the way the jobs above do and runs scripts/perf-baselines.sh on each runner: `perf.baseline` for every example scene,
+  # whose entries (this runner's `runners.<id>`) are uploaded as the artifact perf-baselines-<os>. Nothing is committed: copy
+  # the entries into tools/cli/tests/perf/ (docs/PERFORMANCE.md, "Baselines from CI"). A new example's first baselines come
+  # from here, as `provisional` entries until then (KW/FB-0020). The runners and the build are the ones of the test jobs, so
+  # the runner ids are the ones the `example_<name>_perf` tests look up. Not part of `CI result`: it only runs on request.
+  perf-baselines:
+    name: Perf baselines (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.perfBaselines
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, runner: macos-latest, preset: macos-release }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (linux)
+        if: matrix.os == 'linux'
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Install Ninja and ccache (macos)
+        if: matrix.os == 'macos'
+        run: brew install ninja ccache
+
+      # ccache, restored from the test jobs' newest cache and never saved here (see the jobs above for the Windows shim).
+      - name: Restore ccache
+        if: matrix.os != 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
+          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+
+      - name: Install ccache (windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      - name: Restore ccache (windows)
+        if: matrix.os == 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\AppData\Local\ccache
+          key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-windows-
+
+      - name: Configure and build factoria (${{ matrix.preset }})
+        shell: bash
+        run: |
+          cmake --preset ${{ matrix.preset }}
+          cmake --build --preset ${{ matrix.preset }} --target factoria
+
+      - name: Measure the baselines
+        shell: bash
+        run: |
+          cli=$(find build/${{ matrix.preset }}/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/${{ matrix.preset }}/tools/cli"; exit 1; }
+          if [[ "${{ matrix.os }}" == "linux" ]]; then
+            xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/perf-baselines.sh "$cli" "$RUNNER_TEMP/perf-baselines"
+          else
+            ./scripts/perf-baselines.sh "$cli" "$RUNNER_TEMP/perf-baselines"
+          fi
+          mkdir -p perf-baselines && cp "$RUNNER_TEMP"/perf-baselines/* perf-baselines/
+
+      - name: Upload the entries
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baselines-${{ matrix.os }}
+          path: perf-baselines
+          if-no-files-found: warn
+          retention-days: 30
 
   # iOS, in two jobs on two runners, because a simulator's first boot takes 5-7 minutes and slows a build on the same
   # machine: `ios-build` builds the player for the simulator with Xcode while `ios` boots the simulator, then `ios` runs

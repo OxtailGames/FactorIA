@@ -149,8 +149,8 @@ if(FA_BUILD_TESTS)
             set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
                 DISABLED ${fa_examples_disabled})
             # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
-            # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
-            # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
+            # baseline of this runner in tests/perf/<example>.perf.json. Counters (draw calls, entities) are exact, memory and time
+            # fail only past a wide band, a time only in CI (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
             # developer machine it passes.
             # One example may measure several scenes: <example>.perf.json and <example>-*.perf.json (not <example>*, which
             # would catch another example with the same prefix). Each file names its scene.
