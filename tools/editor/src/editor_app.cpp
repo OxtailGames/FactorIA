@@ -728,10 +728,18 @@ void Editor::install_command_overrides() {
             const std::string path = a.value("path", scenePath_);
             if (auto w = fs::check_writable(path); !w.ok())  // same write rule as the engine's scene.save
                 throw CommandError("invalid_argument", w.error().message, w.error().hint);
-            auto r = save_scene_file(world(), path);
+            std::vector<PrefabExpanded> expanded;
+            auto r = save_scene_file(world(), path, false, nullptr, &expanded);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
             if (path == scenePath_) dirty_ = false;
-            return Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
+            Json out = Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
+            if (!expanded.empty()) {
+                Json list = Json::array();
+                for (std::size_t i = 0; i < expanded.size() && i < 10; ++i)
+                    list.push_back(Json::object({{"id", expanded[i].id}, {"prefab", expanded[i].prefab}, {"reason", expanded[i].reason}}));
+                out["expandedPrefabs"] = Json::object({{"count", expanded.size()}, {"first", list}});
+            }
+            return out;
         });
     }
     if (const CommandInfo* ci = reg.info("scene.reload")) {
@@ -1124,7 +1132,8 @@ bool Editor::save_scene_now() {
         notify("Stop the game before saving (play-mode changes are temporary).", 1);
         return false;
     }
-    auto r = save_scene_file(world(), scenePath_);
+    std::vector<PrefabExpanded> expanded;
+    auto r = save_scene_file(world(), scenePath_, false, nullptr, &expanded);
     if (!r) {
         notify("Save failed: " + r.error().to_string(), 2);
         return false;
@@ -1132,6 +1141,9 @@ bool Editor::save_scene_now() {
     dirty_ = false;
     project_files_changed();
     notify("Saved " + scenePath_);
+    if (!expanded.empty())
+        notify(std::to_string(expanded.size()) + " prefab instance(s) were saved as inline entities (" + expanded.front().id + ": " +
+                   expanded.front().reason + "); they no longer follow their prefab file.", 1);
     return true;
 }
 
@@ -1140,7 +1152,7 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
     if (play_ != PlayState::Edit) stop();
     // What is on screen now; with keepUndo it becomes the first Ctrl+Z step, so nothing is lost silently.
     Json before;
-    if (keepUndo) before = save_scene(world());
+    if (keepUndo) before = snapshot_scene(world());
     std::string err;
     if (!engine_->load_scene(scenePath_, &err)) {
         notify("Reload failed: " + err, 2);
@@ -1167,7 +1179,7 @@ void Editor::play() {
     if (!engine_ || play_ == PlayState::Playing) return;
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
-        playSnapshot_ = save_scene(world());
+        playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
         reset_feel_choices();
@@ -1192,7 +1204,7 @@ void Editor::step_once() {
     if (!engine_) return;
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
-        playSnapshot_ = save_scene(world());
+        playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();
         restore_scene(playSnapshot_);
         reset_feel_choices();
@@ -1240,7 +1252,7 @@ void Editor::begin_edit(const std::string& key) {
     lastEditKey_ = key;
     dirty_ = true;
     if (coalesce) return;
-    undo_.push_back(save_scene(world()));
+    undo_.push_back(snapshot_scene(world()));
     if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
 }
@@ -1304,7 +1316,7 @@ void Editor::undo() {
         modeler_apply_undo(entry, false);
         return;
     }
-    redo_.push_back(save_scene(world()));
+    redo_.push_back(snapshot_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
     restore_scene(s);
@@ -1371,7 +1383,7 @@ void Editor::redo() {
         modeler_apply_undo(entry, true);
         return;
     }
-    undo_.push_back(save_scene(world()));
+    undo_.push_back(snapshot_scene(world()));
     Json s = std::move(redo_.back());
     redo_.pop_back();
     restore_scene(s);
