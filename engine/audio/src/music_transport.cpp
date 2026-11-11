@@ -19,9 +19,19 @@ long MusicTransport::frames_of(float seconds) const {
     return std::max(1L, long(std::lround(double(seconds) * double(kMusicRate) / ratio_)));
 }
 
-std::uint64_t MusicTransport::frame_at(double songPos, double fromPos) const {
-    const double d = (songPos - fromPos) / ratio_ - 1e-9;
-    return mixed_ + (d > 0.0 ? std::uint64_t(std::ceil(d)) : 0);
+namespace {
+std::uint64_t output_frame_at(std::uint64_t mixed, double ratio, double songPos, double fromPos) {
+    const double d = (songPos - fromPos) / ratio - 1e-9;
+    return mixed + (d > 0.0 ? std::uint64_t(std::ceil(d)) : 0);
+}
+}  // namespace
+
+std::uint64_t MusicTransport::frame_at(double songPos, double fromPos) const { return output_frame_at(mixed_, ratio_, songPos, fromPos); }
+
+std::optional<std::uint64_t> MusicTransport::schedule_of(const MusicTransportState& t, MusicQuantize q) {
+    if (!t.playing || !t.src) return std::nullopt;
+    if (q == MusicQuantize::None) return t.mixed;
+    return output_frame_at(t.mixed, t.ratio, music_boundary(t.src->map, t.pos, q, t.limit), t.pos);
 }
 
 void MusicTransport::set_volume(float volume, float seconds) {
@@ -86,6 +96,11 @@ void MusicTransport::prune_sources() {
 
 void MusicTransport::cancel_pending() {
     for (Pending& p : pending_) p.used = false;
+}
+
+void MusicTransport::drop_pending_changes() {
+    for (Pending& p : pending_)
+        if (p.used && (p.kind == Kind::Jump || p.kind == Kind::Intensity)) p.used = false;
 }
 
 MusicTransport::Pending* MusicTransport::add_pending(Kind kind, std::uint64_t at) {
@@ -258,7 +273,11 @@ void MusicTransport::set_intensity(float intensity, MusicQuantize q) {
         return;
     }
     Head& h = heads_[std::size_t(main_)];
-    Pending* slot = add_pending(Kind::Intensity, frame_at(music_boundary(h.src->map, h.pos, q, limit_of(h)), h.pos));
+    const std::uint64_t at = frame_at(music_boundary(h.src->map, h.pos, q, limit_of(h)), h.pos);
+    // The same boundary again (a script that sets it every frame): the newest request wins, so the older one makes room.
+    for (Pending& p : pending_)
+        if (p.used && p.kind == Kind::Intensity && p.at == at) p.used = false;
+    Pending* slot = add_pending(Kind::Intensity, at);
     slot->f0 = intensity;
 }
 
@@ -701,6 +720,28 @@ void MusicTransport::capture(MusicTransportState& out) const {
     out.mixed = mixed_;
     out.src = source();
     out.pos = position();
+    out.ratio = ratio_;
+    out.limit = main_ >= 0 ? limit_of(heads_[std::size_t(main_)]) : 0.0;
+    out.pendingSrc = nullptr;
+    out.hasPendingIntensity = false;
+    {
+        const Pending* jump = nullptr;
+        const Pending* inten = nullptr;
+        for (const Pending& p : pending_) {
+            if (!p.used) continue;
+            if (p.kind == Kind::Jump && p.src && (!jump || p.at < jump->at || (p.at == jump->at && p.seq < jump->seq))) jump = &p;
+            if (p.kind == Kind::Intensity && (!inten || p.seq > inten->seq)) inten = &p;
+        }
+        if (jump) {
+            out.pendingSrc = jump->src;
+            out.pendingPos = jump->pos;
+            out.pendingAt = jump->at;
+        }
+        if (inten) {
+            out.hasPendingIntensity = true;
+            out.pendingIntensity = inten->f0;
+        }
+    }
     out.stemCount = 0;
     if (main_ >= 0) {
         const Head& h = heads_[std::size_t(main_)];
@@ -726,6 +767,15 @@ MusicStatus MusicTransport::status_of(const MusicTransportState& t) {
     st.ended = t.ended;
     st.volume = t.volume;
     st.intensity = t.intensity;
+    st.appliedIntensity = t.intensity;
+    st.requestedIntensity = t.hasPendingIntensity ? t.pendingIntensity : t.intensity;
+    if (t.pendingSrc) {
+        const MusicMap& pm = t.pendingSrc->map;
+        st.pendingSong = t.pendingSrc->path;
+        st.pendingAt = t.pendingAt;
+        const int span = pm.span_at(t.pendingPos);
+        if (span >= 0) st.pendingSection = pm.sections[std::size_t(pm.spans[std::size_t(span)].section)].name;
+    }
     st.pending = t.pending;
     st.heads = t.heads;
     if (t.playing && t.src) {

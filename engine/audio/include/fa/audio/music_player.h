@@ -170,6 +170,17 @@ struct MusicStingerSpec {
     float duckRelease = 0.5f;         // seconds to come back
 };
 
+// What a music call scheduled (Audio::music_go_to_section, music_set_intensity, music_crossfade_to; the script and command results).
+// `frame` is the output frame the change lands on, worked out from the mixer's latest state (the same count as the `frame` of the
+// events and `mixedFrames`): exact on the null device, a block or two off with a sound device that has not caught up. Empty when
+// the change cannot be placed yet (nothing plays, or the song is still loading): then the player's state says when it happened.
+struct MusicChange {
+    std::optional<std::uint64_t> frame;
+    double time = 0.0;                       // seconds of the audio clock, frame / device rate
+    MusicQuantize quantize = MusicQuantize::None;
+    Json to_json() const;
+};
+
 // ---- What a player is, for tools ---------------------------------------------------------------------------------------------------
 
 struct MusicStatus {
@@ -180,6 +191,14 @@ struct MusicStatus {
     double positionSeconds = 0.0;
     double tempo = 0.0;
     float intensity = 0.0f, volume = 1.0f;
+    // `intensity` is the one the layers follow now (= appliedIntensity). requestedIntensity is the last one asked for: the
+    // component's value, which the layers reach on the layerQuantize boundary.
+    float appliedIntensity = 0.0f, requestedIntensity = 0.0f;
+    // The next quantized jump (a section change or a crossfade) that waits for its boundary: the song and section that will
+    // sound after it and the output frame it lands on (the `frame` of the music.section / music.crossfade event). Empty
+    // while none waits. `song` and `section` above are always what is audible now.
+    std::string pendingSong, pendingSection;
+    std::optional<std::uint64_t> pendingAt;
     std::string bus = "music";
     std::vector<std::string> sections;  // the sections of the song (empty until it is loaded)
     std::vector<std::string> stems;

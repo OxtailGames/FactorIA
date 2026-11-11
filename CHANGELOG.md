@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ## Unreleased
 
+### Changes
+
+- **Music (M101.2, pending state):** the music of a scene that reloads no longer fires what the scene before had queued:
+  the new `MusicPlayer` adopts the music that is playing and drops a crossfade or section change that waited for a bar line
+  (or takes the target song when the crossfade had started). `entity.music.status` and `audio.music_state` show the queue
+  with `pendingSong`, `pendingSection` and `pendingAt` (an audio frame); `setIntensity`, `goToSection` and `crossfadeTo`
+  return `{frame, time, quantize}`, where the change lands. `crossfadeTo` without `section` starts the other song at its
+  beginning, never at the component's `startSection`. `appliedIntensity` (what the layers follow) and `requestedIntensity`
+  (the last value set) sit beside `intensity`.
 - `input.record` records an action pressed with `game.input` by name (`"actions"` in the replay frame) and the headless replay
   plays it back, so a recording made by action name replays to the same state.
 - `fa.call` in a test has the read-only `assets.provenance` and `assets.disclosure`; docs/SCRIPTING.md lists the commands a

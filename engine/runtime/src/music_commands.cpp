@@ -38,14 +38,23 @@ void need_ok(const Result<void>& r, const char* command) {
     if (!r.ok()) throw CommandError("invalid_argument", std::format("{}: {}", command, r.error().message), r.error().hint);
 }
 
+template <class T>
+const T& need_value(const Result<T>& r, const char* command) {
+    if (!r.ok()) throw CommandError("invalid_argument", std::format("{}: {}", command, r.error().message), r.error().hint);
+    return *r;
+}
+
 }  // namespace
 
 void register_music_commands(Engine&, Engine::Impl& I) {
     I.commands.add({"audio.music_state", "What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.",
            "Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, "
-           "song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, volume, bus, stems, stemGains, "
-           "pending, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `stemGains` is the gain each "
-           "layer has now (it follows `intensity` with the layer fade); `pending` counts the quantized changes waiting for their "
+           "song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, appliedIntensity, "
+           "requestedIntensity, volume, bus, stems, stemGains, pending, pendingSong, pendingSection, pendingAt, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `song` and `section` are what is "
+           "audible now; `pendingSong`, `pendingSection` and `pendingAt` (the audio frame, as in the events' `frame`) say where the next "
+           "queued section change or crossfade lands (null when none waits). `intensity` = `appliedIntensity` is the value the layers follow "
+           "(it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). `stemGains` is the "
+           "gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their "
            "beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the "
            "frames the mixer has mixed). Example: audio.music_state {\"entity\":\"music\"}",
            parse_schema(R"({"type":"object","properties":{
@@ -70,8 +79,10 @@ void register_music_commands(Engine&, Engine::Impl& I) {
            "{quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, "
            "quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, "
            "duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} "
-           "changes song on the boundary. `quantize` is none, beat, bar or section; without it the player's own settings apply. A "
-           "change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`). Example: "
+           "changes song on the boundary (from its beginning unless `section` is given). `quantize` is none, beat, bar or section; without it the player's own settings apply. A "
+           "change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`, `pendingSong`, `pendingSection` and "
+           "`pendingAt`); setIntensity, goToSection and crossfadeTo answer `change`: {frame, time, quantize}, the audio frame it lands on "
+           "(null before the song plays or while it loads). Example: "
            "audio.music {\"entity\":\"music\",\"action\":\"goToSection\",\"section\":\"battle\",\"quantize\":\"bar\"}",
            parse_schema(R"({"type":"object","required":["entity","action"],"properties":{
                "entity":{"type":"string","description":"Entity with the MusicPlayer (id or name)."},
@@ -98,6 +109,7 @@ void register_music_commands(Engine&, Engine::Impl& I) {
               const std::optional<MusicQuantize> q = quantize_arg(a);
               const float fade = a.contains("fade") ? a["fade"].get<float>() : -1.0f;
               const std::string section = a.value("section", std::string());
+              Json change;  // setIntensity, goToSection, crossfadeTo: where the change lands
               if (action == "play") {
                   need_ok(I.audio.music_play(I.world, e, a.value("song", std::string()), section,
                                              a.contains("intensity") ? a["intensity"].get<float>() : -1.0f), "audio.music");
@@ -106,11 +118,11 @@ void register_music_commands(Engine&, Engine::Impl& I) {
               } else if (action == "setIntensity") {
                   if (!a.contains("intensity"))
                       throw CommandError("invalid_argument", "setIntensity needs `intensity`.", "Pass a number from 0 (calm) to 1 (full).");
-                  I.audio.music_set_intensity(I.world, e, a["intensity"].get<float>(), q);
+                  change = I.audio.music_set_intensity(I.world, e, a["intensity"].get<float>(), q).to_json();
               } else if (action == "goToSection") {
                   if (section.empty())
                       throw CommandError("invalid_argument", "goToSection needs `section`.", "Pass a section name of the song (audio.music_state lists them).");
-                  need_ok(I.audio.music_go_to_section(I.world, e, section, q, fade), "audio.music");
+                  change = need_value(I.audio.music_go_to_section(I.world, e, section, q, fade), "audio.music").to_json();
               } else if (action == "playStinger") {
                   MusicStingerSpec s;
                   s.clip = a.value("clip", std::string());
@@ -128,14 +140,16 @@ void register_music_commands(Engine&, Engine::Impl& I) {
                   const std::string song = a.value("song", std::string());
                   if (song.empty())
                       throw CommandError("invalid_argument", "crossfadeTo needs `song`.", "Pass the path of a *.song.json, e.g. \"music/battle.song.json\".");
-                  need_ok(I.audio.music_crossfade_to(I.world, e, song, section, q, a.contains("bars") ? a["bars"].get<float>() : -1.0f), "audio.music");
+                  change = need_value(I.audio.music_crossfade_to(I.world, e, song, section, q, a.contains("bars") ? a["bars"].get<float>() : -1.0f), "audio.music").to_json();
               } else {
                   throw CommandError("invalid_argument", std::format("Unknown action '{}'.", action),
                                      "Use play, stop, setIntensity, goToSection, playStinger or crossfadeTo.");
               }
               Json st = I.audio.music_status(I.world, e).to_json();
               st["entity"] = I.world.id_of(e);
-              return Json::object({{"ok", true}, {"action", action}, {"player", st}});
+              Json out = Json::object({{"ok", true}, {"action", action}, {"player", st}});
+              if (!change.is_null()) out["change"] = std::move(change);
+              return out;
           });
 }
 
