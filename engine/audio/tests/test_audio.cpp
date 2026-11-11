@@ -346,6 +346,13 @@ TEST_CASE("audio: rolloff curves") {
     CHECK(audio_spatial_gain(AudioRolloff::Exponential, 20, 100, 10, 2.0f) == doctest::Approx(0.25f));
     CHECK(audio_spatial_gain(AudioRolloff::Exponential, 5, 100, 10, 2.0f) == doctest::Approx(1.0f));
     CHECK(audio_spatial_gain(AudioRolloff::Exponential, 150, 100, 10) == 0.0f);
+    // exactly at the reach: 0 for the three; refDistance at or above the range holds at 99.9% of it
+    for (AudioRolloff r : {AudioRolloff::Linear, AudioRolloff::Inverse, AudioRolloff::Exponential})
+        CHECK(audio_spatial_gain(r, 100, 100, 10) == 0.0f);
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 50, 100, 500) == doctest::Approx(1.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 99.95f, 100, 500) == doctest::Approx(0.5f).epsilon(0.01));
+    // a tiny refDistance with factor 0 stays at full volume
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 50, 100, 1e-8f, 0.0f) == doctest::Approx(1.0f));
 }
 
 TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
@@ -382,6 +389,33 @@ TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
         REQUIRE(fx.audio.play_log().size() == before + 1);
         CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
         fx.audio.update(world, 1.0f / 60.0f);  // back to the first World: the next w2 may reuse this one's address
+    }
+    // zoom != 1 with a refDistance: both stretch together and AudioSource agrees with play_at
+    {
+        world.get<AudioListener>(listener)->zoom = 2.0f;
+        PlayParams pp;
+        pp.volume = 1.0f;
+        fx.audio.play_at(world, "sounds/sine.wav", pp, {60, 0, 0}, 100.0f, AudioRolloff::Inverse, 10.0f, 1.0f);
+        const float viaPlay = fx.audio.play_log().back().volume;
+        CHECK(viaPlay == doctest::Approx(audio_spatial_gain(AudioRolloff::Inverse, 60, 200, 20, 1.0f)));
+        World w3;
+        Entity l3 = w3.create("ear", "ear");
+        w3.add<AudioListener>(l3).zoom = 2.0f;
+        Entity s = w3.create("src", "src");
+        AudioSource& src = w3.add<AudioSource>(s);
+        src.clip = "sounds/sine.wav";
+        src.playOnStart = true;
+        src.spatial = true;
+        src.range = 100.0f;
+        src.rolloff = AudioRolloff::Inverse;
+        src.refDistance = 10.0f;
+        w3.get<Transform>(s)->position = {60, 0, 0};
+        const std::size_t before = fx.audio.play_log().size();
+        for (int i = 0; i < 3; ++i) { fx.audio.update(w3, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        REQUIRE(fx.audio.play_log().size() == before + 1);
+        CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
+        fx.audio.update(world, 1.0f / 60.0f);
+        world.get<AudioListener>(listener)->zoom = 1.0f;
     }
     // a silent sound inside the range (muted listener) still gets an id; only out of range returns 0
     world.get<AudioListener>(listener)->volume = 0.0f;

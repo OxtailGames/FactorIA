@@ -1696,7 +1696,8 @@ void register_builtin_components(TypeRegistry& r) {
                     "`range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).")
         .field("refDistance", &AudioSource::refDistance,
                "Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear "
-               "starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20.").range(0, 1000000)
+               "starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is "
+               "held just under it (99.9% of range), so linear drops to 0 right before `range`.").range(0, 1000000)
         .field("rolloffFactor", &AudioSource::rolloffFactor,
                "Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, "
                "less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.").range(0, 100)

@@ -153,9 +153,11 @@ public:
     // side of the AudioListener, else the primary camera). The curve is `rolloff` (audio_spatial_gain, the same as an AudioSource's).
     // It does not follow anything after it starts. Without a listener it plays as play() does; beyond the range it returns 0
     // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
+    // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
     // Game thread only: it reads the World.
     VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f,
-                    AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f, float rolloffFactor = 1.0f);
+                    AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f, float rolloffFactor = 1.0f,
+                    bool* outOfRange = nullptr);
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
     // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when
