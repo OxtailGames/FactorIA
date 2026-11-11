@@ -568,7 +568,8 @@ Command make_feedback_command() {
 namespace {
 
 std::vector<FlagSpec> docs_read_flags() {
-    return {{"heading", "TITLE", "Print only the section with this heading (case-insensitive; an exact title wins, else part of one)."},
+    return {{"contents", "", "Print only the page's headings with their line numbers, and the command that reads one (docs.read's `contents`)."},
+            {"heading", "TITLE", "Print only the section with this heading (case-insensitive; an exact title wins, else part of one)."},
             {"start-line", "N", "First line to print (1-based). With --heading: where to continue a long section."},
             {"max-lines", "N", "Maximum number of lines (default 2000)."},
             {"max-bytes", "N", "Maximum size in bytes (1000..., default 40000); the cut falls on a line boundary."}};
@@ -580,9 +581,11 @@ int run_docs_read_part(Context& ctx) {
     CommandRegistry registry;
     register_docs_commands(registry);
     Json args = Json::object({{"name", ctx.args.pos(0)}});
+    const bool contentsOnly = ctx.args.has("contents");
+    if (contentsOnly) args["maxLines"] = 1;  // a page of more than one line is "cut", and a cut read carries its contents
     if (ctx.args.has("heading")) args["heading"] = ctx.args.str("heading");
     if (ctx.args.has("start-line")) args["startLine"] = std::max(1, ctx.args.integer("start-line", 1));
-    if (ctx.args.has("max-lines")) args["maxLines"] = std::max(1, ctx.args.integer("max-lines", 2000));
+    if (ctx.args.has("max-lines") && !contentsOnly) args["maxLines"] = std::max(1, ctx.args.integer("max-lines", 2000));
     if (ctx.args.has("max-bytes")) args["maxBytes"] = std::max(1000, ctx.args.integer("max-bytes", 40000));
     CommandResult r = registry.call("docs.read", args);
     if (!r.ok) {
@@ -594,6 +597,15 @@ int run_docs_read_part(Context& ctx) {
             if (hint.empty()) hint = fa::did_you_mean(ctx.args.pos(0), names);
         }
         return report_failure(ctx, message, hint);
+    }
+    if (contentsOnly) {
+        if (!r.result.contains("contents")) {
+            ctx.out << "'" << ctx.args.pos(0) << "' is one line: read it with 'factoria docs read " << ctx.args.pos(0) << "'.\n";
+            return 0;
+        }
+        ctx.out << r.result.value("contents", std::string())
+                << "Read one section: factoria docs read " << ctx.args.pos(0) << " --heading \"<a heading above>\"\n";
+        return 0;
     }
     const std::string content = r.result.value("content", std::string());
     ctx.out << content;
@@ -632,7 +644,7 @@ Command make_docs_command() {
             for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << d.title << "\n";
             return 0;
         }
-        if (ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes"))
+        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes"))
             return run_docs_read_part(ctx);
         auto t = read_doc(ctx.args.pos(0));
         if (!t.ok()) {
@@ -660,7 +672,8 @@ Command make_docs_command() {
     read.details = "Without flags the whole page is printed. With --heading, --start-line, --max-lines or --max-bytes it is the "
                    "docs.read command: a section or a range, at most --max-bytes (default 40000); when it cuts, the hint with the "
                    "exact next call and the page's contents (headings with line numbers) follow on stderr.";
-    read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --heading \"Platformer character\"",
+    read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --contents",
+                     "factoria docs read ai-guide --heading \"Platformer character\"",
                      "factoria docs read architecture --start-line 400 --max-bytes 20000"};
     read.run = [run = g.run](Context& ctx) {
         if (ctx.args.positional().empty()) throw UsageError("Missing document name.", "See 'factoria docs list'.");

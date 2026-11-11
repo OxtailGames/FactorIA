@@ -395,11 +395,12 @@ the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
 Docs are embedded with LF line endings whatever the checkout uses, and stdout is LF on Windows too, so
 `factoria docs read x > f` and `docs.read` never carry `\r`.
 
-`factoria docs read <name>` prints the whole page. With `--heading TITLE` (a section and its subsections;
+`factoria docs read <name>` prints the whole page (for `> file`); do not use it on a long guide. `--contents` prints only the
+page's headings with their line numbers (the `contents` of `docs.read`) and the command that reads one section. With `--heading TITLE` (a section and its subsections;
 case-insensitive, an exact title wins, else part of a title), `--start-line N`, `--max-lines N` or `--max-bytes N`
 (default 40000) it runs the `docs.read` command itself, so a long guide is read by section like over MCP. When the read
 is cut, stderr gets the exact next call and the page's contents (headings with line numbers); stdout stays the text.
-Read `ai-guide` this way, never whole: `factoria docs read ai-guide --heading "Platformer character"`.
+Read `ai-guide` this way, never whole: `factoria docs read ai-guide --contents`, then `factoria docs read ai-guide --heading "Platformer character"`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
 
