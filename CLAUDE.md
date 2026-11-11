@@ -138,6 +138,8 @@ progress.
   hours and CI still found failures): CI is the cross-platform check. The preflight and the native Windows check on
   the user's PC (`scripts/ci-remote-windows.sh`) are for when the user asks or to confirm a CI fix; the PC is often
   off: never switch it on or wake it, ask the user.
+- Feedback guard: `factoria feedback collect examples/*` must match feedback/ROADMAP.md (count line, every open entry
+  named); the ctest `tooling` case "feedback/ROADMAP.md counts and names..." fails otherwise and says what to add.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask): `gh pr merge <n> --auto --merge`. If CI
   fails, fix it on the same branch and push again; never merge red. A PR that changes `.github/workflows/release.yml`
   is the exception: its Release run is not part of `CI result`, so merge it by hand once that run is green too.

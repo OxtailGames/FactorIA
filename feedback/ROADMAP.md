@@ -103,17 +103,17 @@ file: then put this status and the milestones section back).
 - **Workarounds seen:**
   - Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.
 
-## 5. A new example's perf baseline for Windows and Linux cannot be authored locally
+## 5. A glow brighter than white cannot be written on a mesh (no HDR value or intensity)
 
-- **Category:** tooling
+- **Category:** rendering-3d
 - **Severity:** minor (score 2)
 - **Installations:** 1 (0 verified)
 - **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0020
-- **Suggestion:** A CI job (or workflow_dispatch) that runs perf.baseline on each runner and commits or uploads the entries, and a `provisional` flag that only enforces drawCalls and entities.
+- **Projects affected:** Clockwork Courier
+- **Entries:** Clockwork Courier/FB-0057
+- **Suggestion:** A glow intensity (or an HDR glow colour) on MeshRenderer, useful with bloom, so a glow can pass 1 without the 0..255 reading.
 - **Workarounds seen:**
-  - Estimated entries in tools/cli/tests/perf/kindlewatch.perf.json, to be replaced by the CI measurement.
+  - M100.4 clamped the 184 colours to channels of at most 1 (for example [1, 1, 0.4, 1]), so they glow at full colour but no brighter.
 
 ## 6. A scene that was generated keeps a copy of the prefab it was made from
 
@@ -3002,6 +3002,10 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   scatter code into a module the tool and the script both import (GR/FB-0016).
 - Elsewhere: KW/FB-0018's bite and chop go into M82.2 with `anim3d.pose`; TM/FB-0003, TM/FB-0051 and TM/FB-0055 stay
   where they were (TM/FB-0055 is M86).
+- CC/FB-0057 (minor, found by M100.4: no way to write an emissive colour above white, so the clockwork-courier market
+  scenes were clamped to channels of at most 1): held for M101.10 or a package of its own; `MeshRenderer` needs an
+  emissive strength (HDR) that feeds bloom, and `validate` should say that a colour array with a channel over 1 is read
+  as 0..255.
 
 ## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09
 
