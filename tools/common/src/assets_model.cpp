@@ -822,11 +822,14 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; "
             "made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. "
             "`collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, "
-            "maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 "
+            "maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 "
             "draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a "
             "whole (null removes it back to its default; `clear` removes them all). Example: "
             "{\"path\":\"assets/models/tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],\"collider\":{\"shape\":\"convex\"}}"
             FA_COMMAND_DETAILS
+            "`collider.part` fits the collider to the submeshes of that named part only (a pine's \"trunk\", so the canopy does not block; "
+            "it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) "
+            "are metres that replace the fitted value. "
             "The result is checked before anything is written, then the bake writes <name>.glb, "
             "<name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and "
             "<name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one "
@@ -838,7 +841,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"origin", Json::object({{"type", "string"}, {"enum", Json::array({"keep", "center", "bottom", "bottom_center"})}, {"description", "Where the model's origin sits."}})},
                                                              {"merge", Json::object({{"type", "boolean"}, {"description", "Join submeshes with the same material and weld identical vertices (left out: unchanged)."}})},
                                                              {"lods", Json::object({{"type", "array"}, {"maxItems", 4}, {"items", Json::object({{"type", "object"}})}, {"description", "LOD1.. as {ratio, triangles, error, distance}; replaces the list."}})},
-                                                             {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, resolution}.")},
+                                                             {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, resolution, part, radius, height}.")},
                                                              {"platforms", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", "Budgets to check: desktop, mobile, web."}})},
                                                              {"clear", boolean("Remove every game-ready setting first.", false)},
                                                              {"bake", boolean("Bake after writing.", true)},

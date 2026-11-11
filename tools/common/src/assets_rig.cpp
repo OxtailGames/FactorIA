@@ -358,8 +358,15 @@ Json rig_fit_command(const std::string& projectDir, const Json& a) {
 
 // ---- rig.bake ----
 
+RigBakeOptions merge_options(const Json& a, bool overwrite) {
+    RigBakeOptions o;
+    o.overwrite = overwrite;
+    if (a.contains("mergeParts")) o.mergeParts = tooling_detail::arg_bool(a, "mergeParts", false);
+    return o;
+}
+
 Json rig_bake_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("rig.bake", a, "", {"path", "force", "dryRun", "overwrite"});
+    check_arg_keys("rig.bake", a, "", {"path", "force", "dryRun", "overwrite", "mergeParts"});
     const bool force = tooling_detail::arg_bool(a, "force", false), dryRun = tooling_detail::arg_bool(a, "dryRun", false), overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::vector<std::string> docs;
     const bool single = a.contains("path");
@@ -370,7 +377,7 @@ Json rig_bake_command(const std::string& projectDir, const Json& a) {
         const RigBakeStatus status = rig_bake_status(projectDir, rel);
         std::string reason = rig_bake_state_name(status.state);
         if (status.state == RigBakeState::Fresh) {
-            if (!force && !single) {
+            if (!force && !single && !a.contains("mergeParts")) {
                 unchanged.push_back(status.output);
                 continue;
             }
@@ -389,13 +396,14 @@ Json rig_bake_command(const std::string& projectDir, const Json& a) {
             baked.push_back(Json::object({{"document", rel}, {"out", status.output}, {"reason", reason}}));
             continue;
         }
-        auto b = bake_rig_document(projectDir, rel, {false, overwrite});
+        auto b = bake_rig_document(projectDir, rel, merge_options(a, overwrite));
         if (!b.ok()) {
             if (single) fail("failed", b.error().message, b.error().hint);
             failed.push_back(Json::object({{"document", rel}, {"out", status.output}, {"error", Json::object({{"message", b.error().message}, {"hint", b.error().hint}})}}));
             continue;
         }
-        Json item = Json::object({{"document", rel}, {"out", b->output}, {"reason", reason}, {"bytes", b->bytes}, {"sha256", b->sha256}, {"joints", b->fit.bones.size()}});
+        Json item = Json::object({{"document", rel}, {"out", b->output}, {"reason", reason}, {"bytes", b->bytes}, {"sha256", b->sha256}, {"joints", b->fit.bones.size()}, {"mergeParts", b->mergeParts}, {"submeshes", b->submeshesAfter}});
+        if (b->mergeParts) item["submeshesBefore"] = b->submeshesBefore;
         if (!b->warnings.empty()) item["warnings"] = b->warnings;
         if (!b->skin.is_null()) item["skin"] = b->skin;
         baked.push_back(item);
@@ -521,12 +529,16 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
             "The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose "
             "draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; "
             "a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. "
-            "A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {\"path\":\"assets/models/hero.rig.json\"}";
+            "A file that nothing baked is never replaced unless overwrite is true. `mergeParts` joins parts that share a material (fewer draw calls). Example: {} or {\"path\":\"assets/models/hero.rig.json\"}"
+            FA_COMMAND_DETAILS
+            "`mergeParts` welds the skinned parts that share a material into one submesh after the fit (a rigged character of 8 parts with 2 materials then draws in 2 calls per pass instead of 8): only the index list is regrouped, so the weights, joints and bind pose are the same and a posed frame looks the same; the result lists `submeshesBefore` and `submeshes`, and the part names of a merged submesh are joined with \"+\". The choice is kept in the recipe, so a later bake or `factoria export` repeats it. "
+            "`factoria export` bakes the stale documents first.";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false},
                                          {"properties", obj({{"path", str("Bake only this document (project-relative, ending in .rig.json). Leave out for every document.")},
                                                              {"force", boolean("Bake documents that are fresh too.", false)},
                                                              {"dryRun", boolean("List what would be baked and why, and write nothing.", false)},
-                                                             {"overwrite", boolean("Replace a file at the output that no rig document baked.", false)}})}});
+                                                             {"overwrite", boolean("Replace a file at the output that no rig document baked.", false)},
+                                                             {"mergeParts", Json::object({{"type", "boolean"}, {"description", "Weld the skinned parts that share a material into one submesh (fewer draw calls). Left out: what the last bake of the document used (false the first time); the choice is kept in the recipe."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return rig_bake_command(projectDir, args.is_null() ? Json::object() : args); });
     }
 }

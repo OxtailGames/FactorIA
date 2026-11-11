@@ -42,6 +42,9 @@ struct ModelColliderSpec {
     int maxHulls = 8;            // decomposed: at most this many convex pieces
     int maxVertices = 32;        // convex, decomposed: at most this many points per hull (4..256)
     int resolution = 100000;     // decomposed: voxels V-HACD splits the volume into (more = finer pieces, slower)
+    std::string part;            // fit to the submeshes of this part only (a pine's trunk, not its canopy); "" = the whole model
+    double radius = 0;           // sphere, capsule: use this radius in metres instead of the fitted one (0 = fitted)
+    double height = 0;           // capsule: use this total height in metres instead of the fitted one (0 = fitted)
 };
 struct ModelGameReady {
     std::string origin = "keep";  // keep, center, bottom, bottom_center
