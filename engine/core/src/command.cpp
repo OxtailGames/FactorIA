@@ -92,10 +92,18 @@ bool report_command_progress(std::string_view message) {
 
 void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     std::string name = info.name;
-    if (const std::size_t cut = info.description.find(kCommandDetailsMark); cut != std::string::npos && info.details.empty()) {
-        info.details = info.description.substr(cut + 1);
-        info.description.resize(cut);
-        while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n')) info.description.pop_back();
+    if (const std::size_t cut = info.description.find(kCommandDetailsMark); cut != std::string::npos) {
+        if (info.details.empty()) {
+            info.details = info.description.substr(cut + 1);
+            info.description.resize(cut);
+            while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n')) info.description.pop_back();
+        } else {
+            // `details` is already set: the description keeps all its text (nothing is lost), without the control character
+            // a client would send. Set one of the two, not both.
+            FA_WARN("command", "{}: the description holds FA_COMMAND_DETAILS but `details` is set too; the marker was removed, so the "
+                               "whole description is sent. Use one of the two.", name);
+            info.description.erase(std::remove(info.description.begin(), info.description.end(), kCommandDetailsMark), info.description.end());
+        }
     }
     // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
     // describe() and MCP show is the normalised schema, so clients see exactly what call() enforces.

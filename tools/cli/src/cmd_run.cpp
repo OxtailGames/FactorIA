@@ -18,6 +18,17 @@ namespace fa::cli {
 
 namespace fsys = std::filesystem;
 
+std::string take_exception_hint(std::string& message) {
+    static const std::string mark = "\n  (an exception was thrown inside the test;";  // factoria.js writes it after the trace
+    const size_t h = message.find(mark);
+    if (h == std::string::npos) return {};
+    const size_t lineEnd = message.find('\n', h + 1);
+    const size_t count = lineEnd == std::string::npos ? std::string::npos : lineEnd - h;
+    std::string hint = message.substr(h + 1, count == std::string::npos ? count : count - 1);
+    message.erase(h, count);
+    return hint;
+}
+
 namespace {
 
 std::vector<int> parse_frame_list(const std::string& text) {
@@ -322,48 +333,29 @@ Command make_test_command() {
             ctx.out << "  (output outside tests)\n";
             print_logs(rep.otherLogs);
         }
-        // The same failure in many tests prints its trace once; the others say so at the end. The fixed hint about
-        // exceptions in the test goes once per run (--json keeps every message whole).
-        const std::string hintMark = "\n  (an exception was thrown inside the test;";
+        // The same failure in many tests prints its trace once; the others say "(same error as ...)". The fixed hint
+        // about exceptions in the test goes once per run, after the first trace that has it (--json keeps every message whole).
         bool hintSeen = false;
-        std::string hintText;
-        struct Group {
-            std::string first;
-            std::vector<std::string> others;
-        };
-        std::map<std::string, Group> groups;  // trace without the hint -> who had it
-        std::vector<std::string> groupOrder;
+        std::map<std::string, std::string> firstOf;  // trace without the hint -> the test that printed it
         for (const auto& t : rep.cases) {
             ctx.out << (t.passed ? "  PASS  " : "  FAIL  ") << t.file << " > " << t.name << " (" << static_cast<int>(t.milliseconds) << " ms)\n";
             print_logs(t.logs);
             if (t.passed || t.message.empty()) continue;
             std::string msg = t.message;
-            if (auto h = msg.find(hintMark); h != std::string::npos) {
-                hintSeen = true;
-                hintText = msg.substr(h + 1);
-                msg.erase(h);
-            }
+            const std::string hintText = take_exception_hint(msg);
             const std::string who = t.file + " > " + t.name;
-            auto it = groups.find(msg);
-            if (it != groups.end()) {
-                it->second.others.push_back(who);
-                ctx.out << "        (same error as " << it->second.first << ")\n";
+            auto it = firstOf.find(msg);
+            if (it != firstOf.end()) {
+                ctx.out << "        (same error as " << it->second << ")\n";
                 continue;
             }
-            groups[msg].first = who;
-            groupOrder.push_back(msg);
+            firstOf[msg] = who;
             ctx.out << "        " << replace_all(msg, "\n", "\n        ") << "\n";
+            if (!hintText.empty() && !hintSeen) {  // the fixed sentence, once, next to the first trace that has it
+                hintSeen = true;
+                ctx.out << hintText << "\n";
+            }
         }
-        for (const auto& key : groupOrder) {
-            const Group& g = groups[key];
-            if (g.others.empty()) continue;
-            ctx.out << "  The same error as " << g.first << " in " << g.others.size() << " more test" << (g.others.size() == 1 ? "" : "s") << " (";
-            const size_t shown = std::min<size_t>(g.others.size(), 20);
-            for (size_t i = 0; i < shown; ++i) ctx.out << (i ? ", " : "") << g.others[i];
-            if (shown < g.others.size()) ctx.out << ", and " << g.others.size() - shown << " more";
-            ctx.out << ")\n";
-        }
-        if (hintSeen) ctx.out << hintText << "\n";
         for (const auto& e : rep.loadErrors) ctx.out << "  ERROR " << e.to_string() << "\n";
         // TestReport::summary() repeats every case; the lines above already list them, print only the totals.
         std::string sum = rep.summary();

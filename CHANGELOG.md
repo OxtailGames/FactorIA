@@ -8,6 +8,19 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 
 ### Changes
 
+- **For engine developers (M100 polish):** CLI, MCP and command details. `factoria docs read` words its errors with the
+  CLI flags (`--contents`, `--heading`, `--start-line`), refuses `--start-line 0` or `--max-bytes 5` with the allowed
+  range instead of clamping, and prints the `docs.read` result with `--json`. `factoria test` prints the fixed "an
+  exception was thrown" sentence once, next to the first trace that has it, without cutting what follows it in a message
+  (a watchdog explanation), and marks repeated errors only with "(same error as ...)". `factoria validate` keeps its
+  stderr filter until the session is gone, shows the lines it held back when something other than a report ends it, and
+  a log line is "already said" only by a report message of 24 characters or more (any path separator). The
+  description-budget test counts bytes as sent and restores the project root with a guard; `project.export`,
+  `agent.cost`, `feedback.report`, `nav.find_tile_path` and `skin3d.auto` were over the escaped budget and now cut at a
+  sentence. `CommandRegistry::add` removes `FA_COMMAND_DETAILS` from a description that has `details` too and warns;
+  the feedback review's related-command list scores `details` as well. The cancel-request wait in `mcp_http_test` is a
+  safety net, not a known fix.
+
 - **For engine developers (M100.10):** bookkeeping of the review. docs/ANIMATION.md has a dawn recipe, a `tween` of
   `world.settings` (sky, ambient light, fog), kept true by a script test (KW/FB-0019 closed). `feedback/ROADMAP.md`
   keeps only open work and decisions; finished milestones are one file each in `feedback/done/` (index in
@@ -17,9 +30,10 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 - **For game authors and AIs (M100.5):** output once. `factoria validate` captures the engine's log while it opens the
   project and folds load errors and warnings into its report, each once, instead of printing them on stderr as well
   (with `--json`, stdout is only the JSON and stderr stays empty). `factoria test` prints the same failure trace once
-  and then "The same error as ... in N more tests (names)", and the fixed "an exception was thrown inside the test"
-  sentence once per run; `--json` still has every case's own message.
-- **For game authors and AIs (M100.8):** no MCP tool description passes 1.5 KB any more (96 commands were over it;
+  and marks the other tests "(same error as ...)"; the fixed "an exception was thrown inside the test"
+  sentence is printed once per run, after the first trace that has it; `--json` still has every case's own message.
+- **For game authors and AIs (M100.8):** no MCP tool description passes 1.5 KB any more, counted as the client receives it
+  (JSON escaped: a quote or a newline is two bytes; 96 commands were over it;
   `tilemap.generate` was 7.4 KB, `assets.animate_svg` 7.4 KB, `feedback.report` 6.2 KB). `tools/list` sends the essentials,
   and the description ends with "More (the rest of this description): docs_commands {"name": ...}", the section of the docs
   reference where the rest is (the text is the same, only moved). `factoria commands <name>` and `commands.describe` carry it

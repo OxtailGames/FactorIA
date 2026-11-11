@@ -675,8 +675,9 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
             "SDF creatures included), voxel (distance along a voxelised copy of the surface: needs no manifold mesh; what a part falls back to when the heat solve cannot converge) or rigid (the whole part follows ONE bone: robot style). "
             "With `part` the method is that part's only (`bone` is the bone it follows: rigid = the one bone, heat and voxel = the bone the part is centred on; without `method` and `bone` the part's override is removed). Settings: `maxInfluences` (1 to 4 bones per vertex), "
             "`smooth` (passes over the automatic weights, 0 to 8), `maxHops` (a vertex never follows bones further than this many bones from its strongest, 1 to 8) and `locality` (heat: higher hugs each bone, 0.05 to 20). `clearEdits` also removes every edit. "
-            "The weights are computed before anything is written (a bad part or bone fails and writes nothing), the .glb is baked again unless bake is false, and the answer has the `quality` of the weights. "
-            "Examples: {\"path\":\"assets/models/robot.rig.json\",\"part\":\"claw\",\"method\":\"rigid\",\"bone\":\"arm_lower_l\"}, {\"path\":\"assets/models/hero.rig.json\",\"smooth\":3,\"locality\":1.5}";
+            "Examples: {\"path\":\"assets/models/robot.rig.json\",\"part\":\"claw\",\"method\":\"rigid\",\"bone\":\"arm_lower_l\"}, {\"path\":\"assets/models/hero.rig.json\",\"smooth\":3,\"locality\":1.5}."
+            FA_COMMAND_DETAILS
+            "The weights are computed before anything is written (a bad part or bone fails and writes nothing), the .glb is baked again unless bake is false, and the answer has the `quality` of the weights.";
         info.inputSchema = Json::object(
             {{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
              {"properties", obj({{"path", pathArg()},
