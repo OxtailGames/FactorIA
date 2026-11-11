@@ -33,7 +33,7 @@ export default class Camp extends Behaviour {
     this.age = 0;
     this.flames = ["flame0", "flame1", "flame2"].map((id) => world.find(id));
     this.refresh = () => this.fill();
-    i18n.on("change", this.refresh);
+    this.stopRefresh = i18n.on("change", this.refresh);
     this.fill();
     for (const id of upgrades.ITEMS) ui.on("click", `buy_${id}`, () => this.buy(id));
     ui.on("click", "copy_code", () => this.copyCode());
@@ -72,7 +72,7 @@ export default class Camp extends Behaviour {
   }
 
   onDestroy() {
-    i18n.off?.("change", this.refresh);
+    this.stopRefresh?.();
   }
 
   /** @param {string} id @param {any} args */
