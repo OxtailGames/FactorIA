@@ -789,12 +789,12 @@
     setIntensity(intensity, options) {
       if (typeof intensity !== "number" || !Number.isFinite(intensity))
         throw new Error(`music.setIntensity(intensity) expects a number from 0 (calm) to 1 (full), got ${typeof intensity === "number" ? intensity : typeof intensity}`);
-      N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
+      return N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
     }
     goToSection(section, options) {
       if (typeof section !== "string" || !section)
         throw new Error(`music.goToSection(section) expects the name of a section of the song, e.g. "battle"; music.sections lists them`);
-      N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
+      return N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
     }
     playStinger(options) {
       const o = typeof options === "string" ? { clip: options } : musicOptions("playStinger", options, ["clip", "section", "quantize", "volume", "tail", "bus", "duck", "duckAttack", "duckHold", "duckRelease"]);
@@ -803,7 +803,7 @@
     crossfadeTo(song, options) {
       if (typeof song !== "string" || !song)
         throw new Error(`music.crossfadeTo(song) expects the path of a song, e.g. "music/battle.song.json"`);
-      N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
+      return N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
     }
     on(name, fn) {
       if (!MUSIC_EVENTS.includes(name)) {
@@ -822,6 +822,11 @@
     get beat() { return this.status.beat; }
     get tempo() { return this.status.tempo; }
     get intensity() { return this.component.intensity; }
+    get requestedIntensity() { return this.component.intensity; }
+    get appliedIntensity() { return this.status.appliedIntensity; }
+    get pendingSong() { return this.status.pendingSong; }
+    get pendingSection() { return this.status.pendingSection; }
+    get pendingAt() { return this.status.pendingAt; }
     get sections() { return N.musicCall(this.$h, "status").sections; }
   }
 

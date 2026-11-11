@@ -243,16 +243,18 @@ public:
     // Fades the music out over `fadeSeconds` (negative: 0.3) once the boundary of `quantize` comes.
     void music_stop(World& world, Entity e, MusicQuantize quantize = MusicQuantize::None, float fadeSeconds = -1.0f);
     // Sets the intensity; it reaches the layers on the boundary of `quantize` (empty: the component's layerQuantize).
-    void music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
+    // Returns where the layers start to follow it (MusicChange: the frame is empty before the song plays).
+    MusicChange music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
     // Jumps to a section on the boundary (empty: the component's quantize) with a crossfade of `fadeSeconds` (negative: transitionFade).
-    // Before the song is loaded it only sets where the song will start.
-    Result<void> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
-                                     float fadeSeconds = -1.0f);
+    // Before the song is loaded it only sets where the song will start. Returns the frame the jump lands on.
+    Result<MusicChange> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
+                                            float fadeSeconds = -1.0f);
     Result<void> music_play_stinger(World& world, Entity e, const MusicStingerSpec& stinger);
     // Crosses over to another song on the boundary (empty: the component's quantize) over `bars` bars of the outgoing song
-    // (negative: crossfadeBars). It starts at `section` ("" = the beginning). Without music playing the song just starts.
-    Result<void> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
-                                    std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
+    // (negative: crossfadeBars). It starts at `section` ("" = the beginning of the song, never the component's startSection).
+    // Without music playing the song just starts. Returns the frame the crossfade starts on (empty while the song loads).
+    Result<MusicChange> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
+                                           std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
     // The state of the player of `e` (exists = false when it has none). With a device it is the mixer's state after its last
     // block: a change sent in this frame shows from the next one.
     MusicStatus music_status(World& world, Entity e) const;

@@ -912,9 +912,9 @@ The entity throws if it has no `MusicPlayer` (`entity.get("MusicPlayer")` answer
 change with a `quantize` (`"none"`, `"beat"`, `"bar"`, `"section"`; default: the component's `quantize`, `layerQuantize` for the intensity) lands on that boundary's exact audio frame.
 - `play(song?)` or `play({song, section, intensity})` starts at once (a hard start); `stop({quantize, fade})`; `setIntensity(0..1, {quantize})`;
   `goToSection(name, {quantize, fade})`; `playStinger({clip | section, quantize, volume, tail, bus, duck, duckAttack, duckHold, duckRelease})` (a string is the clip);
-  `crossfadeTo(song, {section, quantize, bars})`. A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
+  `crossfadeTo(song, {section, quantize, bars})` (the other song starts at `section` or its beginning). `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`, where the change lands (null `frame` and `time` while nothing plays). A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
   or a stinger with nothing playing throws an Error that says what to do; a misspelled option or event name gets a "did you mean".
-- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity`, `status` (everything, including `stemGains`, `pending` and `error`).
+- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity` (= `requestedIntensity`, the last value set), `appliedIntensity` (the one the layers follow), `pendingSong`, `pendingSection`, `pendingAt` (the next queued jump or crossfade, null when none waits), `status` (everything, including `stemGains`, `pending` and `error`).
 - `on(name, fn)` listens to one player and returns the function that unsubscribes: `ready`, `beat`, `bar`, `section`, `loop`, `ended`, `stinger`, `crossfade`. `fn(data)` gets
   `id`, `song`, `frame` (the audio frame it sounded on) and `time` (seconds), plus `bar`, `beat`, `section`, `index` for a beat; `bar`, `section`, `count` for a bar; `section`, `pass`, `bar` for a
   section; `count` for a loop; `stopped` for `ended`; `kind` and `section` for a stinger; `mode` for `ready`. They are the game events `music.beat`... too, so `world.on("music.bar", ...)`
