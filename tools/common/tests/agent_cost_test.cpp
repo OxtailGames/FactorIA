@@ -50,9 +50,9 @@ TEST_CASE("agent cost: the report finds the first playable build, the engine err
     CHECK(r["firstPlayable"]["step"] == 4);
     CHECK(r["firstPlayable"]["toolCalls"] == 4);
     CHECK(r["firstPlayable"]["tokens"] == (10 + 9 + 20 + 100) + (5 + 20 + 130) + (5 + 30 + 160) + (5 + 40 + 200));
-    CHECK(r["engineErrors"]["count"] == 2);  // the unknown command, and `factoria run` that failed with no code
+    CHECK(r["engineErrors"]["count"] == 1);  // the unknown command; `factoria run` that failed with no code is not counted
     CHECK(r["engineErrors"]["byCode"]["unknown_command"] == 1);
-    CHECK(r["engineErrors"]["byCode"]["none"] == 1);
+    CHECK_FALSE(r["engineErrors"]["byCode"].contains("none"));
     CHECK(r["engineErrors"]["first"][0]["step"] == 2);
     // The docs page of step 5 quotes TypeError after a passed test, and is not a script error of the game.
     REQUIRE(r["notCaught"]["count"] == 1);
@@ -72,6 +72,23 @@ TEST_CASE("agent cost: the CLI version and a real HOME are recorded") {
     CHECK(named);
     in.homeIsolated = 1;
     for (const Json& n : agent_cost_report(in)["notes"]) CHECK(n.get<std::string>().find("real HOME") == std::string::npos);
+}
+
+TEST_CASE("agent cost: level names that only contain a menu word are levels") {
+    const Json r = agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/subtitle.scene.json","kind":"scene"},
+        {"name":"scenes/twin.scene.json","kind":"scene"},{"name":"scenes/close.scene.json","kind":"scene"},{"name":"scenes/gloss.scene.json","kind":"scene"},
+        {"name":"menu/level1.scene.json","kind":"scene"},{"name":"scenes/main_menu.scene.json","kind":"scene"}]})");
+    CHECK(r["phases"] == 6);
+    CHECK(r["levelPhases"] == 5);  // main_menu is a menu; the folder "menu/" does not make level1 one
+}
+
+TEST_CASE("agent cost: PascalCase menu and end screens are not levels, a mark is read whole") {
+    const Json r = agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/MainMenu.scene.json","kind":"scene"},
+        {"name":"scenes/LevelWin.scene.json","kind":"scene"},{"name":"scenes/TitleScreen.scene.json","kind":"scene"},
+        {"name":"scenes/GameOver.scene.json","kind":"scene"},{"name":"scenes/Subtitle.scene.json","kind":"scene"},
+        {"name":"menu/open","kind":"mark"}]})");
+    CHECK(r["phases"] == 6);
+    CHECK(r["levelPhases"] == 1);  // Subtitle; the mark "menu/open" is a menu mark (read whole)
 }
 
 TEST_CASE("agent cost: a menu, a level and a win screen are one level, not three") {

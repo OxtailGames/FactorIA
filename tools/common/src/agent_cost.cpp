@@ -84,9 +84,33 @@ bool shows_game_output(const EfficiencyToolCall& c) {
 }
 
 // A phase named like a menu or an end screen is not a level: menu + level + win screen would otherwise count as three levels.
-bool looks_like_level(const std::string& name) {
-    static const std::regex notLevel(R"((menu|title|splash|credits|game[ _-]?over|victory|win|lose|loss|results?)([^a-z]|$))", std::regex::icase);
-    return !std::regex_search(name, notLevel);
+// The words are anchored on both sides ("subtitle", "twin", "close" and "gloss" are levels): a boundary is a non-letter or, in
+// PascalCase, a capital after a lower-case letter ("MainMenu", "LevelWin", "GameOver"). A scene or file (`kind` "scene", or a name
+// ending in .json) is judged by its file name, not by the folders of its path; a game.phase mark is judged whole.
+bool looks_like_level(const std::string& fullName, const std::string& kind = std::string()) {
+    static const char* const words[] = {"menu", "title", "splash", "credits", "gameover", "game over", "game_over", "game-over", "victory",
+                                        "win", "lose", "loss", "result", "results"};
+    std::string name = fullName;
+    const bool isFile = kind == "scene" || (name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0);
+    if (isFile) {
+        const std::size_t slash = name.find_last_of("/\\");
+        if (slash != std::string::npos) name = name.substr(slash + 1);
+    }
+    std::string lower = name;
+    for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    auto is_letter = [](char ch) { return std::isalpha(static_cast<unsigned char>(ch)) != 0; };
+    auto is_upper = [](char ch) { return std::isupper(static_cast<unsigned char>(ch)) != 0; };
+    auto is_lower = [](char ch) { return std::islower(static_cast<unsigned char>(ch)) != 0; };
+    for (const char* w : words) {
+        const std::size_t len = std::char_traits<char>::length(w);
+        for (std::size_t at = lower.find(w); at != std::string::npos; at = lower.find(w, at + 1)) {
+            const bool leftOk = at == 0 || !is_letter(name[at - 1]) || (is_upper(name[at]) && is_lower(name[at - 1]));
+            const std::size_t end = at + len;
+            const bool rightOk = end >= name.size() || !is_letter(name[end]) || is_upper(name[end]);
+            if (leftOk && rightOk) return false;
+        }
+    }
+    return true;
 }
 
 // The text of the JSON array that follows "phases" in a play.auto answer that was cut or wrapped: from its `[` to its matching `]` (strings
@@ -127,7 +151,7 @@ Json agent_cost_read_play_auto(const std::string& text) {
             if (!p.is_object()) continue;
             const std::string name = p.value("name", std::string());
             phaseSet.insert(p.value("kind", std::string()) + "|" + name);
-            if (looks_like_level(name)) levelSet.insert(p.value("kind", std::string()) + "|" + name);
+            if (looks_like_level(name, p.value("kind", std::string()))) levelSet.insert(p.value("kind", std::string()) + "|" + name);
         }
         if (j.contains("ended") && j["ended"].is_string()) out["ended"] = j["ended"];
         if (j.contains("endedWhy") && j["endedWhy"].is_string()) out["endedWhy"] = first_line(j["endedWhy"].get<std::string>());
@@ -199,8 +223,10 @@ Json agent_cost_report(const AgentCostInput& in) {
             const bool isTest = is_test_call(c);
             // A failed call counts under its error code, or under "none" when the failure gave no code (a non-zero exit, a crash). A failed
             // test run is the tests doing their job, not an engine error, unless it gave a code.
+            // `factoria validate` and `factoria run` without a code fail because of the game's own files and scripts: not engine errors either.
+            const bool gameCheck = c.shell.find("factoria validate") != std::string::npos || c.shell.find("factoria run") != std::string::npos;
             const bool ranFactoria = c.shell.find("factoria ") != std::string::npos || c.command.find('.') != std::string::npos;
-            if (c.failed && (!c.code.empty() || (!isTest && ranFactoria))) {
+            if (c.failed && (!c.code.empty() || (!isTest && !gameCheck && ranFactoria))) {
                 const std::string code = c.code.empty() ? "none" : c.code;
                 ++errorCount;
                 byCode[code] = (byCode.contains(code) ? byCode[code].get<int>() : 0) + 1;
@@ -322,7 +348,7 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         "total.tokens is input + cache + output of the CLI's own result line "
         "(stepTokens and firstPlayable.tokens add up the per-step counts, whose output tokens are partial: a lower bound). "
         "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases that are not named like a menu, title, credits or end screen, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed; \"won\" is said by the game's own autoplay script, which the AI may have written, so endedWhy is kept); "
-        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run only when it gave a code), by error code, or under \"none\" when the failure gave no code; notCaught are "
+        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run, `factoria validate` or `factoria run` only when it gave a code), by error code, or under \"none\" when the failure gave no code; notCaught are "
         "outputs of `factoria run`, `play.auto`, a test run or game.logs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed (docs or scene reads that quote the words do not count). "
         "`cliVersion` and `homeIsolated` (false: the CLI ran with the real HOME, so the user's CLAUDE.md and memory may have loaded; the report says so in notes) record how the run was made.";
     info.inputSchema = Json::parse(R"({"type":"object","additionalProperties":false,"required":["transcript"],"properties":{

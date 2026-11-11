@@ -542,6 +542,15 @@ NATIVE(logErrors) {
         std::lock_guard<std::mutex> lk(I->testErrors->mu);
         for (const LogEntry& e : I->testErrors->list)
             if (e.seq > since) add(e);
+        // The list is capped: say so, never let a flood look like a short list. Only a test that started before the last drop
+        // is told (the ones after the flood have all their errors).
+        if (I->testErrors->dropped > 0 && I->testErrors->lastDroppedSeq > since) {
+            LogEntry note;
+            note.category = "script";
+            note.message = std::to_string(I->testErrors->dropped) + " more ERROR records of this test run were dropped (the runner keeps the first " +
+                           std::to_string(I->kMaxTestErrors) + ").";
+            add(note);
+        }
     } else {
         for (const LogEntry& e : recent_logs(4096, LogLevel::Error, since)) add(e);
     }
@@ -549,7 +558,9 @@ NATIVE(logErrors) {
 }
 
 // A script error is logged once per file:line:message (a repeat is dropped). Each test forgets them at its start, so a test whose
-// game throws the same error as the test before still sees it and fails. The same goes for the engine's own once-per-run errors.
+// game throws the same error as the test before still sees it and fails. The same goes for the engine's own once-per-run errors
+// the audio system keeps. run_tests restores `loggedKeys` at its end, but NOT the audio system's list: on a live Play the
+// "missing file" errors the game already logged can log once more after a test run (log noise only, never a failure).
 NATIVE(forgetLoggedErrors) {
     SETUP;
     I->loggedKeys.clear();

@@ -481,7 +481,10 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         if (e.level < LogLevel::Error) return;
         std::lock_guard<std::mutex> lk(errors->mu);
         if (errors->list.size() < kMaxTestErrors) errors->list.push_back(e);
-        else ++errors->dropped;
+        else {
+            ++errors->dropped;
+            errors->lastDroppedSeq = e.seq;
+        }
     });
     testErrors = errors;
     // The errors the game already knew (loggedKeys) come back after the run: an editor that runs tests on a live Play must not
