@@ -857,6 +857,26 @@ of Google Play and the App Store. The result lists every `written` file with its
 factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}'
 ```
 
+
+#### Scoping the style rules
+
+The rules fit the art of the game, not every picture in the folder: an interface picture is never on a mesh and a flame lights
+itself. Three ways to leave a rule out, from the narrowest:
+
+- `style.ignore {path, rules?}` records an entry in `style.ignore`: `path` is a file, a folder ending in a slash or a glob
+  (`assets/fx/**`). With `rules` (`outline`, `value`, `saturation`, `lightDirection`, `texelsPerUnit`, `pixelArt`, `palette`, or a
+  sub-rule such as `value.max`; a name also covers the rules under it) only those rules are skipped and the others still check, so
+  a real problem is not hidden; without `rules` every rule is skipped for the path (the plain-string entry). `remove: true` takes an
+  entry, or the named rules of it, back. In assets.json: `"ignore": ["assets/old/**", {"path": "assets/fx/spark.png", "rules": ["outline"]}]`.
+- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`), and `assets.set_provenance` accepts
+  `role` for one asset (it wins over a glob and survives a rebake). `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
+  `effect` also turns off `outline`, `value` and `saturation`. The other rules keep checking.
+- `texelsPerUnit` is only judged for textures a scene draws; a texture no scene uses is left out already.
+
+`assets.check_art` still checks a file you name, applies the rule-level entries and roles, and lists what it left out under
+`styleSkipped` (`{rule, reason}`: the `style.ignore` entry, or the role and whether it came from provenance or a glob) and
+`role` (`{role, from}`); `factoria validate` applies the same scope.
+
 ## Recipes: make an asset again
 
 The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,

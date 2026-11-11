@@ -674,6 +674,7 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 | `source` | string | no | Where an imported asset came from: a URL or the original file. |
 | `date` | string | no | YYYY-MM-DD. Default: today. |
 | `notes` | string | no | Anything else, such as edits made by hand. |
+| `role` | string ["ui","icon","effect"] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). docs.read ASSETS, "Scoping the style rules". |
 
 ## `assets.slice_sheet` (modifies state)
 
@@ -1475,6 +1476,23 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 | `dither` | integer | no | Pixels of Bayer-dithered transition at the inner edge of each band (at most the band width). 0 or false = hard bands; true = 1. Default 0. |
 | `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.resize` (modifies state)
+
+Not released yet (on main after 0.22.0).
+
+Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
+
+Sets the document's canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays where it is (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down (the extra pixel goes to the right/bottom side). Every layer of the top level moves by the offset the anchor gives (groups take their children along); a layer that follows the canvas (a fill, gradient or procedural layer with no size, an empty indexed layer) just covers the new size. Pixels and picture layers keep their PNG and are cropped only by the canvas; the text rows of an indexed (pixel-art) layer, and of its cels, are cut or padded to the new canvas. Palette, ramps, frames, tags and the sheet settings are kept; the baked sheet takes the new cell size. `fill` (a colour, default transparent) paints the area a bigger canvas adds, as a masked fill layer named 'resize fill' at the bottom; with no fill the new area shows the document's background, or is transparent. Stored selections were made for the old size and must be made again (a warning says so). One edit: the editor undoes it with Ctrl+Z. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `width` | integer | yes | New canvas width in pixels. |
+| `height` | integer | yes | New canvas height in pixels. |
+| `anchor` | string ["top-left","top","top-right","left","center","right","bottom-left","bottom","bottom-right"] | no | The part of the old canvas that stays put; the canvas grows or is cropped on the opposite sides. Default "center". |
+| `fill` | any | no | Colour of the area a bigger canvas adds: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Default transparent. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
 ## `image.save` (modifies state)
 
@@ -2717,6 +2735,34 @@ Moves the weights of each vertex towards the average of the vertices that share 
 | `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
 | `iterations` | integer | no | Passes, 1 to 50 (default 1). |
 | `strength` | number | no | How far each pass moves a vertex to its neighbours' average, 0 to 1 (default 0.5). |
+
+## `style.ignore` (modifies state)
+
+Not released yet (on main after 0.22.0).
+
+Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
+
+Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets.check_art, project.validate) do not judge those rules for the asset. `path` is a project-relative file, a folder ending in a slash ("assets/ui/") or a glob ("assets/fx/**"). `rules` names the rules to skip: outline (outline.color, outline.width), value (value.min, value.max), saturation, lightDirection, texelsPerUnit, pixelArt (pixelArt.edges, pixelArt.colours), palette (palette.offShare); without `rules` every rule is skipped for the path (the old plain-path entry). Naming only the rules that do not fit keeps the others checking, so a real problem is not hidden. assets.check_art still checks a file you name, and lists what it left out under `styleSkipped` with the reason. To skip by kind of asset instead, give it a role: style.set_role or assets.set_provenance `role`. `remove: true` takes an entry (or, with `rules`, those rules of it) back. Example: {"path":"assets/art/flame.png","rules":["texelsPerUnit","lightDirection"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob (* and ? stay inside a folder, ** crosses folders). |
+| `rules` | array | no | Rules to skip: outline, outline.color, outline.width, value, value.min, value.max, saturation, saturation.min, saturation.max, lightDirection, texelsPerUnit, pixelArt, pixelArt.edges, pixelArt.colours, palette, palette.offShare. Omit for every rule. |
+| `remove` | boolean | no | Take the entry back (with `rules`: only those rules). Default false. |
+
+## `style.set_role` (modifies state)
+
+Not released yet (on main after 0.22.0).
+
+Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
+
+Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob. Example: {"path":"assets/ui/**","role":"ui"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob ("assets/ui/**"). |
+| `role` | string ["ui","icon","effect"] | no | What the pictures are for. Required unless `remove`. |
+| `remove` | boolean | no | Delete the role of this path. Default false. |
 
 ## `vector.add` (modifies state)
 

@@ -6969,6 +6969,23 @@ void Editor::at_build_tools_script() {
             image_.playing = false;
         });
 
+        // ---- Resize canvas: one undo step, and undo gives the document back
+        auto rs = std::make_shared<size_t>(0);
+        step(2, [this, current, rs] {
+            if (!current()) return;
+            *rs = undo_depth();
+            const int w = image_.model->width(), h = image_.model->height();
+            const ImageEditOutcome out = image_.model->resize_canvas(w + 4, h + 2, "bottom-right", "");
+            at_check(out.ok, "Resize canvas works: " + out.error);
+            image_edited(out);
+            at_check(image_.model->width() == w + 4 && image_.model->height() == h + 2, "...the canvas is bigger");
+            at_check(undo_depth() == *rs + 1, "...as ONE undo step of the editor's stack");
+        });
+        step(2, [this] { undo(); });
+        step(4, [this, current] {
+            at_check(current() && image_.model->width() == 16 && image_.model->height() == 16, "Undo gives the old canvas back (" + std::to_string(image_.model->width()) + "x" + std::to_string(image_.model->height()) + ")");
+        });
+
         // ---- Save bakes
         click_widget("img:save");
         step(6, [this, current] {
