@@ -28,7 +28,7 @@ It builds for Windows, macOS, Linux, iOS and Android from a single codebase.
 
 ## Status
 
-Version 0.22 (CHANGELOG.md says what each version added). The engine modules, the `factoria` CLI, the MCP server, the AI
+Version 0.23 (CHANGELOG.md says what each version added). The engine modules, the `factoria` CLI, the MCP server, the AI
 hub and the editor work, and the 11 example games in `examples/` (counted on 2026-11-09) were built by AI agents through
 the public interface; their tests run with the test suite on a Release build (`ctest -L example`). Six are reference
 games: Lantern Keep (a 2D platformer with menus, save slots, store services, accessibility options and four languages),

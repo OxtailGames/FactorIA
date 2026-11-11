@@ -52,48 +52,16 @@ Triage 2026-11-10: the 33 entries the examples logged since 2026-10-29 (Kindlewa
 Neon Swarm, Sky Hopper, Lantern Keep) were never in this list, because the command below named the examples by hand;
 KW/FB-0002 and SH/FB-0026 were fixed already and are closed, the other 31 went to M101 ("M100-M101", at the end);
 KW/FB-0019 and KW/FB-0020 have been closed since (M100.10, M100.9) and CC/FB-0057 was added (M100.4): 30 are open there.
+M101 (0.23.0, built 2026-11-11) closed those 30 open entries, CC/FB-0057 among them. The 4 entries that
+`feedback collect examples/*` still reports are planned: KW/FB-0018 (bite and chop) in M82.2 with `anim3d.pose`,
+TM/FB-0055 (trailer) in M86, and TM/FB-0003 (undo and data-table helpers) and TM/FB-0051 (development-build
+players) where they were.
 Regenerate the ranked list with `factoria feedback collect examples/* --out feedback/ROADMAP.md` (it rewrites the whole
 file: then put this status and the milestones section back).
 
-33 entries from 11 project(s), 33 distinct gap(s) (efficiency entries are ranked apart, below). Ranked by the sum over projects of severity weight x trust x min(occurrences, 3) (blocker 8, major 4, minor 2, nice-to-have 1; trust 1, or 0.5 for an anonymous installation).
+4 entries from 11 project(s), 4 distinct gap(s) (efficiency entries are ranked apart, below). Ranked by the sum over projects of severity weight x trust x min(occurrences, 3) (blocker 8, major 4, minor 2, nice-to-have 1; trust 1, or 0.5 for an anonymous installation).
 
-## 1. A game script that calls a project tool (fa.call("project.scatter_gems")) works in the editor and factoria run but fails in the exported player
-
-- **Category:** scripting
-- **Severity:** major (score 4)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Gem Roller
-- **Entries:** Gem Roller/FB-0016
-- **Suggestion:** Have the export (and validate) warn when a game script calls fa.call with a literal command name that only a project tool registers, naming the file and line, and say in docs which commands a shipped game has. The example should bake the scattered gems into the scene, or move the scatter code into a game module that both the tool and the script import.
-- **Workarounds seen:**
-  - None yet in the example: run it from the project folder (factoria run), where the tool is loaded.
-
-## 2. A pending MusicPlayer crossfade or section change survives a scene load
-
-- **Category:** audio
-- **Severity:** major (score 4)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0004
-- **Suggestion:** Drop pending crossfades and section changes when the entity that owns the MusicPlayer is destroyed (scene unload), and report in audio.music_state what is audible versus what is queued.
-- **Workarounds seen:**
-  - The music director starts the new scene with a hard play({song, section}) instead of goToSection, and the tests assert no script error after scene.reload.
-
-## 3. MusicPlayer holds hundreds of MB of decoded audio, and the perf and memory numbers do not show it
-
-- **Category:** performance
-- **Severity:** major (score 4)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0001
-- **Suggestion:** Stream the ogg of a song instead of decoding it whole (or keep one decoded copy per song, not per layer and per section), count the player's buffers in audioDecodedMB and in perf.measure, and say in the MusicPlayer docs how much memory a song costs (about N MB per minute per layer).
-- **Workarounds seen:**
-  - None: the song lengths stayed as designed and perf.kindlewatch budgets carry a 600+ MB memory baseline. I did not shorten the songs.
-
-## 4. No way to get players for a development build
+## 1. No way to get players for a development build
 
 - **Category:** platform
 - **Severity:** major (score 4)
@@ -105,247 +73,7 @@ file: then put this status and the milestones section back).
 - **Workarounds seen:**
   - Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.
 
-## 5. A glow brighter than white cannot be written on a mesh (no HDR value or intensity)
-
-- **Category:** rendering-3d
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Clockwork Courier
-- **Entries:** Clockwork Courier/FB-0057
-- **Suggestion:** A glow intensity (or an HDR glow colour) on MeshRenderer, useful with bloom, so a glow can pass 1 without the 0..255 reading.
-- **Workarounds seen:**
-  - M100.4 clamped the 184 colours to channels of at most 1 (for example [1, 1, 0.4, 1]), so they glow at full colour but no brighter.
-
-## 6. A scene that was generated keeps a copy of the prefab it was made from
-
-- **Category:** scene
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0024
-- **Suggestion:** Have the generator (or scene.import_ascii) write `prefab` references only, and let validate warn about a committed scene whose entity repeats the components of its prefab.
-- **Workarounds seen:**
-  - Regenerated the scene with the README arguments (width 90, seed 7, difficulty 3).
-
-## 7. A sound patch with variants renders one variant at full scale and lowering the layer gains did not help
-
-- **Category:** audio
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0011
-- **Suggestion:** Make a patch's peak target a field of the patch (peakDb) that applies to every variant, and make assets.regenerate list which input it saw changed when it says unchanged.
-- **Workarounds seen:**
-  - import.normalize: true on the footstep files in assets.json.
-
-## 8. IK2D targets need a script to stand on uneven ground
-
-- **Category:** animation
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0025
-- **Suggestion:** An optional IK2D.ground mask (project the target onto the first collider below it, within a reach) would make planted feet a data setting.
-- **Workarounds seen:**
-  - scripts/player.js feet() casts a ray under each marker every fixed step and moves the IK target entity.
-
-## 9. MusicPlayer.song reads as the new song while the old one is still audible
-
-- **Category:** audio
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0005
-- **Suggestion:** Expose `song` (audible), `pendingSong` and `pendingSection` on entity.music, and in audio.music_state.
-- **Workarounds seen:**
-  - The director keeps its own record of the song it asked for last.
-
-## 10. MusicPlayer.startSection is applied to crossfadeTo into another song that lacks that section
-
-- **Category:** audio
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0003
-- **Suggestion:** When crossfadeTo has no `section`, start the target song at its first section (or its loop) instead of the component's startSection.
-- **Workarounds seen:**
-  - Every crossfade passes `section` explicitly (scripts/music_director.js, cross()).
-
-## 11. No command to resize or crop the canvas of an image document
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0007
-- **Suggestion:** image.resize {path, width, height, anchor} that moves or crops every layer, keeping palette, ramps, frames and tags.
-- **Workarounds seen:**
-  - Recreate the document with image.create and repeat the image.pixel / image.draw calls (the call scripts are the recipe).
-
-## 12. Nothing says which samples pass reachability allConnected
-
-- **Category:** docs
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** ember-descent
-- **Entries:** ember-descent/FB-0002
-- **Suggestion:** Say it in docs/AI_GUIDE.md section 9.8 next to allConnected (done in the same change as this example) and let the refused-level error name the sample shape as a cause when cut-off areas are the reason for more than half of the attempts.
-- **Workarounds seen:**
-  - levels/sample.json is an open cave with pillars and 2-3 cell wide passages; all of tests/dungeon.test.js runs 8 run seeds through it.
-
-## 13. Touch controls are hidden on desktop and cannot be previewed or tested by touch
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0015
-- **Suggestion:** A `factoria run --touch` or screenshot option that forces touch UI on, and a game.touch helper in factoria:test that drops a finger on a TouchStick.
-- **Workarounds seen:**
-  - Checked the layout with a touch as the last input; the tests use the gamepad.
-
-## 14. anim3d clips carry no provenance record, so a project cannot prove they were made by commands
-
-- **Category:** animation
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0017
-- **Suggestion:** Write a provenance record for every clip the anim3d commands write.
-- **Workarounds seen:**
-  - tests/assets.test.js checks assets/ only; the clips are described in the README.
-
-## 15. assets.check_mix judges raw source recordings of an audio document and a crossfaded loop still warns on loop_seam_slope
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0020
-- **Suggestion:** Skip sounds that are only the source of an audio document (or mark them in assets.json), and judge loop_seam_slope across the crossfade the loop step made.
-- **Workarounds seen:**
-  - Kept the 0.25 s crossfade; left the warning. The source stays next to the document so the bake can be repeated.
-
-## 16. audio.play has no world position: one-shot sounds in 3D are flat unless an AudioSource is spawned
-
-- **Category:** audio
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0006
-- **Suggestion:** audio.play({position:[x,y,z], range, rolloff}) that uses the AudioListener, with the same variants/pitch/bus options.
-- **Workarounds seen:**
-  - scripts/common.js playAt() (distance attenuation and pan computed by hand, with the camera's ground point as the listener).
-
-## 17. entity.music.status.intensity is the applied intensity, entity.music.intensity the requested one, and the docs do not say
-
-- **Category:** docs
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0021
-- **Suggestion:** Name the applied value (for example appliedIntensity) or say in docs/MUSIC.md which one status.intensity is.
-- **Workarounds seen:**
-  - The tests read entity.music.intensity for what the script asked and status.stemGains for what is audible, and wait one beat before reading status.intensity.
-
-## 18. fa.call in factoria:test tests cannot run assets.provenance
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0013
-- **Suggestion:** Document which commands fa.call runs in tests, and add the read-only assets.* ones (provenance, list, check_art).
-- **Workarounds seen:**
-  - tests/assets.test.js reads assets.json and fs.list.
-
-## 19. input.record does not record presses made with game.input by action name
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0012
-- **Suggestion:** Record an action press as the keys that produce it, or store the action name in the replay and play it back as an action.
-- **Workarounds seen:**
-  - Record with key names, not action names (replays/first_night.json).
-
-## 20. model.game_ready gives a conifer a capsule collider far wider than its trunk
-
-- **Category:** rendering-3d
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0016
-- **Suggestion:** Offer collider "trunk" (the lowest part's bounds or a part named for it), or a `colliderPart` argument.
-- **Workarounds seen:**
-  - The pine instances override the capsule radius and height in the scene.
-
-## 21. scene.save of a loaded scene expands a prefab reference into inline entities
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0008
-- **Suggestion:** scene.save should write an instance whose prefab file is unchanged as the prefab path plus the component differences, or warn which instances it expanded.
-- **Workarounds seen:**
-  - Restored the reference by hand in the scene file. The game scene is written by a generator script that emits {"prefab": ..., "components": overrides} and is never saved with scene.save.
-
-## 22. A non-looping sheet clip cannot be looped from the component
-
-- **Category:** scripting
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0019
-- **Suggestion:** A tri-state loop override on SpriteAnimator (inherit / loop / once).
-- **Workarounds seen:**
-  - Baked the shockwave as two non-looping clips and removed the entity on clipEnded.
-
-## 23. A rigged model costs one draw call per part, and rig.create cannot merge them
-
-- **Category:** animation
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Gem Roller
-- **Entries:** Gem Roller/FB-0014
-- **Suggestion:** Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).
-- **Workarounds seen:**
-  - Accepted the cost: the example's perf budget (drawCalls 14 -> 30) was raised for it.
-
-## 24. A section change and a layer change cannot be read as 'done' without polling status
-
-- **Category:** scripting
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0022
-- **Suggestion:** goToSection and setIntensity could return the audio frame the change lands on, or take an onDone callback.
-- **Workarounds seen:**
-  - The tests step the game a bar and read status.section / status.stemGains; the game script does not need the answer.
-
-## 25. A trailer needs a custom director script and a long recording
+## 2. A trailer needs a custom director script and a long recording
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -357,7 +85,7 @@ file: then put this status and the milestones section back).
 - **Workarounds seen:**
   - store/trailer/trailer.js and make_trailer.py.
 
-## 26. Hand-keyed clips (bite, attack) need many set_keys calls and a guess of the euler axes
+## 3. Hand-keyed clips (bite, attack) need many set_keys calls and a guess of the euler axes
 
 - **Category:** animation
 - **Severity:** nice-to-have (score 1)
@@ -369,7 +97,7 @@ file: then put this status and the milestones section back).
 - **Workarounds seen:**
   - set_keys by hand with filmstrip checks (anim/wolf_bite.anim.json, anim/warden_attack.anim.json).
 
-## 27. No undo/redo or data-table validation helpers for game state
+## 4. No undo/redo or data-table validation helpers for game state
 
 - **Category:** scripting
 - **Severity:** nice-to-have (score 1)
@@ -381,84 +109,9 @@ file: then put this status and the milestones section back).
 - **Workarounds seen:**
   - scripts/game/state.js (transactions with exact deltas, undo and redo refuse and emit action.rejected), scripts/game/data.js (validateTables with file, JSON pointer, hint and didYouMean) and the project tool project.validate_data.
 
-## 28. Rigged, animated characters cost one draw call per material part and cannot be merged
-
-- **Category:** rendering-3d
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0021
-- **Suggestion:** rig.bake option mergeParts that welds parts with the same material and the same skin method.
-- **Workarounds seen:**
-  - None: the count stays at 75 draw calls, well under the budget of 120.
-
-## 29. Style warnings flag assets that are deliberately different from the project style
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0009
-- **Suggestion:** Let a rule be disabled by an asset's role (ui, icon, particle) or by a tag in the provenance, and apply texelsPerUnit only to textures a 3D mesh uses.
-- **Workarounds seen:**
-  - style.ignore lists the sky, logo, pine art, flame, icons, panel and bar pictures in assets.json.
-
-## 30. anim3d.generate and anim3d.retarget leave no provenance or recipe in assets.json
-
-- **Category:** animation
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Gem Roller
-- **Entries:** Gem Roller/FB-0013
-- **Suggestion:** Let anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig .glb and the source clip) like rig.bake does, so assets.regenerate {stale:true} follows a re-fit of the rig.
-- **Workarounds seen:**
-  - Recorded the two clips with assets.set_provenance (origin original, provider 'factoria anim3d.generate', the rig as source, the call in notes).
-
-## 31. game.findByTag is missing from factoria:test, world.findByTag must be imported
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0014
-- **Suggestion:** Add game.findByTag (and game.findAll) beside game.find in factoria:test.
-- **Workarounds seen:**
-  - import { world } from "factoria" in the tests.
-
-## 32. image.create cannot name the PNG the document bakes to
-
-- **Category:** assets
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0048
-- **Suggestion:** Accept `output` in image.create.
-- **Workarounds seen:**
-  - The two pixel-art documents sit next to their PNGs, as in gem-roller.
-
-## 33. sfx.bake takes no path and there is no one-line re-render of a single sound patch
-
-- **Category:** docs
-- **Severity:** nice-to-have (score 1)
-- **Installations:** 1 (0 verified)
-- **Total occurrences:** 1
-- **Projects affected:** Kindlewatch
-- **Entries:** Kindlewatch/FB-0010
-- **Suggestion:** Say in sfx.bake's summary that it renders every stale patch and that sfx.render renders one, and have both accept `path`.
-- **Workarounds seen:**
-  - assets.regenerate {"stale":true} after every edit.
-
-
-
 # Next engine milestones
 
-**What comes next (2026-11-11):** M90 (0.20.0), M91 (0.21.0) and M100 (0.22.0) are done. Next M101 (the examples'
-feedback, planned 2026-11-10), then M97.1 and M97.2, then M92, M93, M94, M95, M96 and M98, and only
+**What comes next (2026-11-11):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0) and M101 (0.23.0) are done. Next M97.1 and M97.2, then M92, M93, M94, M95, M96 and M98, and only
 then M71-M89 in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and
 accounts. The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of
 the open entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -606,7 +259,7 @@ burrow-brigade = BB, tidewater-market = TM, larkspur-lodge = LL, kindlewatch = K
 
 ## Decisions of finished milestones
 
-Kept here because later work has to respect them (the full story is in done/M1.md ... done/M100.md, indexed in done/README.md):
+Kept here because later work has to respect them (the full story is in done/M1.md ... done/M101.md, indexed in done/README.md):
 - M3: there is no `CameraFollow2D` component; a camera that follows within level bounds is the AI_GUIDE 9.6 recipe.
   `scene.import_ascii` does not keep its legend in the scene, so `factoria validate` checks the Tilemap data instead.
 - M4: bloom is flat `Camera` fields (`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`) because reflection has
@@ -1388,10 +1041,10 @@ caught it, and each performance package shows its gain on M93.5's benchmarks.
 Order: M90 first (small). Then M91, M92 and M93, before any new feature. M94 and M95 before M71: M71 builds on M95's
 frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the
 small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
-when the user has the hardware and the accounts. Since 2026-11-10 M100 and M101 come first and M97.1 and M97.2 next
+when the user has the hardware and the accounts. M100 and M101 are done (0.22.0, 0.23.0) and M97.1 and M97.2 come next
 ("M100-M101").
 
-## M100-M101: the examples' feedback and a third outside review (planned 2026-11-10)
+## M100-M101: the examples' feedback and a third outside review (planned 2026-11-10, both done)
 
 A third outside reviewer used the installed 0.21.0 the way a game-making AI does (`factoria new`, `validate`, `test`,
 `run --headless`, `mcp`, `docs`, a project with planted mistakes) and read `engine/core`, `scene`, `script`,
@@ -1447,62 +1100,15 @@ Rules: those of every milestone, plus: each fix comes with the test that would h
 still pass under M100.2's stricter rule, and each feedback entry a package closes gets its `Fixed in` note and the game
 drops its workaround in the same package.
 
-Order: M100 then M101, before M92 (M100 is what the game AI meets on its first run; M101 is the backlog). M100.1
+Order (M100 and M101 are done): M100 then M101, before M92 (M100 is what the game AI meets on its first run; M101 was the backlog). M100.1
 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost of the first step), then M92, M93
 (its ASan+UBSan job first), M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after
 M97.2. A triage of every open entry of `examples/*` opens each milestone.
 
-## M101. Found by the example games, 2026-10-29..11-08 (L; 10 packages; 30 open entries)
-
-- M101.1 (L) Music memory (KW/FB-0001, major): `Audio::stats()` counts the `MusicSource` buffers (`musicBytes` beside
-  `decodedBytes`, per song in `audio.music_state` and `perf.profile`), so `perf.measure` explains a 576 MB process;
-  then stems stream from the ogg through the job system and ring buffers like M91.4's long clips, keeping one decoded
-  window per playing stem instead of the whole song per layer and section. Test: a 4-layer player of N seconds reports
-  its bytes, and with streaming its peak stays under a fixed budget; MUSIC.md gives MB per minute per mode.
-- M101.2 (M) Music pending state (KW/FB-0004 major, KW/FB-0005, NS/FB-0022, KW/FB-0003, NS/FB-0021): an orphaned
-  transport adopted by the next scene's player drops its pending crossfades and section changes (or adopts the target
-  song if the crossfade already started); `status` and `audio.music_state` give `pendingSong`, `pendingSection` and
-  `pendingAt`; `goToSection`, `setIntensity` and `crossfadeTo` return `{frame, time, quantize}` of the change;
-  `crossfadeTo` without `section` starts the target song at its beginning, never at the component's `startSection`;
-  `appliedIntensity` and `requestedIntensity` beside `intensity`. Tests for each, the reload-before-the-bar case
-  included.
-- M101.3 (S) `audio.play` at a place (KW/FB-0006): `{position:[x,y,z], range, rolloff}` uses the spatial
-  `AudioSource` maths with the current `AudioListener` (the camera without one); M98.8's distance models, doppler and
-  occlusion build on it. Kindlewatch drops its `playAt` helper.
-- M101.4 (M) Sound checks (KW/FB-0011, NS/FB-0020, KW/FB-0010): `master.normalize.shared` computes one gain on the
-  loudest variant for every variant; `assets.regenerate` says which inputs it compared when it answers "up to date";
-  the mix check skips sounds that are only the input of an audio document's recipe (listed in `skipped`) and judges
-  `loop_seam_slope` across the crossfade a `loop` step made; `sfx.bake` takes `path` (one or a list).
-- M101.5 (M) Tests and replays (KW/FB-0012, KW/FB-0013, KW/FB-0014, KW/FB-0015): `input.record` records an action
-  pressed through `game.input` (an `action` event, played back with `set_action_override`; test: the same world hash);
-  the read-only `assets.provenance` and `assets.disclosure` are registered in the test runtime and SCRIPTING.md lists
-  the commands `fa.call` has in a test, kept true by a test; `game.findByTag` and `game.findAll`; `factoria run
-  --touch` and `screenshot {forceTouch}` show touch UI.
-- M101.6 (M) Provenance everywhere (KW/FB-0017 = GR/FB-0013, LK/FB-0048, the suggestion of KW/FB-0002): the anim3d
-  commands that write a clip write a recipe (inputs: the rig and the source clip), `assets.set_provenance` and the
-  schema take kind `anim3d`, and `assets.regenerate {stale:true}` remakes a clip after a re-fit; `image.create` takes
-  `output`; a test runs every recipe command once and validates what it wrote against schemas/assets.schema.json.
-- M101.7 (M) Image documents and style rules (KW/FB-0007, KW/FB-0009): `image.resize {path, width, height, anchor,
-  fill}` moves or crops every layer, frame and cel, keeping palette, ramps, tags and the sheet, with `undo`;
-  `style.ignore` takes `{path, rules:[...]}` and a `role` (ui, icon, effect) in provenance or by glob turns off the
-  rules that do not apply to it.
-- M101.8 (M) Models and rigs for mobile (KW/FB-0016, KW/FB-0021 = GR/FB-0014): `model.game_ready`'s collider takes
-  `part` and explicit `radius`/`height` (a pine's trunk, not its canopy); `rig.bake {mergeParts}` welds skinned
-  parts that share a material after the fit (same pose hash, fewer draw calls in `renderStats`).
-- M101.9 (L) `scene.save` keeps prefab instances (KW/FB-0008): an entity remembers the prefab it came from, and saving
-  writes `{prefab, components: only the differences}`; loading and saving an unedited scene gives the same bytes;
-  `validate` warns about an entity that repeats its prefab's components inline (SH/FB-0024).
-- M101.10 (M) Small ones (CC/FB-0057, below, is held for this package or one of its own): the refused-level error names the sample's shape when cut-off areas refused more than half of
-  the attempts (ED/FB-0002, whose docs part is in AI_GUIDE 9.8 already; counted per cause in `GenStats`); `SpriteAnimator.loopMode` (inherit, loop, once; `loop`
-  stays as an alias, NS/FB-0019); `IK2D.ground` puts the target on the first collider below it within a reach, run by
-  a pass that sees physics before the solver (SH/FB-0025); gem-roller bakes its gems into the scene or moves the
-  scatter code into a module the tool and the script both import (GR/FB-0016).
-- Elsewhere: KW/FB-0018's bite and chop go into M82.2 with `anim3d.pose`; TM/FB-0003, TM/FB-0051 and TM/FB-0055 stay
-  where they were (TM/FB-0055 is M86).
-- CC/FB-0057 (minor, found by M100.4: no way to write an emissive colour above white, so the clockwork-courier market
-  scenes were clamped to channels of at most 1): held for M101.10 or a package of its own; `MeshRenderer` needs an
-  emissive strength (HDR) that feeds bloom, and `validate` should say that a colour array with a channel over 1 is read
-  as 0..255.
+**Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):
+- Elsewhere: KW/FB-0018's bite and chop go into M82.2 with `anim3d.pose`; TM/FB-0003, TM/FB-0051 and TM/FB-0055
+  stay where they were (TM/FB-0055 is M86).
+- CC/FB-0057 (minor, an emissive colour above white for the clockwork-courier market scenes) was closed in M101.
 
 ## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09
 
