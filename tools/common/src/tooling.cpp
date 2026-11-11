@@ -80,7 +80,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         // project.validate bound to this engine: script syntax and Script.props go through its script system.
         if (const CommandInfo* ci = registry.info("project.validate")) {
             CommandInfo info = *ci;
-            info.description += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
+            info.details += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
                                 "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
                                 "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, "
                                 "a name imported from \"factoria\" that does not exist, a member the engine's objects lack "
