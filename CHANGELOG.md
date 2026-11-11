@@ -2,6 +2,16 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+- The README states the engine version it is at, and a test compares it (and the Spanish README's note) with
+  `CMakeLists.txt`.
+- New projects get `CLAUDE.md` as the one line `@AGENTS.md` instead of a second copy of the guide. Projects made
+  earlier keep their `CLAUDE.md` untouched (there is no `project.update` yet to rewrite it).
+- `factoria docs read <name>` takes `--heading`, `--start-line`, `--max-lines` and `--max-bytes` like the `docs.read`
+  command and prints the paging hint (next call and contents) on stderr when it cuts.
+- The MCP server's instructions and the generated `AGENTS.md` tell the AI to read `ai-guide` by section, never whole.
+
 ## 0.21.0
 
 FactorIA 0.21.0 (M91) makes the runtime independent of the renderer. Sprite animators and particles advance in the

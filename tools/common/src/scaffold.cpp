@@ -179,7 +179,7 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
     // Generated files.
     std::string guide = substitute(files.count("AGENTS.md") ? files["AGENTS.md"] : "# " + v.name + "\n", v, false);
     files["AGENTS.md"] = guide;
-    files["CLAUDE.md"] = guide;
+    files["CLAUDE.md"] = "@AGENTS.md\n";  // Claude Code imports AGENTS.md: one guide, never two copies that drift
     files["ENGINE_FEEDBACK.json"] = dump_json(create_empty_feedback(v.name, v.version));
     files[".gitignore"] = ".factoria/\nbuild/\nnode_modules/\n.DS_Store\n";
     files[".mcp.json"] = dump_json(claude_code_mcp_config());

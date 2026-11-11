@@ -2,12 +2,14 @@
 
 This is a **FactorIA** game project (engine {{ENGINE_VERSION}}, created {{DATE}}). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
-is text; you never need a GUI. The full guide is `factoria docs read ai-guide` (MCP: `docs_read {"name":"ai-guide"}`).
+is text; you never need a GUI. The full guide is `factoria docs read ai-guide`
+(MCP: `docs_read {"name":"ai-guide"}`); it is long: read it by section (`factoria docs read ai-guide --heading "..."`),
+never whole.
 
 ## The loop (follow it for every change)
 
-1. **Read** what exists: `factoria docs read ai-guide` (once per task), then `scripting` and
-   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
+1. **Read** what exists: the sections of `factoria docs read ai-guide` your task needs (its first page lists the
+   headings; read each with `--heading`, never the whole guide), then `scripting` and `components` the same way. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
    `contents`: read a section with `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
    gives one component in full.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
