@@ -156,13 +156,19 @@ without deleting it.
 
 ### Normalization
 
-`master.normalize` is `{mode, target, ceilingDb}`:
+`master.normalize` is `{mode, target, ceilingDb, shared}`:
 
 - `lufs` (default, target -18): the gain is chosen so the integrated loudness (BS.1770 K-weighting, gated; the same measure as
   `assets.spectrogram` and `factoria validate`) reaches the target, but never so loud that the peak passes `ceilingDb` (default -1).
   Very short sounds can end up quieter than the target because of that ceiling.
 - `peak`: the loudest sample reaches `target` dBFS (default -3).
 - `none`: the level the layers add up to. Use it for instruments that other tools will level.
+
+With `variations`, each variant is levelled alone by default, so every variant reaches the target and the differences in
+loudness between them (the variant `gainDb` aside) are gone. `"shared": true` finds one gain on the loudest variant (the one that
+needs the least gain to reach the target, ceiling included) and applies it to all of them: the variants keep their ratios and none
+passes the target. It applies to `sfx.render {variant}`, `{variants: true}` and `sfx.bake`, and costs one extra render of every
+variant per variant rendered.
 
 The output is clamped to -1..1; the WAV is 16-bit mono.
 
@@ -179,7 +185,7 @@ The output is clamped to -1..1; the WAV is 16-bit mono.
 | `sfx.preset {name?, path?, overwrite?}` | Lists the presets, returns one, or writes it to `path` (under `assets/`, ending in `.sfx.json`). |
 | `sfx.info {path \| patch \| preset, seed?}` | Validates a patch and returns all its problems (pointer, message, fix) or its layers, effects, base pitch, whether its baked sound exists or is stale, and the loudness, peak and length it renders to. Writes nothing. |
 | `sfx.render {path, out?, seed?, freq?, note?, length?, tail?, macros?, variant?, variants?, picture?, pictureOut?, width?, height?, overwrite?}` | Renders the patch to a mono 16-bit WAV (or Ogg Vorbis when `out` ends in `.ogg`). Returns `measurements` (`lufs`, `peakDb`, `seconds`, `centroidHz`, `riseSeconds`), `analysis` (the numbers of `assets.spectrogram` for the file as written) and the spectrogram picture (`$image`). |
-| `sfx.bake {force?, dryRun?, macros?}` | Renders every patch of the project whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
+| `sfx.bake {path?, force?, dryRun?, macros?}` | Renders every patch of the project (or only `path`, one patch or a list) whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
 | `sfx.tweak {path, macros, absolute?, render?, seed?, picture?}` | Turns macros by meaning, writes them to the patch and renders again; returns the measurements before and after. |
 | `sfx.edit {path, op, pointer, value?, index?, to?}` | Changes one field of a patch by JSON pointer: `set` a value, `remove` a field or array item, `add` an item to an array (at `index`, or the end) or `move` an array item to `to`. The patch is written only when the result still parses, so a mistake leaves the file as it was. The Sound panel's inspector runs it. |
 | `sfx.family {from, names \| preset, out?, overwrite?, render?, picture?}` | Writes a set of interface sounds from one base patch and shows them in one picture. |
@@ -367,7 +373,9 @@ carries on when playback wraps. The loop points are written to the baked file's 
 (`loopStart` and `loopEnd`, in seconds; docs/ASSETS.md), and a WAV also gets a `smpl` chunk with them. `AudioSource`, `audio.play` and
 `audio.music` with loop on wrap inside those points: whatever comes before `loopStart` plays once as an intro. Only `gain` and
 `normalize` may follow a `loop` step, because anything else would change the samples around the seam. A sound with loop points
-is decoded whole, not streamed.
+is decoded whole, not streamed. `assets.check_mix` judges `loop_seam_slope` and `loop_seam_jump` of such a sound across those loop
+points (the crossfade), not across the file's ends, and does not judge a recording that is only an input of an audio document's
+recipe (it lists it under `skipped`).
 
 A song gets its loop points the same way: `music.render` writes the `smpl` chunk and `import.loopStart`/`loopEnd` for the song's loop sections, and one stem file per layer with the same
 points (docs/MUSIC.md, "Rendering a song for a game").

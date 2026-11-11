@@ -178,6 +178,7 @@ std::string recipe_path(const std::string& rel);
 struct RecipeCheck {
     std::vector<std::string> changed;
     std::vector<std::string> missing;
+    Json compared;  // array: every input the check read, {path, sha256} (the recorded hash, which the file still has unless it is in `changed`), and the style values it compared
     bool stale() const { return !changed.empty(); }
     bool ok() const { return changed.empty() && missing.empty(); }
 };

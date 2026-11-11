@@ -1,6 +1,6 @@
 {
   "format": "factoria.sfx/1",
-  "doc": "A boot on frozen grass. Six takes, played with AudioSource.variants.",
+  "doc": "A boot on frozen grass. Six takes, played with AudioSource.variants. master.normalize.shared levels all six with one gain, so they keep their relative loudness and none passes the ceiling.",
   "length": 0.14,
   "layers": [
     {
@@ -39,5 +39,13 @@
   "variations": {
     "count": 6,
     "seed": 6
+  },
+  "master": {
+    "normalize": {
+      "mode": "lufs",
+      "target": -18,
+      "ceilingDb": -1,
+      "shared": true
+    }
   }
 }

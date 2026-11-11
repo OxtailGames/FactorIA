@@ -541,7 +541,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -551,13 +551,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_01.wav": {
@@ -570,7 +567,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 1, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -582,13 +579,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_02.wav": {
@@ -601,7 +595,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 2, 0.13 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -613,13 +607,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_03.wav": {
@@ -632,7 +623,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 3, 0.15 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -644,13 +635,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_04.wav": {
@@ -663,7 +651,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 4, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -675,13 +663,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_05.wav": {
@@ -694,7 +679,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 5, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -706,13 +691,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_06.wav": {
@@ -725,7 +707,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 6, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -737,13 +719,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/log_feed.wav": {
