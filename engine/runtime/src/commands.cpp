@@ -989,6 +989,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"textScale", engine.text_scale()}});
           });
 
+    I.commands.add({"ui.force_touch", "Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.",
+           "TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a "
+           "desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a "
+           "finger: those controls are shown at once (no step needed), `input.lastDevice` says \"touch\" and prompts and tooltips "
+           "follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not "
+           "send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting "
+           "as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. "
+           "Example: ui.force_touch {\"enabled\":true}",
+           parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","default":true,"description":"true: force the touch interface on; false: back to following the real last input."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {
+              engine.set_force_touch(a.value("enabled", true));
+              return Json::object({{"forceTouch", engine.input().force_touch()}});
+          });
+
     I.commands.add({"ui.set_scale", "Set the interface scale: every screen-space widget and Text gets bigger or smaller.",
            "The same as `ui.scale = value` in a script (docs/TEXT.md, \"Interface size\"): the size, offset, padding, spacing, "
            "margins and font size of every screen-space widget (Panel, Button, Label, Slider..., Text with space \"screen\") are "

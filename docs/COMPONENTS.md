@@ -967,7 +967,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
 | `stick` | enum: left \| right | `"left"` | Which stick of the touch pad it moves. |
 | `knobColor` | color | `[1.0,1.0,1.0,0.6]` | Colour of the knob, a disc 45% as wide as the stick. |
-| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
+| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch. |
 | `value` | vec2 | `[0.0,0.0]` | Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: a finger holds the stick. Read-only. Runtime-only (not saved). |
 | `shown` | bool | `false` | Runtime: drawn this frame (see touchOnly). Read-only. Runtime-only (not saved). |
@@ -1003,7 +1003,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `markup` | bool | `false` | true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text". (since 0.3.0) |
 | `bold` | bool | `false` | true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight. (since 0.3.0) |
 | `textColor` | color | `[1.0,1.0,1.0,0.9]` | Label colour. |
-| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
+| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch. |
 | `pressed` | bool | `false` | Runtime: a finger holds the button. Read-only. Runtime-only (not saved). |
 | `shown` | bool | `false` | Runtime: drawn this frame (see touchOnly). Read-only. Runtime-only (not saved). |
 
@@ -3611,6 +3611,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 `region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale and cropped (lines, text and shapes are sharp, the HUD is included); above 4 the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks, nothing blurred). The result is round(width * zoom) x round(height * zoom), at most 8192 px a side; the region is clamped to the view. `zoom` without `region` magnifies the whole view the same way.
 `frames` makes a FILMSTRIP: one PNG with a grid of pictures, each labelled with its frame number ("f130 +4" = game frame 130, 4 frames after the start). The first picture is the game now, then the game is STEPPED `everyFrames` frames (default 1) and captured again until `frames` frames have passed, so frames 48 and everyFrames 4 give 13 tiles and leave the game 48 frames further. At most 64 tiles. `region` and `zoom` apply to every tile (the same region each time); without `zoom` the tiles are sized so the sheet is about 2048 px wide (never enlarged). `columns` sets the grid width (default: nearly square). Use it to see a whole transition or animation at once. A tween or script keeps running while it steps: it shows what the game does, it does not freeze anything. The result adds `tiles` [{frame, offset}], `columns`, `rows`, `tileWidth`, `tileHeight` and `zoom`.
 `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Needs graphics.
+`forceTouch` true shows the touch interface first (the touch-only TouchStick and TouchButton, which a desktop hides): the same as ui.force_touch {"enabled":true}, so the setting stays on after the picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3622,6 +3623,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 | `everyFrames` | integer | no | Filmstrip: frames between two pictures (default 1). frames / everyFrames + 1 pictures, at most 64. |
 | `columns` | integer | no | Filmstrip: tiles per row (default: the grid closest to square). |
 | `simulate` | string ["none","greyscale","protanopia","deuteranopia","tritanopia"] | no | Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged. Default "none". |
+| `forceTouch` | boolean | no | true: show the touch interface (the touch-only TouchStick and TouchButton) before the picture; false: back to the real last input. It stays set afterwards, like ui.force_touch. |
 
 ### `game.state`
 
@@ -7316,6 +7318,18 @@ Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
+### `ui.force_touch` (modifies state)
+
+Not released yet (on main after 0.22.0).
+
+Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
+
+TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a finger: those controls are shown at once (no step needed), `input.lastDevice` says "touch" and prompts and tooltips follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. Example: ui.force_touch {"enabled":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
+
 ### `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.
@@ -8928,6 +8942,9 @@ declare module "factoria" {
      * Every entity with this name, in creation order. Skips the ones destroyed this frame.
      */
     findAll(name: string): Entity[];
+    /**
+     * Every alive entity that has this tag, in creation order, without the ones destroyed this frame.
+     */
     findByTag(tag: string): Entity[];
     /**
      * All alive entities in creation order, without the ones destroyed this frame.
@@ -17300,7 +17317,7 @@ declare module "factoria" {
     get knobColor(): Color;
     set knobColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -17449,7 +17466,7 @@ declare module "factoria" {
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -18768,7 +18785,20 @@ declare module "factoria:test" {
      * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
      */
     touchEnd(id?: number): void;
+    /**
+     * Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame.
+     */
     find(idOrName: string): Entity | null;
+    /**
+     * Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame.
+     * @since unreleased
+     */
+    findAll(name: string): Entity[];
+    /**
+     * Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag("wolf").length.
+     * @since unreleased
+     */
+    findByTag(tag: string): Entity[];
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**

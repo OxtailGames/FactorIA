@@ -1839,6 +1839,19 @@ test("dump the menu layout", () => {
 function (`ui` has `rectOf`, `widgetAt`, `focus`...): the list of widgets is the command, `fa.call("ui.state")`, and the
 localization state is `fa.call("i18n.state")`.
 
+The registry of a test is that of `factoria test`: the engine's commands and the project's tooling commands (`game.*`,
+`ui.*`, `fs.*`, `project.*`, `assets.regenerate`, `anim.*`...), plus the read-only `assets.provenance` and `assets.disclosure`
+(what an assets test needs: every asset has a recipe or a record, no file without provenance). A command that is not there
+answers "Unknown command". The ones missing are those of the AI module, which call a provider, the user's AI settings or
+the review queue, or write the manifest by hand; they belong to `factoria call`, the MCP server and the editor. A test
+keeps this list true.
+
+<!-- fa-call-not-in-tests -->
+- Not available: `ai.*`, `skills.*`, `assets.generate_image`, `assets.generate_sprite_sheet`, `assets.generate_sound`, `assets.generate_music`,
+  `assets.generate_voice`, `assets.generate_model`, `assets.pick`, `assets.review`, `assets.set_provenance`,
+  `image.generate_layer`, `image.inpaint`, `vfx.review`
+<!-- end -->
+
 ```js
 test("every widget fits and the Spanish table is complete", () => {
   game.load("scenes/menu.scene.json");

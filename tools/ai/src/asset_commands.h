@@ -15,6 +15,9 @@
 
 namespace fa::ai {
 
+// Only assets.provenance and assets.disclosure (read-only; no AI settings needed): the commands `fa.call` has in a test.
+void register_read_only_asset_commands(CommandRegistry& registry, std::function<std::string()> projectDir);
+
 // assets.generate_image, assets.generate_sprite_sheet, assets.generate_sound, assets.generate_music,
 // assets.generate_voice, assets.generate_model, assets.pick, assets.provenance, assets.set_provenance, assets.disclosure.
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load,

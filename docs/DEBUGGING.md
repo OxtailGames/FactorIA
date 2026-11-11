@@ -235,7 +235,7 @@ factoria call --project games/x input.record '{"action":"stop","path":"replays/b
 no recording running is an error that says to start one. Starting again restarts the recording. The editor records every
 Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
 
-- It records keys, mouse position and buttons, gamepads (connections, buttons, axes), touches, the Back press, the
+- It records keys, actions pressed by name with `game.input` (`"actions"`, played back as forced actions), mouse position and buttons, gamepads (connections, buttons, axes), touches, the Back press, the
   clipboard text the game read, the answers of `http.fetch` (docs/NETWORKING.md, "Replays"), the frame times (`timing`) and
   the calendar date, so the replay plays to the same state.
   What was held when the recording started (a key, a pad button) is part of frame 0.
