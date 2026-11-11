@@ -563,6 +563,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             c.passed = j.value("passed", false);
             c.message = j.value("message", "");
             c.milliseconds = j.value("ms", 0.0);
+            c.loggedError = j.value("loggedError", false);
             if (j.value("skipped", false)) continue;
             c.passed ? ++rep.passed : ++rep.failed;
             rep.cases.push_back(std::move(c));

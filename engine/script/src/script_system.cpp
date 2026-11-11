@@ -78,6 +78,7 @@ Json TestReport::to_json() const {
         o["name"] = c.name;
         o["passed"] = c.passed;
         if (!c.message.empty()) o["message"] = c.message;
+        if (c.loggedError) o["loggedError"] = true;
         o["ms"] = std::round(c.milliseconds * 100.0) / 100.0;
         if (!c.logs.empty()) o["logs"] = logs_json(c.logs);
         arr.push_back(std::move(o));
@@ -104,6 +105,8 @@ std::string TestReport::summary() const {
     }
     for (const auto& e : loadErrors) s += "  ERROR " + e.to_string() + "\n";
     s += std::format("{} passed, {} failed", passed, failed);
+    if (const auto n = std::count_if(cases.begin(), cases.end(), [](const TestCaseResult& c) { return !c.passed && c.loggedError; }); n > 0)
+        s += std::format(" ({} because the game logged an error or an expected error never came)", n);
     if (!loadErrors.empty()) s += std::format(", {} file(s) failed to load", loadErrors.size());
     return s;
 }

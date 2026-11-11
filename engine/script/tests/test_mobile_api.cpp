@@ -104,6 +104,7 @@ test("returning nothing consumes it too, and the remover works", () => {
 });
 
 test("a handler that throws is reported and still consumes", () => {
+  game.expectErrors(/boom/);
   input.onBack(() => { throw new Error("boom"); });
   game.pressBack();
   game.step(1);

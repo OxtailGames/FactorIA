@@ -1208,6 +1208,7 @@ test("jump plays a sound", () => {
   expect(log[0].frame).toBe(game.find("hero").behaviour.playedAt);
 });
 test("the log is cleared before each test", () => {
+  game.expectErrors(/missing\.wav/);
   expect(game.audioLog()).toHaveLength(0);
   audio.play("assets/sfx/coin.wav", { bus: "ui" });
   audio.play("assets/sfx/missing.wav");
@@ -1257,6 +1258,7 @@ test("setVoiceVolume answers false for a voice that is not playing", () => {
   expect(audio.setVoiceVolume(id, 1)).toBe(false);
 });
 test("layers: one log entry per layer, setLayer teaches", () => {
+  game.expectErrors(/missing\.wav/);
   expect(audio.musicLayers({ base: "assets/m/base.wav", drums: "assets/m/drums.wav" }, { levels: { drums: 0 } })).toBe(true);
   const log = game.audioLog().filter((e) => e.music);
   expect(log.map((e) => e.layer)).toEqual(["base", "drums"]);
