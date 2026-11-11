@@ -351,7 +351,7 @@ int run_windowed(const EngineConfig& config);
 //
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
 // statePath?, audioPath?, videoPath?, videoFrames?, videoAudio?, error?, exitCode,
-// perf: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time per frame), cpuClock ("process" or "wall"), peakMemoryMB,
+// perf: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (CPU time per frame), slowestFrames ([{frame, ms}], the 5 slowest, slowest first), cpuClock ("process" or "wall"), peakMemoryMB,
 // drawCalls, entities, triangles, lights and textureMB (max over the run), graphics (the GPU in use or "none")}}.
 struct HeadlessRunOptions {
     int frames = 60;
