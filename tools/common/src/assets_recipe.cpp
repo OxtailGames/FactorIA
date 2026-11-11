@@ -88,6 +88,7 @@ void add_style_palette_context(Json& recipe, const std::vector<Vec4>& palette) {
 
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
     RecipeCheck check;
+    check.compared = Json::array();
     if (!recipe.is_object()) return check;
     // A value read from assets.json and not from a file: the loudness the style guide asks of music. The recipe records it as a number, or
     // null when the style guide set none; a different value now makes the asset stale.
@@ -97,6 +98,7 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
         const std::optional<double> now = style_music_loudness(projectDir);
         if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
             check.changed.push_back(std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)");
+        check.compared.push_back(Json::object({{"path", std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)"}, {"value", recorded}}));
     }
     // The same for the texel density a model document's `uv` section took from the style guide.
     if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("styleTexelsPerUnit")) {
@@ -105,6 +107,7 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
         const std::optional<double> now = style_texels_per_unit(projectDir);
         if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
             check.changed.push_back(std::string(assets::kManifestFile) + " (style.texelsPerUnit)");
+        check.compared.push_back(Json::object({{"path", std::string(assets::kManifestFile) + " (style.texelsPerUnit)"}, {"value", recorded}}));
     }
     // And the palette a model document's `vertexColors` took from the style guide.
     if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("stylePalette")) {
@@ -123,6 +126,7 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
         auto hash = sha256_file_hex(stdfs::path(projectDir) / *norm);
         if (!hash.ok()) check.missing.push_back(rel);
         else if (*hash != input.value("sha256", std::string())) check.changed.push_back(rel);
+        if (hash.ok()) check.compared.push_back(Json::object({{"path", rel}, {"sha256", *hash}}));
     }
     return check;
 }

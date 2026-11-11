@@ -139,6 +139,7 @@ struct SfxNormalize {
     SfxNormalizeMode mode = SfxNormalizeMode::Lufs;
     double target = -18.0;            // LUFS (mode lufs) or peak dBFS (mode peak)
     double ceilingDb = -1.0;          // the loudest sample stays under this (mode lufs)
+    bool shared = false;              // variants: one gain, found on the loudest variant, for all of them (they keep their ratios)
 };
 
 // ---- macros and variations (M55.2) -------------------------------------------------------------------------------------------
@@ -235,6 +236,9 @@ Result<SfxPatch> load_sfx(std::string_view path, std::vector<SfxIssue>* issues =
 // Renders a patch: (length + tail) * sampleRate samples. Deterministic (see above). The only failure is a sound longer than
 // kSfxMaxSeconds.
 Result<SfxAudio> render_sfx(const SfxPatch& patch, const SfxRenderOptions& options = {});
+// For a patch with `master.normalize.shared`: the one gain in dB (on top of the unnormalized level) that levels its loudest
+// variant, and so every variant at once. Renders each variant once. Fails when a variant does not render.
+Result<double> sfx_shared_gain_db(const SfxPatch& patch, const SfxRenderOptions& options = {});
 
 // Sets the numbers the macro binds of `parsed` point at, for the declared macro values replaced by `overrides`, in a copy of the
 // patch JSON. Parse the result again with parse_sfx (it checks the ranges). An unresolvable pointer is an error.

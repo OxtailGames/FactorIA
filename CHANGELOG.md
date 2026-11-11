@@ -48,6 +48,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 - `style.ignore {path, rules}` skips only the named style rules for a file, folder or glob; `style.set_role` and a `role`
   (`ui`, `icon`, `effect`) in an asset's provenance turn off the rules that do not apply to that kind of picture.
   `assets.check_art` reports what it skipped and why (`styleSkipped`). Kindlewatch drops its ignore list for roles.
+- Sound patch variants can share one level: `master.normalize.shared: true` finds one gain on the loudest variant and applies it to all of them, so they keep their relative loudness (per-variant stays the default).
+- `sfx.bake` takes `path` (one patch or a list) to bake only those patches.
+- `assets.regenerate {stale}` lists the inputs it compared (`compared`: path and hash, and the style-guide values) when it answers "up to date".
+- `assets.check_mix` skips a recording that is only an input of an audio document's recipe (listed in `skipped` with the reason, unless `paths` names it) and judges `loop_seam_jump` and `loop_seam_slope` of a baked loop across its loop points (the crossfade a `loop` step made), not across the file's ends.
 
 ## 0.22.0
 
