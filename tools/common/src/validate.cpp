@@ -179,16 +179,34 @@ std::string color_text(const std::array<double, 4>& v, std::size_t n) {
 
 // A colour written as numbers is read as 0..255 when ANY channel is over 1 (json_to<Color>), so [255, 255, 255, 1] is an
 // alpha of 1/255 (nearly invisible) and [1, 1, 1, 255] a black of 1/255. All bytes ([255, 128, 0, 255]) or all 0..1 is fine, and
-// a channel of 0 is the same in both.
-void check_color_array(Ctx& c, const std::string& file, const std::string& pointer, const Json& v) {
+// a channel of 0 is the same in both. A colour whose channels are over 1 but none over 8 ([2, 2, 2], [1.5, 3, 0]) has no channel
+// in 0..1 to make it a mix, and reads as under 4% bright: nobody writes bytes that dark on purpose, so it is warned too (the
+// try at "brighter than white"). `strengthField` is the HDR multiplier of an emissive colour (MeshRenderer.emissiveStrength),
+// named in the hint, or empty.
+void check_color_array(Ctx& c, const std::string& file, const std::string& pointer, const Json& v,
+                       const std::string& strengthField = {}) {
     if (!v.is_array() || v.size() < 3 || v.size() > 4) return;
     std::array<double, 4> ch{0, 0, 0, 1};
     bool over = false, small = false;
+    double largest = 0.0;
     for (std::size_t i = 0; i < v.size(); ++i) {
         if (!v[i].is_number()) return;
         ch[i] = v[i].get<double>();
         over = over || ch[i] > 1.0;
         small = small || (ch[i] > 0.0 && ch[i] <= 1.0);
+        largest = std::max(largest, ch[i]);
+    }
+    const std::string glow = strengthField.empty()
+        ? std::string()
+        : " To glow brighter than white keep the colour in 0..1 and raise " + strengthField + " (an HDR multiplier, 1 = as written).";
+    if (over && !small && largest <= 8.0) {  // [2, 2, 2]: nobody writes a 0..255 colour this dark on purpose
+        std::array<double, 4> bytes = ch;
+        for (std::size_t i = 0; i < v.size(); ++i) bytes[i] = ch[i] / 255.0;
+        c.warn(file, pointer,
+               "The colour " + color_text(ch, v.size()) + " has a channel over 1, so the engine reads it as 0..255 and divides every "
+               "channel by 255: it is " + color_text(bytes, v.size()) + " (0..1), almost black. A colour in 0..1 cannot be brighter than white." + glow,
+               "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+        return;
     }
     if (!over || !small) return;
     std::array<double, 4> bytes = ch, unit = ch;
@@ -200,8 +218,14 @@ void check_color_array(Ctx& c, const std::string& file, const std::string& point
            "The colour " + color_text(ch, v.size()) + " mixes channels over 1 with channels at most 1. The engine reads a colour as "
            "0..255 when any channel is over 1, so every channel is divided by 255: it is " + color_text(bytes, v.size()) +
            " (0..1). If you meant " + color_text(unit, v.size()) + " (the 0..1 reading of the small channels), it is not; if you "
-           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine.",
+           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine." + glow,
            "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+}
+
+bool has_field(const TypeInfo& t, const std::string& name) {
+    for (const FieldInfo& f : t.fields)
+        if (f.name == name) return true;
+    return false;
 }
 
 void check_component_assets(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
@@ -209,7 +233,7 @@ void check_component_assets(Ctx& c, const std::string& file, const std::string& 
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
     for (const FieldInfo& f : t->fields)
-        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name]);
+        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name], f.name == "emissive" && has_field(*t, "emissiveStrength") ? typeName + ".emissiveStrength" : std::string());
     for (const FieldInfo& f : t->fields) {
         if (f.kind != FieldKind::Asset || !fields.contains(f.name)) continue;
         check_asset_value(c, file, pointer + "/" + f.name, f, fields[f.name]);

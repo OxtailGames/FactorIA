@@ -865,6 +865,7 @@ struct MeshRenderer {
     float metallic = 0.0f;
     float roughness = 0.6f;
     Color emissive{0, 0, 0, 1};
+    float emissiveStrength = 1.0f;    // HDR multiplier of the emissive light (glTF KHR_materials_emissive_strength): above 1 passes white and feeds bloom
     bool unlit = false;               // ignore lighting
     bool castShadows = true;
     bool receiveShadows = true;

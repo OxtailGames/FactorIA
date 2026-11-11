@@ -208,6 +208,12 @@ struct Renderer::Impl {
     void create_targets(int w, int h);
     void destroy_targets();
     int apply_color_filter(int mode);
+    // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
+    // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
+    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
+    sg_image readImg{};  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
+    sg_view readAtt{};
+    int readW = 0, readH = 0;
     sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
     sg_view final_view() const { return filterActive ? filterTex : texView; }
     void create_shadow_targets();
@@ -297,7 +303,7 @@ void Renderer::Impl::create_targets(int w, int h) {
     sg_image_desc cd{};
     cd.usage.color_attachment = true;
     cd.width = physW; cd.height = physH;
-    cd.pixel_format = SG_PIXELFORMAT_RGBA8;
+    cd.pixel_format = gpu.scene_format();
     cd.sample_count = samples;
     cd.label = "game-color";
     colorImg = make_image(cd);
@@ -310,7 +316,7 @@ void Renderer::Impl::create_targets(int w, int h) {
         rd.usage.resolve_attachment = true;
         rd.usage.color_attachment = true;  // Camera.bloom adds its glow to the resolved image
         rd.width = physW; rd.height = physH;
-        rd.pixel_format = SG_PIXELFORMAT_RGBA8;
+        rd.pixel_format = gpu.scene_format();
         rd.sample_count = 1;
         rd.label = "game-resolve";
         resolveImg = make_image(rd);
@@ -356,6 +362,11 @@ void Renderer::Impl::destroy_targets() {
     }
     if (filterImg.id) sg_destroy_image(filterImg);
     filterImg = {};
+    if (readAtt.id) sg_destroy_view(readAtt);
+    readAtt = {};
+    if (readImg.id) sg_destroy_image(readImg);
+    readImg = {};
+    readW = readH = 0;
     for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
         if (v->id) sg_destroy_view(*v);
         *v = {};
@@ -380,7 +391,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     sg_image_desc cd{};
     cd.usage.color_attachment = true;
     cd.width = w; cd.height = h;
-    cd.pixel_format = SG_PIXELFORMAT_RGBA8;
+    cd.pixel_format = gpu.scene_format();
     cd.sample_count = samples;
     cd.label = "view-color";
     t.color = make_image(cd);
@@ -392,7 +403,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
         sg_image_desc rd{};
         rd.usage.resolve_attachment = true;
         rd.width = w; rd.height = h;
-        rd.pixel_format = SG_PIXELFORMAT_RGBA8;
+        rd.pixel_format = gpu.scene_format();
         rd.sample_count = 1;
         rd.label = "view-resolve";
         t.resolve = make_image(rd);
@@ -426,7 +437,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
         sg_image_desc fd{};
         fd.usage.color_attachment = true;
         fd.width = w; fd.height = h;
-        fd.pixel_format = SG_PIXELFORMAT_RGBA8;
+        fd.pixel_format = gpu.scene_format();
         fd.sample_count = 1;
         fd.label = "target-flipped";
         t.flip = make_image(fd);
@@ -663,7 +674,7 @@ int Renderer::Impl::apply_color_filter(int mode) {
         d.usage.color_attachment = true;
         d.width = physW;
         d.height = physH;
-        d.pixel_format = SG_PIXELFORMAT_RGBA8;
+        d.pixel_format = gpu.scene_format();
         d.sample_count = 1;
         d.label = "game-filtered";
         filterImg = make_image(d);
@@ -709,6 +720,60 @@ int Renderer::Impl::apply_color_filter(int mode) {
     sg_end_pass();
     filterActive = true;
     return 1;
+}
+
+bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
+    if (gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return readback_rgba8(image, w, h, out, error);
+    if (!readImg.id || readW != w || readH != h) {
+        if (readAtt.id) sg_destroy_view(readAtt);
+        readAtt = {};
+        if (readImg.id) sg_destroy_image(readImg);
+        readImg = {};
+        readW = readH = 0;
+        sg_image_desc d{};
+        d.usage.color_attachment = true;
+        d.width = w;
+        d.height = h;
+        d.pixel_format = SG_PIXELFORMAT_RGBA8;
+        d.sample_count = 1;
+        d.label = "readback-rgba8";
+        readImg = make_image(d);
+        sg_view_desc av{};
+        av.color_attachment.image = readImg;
+        av.label = "readback-rgba8-att";
+        readAtt = sg_make_view(&av);
+        if (sg_query_image_state(readImg) != SG_RESOURCESTATE_VALID || sg_query_view_state(readAtt) != SG_RESOURCESTATE_VALID) {
+            if (error) *error = std::format("the {}x{} image for reading the frame back as 8-bit colour could not be created (out of GPU memory?)", w, h);
+            if (readAtt.id) sg_destroy_view(readAtt);
+            readAtt = {};
+            sg_destroy_image(readImg);
+            readImg = {};
+            return false;
+        }
+        readW = w;
+        readH = h;
+    }
+    sg_pass p{};
+    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
+    p.action.colors[0].store_action = SG_STOREACTION_STORE;
+    p.attachments.colors[0] = readAtt;
+    p.label = "readback-rgba8";
+    sg_begin_pass(&p);
+    sg_apply_pipeline(gpu.blit_keep_pipeline());
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = view;
+    b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    blit_blit_vs_params_t u{};
+    u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_blit_blit_vs_params, u);
+    sg_draw(0, 3, 1);
+    sg_end_pass();
+    // The read-back waits for the GPU and on Metal only an sg_commit() submits the copy (see Renderer::capture()).
+    sg_commit();
+    gpu.note_commit();
+    return readback_rgba8(readImg, w, h, out, error);
 }
 
 void Renderer::Impl::create_shadow_targets() {
@@ -1021,6 +1086,7 @@ std::uint32_t Renderer::game_target_image_id() const {
     return impl_->final_image().id;
 }
 std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->final_view().id : 0; }
+bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_format() == SG_PIXELFORMAT_RGBA16F; }
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
@@ -1846,7 +1912,12 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         const MeshRenderer& mr = *mi.mr;
         mesh_fa_mesh_fs_params_t fu = fuScene;
         const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
-        if (!d.error) { fu.fa_emissive[0] = mr.emissive.r; fu.fa_emissive[1] = mr.emissive.g; fu.fa_emissive[2] = mr.emissive.b; }
+        // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
+        // value (a script wrote it) counts as 0, no glow.
+        const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
+        if (!d.error) {
+            fu.fa_emissive[0] = mr.emissive.r * strength; fu.fa_emissive[1] = mr.emissive.g * strength; fu.fa_emissive[2] = mr.emissive.b * strength;
+        }
         fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
         fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
         const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part_base_color(mr, part);
@@ -1854,7 +1925,10 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
         fu.fa_pbr[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);
         fu.fa_pbr[1] = part.hasPbr ? saturate(part.roughness) : saturate(mr.roughness);
-        if (!d.error) { fu.fa_model_emissive[0] = part.emissiveFactor.r; fu.fa_model_emissive[1] = part.emissiveFactor.g; fu.fa_model_emissive[2] = part.emissiveFactor.b; }
+        if (!d.error) {
+            fu.fa_model_emissive[0] = part.emissiveFactor.r * strength; fu.fa_model_emissive[1] = part.emissiveFactor.g * strength;
+            fu.fa_model_emissive[2] = part.emissiveFactor.b * strength;
+        }
         fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
         fu.fa_maps[1] = part.occlusionStrength;
         fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
@@ -2329,7 +2403,7 @@ bool Renderer::capture(Image& out, std::string* error) {
     }
     sg_image img = im.final_image();
     std::vector<std::uint8_t> px;
-    if (!readback_rgba8(img, im.physW, im.physH, px, error)) return false;
+    if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error)) return false;
     out.width = im.physW;
     out.height = im.physH;
     out.rgba = std::move(px);
@@ -2426,7 +2500,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     const Impl::ViewTarget& vt = *im.viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = readback_rgba8(vt.asset.image, w, h, px, &readError);
+    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError);
     im.release_view(*im.viewTargets[kKey]);
     im.viewTargets.erase(kKey);
     im.stats = savedStats;
