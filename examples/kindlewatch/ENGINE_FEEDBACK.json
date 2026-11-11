@@ -485,7 +485,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "d62c5b3c",
+      "notes": [
+        "Fixed in d62c5b3c (M100.9a): a baseline entry with \"provisional\": true enforces only drawCalls, entities, triangles and lights; the Linux and macOS entries of tools/cli/tests/perf/kindlewatch.perf.json are provisional. Running the CI workflow by hand with perfBaselines ticked runs perf.baseline on each runner and uploads the entries (scripts/perf-baselines.sh, docs/PERFORMANCE.md, \"Baselines from CI\")."
+      ]
     },
     {
       "id": "FB-0021",
