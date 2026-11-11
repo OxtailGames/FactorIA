@@ -106,6 +106,9 @@ TEST_CASE("audio.music_state: the player of the scene plays, and audio.music dri
     CHECK(r.result["players"][0]["section"] == "intro");
     CHECK(r.result["players"][0]["sections"] == Json::parse(R"(["intro","main","outro"])"));
     CHECK(r.result["mixedFrames"].get<std::uint64_t>() > 0);
+    REQUIRE(r.result["cache"].size() == 1);  // the memory of the music: one song, its bytes per stem
+    CHECK(r.result["cache"][0]["bytes"].get<std::uint64_t>() == r.result["cacheBytes"].get<std::uint64_t>());
+    CHECK(r.result["cacheBytes"].get<std::uint64_t>() > 0);
 
     r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
     REQUIRE(r.ok);
