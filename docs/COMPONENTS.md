@@ -18030,9 +18030,24 @@ declare module "factoria:test" {
     readonly not: Expectation;
   }
 
+  /**
+   * The third argument of test().
+   * @since unreleased
+   */
+  export interface TestOptions {
+    /**
+     * Errors this test expects the game to log, each a RegExp or a part of the text. They do not fail the test; an expected error that is never logged does. Any other script error or engine ERROR logged while the test runs fails it (console.error is not an error). Same as calling game.expectErrors() inside the test.
+     * @since unreleased
+     */
+    expectErrors?: (RegExp | string)[];
+  }
+
   export interface TestFn {
-    (name: string, fn: () => void | Promise<void>): void;
-    skip(name: string, fn: () => void | Promise<void>): void;
+    /**
+     * Declares a test. A test fails when a game script throws or the engine logs an error while it runs (see TestOptions.expectErrors and game.expectErrors for a test that is about an error).
+     */
+    (name: string, fn: () => void | Promise<void>, options?: TestOptions): void;
+    skip(name: string, fn: () => void | Promise<void>, options?: TestOptions): void;
   }
 
   export interface DescribeFn {
@@ -18371,6 +18386,11 @@ declare module "factoria:test" {
      * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
     load(path: string, props?: Json): void;
+    /**
+     * Says that this test expects the game to log an error that matches (a RegExp, or a string that is part of the text): a script that throws in a callback or an event, a missing file the engine reports. It does not fail the test, and the test fails when no logged error matches a pattern. Any other script error or engine ERROR logged while a test runs fails the test with the first one as its message; console.error is not an error. Same as test(name, fn, { expectErrors: [...] }). Only inside a test.
+     * @since unreleased
+     */
+    expectErrors(...patterns: (RegExp | string)[]): void;
     /**
      * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
      * @since 0.3.0

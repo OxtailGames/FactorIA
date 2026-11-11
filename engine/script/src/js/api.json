@@ -5402,14 +5402,25 @@
     },
     {
      "kind": "interface",
+     "name": "TestOptions",
+     "doc": "The third argument of test().",
+     "members": [
+      {
+       "sig": "expectErrors?: (RegExp | string)[]",
+       "doc": "Errors this test expects the game to log, each a RegExp or a part of the text. They do not fail the test; an expected error that is never logged does. Any other script error or engine ERROR logged while the test runs fails it (console.error is not an error). Same as calling game.expectErrors() inside the test."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "TestFn",
      "members": [
       {
-       "sig": "(name: string, fn: () => void | Promise<void>): void",
-       "doc": ""
+       "sig": "(name: string, fn: () => void | Promise<void>, options?: TestOptions): void",
+       "doc": "Declares a test. A test fails when a game script throws or the engine logs an error while it runs (see TestOptions.expectErrors and game.expectErrors for a test that is about an error)."
       },
       {
-       "sig": "skip(name: string, fn: () => void | Promise<void>): void",
+       "sig": "skip(name: string, fn: () => void | Promise<void>, options?: TestOptions): void",
        "doc": ""
       }
      ]
@@ -5736,6 +5747,10 @@
       {
        "sig": "load(path: string, props?: Json): void",
        "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}."
+      },
+      {
+       "sig": "expectErrors(...patterns: (RegExp | string)[]): void",
+       "doc": "Says that this test expects the game to log an error that matches (a RegExp, or a string that is part of the text): a script that throws in a callback or an event, a missing file the engine reports. It does not fail the test, and the test fails when no logged error matches a pattern. Any other script error or engine ERROR logged while a test runs fails the test with the first one as its message; console.error is not an error. Same as test(name, fn, { expectErrors: [...] }). Only inside a test."
       },
       {
        "sig": "fileReads(): number",
