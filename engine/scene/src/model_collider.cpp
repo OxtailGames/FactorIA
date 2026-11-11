@@ -179,6 +179,10 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         const bool wide = std::sqrt(r2) > size.y * 0.5f + 1e-6f && spec.radius <= 0;
         if (spec.radius > 0) c.radius = float(spec.radius);
         if (spec.height > 0) c.height = float(spec.height);
+        if (spec.height > 0 && c.height < 2 * c.radius)
+            c.warnings.push_back(std::format("collider.height {:.3g} is less than twice the radius ({:.3g}), so the capsule was made {:.3g} tall: a capsule is never shorter than its two caps. "
+                                             "Give a height of at least {:.3g}, or a smaller collider.radius, or use shape \"sphere\".",
+                                             double(spec.height), double(c.radius), double(2 * c.radius), double(2 * c.radius)));
         c.height = std::max(c.height, 2 * c.radius);
         if (wide)
             c.warnings.push_back("the model is wider than it is tall, so a capsule standing on Y clips its sides; use a box or sphere, or lay it out along Y.");

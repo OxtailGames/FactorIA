@@ -8,6 +8,12 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **Polish of provenance and rigs (M101.P7):** every `anim3d.*` command that writes a clip (and `ik3d.key`) is no longer `readOnly`, and
+  checks `assets.json` before it touches a file. `anim3d.restore` takes `provenance` (every `undo` now carries it): an undo puts the
+  clip's record, recipe included, back, and `clip: null` deletes the record with the file. A capsule collider whose `height` is under
+  twice its `radius` now warns instead of being raised silently. A model part name may not contain `+` (rig.bake `mergeParts` joins names
+  with it). `rig.bake {mergeParts}` with no `path` skips the fresh documents already baked with that choice. docs/RIGGING.md and
+  docs/IMAGES.md say what merging does to blended submeshes and that `image.create {output}` replaces an existing PNG.
 - **Rolloff for spatial sounds (M101.3):** `AudioSource.rolloff` (`linear` default, `inverse`, `exponential`) with `refDistance` and
   `rolloffFactor`, and the same three options on `audio.play({position, range, ...})` (one formula, `audio_spatial_gain`;
   docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
