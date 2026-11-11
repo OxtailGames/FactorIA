@@ -79,6 +79,20 @@ TEST_CASE("image.resize: growing with an anchor moves every layer, frame and cel
     CHECK(sheet["clips"][0]["name"] == "walk");
 }
 
+TEST_CASE("image.resize: an indexed layer whose frame 0 is empty (art only in a cel) moves with the anchor") {
+    AssetsProject p;
+    const Json doc = Json::parse(R"({"format":"factoria.image/1","width":4,"height":4,"palette":["#000000","#ff0000"],
+        "frames":[{"duration":80},{"duration":80}],
+        "layers":[{"kind":"indexed","name":"art","cels":[{"frame":1,"rows":[".1..","....","....","...."]}]}]})");
+    p.ok("image.save", {{"path", kDoc}, {"document", doc}});
+    CHECK(get(frame_of(p, 1), 1, 0) == kRed);
+    p.ok("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "bottom-right"}});
+    const Image f1 = frame_of(p, 1);
+    CHECK(f1.width == 8);
+    CHECK(get(f1, 5, 4) == kRed);
+    CHECK_FALSE(get(f1, 1, 0) == kRed);
+}
+
 TEST_CASE("image.resize: cropping drops what leaves the canvas, mixed grow and crop, and the default anchor is the centre") {
     AssetsProject p;
     make_dot(p);

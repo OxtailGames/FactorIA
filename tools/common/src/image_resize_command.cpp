@@ -48,7 +48,11 @@ struct Ctx {
 // A layer with no size of its own at (0, 0) covers the canvas whatever its size: it needs no move.
 bool follows_canvas(const Json& layer) {
     const std::string kind = layer.value("kind", std::string());
-    const bool sizedByCanvas = kind == "fill" || kind == "gradient" || kind == "procedural" || kind == "svg" || (kind == "indexed" && !layer.contains("rows"));
+    // An indexed layer has art of its own when it, or any of its cels, has `rows` (frame 0 may be empty with the art only in the cels).
+    bool indexedArt = layer.contains("rows");
+    if (kind == "indexed" && layer.contains("cels") && layer["cels"].is_array())
+        for (const Json& cel : layer["cels"]) indexedArt = indexedArt || (cel.is_object() && cel.contains("rows"));
+    const bool sizedByCanvas = kind == "fill" || kind == "gradient" || kind == "procedural" || kind == "svg" || (kind == "indexed" && !indexedArt);
     return sizedByCanvas && layer.value("width", 0) == 0 && layer.value("height", 0) == 0 && layer.value("x", 0) == 0 && layer.value("y", 0) == 0;
 }
 
