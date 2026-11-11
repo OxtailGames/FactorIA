@@ -35,10 +35,18 @@ namespace fa::audio_detail {
 
 constexpr int kMusicChunkShift = 13;
 constexpr std::int64_t kMusicChunkFrames = std::int64_t(1) << kMusicChunkShift;  // 8192 frames: 186 ms at 44100 Hz
-constexpr std::size_t kMusicSlots = 24;                                           // the window: 24 chunks, 4.5 s
-constexpr std::size_t kMusicWantedMax = 40;                                       // chunks the game asks to keep decoded at once
+// The window: 32 chunks, 6 s. A crossfade inside one song reads two heads (12 chunks of look-ahead each) and a jump just primed keeps up to 8
+// protected, so 12 + 12 + 8 fills it; kMusicWantedMax never exceeds it, or the service would want what the window cannot hold.
+constexpr std::size_t kMusicSlots = 32;
+constexpr std::size_t kMusicWantedMax = kMusicSlots;                              // chunks the service asks to keep decoded at once
 constexpr std::int64_t kMusicLookAhead = 12;                                      // chunks ahead of a playhead kept decoded (2.2 s)
 constexpr std::int64_t kMusicUrgent = 4;                                          // chunks of each playhead decoded before any other
+
+// Underruns of many stems added up (the Audio owns one; a stem adds to it as well as to its own count, so a source that leaves the music
+// cache while it still plays keeps being counted in stats()).
+struct MusicTally {
+    std::atomic<std::uint64_t> events{0}, frames{0};
+};
 
 // One stem. The mixer side (pin/unpin/note_underrun) and the producer side (everything else, under claim()) are separate.
 class MusicStemStream {
@@ -61,7 +69,13 @@ public:
     void note_underrun(std::uint64_t frames) {
         underrunEvents_.fetch_add(1, std::memory_order_relaxed);
         underrunFrames_.fetch_add(frames, std::memory_order_relaxed);
+        if (tally_) {
+            tally_->events.fetch_add(1, std::memory_order_relaxed);
+            tally_->frames.fetch_add(frames, std::memory_order_relaxed);
+        }
     }
+    // Before the stem reaches the mixer (the game thread, when the song enters the cache): where else its underruns are added.
+    void set_tally(std::shared_ptr<MusicTally> tally) { tally_ = std::move(tally); }
     std::uint64_t underrun_events() const { return underrunEvents_.load(std::memory_order_relaxed); }
     std::uint64_t underrun_frames() const { return underrunFrames_.load(std::memory_order_relaxed); }
 
@@ -77,24 +91,27 @@ public:
     }
     void unclaim() { busy_.store(false, std::memory_order_release); }
     // claim() that waits for the holder, for the time of a chunk (the holder yields to a waiter between chunks, fill_wanted); false after a
-    // safety deadline of half a second, far above that.
+    // safety deadline of half a second, far above that (a test sets another one with set_claim_wait_limit, so a loaded machine cannot reach it).
     bool claim_wait();
+    void set_claim_wait_limit(int milliseconds) { claimWaitMs_.store(milliseconds, std::memory_order_relaxed); }
     int waiters() const { return waiters_.load(std::memory_order_relaxed); }
     // The service thread's pass number, bumped for every pass on every stem: chunks of prime() stay protected for kPrimedPasses of them.
     void tick(std::uint64_t pass) { pass_.store(pass, std::memory_order_relaxed); }
     // One pass of the service thread: when the mixer published this stem lately (`mixSeq` is the mixer's current Mixer::musicSeq), takes the
-    // claim (skips the stem when someone else has it), turns the published heads into the wanted chunks and decodes the missing ones.
-    // True when a wanted chunk is still missing (the thread comes back soon).
-    bool service(std::uint64_t mixSeq);
+    // claim (skips the stem when someone else has it), turns the published heads into the wanted chunks and decodes the missing ones. With
+    // `urgentOnly` only the first kMusicUrgent chunks of every head (the pass runs that round on every stem before the full one, so a stem
+    // with a long way to fill does not keep another one waiting). True when a wanted chunk is still missing and the thread can make
+    // progress on it (it comes back soon): false when the window is full of chunks that are wanted, which nothing can fix by trying again.
+    bool service(std::uint64_t mixSeq, bool urgentOnly = false);
     // True when the mixer published this stem within the last few publishes.
     bool live(std::uint64_t mixSeq) const;
     // Replaces the chunks to keep decoded, most urgent first (at most kMusicWantedMax). Chunks decoded by prime() stay protected for a while.
     void set_wanted(const std::int64_t* chunks, std::size_t n);
     // True when a wanted chunk is not decoded.
     bool missing_any() const;
-    // Decodes up to `most` of the wanted chunks that are not decoded, in order, and stops early when a claim_wait() is waiting. Returns how
-    // many it made.
-    std::size_t fill_wanted(std::size_t most);
+    // Decodes up to `most` of the first `upTo` wanted chunks that are not decoded, in order, and stops early when a claim_wait() is waiting.
+    // Returns how many it made.
+    std::size_t fill_wanted(std::size_t most, std::size_t upTo = kMusicWantedMax);
     // Decodes chunks [first, first + count) now and keeps them out of the way of eviction for the next kPrimedPasses passes. The game uses it
     // before it sends a command that jumps somewhere, so the target is there whatever the jobs are doing.
     void prime(std::int64_t first, std::int64_t count);
@@ -134,6 +151,7 @@ private:
     std::int64_t decodePos_ = 0;              // the frame the decoder returns next (-1: unknown, seek first)
     std::array<std::int64_t, kMusicWantedMax> wanted_{};
     std::size_t wantedCount_ = 0;
+    std::size_t urgentCount_ = 0;  // the first of wanted_ that are the urgent round of refresh_wanted
     struct Primed {
         std::int64_t chunk = -1;
         std::uint64_t until = 0;
@@ -143,6 +161,7 @@ private:
     std::atomic<std::uint64_t> pass_{0};
     std::atomic<bool> busy_{false};
     std::atomic<int> waiters_{0};
+    std::atomic<int> claimWaitMs_{500};
     // Published by the mixer (publish_head), read by the service thread. Advisory: a read that mixes two publishes only decodes a chunk
     // that is not needed or one pass late. A head is packed: chunk of the position (21 bits), last chunk (21), chunk the loop continues from
     // (21), wraps (1).
@@ -152,6 +171,7 @@ private:
     std::uint64_t pubSeq_ = 0;             // mixer thread only
     std::size_t pubCount_ = 0;
     std::atomic<std::uint64_t> underrunEvents_{0}, underrunFrames_{0}, decodeErrors_{0};
+    std::shared_ptr<MusicTally> tally_;  // set once, before the mixer can see the stem
 };
 
 }  // namespace fa::audio_detail

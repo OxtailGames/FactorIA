@@ -265,9 +265,11 @@ public:
     MusicStatus music_status(World& world, Entity e) const;
     // Every player: [{entity, ...status}], the ones playing out after a scene change included.
     Json music_players() const;
-    // Bytes of music the cache holds now: the 16-bit PCM of every stem that is decoded whole (2 bytes per sample, stereo at
-    // 44.1 kHz = 176400 bytes per second per stem) plus, for a stem that streams from its ogg, its window of decoded chunks,
-    // its scratch buffers and its encoded file. Cheap; the same number as stats()["musicBytes"].
+    // Bytes of music in memory now: the 16-bit PCM of every stem that is decoded whole (2 bytes per sample, stereo at 44.1 kHz =
+    // 176400 bytes per second per stem) plus, for a stem that streams from its ogg, its window of decoded chunks, its scratch
+    // buffers and its encoded file. Counts the cache, the sources a player still plays after the cache let go of them (a song
+    // that changed on disk) and the loads that finished but are not cached yet; a load still decoding is not counted. Cheap; the
+    // same number as stats()["musicBytes"].
     std::size_t music_bytes() const;
     // The cached songs as [{song, mode, bytes, streamed, underruns, stems: [{name, bytes, streamed}]}], what music_bytes() adds
     // up. Eviction and unloading remove a song from it.
@@ -298,15 +300,18 @@ public:
     bool stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut = nullptr,
                         int* rateOut = nullptr);
 
-    // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
-    // of the voices that stream, plus musicBytes), musicBytes (the music cache: decoded stems and the windows of the streamed ones, part of decodedBytes), streamedSongs (the cached songs with a stem that streams) and streamedClips (the loaded clips that stream), busEffects (the bus_state of every bus,
-    // master included) and snapshot (the last one applied, "" = none). The real-time path: underruns / underrunFrames
-    // (a streamed voice found nothing decoded and played that many frames of silence), commandsDropped / settingsDropped
-    // (a stalled device: the oldest plays and voice settings, then bus and music settings, dropped from the full queue; a
-    // dropped setting is sent again from the game's copy once the queue has emptied), commandsCoalesced (repeated pauses,
-    // effect resets, stops of everything and music retunes merged while a stalled device has a long queue) and
-    // voicesStolen / voicesRejected (voice stealing with every voice taken). musicUnderruns / musicUnderrunFrames count the same
-    // for the streamed stems of the music (they are part of `underruns`).
+    // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers of the
+    // voices that stream, plus musicBytes), musicBytes (the music in memory: the cache's decoded stems and the windows of the
+    // streamed ones, plus a source a player still plays after the cache let go of it and a load that finished but is not in the
+    // cache yet; part of decodedBytes), streamedSongs (the cached songs with a stem that streams) and streamedClips (the loaded
+    // clips that stream), busEffects (the bus_state of every bus, master included) and snapshot (the last one applied, "" = none).
+    // The real-time path: underruns / underrunFrames (a streamed voice found nothing decoded and played that many frames of
+    // silence), commandsDropped / settingsDropped (a stalled device: the oldest plays and voice settings, then bus and music
+    // settings, dropped from the full queue; a dropped setting is sent again from the game's copy once the queue has emptied),
+    // commandsCoalesced (repeated pauses, effect resets, stops of everything and music retunes merged while a stalled device has
+    // a long queue) and voicesStolen / voicesRejected (voice stealing with every voice taken). musicUnderruns /
+    // musicUnderrunFrames count the same for the streamed stems of the music, whether their song is still cached or not (they are
+    // part of `underruns`).
     Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)

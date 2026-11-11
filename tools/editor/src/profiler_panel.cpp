@@ -142,9 +142,9 @@ void Editor::draw_profiler_panel() {
     else ImGui::TextDisabled("GPU: n/a (%s)", v.gpuReason.c_str());
     if (v.haveMemory) {
         auto mb = [](std::uint64_t b) { return double(b) / (1024.0 * 1024.0); };
-        ImGui::Text("Memory %.0f MB (peak %.0f)   JS heap %.1f MB   textures %.1f MB   audio %.1f MB   entities %d", mb(v.memory.processBytes),
-                    mb(v.memory.peakProcessBytes), mb(v.memory.jsHeapBytes), mb(v.memory.textureBytes), mb(v.memory.audioDecodedBytes),
-                    v.memory.entities);
+        ImGui::Text("Memory %.0f MB (peak %.0f)   JS heap %.1f MB   textures %.1f MB   audio %.1f MB (music %.1f)   entities %d",
+                    mb(v.memory.processBytes), mb(v.memory.peakProcessBytes), mb(v.memory.jsHeapBytes), mb(v.memory.textureBytes),
+                    mb(v.memory.audioDecodedBytes), mb(v.memory.musicBytes), v.memory.entities);
     }
 
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
