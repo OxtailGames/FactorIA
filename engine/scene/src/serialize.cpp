@@ -418,6 +418,7 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
     }
     Json expanded;
     const Json* jp = &jIn;
+    const bool quietIdsIn = quietIds;
     std::string savedNote = note_;
     bool pushedPrefab = false;
     bool expandedHere = false;
@@ -442,7 +443,7 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
     {
         EntityInfo& made = info_of(world_, e);
         made.prefab = prefabPath;
-        made.fromPrefab = inContent || expandedHere;
+        made.fromPrefab = inContent;   // the root of an instance added by a scene is not the content of another prefab
         // The in-memory snapshots (undo, Play/Stop) carry the origin in these two keys (EntityJsonOptions::prefabs).
         if (const auto m = j.find("$prefab"); m != j.end() && m->is_string() && !expandedHere) made.prefab = m->get<std::string>();
         if (const auto m = j.find("$fromPrefab"); m != j.end() && m->is_boolean() && m->get<bool>()) made.fromPrefab = true;
@@ -554,15 +555,18 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                 load_entity(kids[i], e, ptr + "/children/" + std::to_string(i), quietIds, inContent || expandedHere);
         }
     }
+    // The prefab's own content is done: what follows (the children added to the instance) is not part of it, so the prefab
+    // leaves the include stack (an added child may be an instance of the same prefab) and the note and the id warnings are
+    // the scene's again.
+    if (pushedPrefab) prefabStack_.pop_back();
+    pushedPrefab = false;
+    note_ = savedNote;
     // The children written next to "prefab" are added to the instance, after the prefab's own.
     if (expandedHere && jIn.contains("children") && jIn["children"].is_array()) {
         const Json& added = jIn["children"];
         for (std::size_t i = 0; i < added.size(); ++i)
-            load_entity(added[i], e, ptr + "/children/" + std::to_string(i), quietIds, inContent);
+            load_entity(added[i], e, ptr + "/children/" + std::to_string(i), quietIdsIn, inContent);
     }
-
-    if (pushedPrefab) prefabStack_.pop_back();
-    note_ = savedNote;
     return e;
 }
 

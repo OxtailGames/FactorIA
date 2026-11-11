@@ -1230,7 +1230,7 @@ TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefa
     CHECK(s.entity("guard")["components"]["Shape2D"]["size"] == Json::parse("[77,20]"));
     CHECK(ids_with_tag(s, "tilemap:tilemap").size() == 4);
 
-    // Importing again over that file replaces the references (no duplicates), and edits make an entity expanded.
+    // Importing again over that file replaces the references (no duplicates), and an edit is kept as a difference.
     a["path"] = "scenes/refs.scene.json";
     a.erase("from");
     a["edits"] = Json::parse(R"({"player":{"Shape2D":{"layer":1}}})");
@@ -1239,10 +1239,13 @@ TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefa
     file = scene_file(s, "scenes/refs.scene.json");
     int refs = 0;
     for (const Json& e : file["entities"]) {
-        if (e["id"] == "player") CHECK_FALSE(e.contains("prefab"));
+        if (e["id"] == "player") {
+            CHECK(e.contains("prefab"));  // still an instance, with the edit as its difference
+            CHECK(e["components"]["Shape2D"]["layer"] == 1);
+        }
         if (e.contains("prefab")) ++refs;
     }
-    CHECK(refs == 4);  // guard + 3 coins
+    CHECK(refs == 5);  // guard + 3 coins + the edited player
 }
 
 TEST_CASE("import_ascii: legendFrom merges a shared legend under the map's own, without unused warnings") {
