@@ -30,7 +30,9 @@ check() {  # $1 yes|no, $2 command
 }
 for c in "factoria call play.auto" "factoria call scene.import_ascii @levels/level1.json" "factoria call scene.format '{}'" \
          "factoria call game.state" "factoria call script.trace '{}'" "factoria call skills.read x" "factoria call docs.search x" \
-         "factoria test" "factoria run" "factoria new demo" "factoria call project.validate"; do check yes "$c"; done
+         "factoria test" "factoria run" "factoria new demo" "factoria call project.validate" \
+         "factoria new demo --template 2d-platformer" "factoria new ." "factoria screenshot shots/a.png" \
+         "factoria call game.screenshot '{\"path\":\"shots/a.png\"}'" "factoria call scene.import_ascii @levels/level1.json"; do check yes "$c"; done
 for c in "factoria call --batch '[{\"command\":\"feedback.share\"}]'" "factoria call --json feedback.share" \
          "factoria call \"feedback.share\"" "factoria call 'feedback.share'" "factoria call -p . scene.list" \
          "factoria call --project . play.auto" "factoria call feedback.share" "factoria call ai.run '{}'" \
@@ -38,5 +40,12 @@ for c in "factoria call --batch '[{\"command\":\"feedback.share\"}]'" "factoria 
          "factoria call scene.list --batch '[]'" "factoria call project.export" "factoria call publish.x" \
          "factoria feedback add" "factoria setup launcher" "factoria ai run" "factoria editor" "factoria export" \
          "factoria call image.generate" "factoria call fs.write" "rm -rf x" "curl http://x"; do check no "$c"; done
+# Paths outside the work folder (absolute, home, parent), on the command line and inside a JSON argument or an @file.
+for c in "factoria new /tmp/x" "factoria new demo /tmp/x" "factoria new ~/x" "factoria new demo ~/x" "factoria new ../x" "factoria new demo ../x" \
+         "factoria new .." "factoria new demo .." "factoria screenshot /tmp/a.png" "factoria screenshot shots/a.png ../b.png" \
+         "factoria call game.screenshot '{\"path\":\"/tmp/a.png\"}'" "factoria call game.screenshot '{\"path\": \"/tmp/a.png\"}'" \
+         "factoria call game.screenshot '{\"path\":\"../../a.png\"}'" "factoria call game.screenshot '{\"path\":\"~/a.png\"}'" \
+         "factoria call game.screenshot {\\\"path\\\":\\\"/tmp/a.png\\\"}" "factoria call scene.import_ascii @/etc/passwd" \
+         "factoria call scene.import_ascii @../x.json" "factoria call game.screenshot '{\"path\":\"a\",\"x\":\"/tmp\"}'"; do check no "$c"; done
 [ $fail -eq 0 ] && echo "agent-cost policy: ok"
 exit $fail

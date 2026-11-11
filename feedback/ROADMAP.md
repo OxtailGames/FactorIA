@@ -50,7 +50,8 @@ milestones built is in [done/README.md](done/README.md) (one file per milestone)
 open ("Open limits of finished milestones") and the decisions to respect.
 Triage 2026-11-10: the 33 entries the examples logged since 2026-10-29 (Kindlewatch, Ember Descent, Gem Roller,
 Neon Swarm, Sky Hopper, Lantern Keep) were never in this list, because the command below named the examples by hand;
-KW/FB-0002 and SH/FB-0026 were fixed already and are closed, the other 31 go to M101 ("M100-M101", at the end).
+KW/FB-0002 and SH/FB-0026 were fixed already and are closed, the other 31 went to M101 ("M100-M101", at the end);
+KW/FB-0019 and KW/FB-0020 have been closed since (M100.10, M100.9) and CC/FB-0057 was added (M100.4): 30 are open there.
 Regenerate the ranked list with `factoria feedback collect examples/* --out feedback/ROADMAP.md` (it rewrites the whole
 file: then put this status and the milestones section back).
 
@@ -1396,16 +1397,13 @@ assets and animation; scripting and scene), several reproduced in a scratch proj
 - Already fixed, closed with a `Fixed in` note: KW/FB-0002 (the schema takes provenance kind `prefab` and `extras`
   since `479c7bd2`, M60; `model.game_ready` then `validate` gives 0 errors) and SH/FB-0026 (`validate` checks clip
   track paths since `c96ddbbd`, M42.3).
-- Possible already, docs only: KW/FB-0019 (`tween(world.settings, {skyColor, ambientLight, fogDensity...})` moves the
-  scene's colours; no example says so).
 - Hold in part: GR/FB-0016 (the export warns since `230bc811`, `validate` does not, the warning has no line, and
   gem-roller's `scripts/game.js:16` still calls `project.scatter_gems`), ED/FB-0002 (AI_GUIDE §9.8 says it; the
   refused-level error does not), KW/FB-0005 (`status.song` is already the audible song; nothing pending is exposed),
   KW/FB-0009 (`texelsPerUnit` already follows how a texture is used), KW/FB-0010 (the summaries say it; `sfx.bake`
   takes no `path`), KW/FB-0011 (`master.normalize` exists and is per variant; the "up to date" answer did not
   reproduce, but it does not say what it compared), KW/FB-0015 (`game.touch` on a widget exists since `3b41cbc7`;
-  nothing forces touch UI in a screenshot), KW/FB-0018 (M82.2 adds `attack`, not a bite or `anim3d.pose`), KW/FB-0020
-  (`no_baseline` passes; no provisional entry), NS/FB-0021 (MUSIC.md's table says it since `69a4fe61`; the names do
+  nothing forces touch UI in a screenshot), KW/FB-0018 (M82.2 adds `attack`, not a bite or `anim3d.pose`), NS/FB-0021 (MUSIC.md's table says it since `69a4fe61`; the names do
   not), SH/FB-0024 (the generator writes prefab references now; `validate` does not warn about an inline copy).
 - Duplicates across games: GR/FB-0013 = KW/FB-0017 (no provenance for anim3d clips), GR/FB-0014 = KW/FB-0021 (rigged
   parts never merged). Both stay open and are fixed by one package.
@@ -1515,6 +1513,10 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   are the average again. `example_gem-roller_perf` failed on the p95 itself: 1.745 > 1.464 with a baseline of 0.464,
   3.8 times it. Under a millisecond the 1 ms slack is most of the limit, and the two re-measures follow the first at
   once, inside the seconds the shared runner is slow.
+  Open: `perf.check` has no "allocations per frame" or "bytes retained" counter yet (`perf.measure` reports draw calls,
+  entities and memory only); the sentence above is the target, and a package adds the counters to `perf.measure`.
+  Open: the cause of the Windows editor autotest flake in section E2 is not confirmed; do not close it as fixed until
+  several Windows CI runs in a row are green.
 - M100.10 (S) DONE, bookkeeping of the review: KW/FB-0019 has its dawn example in ANIMATION.md (a `tween` of
   `world.settings`) and a script test; ED/FB-0002's docs part was already in AI_GUIDE 9.8, so only the refused-level
   error is left (M101.10); this file keeps only what is open and the decisions: the DONE milestone sections moved to
@@ -1525,7 +1527,7 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   at x >= 2464, before the goal at x = 2480, and the AI never ran `play.auto`. A trustworthy criterion needs a new
   BRIEF_ID that asks for one `game.phase` per level, and a new paid run.
 
-## M101. Found by the example games, 2026-10-29..11-08 (L; 10 packages; 31 open entries)
+## M101. Found by the example games, 2026-10-29..11-08 (L; 10 packages; 30 open entries)
 
 - M101.1 (L) Music memory (KW/FB-0001, major): `Audio::stats()` counts the `MusicSource` buffers (`musicBytes` beside
   `decodedBytes`, per song in `audio.music_state` and `perf.profile`), so `perf.measure` explains a 576 MB process;
@@ -1565,7 +1567,7 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
 - M101.9 (L) `scene.save` keeps prefab instances (KW/FB-0008): an entity remembers the prefab it came from, and saving
   writes `{prefab, components: only the differences}`; loading and saving an unedited scene gives the same bytes;
   `validate` warns about an entity that repeats its prefab's components inline (SH/FB-0024).
-- M101.10 (M) Small ones: the refused-level error names the sample's shape when cut-off areas refused more than half of
+- M101.10 (M) Small ones (CC/FB-0057, below, is held for this package or one of its own): the refused-level error names the sample's shape when cut-off areas refused more than half of
   the attempts (ED/FB-0002, whose docs part is in AI_GUIDE 9.8 already; counted per cause in `GenStats`); `SpriteAnimator.loopMode` (inherit, loop, once; `loop`
   stays as an alias, NS/FB-0019); `IK2D.ground` puts the target on the first collider below it within a reach, run by
   a pass that sees physics before the solver (SH/FB-0025); gem-roller bakes its gems into the scene or moves the

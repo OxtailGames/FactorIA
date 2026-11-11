@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <regex>
 #include <set>
@@ -74,38 +75,80 @@ bool is_factoria_call(const EfficiencyToolCall& c) {
     return (c.name == "Bash" && c.shell.find("factoria") != std::string::npos) || c.command.find('.') != std::string::npos;
 }
 
+bool is_test_call(const EfficiencyToolCall& c) { return c.shell.find("factoria test") != std::string::npos || c.command == "test.run"; }
+
+// The calls whose output can show a script error of the GAME: `factoria run`, `play.auto`, the test runs and the log reads. Any other
+// output (docs, `scene.get`, `api`...) may quote "TypeError" as text, and is not evidence that a script failed.
+bool shows_game_output(const EfficiencyToolCall& c) {
+    return is_test_call(c) || c.command == "play.auto" || c.command == "game.logs" || c.shell.find("factoria run") != std::string::npos;
+}
+
+// A phase named like a menu or an end screen is not a level: menu + level + win screen would otherwise count as three levels.
+bool looks_like_level(const std::string& name) {
+    static const std::regex notLevel(R"((menu|title|splash|credits|game[ _-]?over|victory|win|lose|loss|results?)([^a-z]|$))", std::regex::icase);
+    return !std::regex_search(name, notLevel);
+}
+
+// The text of the JSON array that follows "phases" in a play.auto answer that was cut or wrapped: from its `[` to its matching `]` (strings
+// skipped), or to the end of the text when it was cut. Empty when there is no array.
+std::string phases_array_text(const std::string& text, std::size_t at) {
+    const std::size_t open = text.find('[', at);
+    if (open == std::string::npos) return {};
+    int depth = 0;
+    bool inString = false;
+    for (std::size_t i = open; i < text.size() && i < open + 200000; ++i) {
+        const char ch = text[i];
+        if (inString) {
+            if (ch == '\\') ++i;
+            else if (ch == '"') inString = false;
+        } else if (ch == '"') {
+            inString = true;
+        } else if (ch == '[' || ch == '{') {
+            ++depth;
+        } else if (ch == ']' || ch == '}') {
+            if (--depth == 0) return text.substr(open, i - open + 1);
+        }
+    }
+    return text.substr(open);
+}
+
 }  // namespace
 
 Json agent_cost_read_play_auto(const std::string& text) {
-    Json out = Json::object({{"phases", 0}, {"ended", ""}, {"scriptErrors", 0}, {"parsed", false}});
+    Json out = Json::object({{"phases", 0}, {"levelPhases", 0}, {"ended", ""}, {"endedWhy", ""}, {"scriptErrors", 0}, {"parsed", false}});
     const std::size_t a = text.find('{');
     const std::size_t b = text.rfind('}');
     Json j;
     if (a != std::string::npos && b != std::string::npos && b > a) j = Json::parse(text.begin() + static_cast<std::ptrdiff_t>(a), text.begin() + static_cast<std::ptrdiff_t>(b) + 1, nullptr, false);
-    std::set<std::string> phaseSet;
+    std::set<std::string> phaseSet, levelSet;
     if (j.is_object() && j.contains("phases") && j["phases"].is_array()) {
         out["parsed"] = true;
         for (const Json& p : j["phases"]) {
             if (!p.is_object()) continue;
             const std::string name = p.value("name", std::string());
             phaseSet.insert(p.value("kind", std::string()) + "|" + name);
+            if (looks_like_level(name)) levelSet.insert(p.value("kind", std::string()) + "|" + name);
         }
         if (j.contains("ended") && j["ended"].is_string()) out["ended"] = j["ended"];
+        if (j.contains("endedWhy") && j["endedWhy"].is_string()) out["endedWhy"] = first_line(j["endedWhy"].get<std::string>());
         if (j.contains("scriptErrors")) {
             const Json& se = j["scriptErrors"];
             out["scriptErrors"] = se.is_number() ? static_cast<int>(std::min(se.get<double>(), 1e6)) : (se.is_array() ? static_cast<int>(se.size()) : 0);
         }
     } else if (const std::size_t at = text.find("\"phases\""); at != std::string::npos) {
-        // The answer was cut or wrapped: count the distinct phase names in the part that follows "phases".
+        // The answer was cut or wrapped: count the distinct phase names of the array that follows "phases" (and no other "name" key).
         static const std::regex name(R"re("name"\s*:\s*"([^"]*)")re");
-        const std::size_t end = std::min(text.size(), at + 20000);
-        const std::string part = text.substr(at, end - at);
-        for (auto it = std::sregex_iterator(part.begin(), part.end(), name); it != std::sregex_iterator(); ++it) phaseSet.insert((*it)[1].str());
+        const std::string part = phases_array_text(text, at);
+        for (auto it = std::sregex_iterator(part.begin(), part.end(), name); it != std::sregex_iterator(); ++it) {
+            phaseSet.insert((*it)[1].str());
+            if (looks_like_level((*it)[1].str())) levelSet.insert((*it)[1].str());
+        }
         static const std::regex ended(R"re("ended"\s*:\s*"([a-z]+)")re");
         std::smatch m;
         if (std::regex_search(text, m, ended)) out["ended"] = m[1].str();
     }
     out["phases"] = static_cast<int>(phaseSet.size());
+    out["levelPhases"] = static_cast<int>(levelSet.size());
     return out;
 }
 
@@ -153,16 +196,20 @@ Json agent_cost_report(const AgentCostInput& in) {
         for (const EfficiencyToolCall& c : st.calls) {
             if (!is_factoria_call(c)) continue;
             const std::string& text = texts[c.id];
-            if (c.failed && !c.code.empty()) {
+            const bool isTest = is_test_call(c);
+            // A failed call counts under its error code, or under "none" when the failure gave no code (a non-zero exit, a crash). A failed
+            // test run is the tests doing their job, not an engine error, unless it gave a code.
+            const bool ranFactoria = c.shell.find("factoria ") != std::string::npos || c.command.find('.') != std::string::npos;
+            if (c.failed && (!c.code.empty() || (!isTest && ranFactoria))) {
+                const std::string code = c.code.empty() ? "none" : c.code;
                 ++errorCount;
-                byCode[c.code] = (byCode.contains(c.code) ? byCode[c.code].get<int>() : 0) + 1;
+                byCode[code] = (byCode.contains(code) ? byCode[code].get<int>() : 0) + 1;
                 if (static_cast<int>(errors.size()) < kMaxListed)
-                    errors.push_back(Json::object({{"step", st.number}, {"command", c.command == "Bash" ? c.shell.substr(0, 120) : c.command}, {"code", c.code}, {"message", first_line(text)}}));
+                    errors.push_back(Json::object({{"step", st.number}, {"command", c.command == "Bash" ? c.shell.substr(0, 120) : c.command}, {"code", code}, {"message", first_line(text)}}));
             }
-            const bool isTest = c.shell.find("factoria test") != std::string::npos || c.command == "test.run";
             const bool isPlay = c.command == "play.auto";
             const bool passed = isTest && !c.failed && says_all_passed(text);
-            if (shows_script_error(text) && (passed || (!isTest && testPassedBefore))) {
+            if (shows_game_output(c) && shows_script_error(text) && (passed || (!isTest && testPassedBefore))) {
                 ++missedCount;
                 if (static_cast<int>(missed.size()) < kMaxListed)
                     missed.push_back(Json::object({{"step", st.number}, {"command", isPlay ? "play.auto" : (isTest ? "test" : c.shell.substr(0, 120))},
@@ -172,7 +219,7 @@ Json agent_cost_report(const AgentCostInput& in) {
             if (isPlay) { ++playAutoCalls; if (firstPlayAutoStep == 0) firstPlayAutoStep = st.number; }
             if (isPlay && firstPlayableStep == 0 && !c.failed) {
                 const Json r = agent_cost_read_play_auto(text);
-                if (r.value("ended", std::string()) == "won" && r.value("phases", 0) >= levelsNeeded) firstPlayableStep = st.number;
+                if (r.value("ended", std::string()) == "won" && r.value("levelPhases", 0) >= levelsNeeded) firstPlayableStep = st.number;
             }
         }
     }
@@ -186,11 +233,23 @@ Json agent_cost_report(const AgentCostInput& in) {
     report["factoriaVersion"] = in.factoriaVersion;
     report["exitStatus"] = in.exitStatus;
     report["elapsedSeconds"] = in.elapsedSeconds;
+    if (!in.cliVersion.empty()) report["cliVersion"] = in.cliVersion;
     Json notes = Json::array();
+    if (in.homeIsolated == 0)
+        notes.push_back("The CLI ran with the real HOME (its login lives there): the user's global CLAUDE.md and memory may have loaded, which can change the numbers, "
+                        "and transcript.jsonl may hold private data. Do not share it as it is.");
 
     const EfficiencyMeasure all = measure_span(session, 1, total);
     Json totalJson = Json::object({{"steps", all.steps}, {"toolCalls", all.toolCalls}, {"minutes", all.minutes}, {"tokens", all.tokens}});
     if (resultLine.is_object()) {
+        // The CLI's own totals are the truth: the output tokens of a streamed message are partial counts (taken when it started), so the
+        // sum over the steps undercounts them. `tokens` is the total of the result line; `stepTokens` the sum over the steps.
+        if (resultLine.contains("usage") && resultLine["usage"].is_object()) {
+            const Json& u = resultLine["usage"];
+            const auto count = [&](const char* key) { return u.contains(key) && u[key].is_number() ? std::max<std::int64_t>(0, u[key].get<std::int64_t>()) : std::int64_t{0}; };
+            totalJson["stepTokens"] = all.tokens;
+            totalJson["tokens"] = static_cast<std::uint64_t>(count("input_tokens") + count("output_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens"));
+        }
         const double cost = resultLine.value("total_cost_usd", 0.0);
         totalJson["costUsd"] = round_to(cost, 100.0);
         if (resultLine.contains("usage") && resultLine["usage"].is_object()) {
@@ -215,6 +274,9 @@ Json agent_cost_report(const AgentCostInput& in) {
         first["toolCalls"] = m.toolCalls;
         first["minutes"] = m.minutes;
         first["tokens"] = m.tokens;
+        if (resultLine.is_object())
+            notes.push_back("firstPlayable.tokens adds up the per-step counts, whose output tokens are the partial ones a streamed message starts with, so it is a lower bound "
+                            "(total.tokens is the CLI's own total from its result line; total.stepTokens is the same per-step sum).");
     } else {
         notes.push_back("No play.auto in the run reached the last level (a play.auto run that ended \"won\" after at least " + std::to_string(levelsNeeded) +
                         " phases): there is no first playable build to measure.");
@@ -225,12 +287,18 @@ Json agent_cost_report(const AgentCostInput& in) {
     if (in.finalPlay.is_object()) {
         const Json r = agent_cost_read_play_auto(in.finalPlay.dump());
         fin["phases"] = r["phases"];
+        fin["levelPhases"] = r["levelPhases"];
         fin["ended"] = r["ended"];
+        if (!r.value("endedWhy", std::string()).empty()) fin["endedWhy"] = r["endedWhy"];
         fin["scriptErrors"] = r["scriptErrors"];
-        fin["reachedLastLevel"] = r.value("ended", std::string()) == "won" && r.value("phases", 0) >= levelsNeeded;
+        fin["reachedLastLevel"] = r.value("ended", std::string()) == "won" && r.value("levelPhases", 0) >= levelsNeeded;
     } else {
         fin["note"] = "play.auto was not run or did not answer JSON";
     }
+    // "won" is what the game's own autoplay script answers, and the AI writes that script: the proxy can be fooled, so the reason is kept.
+    if (firstPlayableStep > 0 || fin.value("reachedLastLevel", false))
+        notes.push_back("\"won\" is the answer of the game's own autoplay script (scripts/autoplay.js, written by the AI): read endedWhy before trusting it. Phases named like a "
+                        "menu, title, credits or end screen are not counted as levels (finalGame.phases counts all of them, levelPhases only the others).");
     report["finalGame"] = fin;
     report["engineErrors"] = Json::object({{"count", errorCount}, {"byCode", byCode}, {"first", errors}});
     report["notCaught"] = Json::object({{"count", missedCount}, {"items", missed}});
@@ -245,19 +313,24 @@ void register_agent_cost_commands(CommandRegistry& registry) {
     info.summary = "Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed.";
     info.description =
         "Reads `transcript` (the lines of `claude -p --output-format stream-json --verbose`) and returns {format, cli, model, brief, factoriaVersion, exitStatus, elapsedSeconds, "
-        "total {steps, toolCalls, minutes, tokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, "
-        "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, ended, scriptErrors}, "
-        "engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message and its tokens are input + cache + output. "
+        "cliVersion, total {steps, toolCalls, minutes, tokens, stepTokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, "
+        "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, levelPhases, ended, endedWhy, scriptErrors}, "
+        "engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message. "
+        "Reading a transcript costs nothing; recording one with scripts/agent-cost.sh spends real AI quota (docs/AI_COSTS.md): run it only when the user asks. "
         "Example: {\"transcript\":\"/tmp/agent-cost.x/transcript.jsonl\",\"finalPlay\":\"/tmp/agent-cost.x/final-play.json\",\"cli\":\"claude\",\"model\":\"sonnet\"}."
         FA_COMMAND_DETAILS
-        "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed); "
-        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls that gave an error code; notCaught are "
-        "outputs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed.";
+        "total.tokens is input + cache + output of the CLI's own result line "
+        "(stepTokens and firstPlayable.tokens add up the per-step counts, whose output tokens are partial: a lower bound). "
+        "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases that are not named like a menu, title, credits or end screen, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed; \"won\" is said by the game's own autoplay script, which the AI may have written, so endedWhy is kept); "
+        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run only when it gave a code), by error code, or under \"none\" when the failure gave no code; notCaught are "
+        "outputs of `factoria run`, `play.auto`, a test run or game.logs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed (docs or scene reads that quote the words do not count). "
+        "`cliVersion` and `homeIsolated` (false: the CLI ran with the real HOME, so the user's CLAUDE.md and memory may have loaded; the report says so in notes) record how the run was made.";
     info.inputSchema = Json::parse(R"({"type":"object","additionalProperties":false,"required":["transcript"],"properties":{
         "transcript":{"type":"string","description":"Absolute path of the stream-json transcript (at most 64 MB)."},
         "finalPlay":{"type":"string","description":"Absolute path of a file with the answer of play.auto on the final game."},
         "cli":{"type":"string","default":"claude"},"model":{"type":"string"},"brief":{"type":"string","description":"The id of the brief the run was given."},
-        "factoriaVersion":{"type":"string"},"exitStatus":{"type":"integer"},"elapsedSeconds":{"type":"integer","minimum":0},
+        "factoriaVersion":{"type":"string"},"cliVersion":{"type":"string","description":"`claude --version` of the CLI that ran."},
+        "homeIsolated":{"type":"boolean","description":"true when the CLI ran with a throw-away HOME, false with the real one."},"exitStatus":{"type":"integer"},"elapsedSeconds":{"type":"integer","minimum":0},
         "levels":{"type":"integer","minimum":1,"maximum":50,"default":3,"description":"How many levels the brief asks for."}}})");
     info.readOnly = true;
     registry.add(std::move(info), [](const Json& args) -> Json {
@@ -283,6 +356,8 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         in.model = args.value("model", std::string());
         in.brief = args.value("brief", std::string());
         in.factoriaVersion = args.value("factoriaVersion", std::string());
+        in.cliVersion = args.value("cliVersion", std::string()).substr(0, 200);
+        if (args.contains("homeIsolated") && args["homeIsolated"].is_boolean()) in.homeIsolated = args["homeIsolated"].get<bool>() ? 1 : 0;
         in.exitStatus = args.value("exitStatus", 0);
         in.elapsedSeconds = std::clamp(args.value("elapsedSeconds", 0), 0, 1'000'000'000);
         in.levels = std::clamp(args.value("levels", 3), 1, 50);

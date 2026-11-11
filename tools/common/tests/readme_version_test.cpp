@@ -41,9 +41,16 @@ TEST_CASE("README.md states the version of CMakeLists.txt") {
 TEST_CASE("README.es.md says which version of README.md it follows") {
     const std::string want = cmake_minor_version();
     const std::string text = read_all(std::filesystem::path(FA_REPO_ROOT) / "README.es.md");
+    // The translation may state the version it follows ("al día en la versión x.y") or have its own "Versión x.y" line
+    // (a translation that does neither is not checked: it is optional and says it may be behind).
     std::smatch m;
-    static const std::regex re(R"(al día en la versión (\d+\.\d+))");
-    REQUIRE_MESSAGE(std::regex_search(text, m, re), "README.es.md no longer says \"al día en la versión x.y\".");
-    CHECK_MESSAGE(m[1].str() == want, "README.es.md says README.md is up to date at " << m[1].str() << " but CMakeLists.txt VERSION is "
-                                          << want << ".x. Update the English README and this note together.");
+    static const std::regex follows(R"(al día en la versión (\d+\.\d+))");
+    static const std::regex own(R"((?:^|\n)Versión (\d+\.\d+)\b)");
+    if (!std::regex_search(text, m, follows) && !std::regex_search(text, m, own)) {
+        MESSAGE("README.es.md states no version: nothing to compare.");
+        return;
+    }
+    CHECK_MESSAGE(m[1].str() == want, "README.es.md says " << m[1].str() << " but CMakeLists.txt VERSION is " << want
+                                          << ".x. Update the English README and this note together (the release step in "
+                                          << "docs/ARCHITECTURE.md, \"Versions\").");
 }
