@@ -9901,12 +9901,12 @@ declare module "factoria:test" {
 
   /**
    * The third argument of test().
-   * @since unreleased
+   * @since 0.22.0
    */
   export interface TestOptions {
     /**
      * Errors this test expects the game to log, each a RegExp or a part of the text. They do not fail the test; an expected error that is never logged does. Any other script error or engine ERROR logged while the test runs fails it (console.error is not an error). Same as calling game.expectErrors() inside the test.
-     * @since unreleased
+     * @since 0.22.0
      */
     expectErrors?: (RegExp | string)[];
   }
@@ -10257,7 +10257,7 @@ declare module "factoria:test" {
     load(path: string, props?: Json): void;
     /**
      * Says that this test expects the game to log an error that matches (a RegExp, or a string that is part of the text): a script that throws in a callback or an event, a missing file the engine reports. It does not fail the test, and the test fails when no logged error matches a pattern. Any other script error or engine ERROR logged while a test runs fails the test with the first one as its message; console.error is not an error. Same as test(name, fn, { expectErrors: [...] }). Only inside a test.
-     * @since unreleased
+     * @since 0.22.0
      */
     expectErrors(...patterns: (RegExp | string)[]): void;
     /**
