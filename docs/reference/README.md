@@ -129,7 +129,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
 - [`anim3d.add_event`](commands/anim.md#anim3dadd_event): Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time. _Since 0.16.0._
 - [`anim3d.create`](commands/anim.md#anim3dcreate): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Since 0.16.0._
-- [`anim3d.generate`](commands/anim.md#anim3dgenerate): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
+- [`anim3d.generate`](commands/anim.md#anim3dgenerate-modifies-state): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
 - [`anim3d.generators`](commands/anim.md#anim3dgenerators): List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults. _Since 0.16.0._
 - [`anim3d.info`](commands/anim.md#anim3dinfo): Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project. _Since 0.16.0._
 - [`anim3d.mirror_pose`](commands/anim.md#anim3dmirror_pose): Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r). _Since 0.16.0._
@@ -139,7 +139,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim3d.remove_keys`](commands/anim.md#anim3dremove_keys): Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away. _Since 0.16.0._
 - [`anim3d.remove_track`](commands/anim.md#anim3dremove_track): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Since 0.16.0._
 - [`anim3d.restore`](commands/anim.md#anim3drestore): Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits. _Since 0.16.0._
-- [`anim3d.retarget`](commands/anim.md#anim3dretarget): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
+- [`anim3d.retarget`](commands/anim.md#anim3dretarget-modifies-state): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
 - [`anim3d.set_clip`](commands/anim.md#anim3dset_clip): Set the duration, loop, ground speed or description of a 3D clip. _Since 0.16.0._
 - [`anim3d.set_event`](commands/anim.md#anim3dset_event): Move, rename or change the data or the game feel actions of an event of a 3D clip. _Since 0.16.0._
 - [`anim3d.set_interp`](commands/anim.md#anim3dset_interp): Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves). _Since 0.16.0._

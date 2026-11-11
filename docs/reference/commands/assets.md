@@ -660,10 +660,10 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path of an existing file under assets/. |
+| `path` | string | yes | Project-relative path of an existing file under assets/ (or a 3D clip, *.anim.json, anywhere in the project). |
 | `origin` | string ["generated","imported","original"] | yes | generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game. |
 | `ai` | boolean | no | Whether AI made the content. Default: true for origin generated, false otherwise. |
-| `kind` | string ["image","sound","music","voice","model3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. |
+| `kind` | string ["image","sound","music","voice","model3d","anim3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. anim3d: a 3D bone clip (*.anim.json), which the anim3d commands record themselves. |
 | `provider` | string | no | Tool or provider that made it ("openai", "suno", "Aseprite"...). |
 | `model` | string | no | Model that made it, for AI-made assets. |
 | `prompt` | string | no | The prompt it was made from, for AI-made assets. |
@@ -894,6 +894,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 | `description` | string | no | A sentence for people and AIs about the picture. |
 | `palette` | any | no | For indexed (pixel-art) layers: "style" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each "#rrggbb" or {"name", "color"}; at most 81. See docs.read IMAGES, "Pixel art". |
 | `ramps` | array | no | Colour ramps for shading by index: lists of palette colours (index, name or "#rrggbb") from the darkest to the lightest, e.g. [["skin-dark","skin","skin-light"]]. |
+| `output` | string | no | The PNG the document bakes to, project-relative, ending in .png (e.g. "assets/art/enemy.png" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png. |
 | `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
 | `bake` | boolean | no | Also draw the PNG. Default true. |
 

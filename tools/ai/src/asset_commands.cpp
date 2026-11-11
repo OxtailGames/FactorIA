@@ -813,7 +813,16 @@ Json provenance_command(const Ctx&, const Json& args) {
 }
 
 Json set_provenance(const Ctx&, const Json& args) {
-    const std::string path = asset_path(args);
+    // A 3D bone clip (*.anim.json) is recorded wherever the project keeps it; every other asset lives under assets/.
+    std::string path;
+    if (const std::string raw = str(args, "path"); raw.size() > 10 && raw.compare(raw.size() - 10, 10, ".anim.json") == 0) {
+        auto n = fs::normalize_checked(raw);
+        if (!n) throw CommandError("invalid_path", n.error().message, n.error().hint);
+        if (fs::is_absolute(raw) || n->empty()) throw CommandError("invalid_path", std::format("'{}' is not a project path", raw), "Use a project-relative path such as 'anim/hero_walk.anim.json'.");
+        path = *n;
+    } else {
+        path = asset_path(args);
+    }
     if (!fs::exists(path)) {
         throw CommandError("not_found", std::format("'{}' does not exist", path),
                            "Create or import the file first: provenance describes a file that is in the project.");
@@ -841,7 +850,11 @@ Json set_provenance(const Ctx&, const Json& args) {
 
 Json disclosure(const Ctx&, const Json&) {
     const Json manifest = assets::manifest();
-    const std::vector<std::string> files = fs::list("assets");
+    std::vector<std::string> files = fs::list("assets");
+    // A 3D clip lives wherever the project keeps its animations (anim/...), not under assets/: its record counts when the file exists.
+    if (const Json* all = child(manifest, "assets"); all && all->is_object())
+        for (const auto& [path, entry] : all->items())
+            if (path.rfind("assets/", 0) != 0 && path.size() > 10 && path.compare(path.size() - 10, 10, ".anim.json") == 0 && fs::exists(path)) files.push_back(path);
     return Json::object({{"markdown", ai_content_disclosure(manifest, files)},
                          {"hasAiContent", has_ai_content(manifest)},
                          {"withoutProvenance", assets_without_provenance(manifest, files)},
@@ -1344,10 +1357,10 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         "true for origin generated, false otherwise). Example: {\"path\":\"assets/music/theme.ogg\",\"origin\":\"imported\","
         "\"ai\":false,\"license\":\"CC0\",\"source\":\"https://example.com/theme\",\"author\":\"A. Composer\"}",
         Json::parse(R"({"type":"object","properties":{
-            "path":{"type":"string","description":"Project-relative path of an existing file under assets/."},
+            "path":{"type":"string","description":"Project-relative path of an existing file under assets/ (or a 3D clip, *.anim.json, anywhere in the project)."},
             "origin":{"type":"string","enum":["generated","imported","original"],"description":"generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game."},
             "ai":{"type":"boolean","description":"Whether AI made the content. Default: true for origin generated, false otherwise."},
-            "kind":{"type":"string","enum":["image","sound","music","voice","model3d"],"description":"What the asset is, so the disclosure can tell sound effects, music and voice apart."},
+            "kind":{"type":"string","enum":["image","sound","music","voice","model3d","anim3d"],"description":"What the asset is, so the disclosure can tell sound effects, music and voice apart. anim3d: a 3D bone clip (*.anim.json), which the anim3d commands record themselves."},
             "provider":{"type":"string","description":"Tool or provider that made it (\"openai\", \"suno\", \"Aseprite\"...)."},
             "model":{"type":"string","description":"Model that made it, for AI-made assets."},
             "prompt":{"type":"string","description":"The prompt it was made from, for AI-made assets."},

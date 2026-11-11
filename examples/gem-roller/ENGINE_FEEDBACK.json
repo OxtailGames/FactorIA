@@ -320,7 +320,11 @@
       ],
       "suggestion": "Let anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig .glb and the source clip) like rig.bake does, so assets.regenerate {stale:true} follows a re-fit of the rig.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "76bdc6bc",
+      "notes": [
+        "Fixed in 76bdc6bc (M101.6): anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig, and for a retarget the source clip), assets.set_provenance takes kind anim3d and assets.regenerate {stale:true} remakes the clips after a re-fit. The two hand-written records were replaced by the commands' own."
+      ]
     },
     {
       "id": "FB-0014",

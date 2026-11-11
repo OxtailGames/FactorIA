@@ -304,8 +304,8 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["image", "sound", "music", "voice", "model3d", "prefab"],
-          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart. `prefab` is the prefab file model.game_ready writes next to a model."
+          "enum": ["image", "sound", "music", "voice", "model3d", "prefab", "anim3d"],
+          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart. `anim3d` is a 3D bone clip (anim3d.generate and anim3d.retarget write its recipe; the other anim3d commands record it as original). `prefab` is the prefab file model.game_ready writes next to a model."
         },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
