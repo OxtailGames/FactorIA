@@ -61,8 +61,21 @@ Image render_or_fail(const std::string& projectDir, const std::string& rel, cons
 
 Json image_create(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.create";
-    check_arg_keys(cmd, a, "", {"path", "width", "height", "background", "layers", "description", "palette", "ramps", "overwrite", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "width", "height", "background", "layers", "description", "palette", "ramps", "output", "overwrite", "bake"});
     const std::string rel = doc_path_arg(arg_string(a, "path", true), cmd);
+    std::string output;
+    if (a.contains("output") && !a["output"].is_null()) {
+        if (!a["output"].is_string())
+            arg_error(cmd, "/output", "expected a project path ending in .png, got " + describe_json_value(a["output"]) + ".", "Example: \"assets/art/hero.png\". Leave it out to bake next to the document.");
+        const std::string raw = a["output"].get<std::string>();
+        auto norm = fs::normalize_checked(raw);
+        if (!norm.ok()) arg_error(cmd, "/output", norm.error().message, norm.error().hint);
+        if (norm->empty() || fs::is_absolute(raw) || to_lower(fs::extension(*norm)) != ".png")
+            arg_error(cmd, "/output", "`output` must be a project-relative path ending in .png, got '" + raw + "'.", "Example: \"assets/art/hero.png\". Leave it out to bake next to the document.");
+        if (!resolve_project_path(projectDir, *norm).ok())
+            arg_error(cmd, "/output", "`output` '" + raw + "' is outside the project.", "Use a path inside the project, such as \"assets/art/hero.png\".");
+        output = *norm;
+    }
     const int w = int_arg(a, cmd, "width", 1, kImageDocMaxSide, 0, true), h = int_arg(a, cmd, "height", 1, kImageDocMaxSide, 0, true);
     auto path = resolve_project_path(projectDir, rel);
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
@@ -73,6 +86,7 @@ Json image_create(const std::string& projectDir, const Json& a) {
     Json doc = Json::object({{"format", kImageDocFormat}, {"width", w}, {"height", h}});
     if (a.contains("background") && !a["background"].is_null()) doc["background"] = a["background"];
     if (a.contains("description") && a["description"].is_string()) doc["description"] = a["description"];
+    if (!output.empty()) doc["output"] = output;
     for (const char* k : {"palette", "ramps"})
         if (a.contains(k) && !a[k].is_null()) doc[k] = a[k];
     if (a.contains("layers") && !a["layers"].is_null()) {
@@ -504,6 +518,7 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
           "description":{"type":"string","description":"A sentence for people and AIs about the picture."},
           "palette":{"description":"For indexed (pixel-art) layers: \"style\" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each \"#rrggbb\" or {\"name\", \"color\"}; at most 81. See docs.read IMAGES, \"Pixel art\"."},
           "ramps":{"type":"array","description":"Colour ramps for shading by index: lists of palette colours (index, name or \"#rrggbb\") from the darkest to the lightest, e.g. [[\"skin-dark\",\"skin\",\"skin-light\"]]."},
+          "output":{"type":"string","description":"The PNG the document bakes to, project-relative, ending in .png (e.g. \"assets/art/enemy.png\" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png."},
           "overwrite":{"type":"boolean","default":false,"description":"Replace the document when it already exists."},
           "bake":{"type":"boolean","default":true,"description":"Also draw the PNG."}}})",
         image_create);

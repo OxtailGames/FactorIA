@@ -884,7 +884,10 @@ of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
   `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
   size, and for sheets the layout before and after. `{"all": true}` does every asset with a recipe, `{"stale": true}` only
   those whose `inputs` no longer match (you edited the SVG), and `dryRun: true` lists what would run and changes nothing.
-  There is no list of commands: any `assets.*` command that records a recipe works.
+  There is no list of commands: any `assets.*` command that records a recipe works, and so do `anim3d.generate` and
+  `anim3d.retarget` (a clip's inputs are its rig, plus the source clip and the source rig for a retarget: a re-fit of the rig
+  makes the clips stale). An edit of a clip (`anim3d.set_keys` and the other editing commands) removes its recipe, so
+  regenerate never overwrites a hand edit; the record says so in its notes. `assets.set_provenance` takes the kind `anim3d`.
 - An asset that reads another (a sheet sliced from a picture made from an SVG) is made after it, and `stale` looks again at
   its inputs when its turn comes, so the whole chain follows one edit. Several files made by one call (an icon and its
   foreground, a texture and its normal map, the capsules of a store) are made once. What a person recorded (license, author,
