@@ -119,6 +119,34 @@ TEST_CASE("templates and docs work without a project") {
     CHECK(bad.err.find("scripting") != std::string::npos);
 }
 
+TEST_CASE("docs read takes --heading, --start-line and --max-bytes like docs.read and prints the paging hint") {
+    auto sec = run({"docs", "read", "ai-guide", "--heading", "Platformer character"});
+    REQUIRE(sec.code == 0);
+    CHECK(sec.out.find("latformer") != std::string::npos);
+    auto whole = run({"docs", "read", "ai-guide"});
+    CHECK(sec.out.size() < whole.out.size());
+
+    auto toc = run({"docs", "read", "ai-guide", "--contents"});
+    REQUIRE(toc.code == 0);
+    CHECK(toc.out.find("latformer character (line ") != std::string::npos);
+    CHECK(toc.out.find("--heading") != std::string::npos);
+    CHECK(toc.out.size() < 12000);
+    CHECK(toc.err.empty());
+
+    auto cut = run({"docs", "read", "ai-guide", "--max-bytes", "2000"});
+    REQUIRE(cut.code == 0);
+    CHECK(cut.out.size() <= 2100);
+    CHECK(cut.err.find("--start-line") != std::string::npos);  // the exact next call
+    CHECK(cut.err.find("--heading") != std::string::npos);
+
+    auto range = run({"docs", "read", "architecture", "--start-line", "3", "--max-lines", "2"});
+    REQUIRE(range.code == 0);
+    CHECK(std::count(range.out.begin(), range.out.end(), '\n') == 2);
+
+    auto bad = run({"docs", "read", "ai-guide", "--heading", "Platformr character"});
+    CHECK(bad.code != 0);
+}
+
 // The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs
 // (stdout is binary there: tests/integration.py checks the real binary's output).
 TEST_CASE("docs read and docs.read carry no carriage returns") {
