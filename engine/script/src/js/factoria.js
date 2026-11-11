@@ -4489,6 +4489,8 @@
       N.testTouch(0, 1, a[0], a[1]); stepN(frames); N.testTouch(2, 1, 0, 0); stepN(1);
     },
     find(idOrName) { return world.find(idOrName); },
+    findAll(name) { return world.findAll(name); },
+    findByTag(tag) { return world.findByTag(tag); },
     get world() { return world; },
     get time() { return time; },
     // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of

@@ -794,7 +794,7 @@
       },
       {
        "sig": "findByTag(tag: string): Entity[]",
-       "doc": ""
+       "doc": "Every alive entity that has this tag, in creation order, without the ones destroyed this frame."
       },
       {
        "sig": "entities(): Entity[]",
@@ -5886,7 +5886,15 @@
       },
       {
        "sig": "find(idOrName: string): Entity | null",
-       "doc": ""
+       "doc": "Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame."
+      },
+      {
+       "sig": "findAll(name: string): Entity[]",
+       "doc": "Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame."
+      },
+      {
+       "sig": "findByTag(tag: string): Entity[]",
+       "doc": "Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag(\"wolf\").length."
       },
       {
        "sig": "readonly world: WorldAPI",

@@ -1,7 +1,7 @@
 // Gameplay smoke tests of Kindlewatch: the title, moving and the animations, logs from the piles to the fire, the torch
 // against wolves and the alpha, the dawn, and the two ways of losing and the way of winning. The bot plays with a gamepad.
 import { test, describe, expect, game, beforeEach } from "factoria:test";
-import { scene, world, fa } from "factoria";
+import { scene, fa } from "factoria";
 import { Bot } from "./helpers/bot.js";
 
 const GAME = "scenes/game.scene.json";
@@ -148,11 +148,11 @@ describe("wolves and the torch", () => {
     game.step(2);
     const b = alpha.behaviour;
     expect(b.hp).toBe(5);
-    const before = world.findByTag("wolf").length;
+    const before = game.findByTag("wolf").length;
     // Four hits by the torch's own code path (the swing's clip event lands on strike()).
     for (let i = 0; i < 3; i++) b.hurt(1, [1, 0]);
     expect(b.enraged).toBe(true);
-    expect(world.findByTag("wolf").length).toBe(before + 2);
+    expect(game.findByTag("wolf").length).toBe(before + 2);
   });
 });
 
@@ -281,7 +281,7 @@ describe("a whole game", () => {
     while (flow().state !== "won" && flow().state !== "lost" && frames < 16000) {
       const w = game.find("warden");
       const p = w.position;
-      const wolves = world.findByTag("wolf").filter((e) => !e.behaviour.dead);
+      const wolves = game.findByTag("wolf").filter((e) => !e.behaviour.dead);
       let near = null;
       let nd = 6;
       for (const e of wolves) {
@@ -298,7 +298,7 @@ describe("a whole game", () => {
       else if (warden().logs < 3 && fire().fraction < 0.9) {
         let best = null;
         let bd = 1e9;
-        for (const e of world.findByTag("pile")) {
+        for (const e of game.findByTag("pile")) {
           if (e.behaviour.logs <= 0) continue;
           const d = Math.hypot(e.position.x - p.x, e.position.z - p.z);
           if (d < bd) {

@@ -69,4 +69,8 @@ struct AiCommandOptions {
 // recursion). It must outlive the registered handlers.
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options = {});
 
+// Registers only the read-only asset commands assets.provenance and assets.disclosure, for the registry of a `factoria test` run
+// (docs/SCRIPTING.md, "Commands from a test"): they need no AI settings and write nothing. Does nothing when they exist.
+void register_test_asset_commands(CommandRegistry& registry, std::function<std::string()> projectDir);
+
 }  // namespace fa::ai

@@ -1432,6 +1432,8 @@ Vec2 Input::vector(std::string_view left, std::string_view right, std::string_vi
 void Input::set_action_override(std::string_view action, bool down) {
     std::string name(action);
     bool was = overrides_.count(name) != 0;
+    if (down != was)
+        if (InputObserver* o = tap()) o->observe_action(name, down);
     if (down) {
         if (!was)
             for (Layer& l : layers_) l.overridePressed[name] = true;
@@ -1444,6 +1446,8 @@ void Input::set_action_override(std::string_view action, bool down) {
 }
 
 void Input::clear_action_overrides() {
+    if (InputObserver* o = tap())
+        for (const auto& [name, v] : overrides_) o->observe_action(name, false);
     for (const auto& [name, v] : overrides_)
         for (Layer& l : layers_) l.overrideReleased[name] = true;
     overrides_.clear();

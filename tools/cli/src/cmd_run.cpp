@@ -90,6 +90,7 @@ Command make_run_command() {
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
                {"render-all", "", "Headless: draw every frame (default: only screenshot frames and the last frame)."},
                {"persist-storage", "", "Headless: scripts' storage.* uses the real save file (default: in memory)."},
+               {"touch", "", "Show the touch interface on a desktop: touch-only controls (TouchStick, TouchButton) are drawn, as after a finger touch. Same as the ui.force_touch command."},
                {"json", "", "Headless: print the report as JSON."}};
     c.examples = {"factoria run",
                   "factoria run games/my-game --scene scenes/level2.scene.json",
@@ -124,6 +125,7 @@ Command make_run_command() {
                 throw UsageError("--props must be a JSON object like '{\"level\":3}', got " + describe_json_value(parsed.value()) + ".");
             cfg.sceneProps = parsed.value();
         }
+        cfg.forceTouch = a.has("touch");
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
         if (!a.has("headless")) {
