@@ -788,6 +788,28 @@ backwards), `from` (start values instead of the current ones), `onStart`, `onUpd
   mirror image for the second (back and elastic are symmetric, a little different from CSS).
 - Tweens advance in the engine's update with the game's `dt`, in the order they were created.
 
+**A dawn: tween the scene's environment.** `world.settings` is the scene's `SceneSettings` (`skyColor`, `horizonColor`,
+`ambientLight`, `fogColor`, `fogDensity`, `lightScale`...), and it is a tween target like any component: colours move
+together, so the whole sky changes in one call and no script writes six values every frame.
+
+```js
+import { tween } from "factoria";
+
+world.settings.skyColor = "#05060f";                    // night
+world.settings.ambientLight = [0.05, 0.05, 0.1, 1];
+world.settings.fogDensity = 0.08;
+
+await tween(world.settings, {                           // five seconds to dawn
+    skyColor: "#ffb070", horizonColor: "#ffd9a0",
+    ambientLight: [0.6, 0.45, 0.4, 1],
+    fogColor: "#f4d6b0", fogDensity: 0.01,
+}, { duration: 5, ease: "sineInOut" }).finished;
+```
+
+Fields the tween does not name keep their value. The tween belongs to the scene: a scene load drops it, so after the
+`await` check that the scene you started in is still the current one before you act on it. A directional `Light`
+entity (the sun or moon) is tweened the same way, `tween(sun.get("Light"), { color: "#ffcc88", intensity: 1.2 }, ...)`.
+
 ## Example: a character that walks, runs and jumps
 
 ```js

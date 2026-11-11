@@ -1,0 +1,79 @@
+# Finished milestones
+
+One file per milestone: what it built and what was found and fixed on the way. What is still open and the
+decisions later work has to respect stay in [ROADMAP.md](../ROADMAP.md).
+
+- [desktop-download-next-steps](desktop-download-next-steps.md): Desktop download: next steps (*proactive*)
+- [earlier-re-triages](earlier-re-triages.md): Earlier re-triages
+- [found-and-fixed-while-migrating-the-templates](found-and-fixed-while-migrating-the-templates.md): Found and fixed while migrating the templates
+- [found-and-fixed-while-starting-a-game-from-the-editor-on-windows](found-and-fixed-while-starting-a-game-from-the-editor-on-windows.md): Found and fixed while starting a game from the editor on Windows
+- [M1](M1.md): M1. Docs and templates match the engine (S, highest value per effort)
+- [M1-M7](M1-M7.md): M1-M7
+- [M2](M2.md): M2. CLI and test-harness diagnostics (S)
+- [M3](M3.md): M3. 2D level authoring and cameras (M)
+- [M4](M4.md): M4. Post-processing and glow (M)
+- [M5](M5.md): M5. 3D physics 2.0 and gamepad input (L, *proactive*, no game reported these yet)
+- [M6](M6.md): M6. Polish found while migrating the examples (S-M)
+- [M7](M7.md): M7. Leftovers of M5 and M6, mobile players run in CI (M-L, *proactive*)
+- [M8](M8.md): M8. Leftovers of M7, desktop download next steps (L, *proactive*)
+- [M9](M9.md): M9. Run on Apple hardware (M, *proactive*)
+- [M10](M10.md): M10. Game UI and menus (L, blocker for every store)
+- [M11](M11.md): M11. Native plugins per game (L, blocker for M12 and the consoles)
+- [M13](M13.md): M13. Store-ready desktop export (M-L, high)
+- [M14](M14.md): M14. Localization (L, blocker for a global release)
+- [M15](M15.md): M15. AI asset generation and import pipeline (L, blocker for "the AI does everything")
+- [M16](M16.md): M16. Mobile store-ready (M, high on mobile)
+- [M17](M17.md): M17. Web export (L, high)
+- [M18](M18.md): M18. Animation and production 3D (L, high for 3D games)
+- [M20](M20.md): M20. Editor and tooling
+- [M21](M21.md): M21. Docs and material for shipping
+- [M22](M22.md): M22. Production quality and legal
+- [M24](M24.md): M24. Found by the reference game (Lantern Keep; 37 entries, all fixed)
+- [M25](M25.md): M25. A second reference game: 3D and mobile
+- [M26](M26.md): M26. Found by the second reference game
+- [M27](M27.md): M27. What the games asked of M12 and M19
+- [M28](M28.md): M28. A third reference game: couch co-op on the desktop
+- [M29](M29.md): M29. Found by the third reference game
+- [M30](M30.md): M30. A fourth reference game: management with the mouse, web and desktop first
+- [M31](M31.md): M31. Found by the fourth reference game
+- [M32](M32.md): M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck
+- [M33](M33.md): M33. Found by the fifth reference game
+- [M34](M34.md): M34. Found by the user's own game, Roguestory
+- [M35](M35.md): M35. Asked by the user after building Roguestory in the editor
+- [M36](M36.md): M36. More from Roguestory and the user's look at the AI panel
+- [M37](M37.md): M37. The FactorIA program icon
+- [M38](M38.md): M38. Roles you can turn off, AI settings, Roguestory FB-0011-FB-0015
+- [M39](M39.md): M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026
+- [M40](M40.md): M40. The editor's menus in the macOS menu bar
+- [M41](M41.md): M41. Animations drawn with code, baked into sprite sheets
+- [M42](M42.md): M42. 2D animation in parts: keyframed clips, 2D bones and a timeline
+- [M43](M43.md): M43. External tool servers (MCP) the AI can use (L)
+- [M44](M44.md): M44. Roguestory's 3D book: procedural meshes, render targets, stale tools and run timelines (S-L each; FB-0027, FB-0029-FB-0035)
+- [M45](M45.md): M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user)
+- [M46](M46.md): M46. Feedback from every game reaches the engine developer (L; 4 packages; the user)
+- [M47](M47.md): M47. Roguestory's storybook: a culling mask by tags and presses while paused (S-L; FB-0036, FB-0037)
+- [M48](M48.md): M48. Commands reject unknown arguments (L)
+- [M49](M49.md): M49. Send feedback with one button; game.click through render targets (L)
+- [M50](M50.md): M50. A push that passes CI the first time (M)
+- [M51](M51.md): M51. Eyes and ears: the AI sees and hears what it made (L; 5 packages)
+- [M52](M52.md): M52. Layered images: the engine's raster editor (L; 5 packages)
+- [M53](M53.md): M53. Pixel art and tiles (L; 5 packages)
+- [M54](M54.md): M54. Vector illustration (L; 4 packages)
+- [M55](M55.md): M55. Sound design: the engine's synthesizer (L; 4 packages)
+- [M56](M56.md): M56. Music: composed as data, adaptive at runtime (L; 5 packages)
+- [M57](M57.md): M57. 3D modeling by recipe (L; 5 packages)
+- [M58](M58.md): M58. 3D materials, UVs and game-ready models (L; 4 packages)
+- [M59](M59.md): M59. 3D rigging and animation (L; 4 packages)
+- [M60](M60.md): M60. A sixth reference game made only with the engine's tools (L)
+- [M61](M61.md): M61. Roles and AI settings per project (L; 4 packages)
+- [M62](M62.md): M62. Game feel and effects drawn as code (L; 4 packages)
+- [M63](M63.md): M63. Level generation from an example (L; 4 packages)
+- [M64](M64.md): M64. Richer particles, effect documents and a particle editor (L; 4 packages)
+- [M65](M65.md): M65. Efficiency feedback: how game-making AIs could work cheaper (L; 4 packages)
+- [M66](M66.md): M66. Paid asset generation shows its cost and asks first (M; 3 packages)
+- [M67](M67.md): M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages)
+- [M68](M68.md): M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages)
+- [M69](M69.md): M69. Reviewing many variants at once: contact sheets (M; 2 packages)
+- [M70](M70.md): M70. Loading, threads and fast storage (L; 5 packages)
+- [M90](M90.md): M90. Quick fixes the review found (M; 5 packages)
+- [M91](M91.md): M91. A runtime that does not depend on the renderer (L; 4 packages)
