@@ -24,7 +24,7 @@ entries (14 major, 22 minor, 2 nice-to-have, no blocker), triaged 2026-10-25: on
 and the open ones became the 21 packages of M29 (built 2026-10-26), which also took most of what was left of M19 (tile
 pathfinding and behaviour trees, audio effects, networking, split screen) and M12's analytics and remote config. M29
 fixed them all (2026-10-26): no entry is open. The game dropped the workarounds that no longer had a reason; the few it
-keeps on purpose are under M29, "Left open".
+keeps on purpose are in [done/M29.md](done/M29.md), "Left open".
 M30, the fourth reference game (Tidewater Market: a management game played with the mouse, web and desktop first,
 2026-10-26), reported 52 entries: one was fixed on the way (TM/FB-0070, the web page downloaded the wasm twice), one
 was withdrawn (TM/FB-0015), one is a duplicate, and 49 are open (9 major, 27 minor, 13 nice-to-have, no blocker),
@@ -32,21 +32,22 @@ triaged 2026-10-26: five need docs only or are already supported, and the open o
 2026-10-26, built 2026-10-27), which closed 46 of the 49 (each `fixed-in-engine` with a `Fixed in` note), and three stay
 open (TM/FB-0003, the optional undo helper; TM/FB-0051, the Windows and Linux players of a development build; TM/FB-0055,
 a Timeline component for trailers), ranked below; the game dropped the workarounds that no longer had a reason (M31,
-"Left open", lists what it keeps and what each package left).
+"Left open", in [done/M31.md](done/M31.md), lists what it keeps and what each package left).
 M32, the fifth reference game (Larkspur Lodge: a 3D narrative adventure for the Mac App Store, the Microsoft Store, the
 iPad and the Steam Deck, 2026-10-27), reported 36 entries (2 major, 25 minor, 9 nice-to-have, no blocker), triaged
 2026-10-27: one is already documented (LL/FB-0010), one is a duplicate of TM/FB-0051 (LL/FB-0804), two are half
 supported already, and the 34 open ones became the 15 packages of M33 (planned 2026-10-27, built 2026-10-28), which fixed
 all of them (each entry is `fixed-in-engine` with a `Fixed in <commit>` note; LL/FB-0010 was documented already and
 LL/FB-0804 is a duplicate of TM/FB-0051), so no Larkspur Lodge entry is open. Three of M32's acceptance criteria are only
-partly met (M32, "Left open"); M33 closed what it could of them (M33, "Left open" lists what is still unseen).
+partly met ([done/M32.md](done/M32.md), "Left open"); M33 closed what it could of them ([done/M33.md](done/M33.md), "Left open"
+lists what is still unseen).
 Roguestory (the user's own game, not a reference example: a 2D roguelike inside a hand-drawn book, 2026-10-28) reported
 6 entries (1 major, 5 minor), and its first session showed three gaps of its own: the console had no wall-clock time, and a
 delegated agent was silent for minutes, then cut off by Claude Code's 5-minute tool timeout. M34 (built 2026-10-28) fixed
 all of them; Roguestory's entries are `fixed-in-engine` with a `Fixed in` note.
-What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
-milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
-respect.
+What only certificates, real devices or a device farm can close is under M8 below and in M99. What finished
+milestones built is in [done/README.md](done/README.md) (one file per milestone); this file keeps the limits they left
+open ("Open limits of finished milestones") and the decisions to respect.
 Triage 2026-11-10: the 33 entries the examples logged since 2026-10-29 (Kindlewatch, Ember Descent, Gem Roller,
 Neon Swarm, Sky Hopper, Lantern Keep) were never in this list, because the command below named the examples by hand;
 KW/FB-0002 and SH/FB-0026 were fixed already and are closed, the other 31 go to M101 ("M100-M101", at the end).
@@ -478,7 +479,7 @@ quality; the report itself is not in the repository). Every gap was checked agai
   and version), E-06 in part (every run writes `log.txt` in the save folder; crash reporting is M13), E-11 (paths over
   260 characters on Windows; with `--json` a failure prints a JSON error object), Q-07 (a missing glyph logs one warning
   per font naming the characters and a font that has them) and D-06 (GETTING_STARTED status table).
-- Already listed, not repeated: E-03 and Q-02 (M8, "Left open"), H-11 and the Android shutdown part of F-10 (M9, "Found
+- Already listed, not repeated: E-03 and Q-02 (M8 below, "Left open"), H-11 and the Android shutdown part of F-10 ([done/M9.md](done/M9.md), "Found
   while implementing M9"). Q-01 (the project's age, one maintainer) and Q-08 (a strength) are not engine work.
 - Everything else, and the points of the report's per-store table that no id covers, is grouped in M10-M23 below, in
   the report's order of priority: what blocks any store release first.
@@ -564,7 +565,7 @@ built and the 38 entries of Burrow Brigade are closed, each with a `Fixed in <co
 BB/FB-0009; the `m29/bookkeeping` PR). Burrow Brigade dropped its light pool and `activeLights` helper, its own A* and
 behaviour tree, its whole-array tile writes, its binding table, its transport seam and its stdout recordings; its
 Options offer the three window modes and a monitor, and a pad player follows its pad by id. What it keeps on purpose is
-under M29, "Left open".
+in [done/M29.md](done/M29.md), "Left open".
 
 Triage 2026-10-26 of the 49 open entries of Tidewater Market, the M30 reference game, against `cf2664d` (each checked in
 the code, by three read-only passes over the UI, the platform and export code, and the scripting and tooling code;
@@ -595,7 +596,7 @@ agreement beyond gender (TM/FB-0061) stay out (M31's last paragraph).
 Re-triage 2026-10-27, after M31 (the `m31/*` branches; each package's commit is in done/M31.md): the 26 packages are
 built and 46 of the 49 open Tidewater Market entries are `fixed-in-engine`, each with a `Fixed in <commit>` note (the
 `m31/bookkeeping` branch); TM/FB-0003, TM/FB-0051 and TM/FB-0055 stay open for the parts M31 left out. Tidewater Market
-dropped the workarounds listed under M31, "Left open", and its README and SHIPPING.md lost the sentences that described
+dropped the workarounds listed in [done/M31.md](done/M31.md), "Left open", and its README and SHIPPING.md lost the sentences that described
 them. Its ground is one isometric Tilemap now, so its perf files say 246 entities (game), 112 (title) and 1029 (stress).
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
@@ -694,6 +695,32 @@ Kept here because later work has to respect them (the full story is in done/M1.m
   local date's, and a game that wants one board worldwide passes `game.today().utc.iso`. Wrapped Thai breaks only at
   marked boundaries (U+200B). `assets.synth_sound` levels to -18 LUFS. A cloud save has no conflict signal: a game keeps
   a revision counter in the saved value.
+
+## Open limits of finished milestones
+
+What the finished milestones left open and the code or docs still show today (each line checked on 2026-11-11; the
+story of each milestone is in `feedback/done/`). Hardware and accounts are in M99.
+- `TextField`: the caret stays at the end; no selection, IME composition, multiline, password or right-to-left text
+  (`engine/ui/include/fa/ui/ui.h` `TextRequest`, docs/COMPONENTS.md; [M10](done/M10.md), [M14](done/M14.md),
+  [M27](done/M27.md)).
+- Android does not shut the engine down in `onDestroy` and the game gets no callback (docs/MOBILE.md "Lifecycle";
+  [M9](done/M9.md); planned as M98.4).
+- Line breaking is not UAX #14 (no rules for numbers with units or after hyphens), and Thai, Khmer, Lao and Burmese have
+  no word dictionary (docs/TEXT.md; [M14](done/M14.md), [M29](done/M29.md)).
+- The mobile on-screen keyboard takes plain key events: no predictive text, swipe, CJK input methods, emoji or voice
+  (docs/MOBILE.md "Limits"; [M16](done/M16.md), [M26](done/M26.md)).
+- The on-screen stick is fixed where it is drawn; there is no floating stick under the thumb (docs/MOBILE.md;
+  [M16](done/M16.md)).
+- Importers: OBJ polygons are triangulated as fans (concave faces come out wrong) and FBX skins and animations are not
+  used (docs/ASSETS.md "OBJ", "FBX"; [M15](done/M15.md)).
+- No Flatpak, AppImage only (docs/EXPORTING.md; [M13](done/M13.md)). Crash reports have no upload URL, they stay on the
+  device (docs/LEGAL.md; [M13](done/M13.md)).
+- Animation of glTF models: no morph targets and no root motion, at most 64 joints per skin, and every animated model is
+  its own draw call, never instanced (docs/ANIMATION.md; [M18](done/M18.md)).
+- Rendering: the shadow map fits every caster, there are no cascades, so shadows of big scenes are blurry
+  ([M18](done/M18.md); M73 plans the lighting).
+- macOS has no AdMob: the plugin offers no ads there and `platform.has("ads")` is false (docs/PLATFORM.md;
+  [M27](done/M27.md)).
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -865,7 +892,7 @@ fourth (BB/FB-0020), done in M29.21 on M29.20's `http.fetch`; the remaining thre
 
 ## M19. Runtime features (M each, medium; take them when a game needs them)
 
-Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14, F-16, F-18, H-07 and U-08.
+Closes F-07 (effects), F-09, F-10 (except the Android shutdown, [done/M9.md](done/M9.md)), F-11, F-14, F-16, F-18, H-07 and U-08.
 
 - Networking: ~~`http.fetch` (a Promise) in JS on every platform~~ (done in M29.20); WebSocket in JS; real-time
   multiplayer later.
