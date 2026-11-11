@@ -66,7 +66,7 @@ examples/          sample games (also used as integration tests: the `example_*`
 platforms/         android/ (Gradle), ios/, web/ and plugins/ (the store and ads backend plugins) packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
 cmake/             CMake functions, platform selection and toolchain files
 scripts/           build, test, CI and packaging scripts for each operating system (docs/BUILDING.md)
-feedback/          ROADMAP.md, ROADMAP_DONE.md and the feedback collected from the examples
+feedback/          ROADMAP.md, done/ (one file per finished milestone) and the feedback collected from the examples
 external/          vendored third-party code (do not edit)
 ```
 
@@ -100,7 +100,9 @@ and script export, and the generated reference prints it. A new component, field
 `nav.findTilePath` is the one of `NavAPI.findTilePath`), `Type.member` for each member or static of a class or interface
 (`NavAPI.findTilePath`), and the same with a `test:` prefix for the `factoria:test` module (`test:TestGame.setDate`);
 the generated `types/factoria.d.ts` gets an `@since` tag from it. The test `api_since` in `tools/common/tests` lists
-the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
+the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version (CHANGELOG.md keeps `## Unreleased` and the newest published version, because
+`.github/workflows/release.yml` reads the tag's section from it; when a release is published, the previous minor version's sections move to
+`changelog/0.<minor>.md`, one file per minor version with its patches, and the index line at the top of CHANGELOG.md gets the link), and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
 docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus
 `factoria api --dts --project examples/<name>` for the committed typings).

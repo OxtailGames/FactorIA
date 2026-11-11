@@ -460,7 +460,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M100.10",
+      "notes": [
+        "Fixed in M100.10: tween(world.settings, {skyColor, horizonColor, ambientLight, fogColor, fogDensity...}) already moved the scene's environment; docs/ANIMATION.md (Tweens) now has the dawn recipe and the doctest case \"tween: world.settings moves the sky, ambient light and fog together\" in engine/script/tests/test_animation_script.cpp keeps it true. No settings.animate or day-night component is needed (triage 2026-11-10)."
+      ]
     },
     {
       "id": "FB-0020",
