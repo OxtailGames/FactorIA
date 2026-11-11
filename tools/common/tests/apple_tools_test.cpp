@@ -358,8 +358,8 @@ TEST_CASE("platform.add_backend apple: writes the plugin for iOS and macOS and l
     REQUIRE(props.contains("appleBuild"));
     CHECK(props["appleBuild"]["default"] == true);
     CHECK_FALSE(props["appleSlices"].value("description", std::string()).empty());
-    CHECK(info->description.find("apple:") != std::string::npos);
-    CHECK(info->description.find("apple: the StoreKit 2, Game Center and iCloud plugin") != std::string::npos);
+    CHECK(info->full_description().find("apple:") != std::string::npos);
+    CHECK(info->full_description().find("apple: the StoreKit 2, Game Center and iCloud plugin") != std::string::npos);
 
     SUBCASE("a library that does not exist is refused before anything is written") {
         auto bad = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleSlices": ["macos", "iphonesim"]})"));

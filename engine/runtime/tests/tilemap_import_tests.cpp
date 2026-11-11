@@ -155,9 +155,9 @@ TEST_CASE("import_ascii: command is documented like every built-in") {
     REQUIRE(info != nullptr);
     CHECK_FALSE(info->readOnly);
     CHECK(info->category == "scene");
-    CHECK(contains(info->description, "Example"));
-    CHECK(contains(info->description, "legend"));
-    CHECK(contains(info->description, "tilemap:<entity>"));
+    CHECK(contains(info->full_description(), "Example"));
+    CHECK(contains(info->full_description(), "legend"));
+    CHECK(contains(info->full_description(), "tilemap:<entity>"));
     for (const char* prop : {"rows", "legend", "tilemap", "entity", "replace", "save", "position", "anchor"})
         CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
 }
@@ -951,7 +951,7 @@ TEST_CASE("scene.set_component: merge reads fields as a JSON merge-patch; out-of
     const CommandInfo* info = s.engine.commands().info("scene.set_component");
     REQUIRE(info != nullptr);
     CHECK(info->inputSchema["properties"].contains("merge"));
-    CHECK(contains(info->description, "merge"));
+    CHECK(contains(info->full_description(), "merge"));
 
     auto props = [&](const CommandResult& r) {
         REQUIRE_MESSAGE(r.ok, error_text(r));
@@ -1007,7 +1007,7 @@ TEST_CASE("import_ascii: edits need path (the running world has scene.set_compon
     const CommandInfo* info = s.engine.commands().info("scene.import_ascii");
     REQUIRE(info != nullptr);
     CHECK(info->inputSchema["properties"].contains("edits"));
-    CHECK(contains(info->description, "edits"));
+    CHECK(contains(info->full_description(), "edits"));
 }
 
 TEST_CASE("import_ascii path: a typo in path warns with a did-you-mean instead of silently creating a different scene") {
@@ -1146,7 +1146,7 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     // The command says so in its own description.
     const CommandInfo* info = s.engine.commands().info("scene.save");
     REQUIRE(info != nullptr);
-    CHECK(contains(info->description, ".factoria/tmp/"));
+    CHECK(contains(info->full_description(), ".factoria/tmp/"));
 }
 
 TEST_CASE("import_ascii path: works inside a frame too (a script can build a scene file)") {
@@ -1184,13 +1184,13 @@ TEST_CASE("import_ascii: documented path, from and dryRun") {
         REQUIRE(info->inputSchema["properties"].contains(prop));
         CHECK(info->inputSchema["properties"][prop]["description"].get<std::string>().size() > 40);
     }
-    CHECK(contains(info->description, "RUNNING"));
-    CHECK(contains(info->description, "unsafe_save"));
-    CHECK(contains(info->description, "dryRun"));
-    CHECK(contains(info->description, "scratch"));
+    CHECK(contains(info->full_description(), "RUNNING"));
+    CHECK(contains(info->full_description(), "unsafe_save"));
+    CHECK(contains(info->full_description(), "dryRun"));
+    CHECK(contains(info->full_description(), "scratch"));
     REQUIRE(info->inputSchema["properties"].contains("legendFrom"));
-    CHECK(contains(info->description, "legendFrom"));
-    CHECK(contains(info->description, "PREFAB REFERENCES"));
+    CHECK(contains(info->full_description(), "legendFrom"));
+    CHECK(contains(info->full_description(), "PREFAB REFERENCES"));
 }
 
 TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefab changes the loaded level with no import") {

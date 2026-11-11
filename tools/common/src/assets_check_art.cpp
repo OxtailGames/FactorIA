@@ -787,15 +787,29 @@ void register_check_art_command(CommandRegistry& registry, const std::string& pr
     info.readOnly = true;
     info.summary = "Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.";
     info.description =
-        "Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. "
-        "Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). "
-        "Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours \"#rrggbb\" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). "
-        "Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. "
-        "Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. "
-        "Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. "
-        "With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. "
-        "The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. "
-        "Thresholds and the rules are listed in docs/ASSETS.md (\"Checking art: assets.check_art\"). Example: {\"path\":\"assets/hero.png\",\"backgrounds\":[\"#203040\"],\"onScreenPx\":48}.";
+        "Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus "
+        "rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming "
+        "the command or setting that fixes it. Palette fit: the colour count, and when assets.json "
+        "style.palette is set the distance of the colours to it and the share of pixels off the palette "
+        "(strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and "
+        "each background the picture is drawn over: `backgrounds` (colours \"#rrggbb\" or project image "
+        "paths) when given, else the clear colour and the large background sprites of the scenes that use "
+        "the picture, else a light and a dark default; the result says which (`backgrounds.source`). "
+        "Example: {\"path\":\"assets/hero.png\",\"backgrounds\":[\"#203040\"],\"onScreenPx\":48}."
+        FA_COMMAND_DETAILS
+        "Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in "
+        "screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, "
+        "844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and "
+        "whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are "
+        "darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a "
+        "foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, "
+        "pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` "
+        "warnings; rules the style does not set are not judged, and `style: false` skips them. With several "
+        "paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how "
+        "many colours the pictures share. The picture has one row per asset: the picture itself, its value "
+        "(greyscale), over each background and at each on-screen size. It is a temporary screenshot in "
+        ".factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are "
+        "listed in docs/ASSETS.md (\"Checking art: assets.check_art\").";
     info.inputSchema = Json::object(
         {{"type", "object"},
          {"additionalProperties", false},

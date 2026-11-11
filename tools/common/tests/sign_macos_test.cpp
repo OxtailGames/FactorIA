@@ -730,8 +730,8 @@ TEST_CASE("sign.macos: the command") {
         CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
     CHECK_FALSE(info->inputSchema["properties"].contains("password"));  // a password is never an argument
     CHECK_FALSE(info->inputSchema["properties"].contains("appPassword"));
-    CHECK(has_text(info->description, "FACTORIA_APPLE_APP_PASSWORD"));
-    CHECK(has_text(info->description, "dryRun"));
+    CHECK(has_text(info->full_description(), "FACTORIA_APPLE_APP_PASSWORD"));
+    CHECK(has_text(info->full_description(), "dryRun"));
 
     auto r = registry.call("sign.macos", Json::object({{"identity", kDeveloperId}, {"out", "../out"}, {"dryRun", true}}));
     CHECK_FALSE(r.ok);  // outside the project

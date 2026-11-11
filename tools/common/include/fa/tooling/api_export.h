@@ -28,6 +28,8 @@ Json export_components_json();  // TypeRegistry::global().describe_all() (built-
 std::string export_components_markdown();
 Json export_commands_json(const CommandRegistry& registry);  // registry.describe()
 std::string export_commands_markdown(const CommandRegistry& registry);
+// The sentence that ends the description MCP sends for a command that has CommandInfo::details ("" without): where the rest is.
+std::string command_details_pointer(const CommandInfo& info);
 
 // The browsable reference: docs/COMPONENTS.md plus docs/reference/ (index, one page per component and command category).
 // Paths are relative to the docs folder, forward slashes, sorted; the text is LF-only and platform independent.

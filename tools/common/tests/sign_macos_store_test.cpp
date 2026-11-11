@@ -461,8 +461,8 @@ TEST_CASE("sign.macos: the command offers distribution, installerIdentity and pk
     const CommandInfo* info = registry.info("sign.macos");
     REQUIRE(info != nullptr);
     for (const char* key : {"distribution", "installerIdentity", "pkg"}) CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
-    CHECK(has_text(info->description, "FACTORIA_MACOS_APPSTORE_IDENTITY"));
-    CHECK(has_text(info->description, "FACTORIA_MACOS_INSTALLER_IDENTITY"));
+    CHECK(has_text(info->full_description(), "FACTORIA_MACOS_APPSTORE_IDENTITY"));
+    CHECK(has_text(info->full_description(), "FACTORIA_MACOS_INSTALLER_IDENTITY"));
 
     const stdfs::path inProject = stdfs::path(g.proj) / "build" / "export";
     stdfs::create_directories(inProject);

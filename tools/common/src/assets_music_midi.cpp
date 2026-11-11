@@ -137,14 +137,26 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
         info.readOnly = false;
         info.summary = "Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.";
         info.description =
-            "Reads the MIDI file `path` (absolute on this machine, or in the project) with the engine's own parser (format 0 and 1, running status, meta events, any number of tracks and channels; format 2 and SMPTE timing are errors) "
-            "and writes a song document at `out` (default assets/music/<name>.song.json; assets.import does the same for a .mid). Every (track, channel, program) that plays notes becomes a song track: channel 10 is a drum track (General MIDI percussion "
-            "keys become the lanes of the built-in kit, as a step grid with ghost / hit / accent velocities), the others take the built-in instrument nearest to the General MIDI program (an Instrument Name that names a built-in instrument wins; "
-            "with `soundfont` the track plays that SoundFont's preset of the program). Velocities are kept, the sustain pedal lengthens notes, controllers 7 and 10 become the track's volume and pan. `quantize` (\"off\" keeps the written times "
-            "to 1/48 of a quarter note; \"16\", \"8t\", \"32\"...) snaps starts and ends. Markers become sections (a name starting with intro, loop or outro, or written \"loop:name\"); without markers the song is one section `main`, a loop when `loop` is true. "
-            "Repeated bars of a track become one pattern played several times. Tempo, meter and key come from the first such event; a later change cannot be held by a song and is listed in `warnings`. Errors name the byte offset in the file. "
-            "The result is the song summary (as music.info) plus `import` (what was read) and `warnings`; `license`, `author` and `sourceUrl` go to the song's provenance in assets.json. An existing song is an `exists` error unless overwrite is true. "
-            "Example: {\"path\":\"C:/music/theme.mid\",\"out\":\"assets/music/theme.song.json\",\"quantize\":\"16\"}";
+            "Reads the MIDI file `path` (absolute on this machine, or in the project) with the engine's own "
+            "parser (format 0 and 1, running status, meta events, any number of tracks and channels; format "
+            "2 and SMPTE timing are errors) and writes a song document at `out` (default "
+            "assets/music/<name>.song.json; assets.import does the same for a .mid). Every (track, channel, "
+            "program) that plays notes becomes a song track: channel 10 is a drum track (General MIDI "
+            "percussion keys become the lanes of the built-in kit, as a step grid with ghost / hit / accent "
+            "velocities), the others take the built-in instrument nearest to the General MIDI program (an "
+            "Instrument Name that names a built-in instrument wins; with `soundfont` the track plays that "
+            "SoundFont's preset of the program). Velocities are kept, the sustain pedal lengthens notes, "
+            "controllers 7 and 10 become the track's volume and pan. `quantize` (\"off\" keeps the written "
+            "times to 1/48 of a quarter note; \"16\", \"8t\", \"32\"...) snaps starts and ends. Example: "
+            "{\"path\":\"C:/music/theme.mid\",\"out\":\"assets/music/theme.song.json\",\"quantize\":\"16\"}"
+            FA_COMMAND_DETAILS
+            "Markers become sections (a name starting with intro, loop or outro, or written \"loop:name\"); "
+            "without markers the song is one section `main`, a loop when `loop` is true. Repeated bars of a "
+            "track become one pattern played several times. Tempo, meter and key come from the first such "
+            "event; a later change cannot be held by a song and is listed in `warnings`. Errors name the "
+            "byte offset in the file. The result is the song summary (as music.info) plus `import` (what was "
+            "read) and `warnings`; `license`, `author` and `sourceUrl` go to the song's provenance in "
+            "assets.json. An existing song is an `exists` error unless overwrite is true.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"required", Json::array({"path"})},
                                          {"additionalProperties", false},

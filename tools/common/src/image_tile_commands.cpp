@@ -769,13 +769,24 @@ void register_tile_commands(CommandRegistry& registry, const std::string& projec
         tile_check, true);
 
     add("image.tileset.build", "Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules.",
-        "Makes the image document `path` (or adds the layer to an existing one) with a `tileset` layer that builds the whole set from parts: each part is one tile picture, "
-        "a PNG (`source`), text `rows` of the document's palette, or one flat `color`; a list gives variants. Minimal parts: inside, edge, corner (+ innerCorner for blob47, + edgeLeft for tiles that are not square); "
-        "image.tileset.info draws each one. Modes: basic16 (4 neighbours) and blob47 (8 neighbours, the common 47-tile set). `variations` 1 to 8 makes several pictures of every tile (the other variations pick variants of the parts by `seed`, "
-        "the same seed always gives the same sheet). The canvas becomes the sheet (columns x rows of tiles), `tile` is set to the tile size, the PNG is baked, and the rules file (default <document>.terrains.json: the Tilemap.terrains entry with "
-        "the exact tile of every neighbour combination) is written and recorded in assets.json. Run it again to update: keys you give override, `parts` merge by name (null removes one), nothing else changes, and the files are rewritten in place; "
-        "assets.regenerate {\"stale\":true} does the same after a part PNG changed. Returns the bake result plus tileset {layer, mode, layout}, rules {path}, terrain (the rule) and tilemap {tileset, tileSize, columns, terrains} (what to put in the Tilemap). "
-        "Example: {\"path\":\"assets/art/ground.image.json\",\"mode\":\"blob47\",\"tileWidth\":16,\"tileHeight\":16,\"palette\":[\"#1e4a14\",\"#2d5a1e\",\"#4a8a2c\"],\"parts\":{\"inside\":{\"rows\":[...16 rows...]},\"edge\":{\"rows\":[...]},\"corner\":{\"rows\":[...]},\"innerCorner\":{\"rows\":[...]}}}",
+        "Makes the image document `path` (or adds the layer to an existing one) with a `tileset` layer that "
+        "builds the whole set from parts: each part is one tile picture, a PNG (`source`), text `rows` of "
+        "the document's palette, or one flat `color`; a list gives variants. Minimal parts: inside, edge, "
+        "corner (+ innerCorner for blob47, + edgeLeft for tiles that are not square); image.tileset.info "
+        "draws each one. Modes: basic16 (4 neighbours) and blob47 (8 neighbours, the common 47-tile set). "
+        "`variations` 1 to 8 makes several pictures of every tile (the other variations pick variants of the "
+        "parts by `seed`, the same seed always gives the same sheet). The canvas becomes the sheet (columns "
+        "x rows of tiles), `tile` is set to the tile size, the PNG is baked, and the rules file (default "
+        "<document>.terrains.json: the Tilemap.terrains entry with the exact tile of every neighbour "
+        "combination) is written and recorded in assets.json. Example: "
+        "{\"path\":\"assets/art/ground.image.json\",\"mode\":\"blob47\",\"tileWidth\":16,\"tileHeight\":16,\"palette\":[\"#1e4a14\",\"#2d5a1e\",\"#4a8a2c\"],\"parts\":{\"inside\":{\"rows\":[...16 "
+        "rows...]},\"edge\":{\"rows\":[...]},\"corner\":{\"rows\":[...]},\"innerCorner\":{\"rows\":[...]}}}"
+        FA_COMMAND_DETAILS
+        "Run it again to update: keys you give override, `parts` merge by name (null removes one), nothing "
+        "else changes, and the files are rewritten in place; assets.regenerate {\"stale\":true} does the "
+        "same after a part PNG changed. Returns the bake result plus tileset {layer, mode, layout}, rules "
+        "{path}, terrain (the rule) and tilemap {tileset, tileSize, columns, terrains} (what to put in the "
+        "Tilemap).",
         "{\"type\":\"object\",\"required\":[\"path\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + " Created when it does not exist.\"},"
         "\"layer\":{\"type\":\"string\",\"default\":\"tileset\",\"description\":\"The tileset layer's name. Found and updated, or added.\"},"
         "\"mode\":{\"type\":\"string\",\"enum\":[\"basic16\",\"blob47\"],\"default\":\"blob47\",\"description\":\"basic16: 4 neighbours, 16 tiles. blob47: 8 neighbours, 47 tiles.\"},"
