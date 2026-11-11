@@ -457,8 +457,8 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-10):** M90 (0.20.0) and M91 (0.21.0) are done. Next M100 and M101 (the examples' feedback
-and a third outside review, planned 2026-11-10), then M97.1 and M97.2, then M92, M93, M94, M95, M96 and M98, and only
+**What comes next (2026-11-11):** M90 (0.20.0), M91 (0.21.0) and M100 (0.22.0) are done. Next M101 (the examples'
+feedback, planned 2026-11-10), then M97.1 and M97.2, then M92, M93, M94, M95, M96 and M98, and only
 then M71-M89 in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and
 accounts. The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of
 the open entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -606,7 +606,7 @@ burrow-brigade = BB, tidewater-market = TM, larkspur-lodge = LL, kindlewatch = K
 
 ## Decisions of finished milestones
 
-Kept here because later work has to respect them (the full story is in done/M1.md ... done/M91.md, indexed in done/README.md):
+Kept here because later work has to respect them (the full story is in done/M1.md ... done/M100.md, indexed in done/README.md):
 - M3: there is no `CameraFollow2D` component; a camera that follows within level bounds is the AI_GUIDE 9.6 recipe.
   `scene.import_ascii` does not keep its legend in the scene, so `factoria validate` checks the Tilemap data instead.
 - M4: bloom is flat `Camera` fields (`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`) because reflection has
@@ -723,6 +723,15 @@ story of each milestone is in `feedback/done/`). Hardware and accounts are in M9
 - macOS has no AdMob: the plugin offers no ads there and `platform.has("ads")` is false (docs/PLATFORM.md;
   [M27](done/M27.md)).
 
+- Agent cost (M100.11): the 0.21.0 measure (`feedback/agent-cost/0.21.0-claude.json`) did not show that the game can be
+  played to level 3: the template bot stops at x >= 2464, before the goal at x = 2480, and the AI never ran `play.auto`.
+  A trustworthy criterion needs a new BRIEF_ID that asks for one `game.phase` per level, and a new paid run, only with the
+  user's OK ([M100](done/M100.md); `scripts/agent-cost.sh`).
+- Performance counters (M100.9): `perf.check` has no "allocations per frame" or "bytes retained" counter yet (`perf.measure`
+  reports draw calls, entities and memory only); a package adds them to `perf.measure` and gates them as the M100.9 entry in
+  [done/M100.md](done/M100.md) says.
+- Windows editor autotest flake (M100.9): the cause of the flake in section E2 is not confirmed; do not close it as fixed
+  until several Windows CI runs in a row are green ([M100](done/M100.md)).
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
 Closes the "Found while implementing M7" and "Desktop download: next steps" lists (both in done/M7.md and done/M8.md). One worker
@@ -1442,90 +1451,6 @@ Order: M100 then M101, before M92 (M100 is what the game AI meets on its first r
 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost of the first step), then M92, M93
 (its ASan+UBSan job first), M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after
 M97.2. A triage of every open entry of `examples/*` opens each milestone.
-
-## M100. Errors and tests a game AI can trust (L; 10 packages) — outside review, 2026-11-10
-
-- M100.1 (M) What a game costs an AI with no context: a script (`scripts/agent-cost.sh`) that starts a configured AI CLI
-  (Claude Code, Codex, and one small model) in an empty folder outside the repository with only the installed
-  `factoria` on the PATH and a fixed brief ("a platformer with three levels"), records the transcript, and reports
-  through `tools/common/src/efficiency.cpp` the tokens and steps to the first playable build (`play.auto` reaches the
-  last level), the engine errors met and the ones not caught (a script error seen in the log while every test passed).
-  Results go to `feedback/agent-cost/<version>-<cli>.json`; run by hand (it spends quota), before M100 and after M101,
-  then once per version. docs/AI_COSTS.md says how to run it and shows the latest numbers.
-- M100.2 (M) A test fails when the game fails: a test during which a game script threw (callbacks, events, module
-  top level) or the engine logged an `ERROR` fails, with the first error as its message (in factoria.js `testRun`,
-  next to the watchdog check, over the log records between the test's `seq0` and `seq1`); a test that expects one says
-  so with `game.expectErrors(/pattern/)` (or `{ expectErrors: [...] }` in the test's options), and an expected error
-  that never comes fails too. The summary counts them, the exit code follows. Tests: a throwing `onUpdate`, a missing
-  `audio.play` file, a `console.error` (not an error), an expected error. Every example's and template's tests pass
-  under the rule; what it finds is fixed, not silenced.
-- M100.3 (M) Script errors that teach: `explain_missing_api` names the object's real members and the closest one
-  (`'input' has no 'axs'. Did you mean 'axis'?`, with `closest` of factoria.js), and says "this player may be older
-  than the game's engine" only in an exported player (in `test`, `run`, `mcp` and the editor the engine and the player
-  are one binary); `hint_for` checks "not a function" before that text. In development runs (`test`, `run`, `mcp`,
-  the editor's Play) `Entity` (made in one place, `entityOf`), the namespaces (`input`, `world`, `audio`, `ui`, the
-  rest of the `factoria` exports) and the `expect` matchers get the strict read Proxy the plugins and `gameApi` have
-  (did you mean and the member list; symbols, `then`, `toJSON` and prototype keys pass; writes are untouched); the
-  exported player has no Proxy. `entity.get/add/has/remove` with a name that matches only ignoring case warns once with
-  the exact name; an unknown name lists the closest names and the count. Every example's scripts and tests pass
-  (fix any expando read the Proxy finds).
-- M100.4 (M) `validate` checks scripts, not only their syntax: names imported from `"factoria"` and `"factoria:test"`
-  exist (did you mean); `ns.member` on an imported namespace exists (from api.json, file:line:column); a literal
-  component name passed to `get`/`add`/`has`/`remove` exists; a literal `fa.call("project.*")` in a game script warns
-  with file and line, reusing the export's `literal_project_calls` (GR/FB-0016); a module whose top level throws is an
-  error. A colour array that mixes channels over 1 with an alpha or channel at most 1 warns (pointer, both readings),
-  and `json_to<Color>`'s shape message says that 0..255 is read when a channel is over 1. Tests with planted mistakes
-  of each kind; AI_GUIDE's list of common mistakes points at them.
-- M100.5 (S) Output once: `validate` captures the log while it opens the session and folds load errors and warnings
-  into its report (each once); with `--json` stdout is the JSON and stderr has nothing but a fatal error. `factoria
-  test` prints an identical trace once and then "the same error in N more tests (names)"; the fixed sentence "(an
-  exception was thrown inside the test; check the game scripts too...)" goes once per run. A test measures the output
-  of a run with 10 failures of the same error.
-- M100.6 (S) The feedback loop cannot fall behind silently: the regeneration command in feedback/README.md and in this
-  file's status is `factoria feedback collect examples/* --out ...`; a ctest runs `feedback collect` over `examples/*`
-  and fails when its count line differs from this file's, or when an open entry of an example is named nowhere in this
-  file (no package, no triage line). CLAUDE.md's finishing steps run it.
-- M100.7 (S) Facts that stay true: a test compares README.md's "Version x.y" with CMakeLists.txt's `VERSION`;
-  generated projects get `CLAUDE.md` as one line, `@AGENTS.md` (old projects keep theirs until `project.update`);
-  `factoria docs read <name>` takes `--heading`, `--start-line` and `--max-bytes` like `docs.read`, and prints the
-  paging hint when it cuts; the MCP server's `instructions` and templates/common/AGENTS.md read the guide by section,
-  never whole (the short AGENTS.md itself is M97.1).
-- M100.8 (S) An MCP description budget: a test fails when a command's description passes 1.5 KB (what does not fit goes
-  to its doc section, which the description names); `tilemap_generate` (18.7 KB) and the other big ones are cut down.
-  Profiles and tool search are M97.2.
-- M100.9 (M) Performance gates without noise (KW/FB-0020, and the five red `main` runs since 2026-10-31: peak-memory
-  gates a few MB over, two Windows editor autotest runs and one iOS simulator run): `perf.check` enforces the
-  deterministic counters (draw calls, entities, allocations per frame, bytes retained) exactly, and time and memory
-  only past a wide band (warn inside it), so a baseline is never refreshed to pass; a `provisional: true` entry
-  enforces only the counters; a `workflow_dispatch` job runs `perf.baseline` on each runner and uploads the entries as
-  an artifact. The Windows editor autotest sections and the iOS simulator step that failed are found from those runs'
-  logs and fixed or given an honest wait. So is `mcp_http_test.cpp`'s cancel case for a client without event streams
-  (PR 208, Windows MSVC tests 2/3, 2026-11-10: no `HTTP/1.1 204` after `notifications/cancelled`, the test took 127 s).
-  Frame time is gated on the median and the p95, never on the average or the maximum, which one slow frame decides:
-  PR 208's second run failed `example_kindlewatch_perf` on linux-gcc-llvmpipe with `cpuMsAvg` 274.3 > 240 while its
-  p95 was 263.1 and one frame took 4579 ms. `perf.measure` reports `cpuMsMedian` too (and keeps the average and the
-  maximum in the report, not in the gate); `perf.check` names the slowest frames, so a spike is seen, not hidden.
-  `editor_autotest_5` timed out in the same run and joins the autotest sections above.
-  The p95 needs the wide band too, and so do the re-measures: PR 210's first run (2026-11-11, a branch with no engine
-  change) failed three example budgets on macos-clang-metal-paravirtual within 40 s, each with the best of its three
-  measurements. `example_kindlewatch_perf` (`cpuMsAvg` 9.255 > 8, p95 3.607, one frame of 1924 ms) and
-  `example_tidewater-market_perf` (`cpuMsAvg` 13.686 > 13.602, p95 35.2 against a limit of 54.4, one frame of 293 ms)
-  are the average again. `example_gem-roller_perf` failed on the p95 itself: 1.745 > 1.464 with a baseline of 0.464,
-  3.8 times it. Under a millisecond the 1 ms slack is most of the limit, and the two re-measures follow the first at
-  once, inside the seconds the shared runner is slow.
-  Open: `perf.check` has no "allocations per frame" or "bytes retained" counter yet (`perf.measure` reports draw calls,
-  entities and memory only); the sentence above is the target, and a package adds the counters to `perf.measure`.
-  Open: the cause of the Windows editor autotest flake in section E2 is not confirmed; do not close it as fixed until
-  several Windows CI runs in a row are green.
-- M100.10 (S) DONE, bookkeeping of the review: KW/FB-0019 has its dawn example in ANIMATION.md (a `tween` of
-  `world.settings`) and a script test; ED/FB-0002's docs part was already in AI_GUIDE 9.8, so only the refused-level
-  error is left (M101.10); this file keeps only what is open and the decisions: the DONE milestone sections moved to
-  `feedback/done/M<n>.md` (index in `feedback/done/README.md`, replacing ROADMAP_DONE.md), and CHANGELOG.md keeps
-  `## Unreleased` and the last published version, with one `changelog/0.<n>.md` per older minor version.
-- M100.11 (open, needs the user's OK for a paid run) A reliable agent-cost criterion: the 0.21.0 measure
-  (feedback/agent-cost/0.21.0-claude.json) did not show that the game can be played to level 3. The template bot stops
-  at x >= 2464, before the goal at x = 2480, and the AI never ran `play.auto`. A trustworthy criterion needs a new
-  BRIEF_ID that asks for one `game.phase` per level, and a new paid run.
 
 ## M101. Found by the example games, 2026-10-29..11-08 (L; 10 packages; 30 open entries)
 

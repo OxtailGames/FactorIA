@@ -102,8 +102,8 @@ and script export, and the generated reference prints it. A new component, field
 the generated `types/factoria.d.ts` gets an `@since` tag from it. The test `api_since` in `tools/common/tests` lists
 the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version (CHANGELOG.md keeps `## Unreleased` and the newest minor version with its patches, because
 `.github/workflows/release.yml` reads the tag's section from it; when a release is published, the previous minor version's sections move to
-`changelog/0.<minor>.md`, one file per minor version with its patches, and the index line at the top of CHANGELOG.md gets the link; the test `changelog_split` fails while CHANGELOG.md holds more than
-`## Unreleased` and one version; the README's "Version x.y" line and the Spanish README's "al día en la versión x.y" note
+`changelog/0.<minor>.md`, one file per minor version with its patches, and the index line at the top of CHANGELOG.md gets the link; the test `changelog_split` fails while CHANGELOG.md holds two minor versions (the
+patches of the newest stay); the README's "Version x.y" line and the Spanish README's "al día en la versión x.y" note
 change to the new minor too, checked by `readme_version`), and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
 docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus

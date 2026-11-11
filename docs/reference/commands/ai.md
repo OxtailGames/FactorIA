@@ -4,7 +4,7 @@
 
 ## `agent.cost`
 
-Not released yet (on main after 0.21.0).
+Since 0.22.0.
 
 Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed.
 

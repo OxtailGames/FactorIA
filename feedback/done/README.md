@@ -77,3 +77,4 @@ decisions later work has to respect stay in [ROADMAP.md](../ROADMAP.md).
 - [M70](M70.md): M70. Loading, threads and fast storage (L; 5 packages)
 - [M90](M90.md): M90. Quick fixes the review found (M; 5 packages)
 - [M91](M91.md): M91. A runtime that does not depend on the renderer (L; 4 packages)
+- [M100](M100.md): M100. Errors and tests a game AI can trust (L; 10 packages)
