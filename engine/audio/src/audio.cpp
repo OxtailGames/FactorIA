@@ -992,7 +992,6 @@ struct Audio::Impl {
         std::thread thread;
         std::mutex passMu;                                                  // one pass at a time (the thread, or a test's hook)
         std::vector<std::shared_ptr<audio_detail::MusicStemStream>> scratch;
-        std::uint64_t passNo = 0;
     } svc;
 
     // A song entered the cache: its streamed stems are the service's from now on (they stay while anything holds them).
@@ -1029,9 +1028,8 @@ struct Audio::Impl {
             }
         }
         const std::uint64_t seq = mixer.musicSeq.load(std::memory_order_relaxed);
-        ++svc.passNo;
         bool more = false;
-        for (const auto& s : svc.scratch) s->tick(svc.passNo);
+        for (const auto& s : svc.scratch) s->tick(seq);
         // The urgent chunks of every stem first, then the rest of each window: one stem with a long way to fill does not keep the others waiting.
         for (const bool urgentOnly : {true, false})
             for (const auto& s : svc.scratch) more = s->service(seq, urgentOnly) || more;
@@ -3004,6 +3002,7 @@ void Audio::Impl::music_invalidate(const std::string& song) {
         musicLoads.erase(key);
         auto cached = musicCache.find(key);
         if (cached != musicCache.end()) {
+            std::erase_if(musicDeparted, [](const auto& w) { return w.expired(); });
             if (cached->second.src.use_count() > 1) musicDeparted.push_back(cached->second.src);  // a player still plays it
             musicCache.erase(cached);
         }
