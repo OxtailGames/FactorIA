@@ -148,6 +148,7 @@ TEST_CASE("mcp: initialize negotiates protocol versions") {
     std::string instr = res["instructions"];
     CHECK(instr.find("feedback_report") != std::string::npos);
     CHECK(instr.find("+Y is up") != std::string::npos);
+    CHECK(instr.find("BY SECTION, never whole") != std::string::npos);  // the guide is read by heading
     CHECK(f.server.initialized());
     CHECK(f.server.client_name() == "test");
 }
