@@ -1234,8 +1234,10 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
     info.category = "project";
     info.readOnly = true;
     info.summary = "Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.";
-    info.description = "Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, "
-                       "message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept "
+    info.description = "Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, "
+                       "scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. "
+                       "Example: {}" FA_COMMAND_DETAILS
+                       "Checks every *.scene.json and *.prefab.json of the project, wherever it is kept "
                        "(scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, "
                        "like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not "
                        "disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown "
@@ -1244,8 +1246,7 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
                        "Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in "
                        "`notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, "
                        "`notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports "
-                       "a .json that a script imports and that is not valid JSON once, as that file with line and column. "
-                       "Example: {}";
+                       "a .json that a script imports and that is not valid JSON once, as that file with line and column.";
     registry.add(info, [projectDir](const Json&) { return validate_project(projectDir).to_json(); });
 }
 
