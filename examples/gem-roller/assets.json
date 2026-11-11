@@ -5,24 +5,54 @@
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-11-04",
+        "kind": "anim3d",
         "provider": "factoria anim3d.generate",
         "license": "CC0-1.0",
         "author": "factoria",
-        "source": "assets/models/scout.rig.glb",
-        "notes": "An idle clip made from the proportions of the scout rig with anim3d.generate {rig: assets/models/scout.rig.glb, kind: idle}; edit it in the Animation panel's 3D mode."
+        "notes": "Generated from assets/models/scout.rig.glb: idle.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/scout.rig.glb",
+            "kind": "idle",
+            "out": "assets/anim/scout_idle.anim.json",
+            "params": {}
+          },
+          "inputs": [
+            {
+              "path": "assets/models/scout.rig.glb",
+              "sha256": "ceff4cfdd8d8f844fde9dc0a8f128f3852b21802d48c1b2e2ba7e841715f5508"
+            }
+          ]
+        }
       }
     },
     "assets/anim/scout_walk.anim.json": {
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-11-04",
+        "kind": "anim3d",
         "provider": "factoria anim3d.generate",
         "license": "CC0-1.0",
         "author": "factoria",
-        "source": "assets/models/scout.rig.glb",
-        "notes": "A walk clip made from the proportions of the scout rig with anim3d.generate {rig: assets/models/scout.rig.glb, kind: walk}; edit it in the Animation panel's 3D mode."
+        "notes": "Generated from assets/models/scout.rig.glb: walk.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/scout.rig.glb",
+            "kind": "walk",
+            "out": "assets/anim/scout_walk.anim.json",
+            "params": {}
+          },
+          "inputs": [
+            {
+              "path": "assets/models/scout.rig.glb",
+              "sha256": "ceff4cfdd8d8f844fde9dc0a8f128f3852b21802d48c1b2e2ba7e841715f5508"
+            }
+          ]
+        }
       }
     },
     "assets/models/gem.glb": {

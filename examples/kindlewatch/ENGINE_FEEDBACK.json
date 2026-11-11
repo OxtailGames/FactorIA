@@ -51,7 +51,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "479c7bd2",
       "notes": [
-        "Fixed in 479c7bd2 (M60): schemas/assets.schema.json takes provenance kind \"prefab\" and `extras`; model.game_ready then factoria validate gives 0 errors (triage 2026-11-10). The suggested schema test of every recipe command's output is M101.6."
+        "Fixed in 479c7bd2 (M60): schemas/assets.schema.json takes provenance kind \"prefab\" and `extras`; model.game_ready then factoria validate gives 0 errors (triage 2026-11-10). The suggested schema test of every recipe command's output is M101.6.",
+        "Fixed in 76bdc6bc (M101.6): tools/common/tests/recipe_schema_test.cpp runs every recipe command and validates the assets.json it writes against the schema; a new recipe command without a schema kind fails it."
       ]
     },
     {
@@ -409,7 +410,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "76bdc6bc",
+      "notes": [
+        "Fixed in 76bdc6bc (M101.6): anim3d.generate and anim3d.retarget record a provenance recipe, every clip write leaves a record, assets.set_provenance takes kind anim3d. The clips under anim/ now have records and tests/assets.test.js checks them."
+      ]
     },
     {
       "id": "FB-0018",
