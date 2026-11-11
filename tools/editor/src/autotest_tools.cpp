@@ -5214,7 +5214,11 @@ void Editor::at_build_tools_script() {
             at_check(shared_of("FB-0001") != "skipped" && !entry_of("FB-0003").contains("share"), "...and changes nothing in the file yet");
         });
         click("send:ok");
-        wait_until([shared_of] { return shared_of("FB-0002") == "sent" && shared_of("FB-0003") == "sent"; });
+        step(1, [this, shared_of] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [shared_of] { return shared_of("FB-0002") == "sent" && shared_of("FB-0003") == "sent"; };
+            atWaitWhat_ = "Send to write shared=sent into the file for FB-0002 and FB-0003";
+        });
         step(3, [this, entry_of, shared_of, reports, all_reports, send_row] {
             const std::string body = all_reports();
             at_check(reports() >= 1 && body.find("Pause cannot stop particles") != std::string::npos && body.find("FB-0002") != std::string::npos &&
@@ -5233,7 +5237,8 @@ void Editor::at_build_tools_script() {
                      "each sent row says what happened, and the window offers Close");
             at_check(share_column(entry_of("FB-0001")).label == "skipped" && share_column(entry_of("FB-0002")).label == "sent" &&
                          share_column(entry_of("FB-0003")).label == "sent",
-                     "the share column reads skipped, sent and sent");
+                     "the share column reads skipped, sent and sent (the file says shared = '" + shared_of("FB-0001") + "', '" +
+                         shared_of("FB-0002") + "', '" + shared_of("FB-0003") + "')");
         });
         click("send:close");
         step(3, [this] { at_check(!share_.sendOpen && !at_visible("send:close"), "Close closes the window"); });
@@ -9182,11 +9187,22 @@ void Editor::at_build_tools_script() {
         step(1, [this] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return !phone_.busy() && !web_server().running(); };
+            atWaitWhat_ = "Stop to end the web server";
         });
         step(4, [this, ps, http] {
             at_check(!web_server().running(), "Stop ends the server");
             at_check(http(ps->port, "GET " + ps->base + " HTTP/1.1\r\n\r\n").empty(), "...its port refuses connections");
-            at_check(at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"), "...the window offers Start again and no code");
+            // The check above is a blocking request (seconds on a loaded VM, none of them drawn): the window shows the
+            // new state a few frames after the server stopped, so wait for the frames instead of counting them.
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"); };
+            atWaitWhat_ = "the Phone window to offer Start again and no code after Stop";
+        });
+        step(1, [this] {
+            at_check(at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"),
+                     std::string("...the window offers Start again and no code (start shown ") + (at_shown("phone:start") ? "yes" : "no") +
+                         ", stop visible " + (at_visible("phone:stop") ? "yes" : "no") + ", code visible " + (at_visible("phone:qr") ? "yes" : "no") +
+                         ", busy " + (phone_.busy() ? "yes" : "no") + ")");
         });
         // ---- leave the editor as the other sections expect it
         step(2, [this] {

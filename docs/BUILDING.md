@@ -709,7 +709,7 @@ player logged `player: 60 frames rendered`, an audio device is open and being pu
 background and back and renders again, a tap in the middle of the screen reaches the player at the middle of the design
 (on iOS a UI test taps, `platforms/ios/touch-test`), nothing crashed and the screenshot shows a picture (Android also
 changes the font size), and upload their logs, the screenshot and crash reports as the artifacts `ios-smoke` and
-`android-smoke` (look there when one of them fails). The Android game also carries a native plugin (built by
+`android-smoke` (look there when one of them fails). The `ios` job asks for the conclusion of `ios-build` while it waits for the app, so a build that ended without one (failed, or cancelled because GitHub found no macOS runner) fails the step at once with that message instead of timing out. The Android game also carries a native plugin (built by
 `android-apk` with the NDK, outside the game's folder through `FA_CI_PLUGINS`), and the emulator job checks that its
 script got the plugin's answers. What they cover and what not is in [MOBILE.md](MOBILE.md).
 

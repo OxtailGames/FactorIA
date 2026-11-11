@@ -1458,6 +1458,9 @@ public:
     std::string atReopenDir_;
     std::string atIniSaved_;       // section U: the layout file the editor really uses, put back at the end
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
+    // What atWaitUntil_ waits for, in words (set next to it by a wait that wants to be honest): when the 60 s run out, the
+    // autotest fails with "waited 60 s for <this>"; empty = the wait expires with only a warning in the log.
+    std::string atWaitWhat_;
     void save_screenshot_now(const std::string& path);
     // FA_EDITOR_AUTOTEST_SECTIONS (autotest_sections.h, read by run()): the sections to run, empty for all of them.
     std::set<std::string> atSections_;

@@ -223,11 +223,21 @@ void Editor::autotest_pre_frame() {
         atWaitAi_ = false;
     }
     if (atWaitUntil_) {  // hold the script until a step's condition holds (an export on its worker thread)
-        if (!atWaitUntil_() && at_keep_waiting()) {
-            --atFrame_;
-            return;
+        if (!atWaitUntil_()) {
+            if (at_keep_waiting()) {
+                --atFrame_;
+                return;
+            }
+            // The wait ran out. A wait that says what it waits for fails the run with that sentence (the checks after it
+            // would only report a symptom, and on a CI log the symptom alone does not say a wait expired); the others
+            // leave a warning with the frame, so a log shows that the script went on without its condition.
+            if (!atWaitWhat_.empty())
+                at_check(false, "waited 60 s for " + atWaitWhat_ + ", which never held (script frame " + std::to_string(atFrame_) + ")");
+            else
+                FA_WARN("autotest", "a wait_until condition did not hold within 60 s; the script went on (script frame {})", atFrame_);
         }
         atWaitUntil_ = nullptr;
+        atWaitWhat_.clear();
     }
     const int f = atFrame_;
     if (atWelcome_) {
