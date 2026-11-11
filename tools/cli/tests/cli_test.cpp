@@ -1204,6 +1204,30 @@ TEST_CASE("test: ten tests failing with the same error print the trace once") {
     fa::fs::set_project_root(oldRoot);
 }
 
+TEST_CASE("test: a test whose game logged an error exits 1 and says why, with loggedError in --json") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_logged");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    stdfs::create_directories(root / "game" / "tests");
+    {
+        std::ofstream f(root / "game" / "tests" / "logged.test.js");
+        f << "import { test, expect } from \"factoria:test\";\nimport { audio } from \"factoria\";\n"
+             "test(\"plays a missing sound\", () => { audio.play(\"assets/sfx/nope.wav\"); expect(1).toBe(1); });\n";
+    }
+    auto r = run({"test", dir, "tests/logged.test.js"});
+    CHECK(r.code == 1);
+    CHECK(r.out.find("the game logged an error") != std::string::npos);
+    auto j = run({"test", dir, "tests/logged.test.js", "--json"});
+    CHECK(j.code == 1);
+    CHECK(j.out.find("\"loggedError\": true") != std::string::npos);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
+
 TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path root = fa::fs::make_temp_dir("fa_cli_validate_once");

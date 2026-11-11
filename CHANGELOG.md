@@ -8,6 +8,13 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 
 ### Changes
 
+- **For game authors and AIs (M100 polish):** `factoria test` and `validate` are steadier. Each test forgets the engine's
+  once-per-run errors (a missing sound) so the result does not depend on test order or `--filter`; the errors of a run are
+  collected in their own list, so a chatty test cannot push an earlier error out and pass green; errors logged by the
+  per-test reset count; a run leaves the script system's known errors as it found them; `test.skip` checks its options.
+  `validate` ignores `fa.call("project.x")` in comments and strings, sees `let a = 1, time = 2`, skips plural receivers
+  (`levels.get("Intro")`), softens the mixed-colour text, and the member list of a read check puts the entity's own fields
+  first. docs/SCRIPTING.md and docs/ANIMATION.md say what the code does.
 - **For engine developers (M100.10):** bookkeeping of the review. docs/ANIMATION.md has a dawn recipe, a `tween` of
   `world.settings` (sky, ambient light, fog), kept true by a script test (KW/FB-0019 closed). `feedback/ROADMAP.md`
   keeps only open work and decisions; finished milestones are one file each in `feedback/done/` (index in
