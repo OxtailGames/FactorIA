@@ -3,7 +3,10 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 using namespace fa;
 using namespace fa::test;
@@ -85,6 +88,9 @@ TEST_CASE("emissiveStrength above 1 makes a bigger, brighter bloom halo when the
     const double strong = halo(g.render(s.world));
     INFO("hdr_scene=" << g.renderer.hdr_scene() << " weak=" << weak << " strong=" << strong);
     CHECK(weak > 0.0);  // plain bloom works on any GPU
+    // Margin: the strong halo carries 4x the light of the weak one into the blur (4.0 against 1.0), but the sum counts the pixels
+    // outside the disc after the screen clamps them at white, so the ratio measured is well below 4. 1.5 is a loose floor that a
+    // different blur or MSAA kernel will not cross; a clamped (8-bit) target gives a ratio of 1.
     if (g.renderer.hdr_scene()) CHECK(strong > weak * 1.5);
     else CHECK(strong == doctest::Approx(weak).epsilon(0.05));  // an 8-bit target clamps both to white
 
@@ -113,4 +119,116 @@ TEST_CASE("emissiveStrength splits a batch exactly like a different emissive col
     const int otherColour = draws(1.0f, Color{0.6f, 0.3f, 0.3f, 1});
     CHECK(otherStrength == same + 1);
     CHECK(otherColour == same + 1);
+}
+
+namespace {
+
+// Sets (or, with nullptr, clears) an environment variable for the life of the object.
+struct EnvGuard {
+    std::string name, old;
+    bool had = false;
+    EnvGuard(const char* n, const char* value) : name(n) {
+        if (const char* cur = std::getenv(n)) {
+            had = true;
+            old = cur;
+        }
+        set(value);
+    }
+    ~EnvGuard() { set(had ? old.c_str() : nullptr); }
+    void set(const char* value) const {
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
+#else
+        if (value) setenv(name.c_str(), value, 1);
+        else unsetenv(name.c_str());
+#endif
+    }
+};
+
+}  // namespace
+
+TEST_CASE("the game target falls back to RGBA8 when the GPU cannot make the float images, and the picture does not change") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    GlowScene s(Color{0.25f, 0.5f, 0.75f, 1}, 1.0f);
+    s.bloom(0.2f);
+    const Image reference = g.render(s.world);
+
+    // A second renderer on the same device (it adopts the open context) with the failure injected: the float target is "not VALID".
+    EnvGuard hook("FA_SCENE_FORMAT", "rgba16f_invalid");
+    Renderer fallback;
+    RendererDesc d;
+    d.designWidth = 320;
+    d.designHeight = 180;
+    d.sampleCount = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1;
+    d.headless = true;
+    d.adoptContext = true;
+    std::string error;
+    REQUIRE_MESSAGE(fallback.init(d, g.gpu.environment(), &error), error);
+    CHECK_FALSE(fallback.hdr_scene());  // reports the format really used
+    fallback.set_target_size(200, 100);  // rebuilding the targets keeps working in the fallback format
+    fallback.set_target_size(320, 180);
+    fallback.begin_frame();
+    fallback.render_world(s.world, 0.0f);
+    fallback.end_frame();
+    g.gpu.end_frame();
+    Image img;
+    REQUIRE_MESSAGE(fallback.capture(img, &error), error);
+    REQUIRE(img.width == reference.width);
+    REQUIRE(img.height == reference.height);
+    // The scene stays below white everywhere, so an 8-bit target draws what a float one does, within rounding.
+    double worst = 0;
+    for (int y = 0; y < img.height; y += 3)
+        for (int x = 0; x < img.width; x += 3) {
+            const Color a = img.pixel(x, y), b = reference.pixel(x, y);
+            worst = std::max({worst, double(std::fabs(a.r - b.r)), double(std::fabs(a.g - b.g)), double(std::fabs(a.b - b.b))});
+        }
+    CHECK(worst < 0.03);
+    fallback.shutdown();
+}
+
+TEST_CASE("bloom does not spread a NaN or infinite source over the glow of its neighbour") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // Two lamps side by side: the left one glows normally, the right one writes NaN (a custom material's pow() of a negative, a
+    // 0/0 in a script). The reference is the same scene with a black right lamp. The bright pass must drop the NaN, otherwise
+    // the blur carries it over the left lamp's halo and disc and those pixels come out wrong. Compared on the left half of the
+    // picture, which holds the whole left lamp and its halo but not the right lamp's own surface.
+    auto left_half = [&](Color right) {
+        GlowScene s(Color{0.9f, 0.6f, 0.3f, 1}, 1.0f);
+        s.world.get<Transform>(s.glow)->position = {-0.6f, 0, 0};
+        Entity other = make(s.world, "other", {0.6f, 0, 0});
+        auto& m = s.world.add<MeshRenderer>(other);
+        m.mesh = "sphere";
+        m.color = Color{0, 0, 0, 1};
+        m.unlit = true;
+        m.emissive = right;
+        s.bloom(0.2f, 1.0f, 30.0f);
+        const Image img = g.render(s.world);
+        std::array<double, 3> sum{0, 0, 0};
+        for (int y = 0; y < img.height; ++y)
+            for (int x = 0; x < img.width / 2; ++x) {
+                const Color c = img.pixel(x, y);
+                sum[0] += c.r;
+                sum[1] += c.g;
+                sum[2] += c.b;
+            }
+        return sum;
+    };
+    const float nan = std::nanf("");
+    const auto clean = left_half(Color{0, 0, 0, 1});
+    const auto dirty = left_half(Color{nan, nan, nan, 1});
+    // An infinite red channel must not light the neighbour more than the brightest finite one (1.0, white) does: in the float
+    // target the bright pass drops it, in an 8-bit target it is clamped to 1 on the way in. Not with MSAA: the resolve averages
+    // the Inf at the lamp's edge with its empty samples into a large finite number, which is light to the bright pass.
+    const bool msaa = std::getenv("FA_TEST_SAMPLES") && std::atoi(std::getenv("FA_TEST_SAMPLES")) > 1;
+    const auto inf = left_half(Color{INFINITY, 0.5f, 0.5f, 1});
+    const auto one = left_half(Color{1.0f, 0.5f, 0.5f, 1});
+    INFO("hdr_scene=" << g.renderer.hdr_scene() << " clean=" << clean[0] << "," << clean[1] << "," << clean[2] << " dirty=" << dirty[0]
+                      << "," << dirty[1] << "," << dirty[2] << " inf=" << inf[0] << " one=" << one[0]);
+    CHECK(clean[0] > 100.0);  // the left lamp does glow
+    for (int c = 0; c < 3; ++c) {
+        CHECK(dirty[c] == doctest::Approx(clean[c]).epsilon(0.01));
+        if (!msaa) CHECK(inf[c] <= one[c] * 1.01);
+    }
 }
