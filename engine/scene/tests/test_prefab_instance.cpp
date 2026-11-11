@@ -197,3 +197,44 @@ TEST_CASE("prefab instances: diff_entity_with_prefab compares an entity built by
     CHECK_FALSE(none.expressible);
     CHECK(none.reason.find("nope") != std::string::npos);
 }
+
+TEST_CASE("prefab instances: an instance added as a child of an instance stays an instance") {
+    TempProject p;
+    write_panel();
+    // Canonical form: the added children are instances of their own (one with a Transform and an override).
+    const std::string scene = R"({
+      "format": "factoria.scene/1",
+      "settings": { "gravity2D": [0, -980], "gravity3D": [0, -9.81, 0] },
+      "entities": [
+        { "id": "host", "prefab": "prefabs/panel.prefab.json",
+          "children": [
+            { "id": "inner", "prefab": "prefabs/panel.prefab.json",
+              "components": { "Transform": { "position": [4.0, 5.0, 0.0] } },
+              "overrides": { "title": { "components": { "Text": { "text": "Inner" } } } } },
+            { "id": "bare", "prefab": "prefabs/panel.prefab.json" } ] },
+        { "id": "other", "prefab": "prefabs/panel.prefab.json" }
+      ]})";
+    World w;
+    load(w, scene);
+    CHECK(w.children(w.find_by_id("host")).size() == 4);   // title, Row, inner, bare
+    std::vector<PrefabExpanded> expanded;
+    const std::string want = dump_scene_json(Json::parse(scene)["entities"]);
+    CHECK(saved_entities_text(w, &expanded) == want);
+    CHECK(expanded.empty());
+
+    // The marks of the in-memory snapshot keep it too.
+    World w2;
+    REQUIRE(load_scene(w2, snapshot_scene(w), "<snapshot>").ok());
+    CHECK(saved_entities_text(w2, &expanded) == want);
+    CHECK(expanded.empty());
+    CHECK_FALSE(w2.info(w2.find_by_id("inner")).fromPrefab);
+
+    // An edit inside the added instance and one in the host are both kept, each at its own level.
+    w.get<Sprite>(w.find_by_id("inner"))->layer = 8;
+    w.get<Text>(w.find_by_id("title"))->text = "Host title";
+    Json host = saved_entity(w, "host", &expanded);
+    CHECK(expanded.empty());
+    CHECK(host["overrides"]["title"]["components"]["Text"]["text"] == "Host title");
+    CHECK(host["children"][0]["components"]["Sprite"]["layer"] == 8);
+    CHECK(host["children"][0]["prefab"] == "prefabs/panel.prefab.json");
+}
