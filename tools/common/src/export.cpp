@@ -1113,7 +1113,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "then BUILT with its own wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build "
         "takes minutes and needs network): `format` \"apk\" (default) or \"aab\" leaves <slug>[-debug].apk/.aab, "
         "reported as `artifact`; \"gradle\" only writes the project. ios: the game plus an Xcode/CMake project. web: a "
-        "folder with index.html, the player and game.pak, and a zip. `release` builds the release variant, `dryRun` "
+        "folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: signed with export.android.signing), `dryRun` "
         "true checks everything and writes nothing, `singleFile` true (web) writes one html page. Examples: "
         "{\"platform\":\"windows\",\"release\":true}, {\"platform\":\"android\",\"format\":\"aab\",\"release\":true}."
         FA_COMMAND_DETAILS

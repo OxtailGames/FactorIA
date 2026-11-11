@@ -261,6 +261,11 @@ test("a quiet one", () => { expect(1).toBe(1); });
 import { test } from "factoria:test";
 test.skip("skipped", () => {}, { expectError: [/x/] });
 )JS");
+    h.file("tests/pending.test.js", R"JS(
+import { test } from "factoria:test";
+test.skip("pending");
+test("runs", () => {});
+)JS");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
     MESSAGE(rep.summary());
@@ -274,6 +279,9 @@ test.skip("skipped", () => {}, { expectError: [/x/] });
     TestReport only = h.scripts.run_tests({"tests/t.test.js"}, "second");
     REQUIRE(only.cases.size() == 1);
     CHECK_FALSE(only.cases[0].passed);  // the same result with --filter
+    TestReport pending = h.scripts.run_tests({"tests/pending.test.js"});
+    CHECK(pending.loadErrors.empty());  // test.skip("name") with no body is a pending test, not an error
+    CHECK(pending.cases.size() >= 1);  // a skipped test is not a case of the report; "runs" is
     TestReport skip = h.scripts.run_tests({"tests/skip.test.js"});
     REQUIRE(skip.loadErrors.size() == 1);
     CHECK(contains(skip.loadErrors[0].message, "unknown option 'expectError'"));

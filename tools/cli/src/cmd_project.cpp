@@ -154,8 +154,9 @@ public:
         for (const auto& e : entries()) err << format_log_line(e) << "\n";
     }
     // Adds every captured entry the report does not already say as a warning, one per distinct text.
+    // May be called again later (after the session is gone): a text folded before is not added twice.
     void fold_into(ValidationReport& rep) {
-        std::vector<std::string> seen;
+        std::vector<std::string>& seen = folded_;
         auto covered = [&](const std::string& text) {
             return report_already_says(rep, text) || std::find(seen.begin(), seen.end(), text) != seen.end();
         };
@@ -171,6 +172,7 @@ public:
     }
 
 private:
+    std::vector<std::string> folded_;
     struct Shared {
         std::mutex mutex;
         std::vector<LogEntry> entries;
@@ -240,6 +242,9 @@ Command make_validate_command() {
                                rep.warnings.end());
             if (!ctx.args.has("json")) ctx.out << "Wrote " << path << " (" << text.size() << " bytes)\n";
         }
+        // The session's teardown logs too: close it now and fold what it said, so the report has it as well.
+        session.reset();
+        capture.fold_into(rep);
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep.to_json());
         } else {
