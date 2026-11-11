@@ -417,7 +417,12 @@ GLES3 (Android). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
 target, so headless and windowed images match. `Camera.bloom` is a post-process
 that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
-`shaders/bloom.glsl`), so screenshots include it. With `Camera.bloomScreenSpace = false`
+`shaders/bloom.glsl`), so screenshots include it. The target is RGBA16F (`Gpu::scene_format()`) when the GPU renders to
+it with blending, filtering and the requested MSAA, else RGBA8 (`FA_SCENE_FORMAT=rgba8` forces the fallback;
+`Renderer::hdr_scene()` says which): a float target keeps a colour above white (`MeshRenderer.emissive` times
+`emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
+8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
+reading it, and the colour filter clamps its input for every mode but `none`. With `Camera.bloomScreenSpace = false`
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is the last post-process

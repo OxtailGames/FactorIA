@@ -149,7 +149,10 @@ Each issue starts with `file:line:column`:
 
 A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
 mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
-readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
+readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255. A colour with a channel over 1, no
+channel between 0 and 1 and none over 8 (`[3, 2, 2, 3]`, an attempt at "brighter than white") is read as 0..255 too, which is
+almost black: validate warns about that as well. For `MeshRenderer.emissive` both warnings point to `emissiveStrength` (the
+HDR multiplier) as the way to glow above white.
 
 ### Reading a member that does not exist
 
