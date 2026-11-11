@@ -650,7 +650,8 @@ with `"jump": ["Space", "GamepadA"]`, `"move_left": ["A", "GamepadLeftStickLeft"
   screenshots, tests. To judge the layout on a desktop without editing the scene, force the touch interface: `factoria run
   --touch` (windowed or `--headless`), the command `ui.force_touch {"enabled": true}` or `game.screenshot {"forceTouch": true}`.
   All three set one switch: the game behaves as if the last input were always a finger (`input.lastDevice` says `"touch"`,
-  the controls and touch prompts are shown at once, no step needed) until `ui.force_touch {"enabled": false}`. It sends no
+  the controls and touch prompts are shown at once, no step needed) until `ui.force_touch {"enabled": false}`. (`game.screenshot
+  {"forceTouch"}` sets it only for that picture and puts the previous setting back afterwards.) It sends no
   finger; drive the controls with `game.touch` as below.
 - **Fingers**: each control takes the finger that lands on it and keeps it until it lifts, even when the finger slides
   off (the stick stays at full tilt in that direction). Several fingers work at once: move and jump together. A finger a

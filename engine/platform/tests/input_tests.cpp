@@ -700,6 +700,28 @@ TEST_CASE("button_name of an action follows the last device and the pad's family
     CHECK(in.button_name("jump").empty());
 }
 
+TEST_CASE("button_name follows forced touch: a pad was the last device but the prompts are the touch ones") {
+    Input in;
+    in.set_actions(jump_and_move());
+    in.on_gamepad_connected(0, true);
+    in.on_gamepad_button(0, GamepadButton::Y, true);
+    CHECK(in.button_name("fire") == "RT");
+    in.set_force_touch(true);  // last_device() is touch: no pad binding is preferred
+    CHECK(in.button_name("fire") == "Left Click");
+    in.set_force_touch(false);
+    CHECK(in.button_name("fire") == "RT");
+}
+
+TEST_CASE("action_overrides lists the actions forced down") {
+    Input in;
+    in.set_actions(jump_and_move());
+    CHECK(in.action_overrides().empty());
+    in.set_action_override("jump", true);
+    in.set_action_override("fire", true);
+    in.set_action_override("fire", false);
+    CHECK(in.action_overrides() == std::vector<std::string>{"jump"});
+}
+
 TEST_CASE("text input reaches text_utf8 as UTF-8 and is cleared each frame") {
     Input in;
     in.begin_frame();
