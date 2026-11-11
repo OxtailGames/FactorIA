@@ -495,9 +495,10 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     RawClient plain(port_of(*url));
     REQUIRE(plain.send(RawClient::post(path_of(*url),
                                        R"({"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"test_block","arguments":{}}})")));
-    // Wait for the request itself, not only for its command: the cancel has to find request 42 in the session. A loaded VM
-    // (the Windows CI one) can take many seconds to get here, so the deadline is a safety net far above normal use, and
-    // when it passes the test says what it waited for instead of going on to a cancel that has nothing to stop.
+    // A safety net, not a known fix: the cancel has to find request 42 in the session, and the first case above already
+    // checks requests_in_flight() == 1 once its command has started, so this wait probably changes nothing (the server
+    // showed no bug for the Windows 204 failure; only CI runs tell whether it comes back). The deadline is far above
+    // normal use, and when it passes the test says what it waited for instead of going on to a cancel with nothing to stop.
     const auto end2 = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     while ((!started || session->requests_in_flight() != 1) && std::chrono::steady_clock::now() < end2)
         std::this_thread::sleep_for(std::chrono::milliseconds(2));

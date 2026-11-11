@@ -37,8 +37,8 @@ Command make_new_command() {
     c.summary = "Create a new game project from a template.";
     c.usage = "<dir> [--template T] [--name NAME] [--id ID]";
     c.details =
-        "Creates <dir> with factoria.json, a first scene, a script, a test, project tools, AGENTS.md/CLAUDE.md (the guide\n"
-        "for AI agents), ENGINE_FEEDBACK.json, the real script typings (types/factoria.d.ts) and a .mcp.json that connects\n"
+        "Creates <dir> with factoria.json, a first scene, a script, a test, project tools, AGENTS.md (the guide for\n"
+        "AI agents; CLAUDE.md is one line importing it), ENGINE_FEEDBACK.json, the real script typings (types/factoria.d.ts) and a .mcp.json that connects\n"
         "Claude Code to 'factoria mcp'.";
     c.maxPositional = 1;
     c.flags = {{"template", "NAME", "Template: 2d-empty (default), 2d-platformer, 3d-empty. See 'factoria templates'."},
@@ -100,9 +100,28 @@ Command make_templates_command() {
     return c;
 }
 
+bool report_already_says(const ValidationReport& rep, const std::string& logMessage) {
+    // A message of the report is "in" a log line when the line contains it whole; a short generic message ("Bad value")
+    // would cover unrelated lines, so only a message long enough to be specific counts. Both sides use '/' (Windows
+    // paths in one and not in the other).
+    constexpr size_t kMinSpecific = 24;
+    auto slashes = [](std::string s) {
+        std::replace(s.begin(), s.end(), '\\', '/');
+        return s;
+    };
+    const std::string text = slashes(logMessage);
+    for (const auto* list : {&rep.errors, &rep.warnings, &rep.notes})
+        for (const auto& i : *list) {
+            const std::string m = slashes(i.message);
+            if (m.size() >= kMinSpecific && text.find(m) != std::string::npos) return true;
+        }
+    return false;
+}
+
 namespace {
 // `factoria validate` reports what the engine logged while it opened the session and loaded the scenes inside its
-// report, each once: this keeps those warnings and errors off stderr and collects them for the report instead.
+// report, each once: this keeps those warnings and errors off stderr and collects them for the report instead. The
+// stderr filter stays on until the capture is destroyed, after the session (the teardown and --fix-types log too).
 class LogCapture {
 public:
     LogCapture() : shared_(std::make_shared<Shared>()) {
@@ -123,23 +142,24 @@ public:
         remove_log_sink(id_);
         id_ = -1;
     }
-    // Adds every captured entry the report does not already say (an issue whose message the log line contains) as a
-    // warning, one per distinct text.
-    void fold_into(ValidationReport& rep) {
+    // The captured entries (a copy; the capture goes on).
+    std::vector<LogEntry> entries() {
+        std::lock_guard<std::mutex> lock(shared_->mutex);
+        return shared_->entries;
+    }
+    // Something other than a report ended the command: the lines it held back go to `err` as the log would have
+    // written them, so the failure is not seen without them.
+    void replay(std::ostream& err) {
         stop();
-        std::vector<LogEntry> entries;
-        {
-            std::lock_guard<std::mutex> lock(shared_->mutex);
-            entries = shared_->entries;
-        }
+        for (const auto& e : entries()) err << format_log_line(e) << "\n";
+    }
+    // Adds every captured entry the report does not already say as a warning, one per distinct text.
+    void fold_into(ValidationReport& rep) {
         std::vector<std::string> seen;
         auto covered = [&](const std::string& text) {
-            for (const auto* list : {&rep.errors, &rep.warnings, &rep.notes})
-                for (const auto& i : *list)
-                    if (!i.message.empty() && text.find(i.message) != std::string::npos) return true;
-            return std::find(seen.begin(), seen.end(), text) != seen.end();
+            return report_already_says(rep, text) || std::find(seen.begin(), seen.end(), text) != seen.end();
         };
-        for (const auto& e : entries) {
+        for (const auto& e : entries()) {
             if (covered(e.message)) continue;
             seen.push_back(e.message);
             ValidationIssue w;
@@ -175,6 +195,7 @@ Command make_validate_command() {
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         LogCapture capture;  // the log lines of the load go into the report, not to stderr
+        auto body = [&]() -> int {
         // Script syntax and Script.props go through a logic-only engine; if the project cannot even load, scripts
         // are skipped and the scene/project errors below explain why.
         std::unique_ptr<Session> session;
@@ -198,13 +219,19 @@ Command make_validate_command() {
             rep.warnings.push_back(w);
         }
         if (ctx.args.has("fix-types")) {
-            if (!session) return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
+            if (!session) {
+                capture.replay(ctx.err);  // the report is not printed: the load's own lines are the explanation
+                return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
+            }
             std::string text = export_typescript(session->engine().scripts());
             std::string path = (fsys::path(dir) / "types" / "factoria.d.ts").string();
             std::error_code ec;
             fsys::create_directories(fsys::path(path).parent_path(), ec);
             std::ofstream f(path, std::ios::binary);
-            if (!f) return report_failure(ctx, "Cannot write " + path);
+            if (!f) {
+                capture.replay(ctx.err);
+                return report_failure(ctx, "Cannot write " + path);
+            }
             f << text;
             f.close();
             // The placeholder warning is moot now.
@@ -220,6 +247,13 @@ Command make_validate_command() {
             if (rep.ok) ctx.out << "OK: " << dir << "\n";
         }
         return rep.ok ? 0 : 1;
+        };
+        try {
+            return body();
+        } catch (...) {  // not a report: what the load logged is shown before the failure, not lost
+            capture.replay(ctx.err);
+            throw;
+        }
     };
     return c;
 }

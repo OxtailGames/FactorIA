@@ -5237,8 +5237,8 @@ void Editor::at_build_tools_script() {
                      "each sent row says what happened, and the window offers Close");
             at_check(share_column(entry_of("FB-0001")).label == "skipped" && share_column(entry_of("FB-0002")).label == "sent" &&
                          share_column(entry_of("FB-0003")).label == "sent",
-                     "the share column reads skipped, sent and sent (the file says shared = '" + shared_of("FB-0001") + "', '" +
-                         shared_of("FB-0002") + "', '" + shared_of("FB-0003") + "')");
+                     "the share column reads skipped, sent and sent (the file says shared = '" +
+                         shared_of("FB-0001") + "', '" + shared_of("FB-0002") + "', '" + shared_of("FB-0003") + "')");
         });
         click("send:close");
         step(3, [this] { at_check(!share_.sendOpen && !at_visible("send:close"), "Close closes the window"); });
@@ -9195,14 +9195,17 @@ void Editor::at_build_tools_script() {
             // The check above is a blocking request (seconds on a loaded VM, none of them drawn): the window shows the
             // new state a few frames after the server stopped, so wait for the frames instead of counting them.
             atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"); };
+            atWaitUntil_ = [this] {
+                return at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr");
+            };
             atWaitWhat_ = "the Phone window to offer Start again and no code after Stop";
         });
         step(1, [this] {
+            const auto yn = [](bool b) { return b ? "yes" : "no"; };
             at_check(at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"),
-                     std::string("...the window offers Start again and no code (start shown ") + (at_shown("phone:start") ? "yes" : "no") +
-                         ", stop visible " + (at_visible("phone:stop") ? "yes" : "no") + ", code visible " + (at_visible("phone:qr") ? "yes" : "no") +
-                         ", busy " + (phone_.busy() ? "yes" : "no") + ")");
+                     std::string("...the window offers Start again and no code (start shown ") +
+                         yn(at_shown("phone:start")) + ", stop visible " + yn(at_visible("phone:stop")) +
+                         ", code visible " + yn(at_visible("phone:qr")) + ", busy " + yn(phone_.busy()) + ")");
         });
         // ---- leave the editor as the other sections expect it
         step(2, [this] {

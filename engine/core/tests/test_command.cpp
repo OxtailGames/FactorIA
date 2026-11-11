@@ -8,6 +8,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json_schema.h"
+#include "fa/core/log.h"
 
 using namespace fa;
 
@@ -528,4 +529,27 @@ TEST_CASE("command: a description splits at FA_COMMAND_DETAILS into description 
     CHECK(got->description == "Short part.");
     CHECK(got->details == "The rest.");
     CHECK(reg.describe()[0]["details"] == "The rest.");
+}
+
+TEST_CASE("command: FA_COMMAND_DETAILS in a description that has details too is removed and warned about") {
+    std::vector<std::string> warnings;
+    const int sink = add_log_sink([&](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "command") warnings.push_back(e.message);
+    });
+    CommandRegistry reg;
+    CommandInfo info;
+    info.name = "test.both";
+    info.summary = "Does a thing.";
+    info.description = "Short part. " FA_COMMAND_DETAILS "The rest.";
+    info.details = "Already here.";
+    reg.add(info, [](const Json&) { return Json::object(); });
+    remove_log_sink(sink);
+    const CommandInfo* got = reg.info("test.both");
+    REQUIRE(got != nullptr);
+    CHECK(got->description.find(kCommandDetailsMark) == std::string::npos);  // no control character reaches a client
+    CHECK(got->description == "Short part. The rest.");                      // nothing is lost
+    CHECK(got->details == "Already here.");
+    REQUIRE(warnings.size() == 1);
+    CHECK(warnings[0].find("test.both") != std::string::npos);
+    CHECK(warnings[0].find("FA_COMMAND_DETAILS") != std::string::npos);
 }
