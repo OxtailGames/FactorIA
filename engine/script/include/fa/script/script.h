@@ -379,6 +379,12 @@ public:
     // The longest a callback (onUpdate, an event handler, ...) may run before it is stopped as an endless loop: 2 seconds
     // by default, tests make it small. Time spent paused in the debugger does not count.
     void set_callback_limit(double seconds);
+    // The scripts run in an exported player (`factoria_player`, the mobile and web players): call before init(). Development
+    // runs (`factoria test` / `run` / `mcp`, the editor) are the default. The difference: a development run gives `Entity`,
+    // the namespaces of "factoria" (`input`, `world`, ...) and the `expect` matchers a read check (reading a member they do
+    // not have throws with a "did you mean" and the member list); a player has none, so it costs nothing there. And only a
+    // player can be older than the engine the game was made with, so only its errors say so.
+    void set_exported_player(bool exported);
 
     // The `plugins` object of scripts (call before init; the typings and api_manifest list them too).
     void set_plugins(std::vector<ScriptPlugin> plugins);

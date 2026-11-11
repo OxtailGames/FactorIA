@@ -86,6 +86,8 @@ struct ScriptSystem::Impl {
     ScriptHost* host = nullptr;
     ScriptSystem* owner = nullptr;
     std::shared_ptr<ScriptDebugger> debugger;  // debug mode (set_debugger); null for a normal run
+    bool exportedPlayer = false;               // set_exported_player: no read checks on the API objects; errors may blame an old player
+    std::set<std::string> caseWarned;          // component names already warned about for a wrong case (find_type)
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     int observerId = -1;

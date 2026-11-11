@@ -23,6 +23,32 @@
     return bd <= Math.max(2, Math.floor(String(name).length / 3)) ? best : "";
   }
 
+  // ===================================================================================================== read checks
+  // Development runs (`factoria test` / `run` / `mcp`, the editor) give `Entity`, the namespaces of "factoria" (`input`, `world`,
+  // ...) and the `expect` matchers a check on reads: a member they do not have throws, with a "did you mean" and the members,
+  // instead of being `undefined` (or "x is not a function" one line later). It is a Proxy that sits as the PROTOTYPE of the
+  // object, not around it: a member that exists (own or inherited from the class) is found before the Proxy is asked, so a hit
+  // costs nothing and there is no Proxy per entity; only a miss runs the trap. Symbols, `then` (await probes it), `toJSON`
+  // (JSON.stringify) and the members of Object.prototype pass as undefined / as they are. Writes are not touched: a game may add
+  // its own fields to an entity, and reading back one it wrote finds the own property. The exported player has none of this.
+  const STRICT = !N.exportedPlayer;
+  function strictProto(label, namesOf, advice) {
+    return new Proxy(Object.prototype, {
+      get(target, key, recv) {
+        if (typeof key === "symbol" || key in target || key === "then" || key === "toJSON") return Reflect.get(target, key, recv);
+        const names = namesOf(recv), sug = closest(key, names);
+        throw new Error(`'${label}' has no '${key}'.${sug ? ` Did you mean '${sug}'?` : ""} Its members: ` +
+          `${names.length > 60 ? names.slice(0, 60).join(", ") + `, ... (${names.length - 60} more)` : names.join(", ")}.${advice ? " " + advice : ""}`);
+      },
+    });
+  }
+  // A plain object of the API (an object literal): its members are its own keys.
+  function strictNamespace(label, obj) {
+    if (STRICT && isObj(obj) && Object.isExtensible(obj) && Object.getPrototypeOf(obj) === Object.prototype)
+      Object.setPrototypeOf(obj, strictProto(label, (o) => Object.keys(o)));
+    return obj;
+  }
+
   // didYouMean(word, choices): the choice closest to `word`, or "" when none is near. Exported from "factoria".
   function didYouMean(word, choices) {
     if (typeof word !== "string" || !Array.isArray(choices)) {
@@ -559,6 +585,11 @@
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
   }
+  if (STRICT) {
+    const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor");
+    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...entityMembers, ...Object.keys(e).filter((k) => k !== "$h")],
+      "An entity has no field of your own until you assign one (entity.hp = 3); keep game state in the Behaviour (this.hp) or in a component's fields, and read a component with entity.get(\"Name\")."));
+  }
 
   // ===================================================================================================== animator
   // entity.animator: skeletal animation of a skinned glTF or keyframed 2D clips (*.anim.json). The Animator component (scene JSON) holds the state; the
@@ -943,7 +974,7 @@
       throw new Error(`tween(target, props, options) expects an object to move and an object of end values, e.g. tween(entity.position, { y: 5 }, { duration: 1 }), but got ${inspect(target)}`);
     }
     if (typeof o.ease === "string") {
-      if (!ease[o.ease]) throw new Error(`tween: unknown ease '${o.ease}'${closest(o.ease, Object.keys(ease)) ? `; did you mean '${closest(o.ease, Object.keys(ease))}'?` : ""} Names: ${Object.keys(ease).join(", ")}`);
+      if (!Object.hasOwn(ease, o.ease)) throw new Error(`tween: unknown ease '${o.ease}'${closest(o.ease, Object.keys(ease)) ? `; did you mean '${closest(o.ease, Object.keys(ease))}'?` : ""} Names: ${Object.keys(ease).join(", ")}`);
       o.ease = ease[o.ease];
     } else if (typeof o.ease !== "function") throw new Error("tween: options.ease is a name like \"quadOut\" or a function (t) => t");
     for (const k of ["duration", "delay"]) if (!(o[k] >= 0)) throw new Error(`tween: options.${k} must be a number of seconds >= 0 but is ${inspect(o[k])}`);
@@ -3911,6 +3942,9 @@
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
+  // Read checks (development runs): every plain-object namespace; classes, functions and the plugins Proxy are left as they are.
+  // `session` is the game's own bag of values (session.lives = 3): any key may be read before it is written.
+  for (const k of Object.keys(factoria)) if (k !== "session") strictNamespace(k, factoria[k]);
 
   // ============================================================================================ eval serialization
   function summarize(v, depth, seen) {
@@ -4080,8 +4114,10 @@
         });
       },
     };
+    if (matcherProto) Object.setPrototypeOf(m, matcherProto);
     return m;
   }
+  const matcherProto = STRICT ? strictProto("expect(...)", (o) => Object.keys(o)) : null;
   function expect(received) {
     const m = makeMatchers(received, false);
     m.not = makeMatchers(received, true);

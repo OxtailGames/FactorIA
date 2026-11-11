@@ -92,6 +92,11 @@ struct EngineConfig {
     // frames" (the window stays open). The iOS player takes the file from the FA_INPUT_REPLAY environment variable
     // (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the `player.run_ios_sim` command does it). "" = none.
     std::string inputReplayPath;
+    // The engine runs inside an exported player (player/main.cpp sets it, on every platform): the scripts get no read checks on
+    // `Entity`, the namespaces of "factoria" and the `expect` matchers (they cost nothing there), and their errors may say the
+    // player is older than the game's engine (ScriptSystem::set_exported_player). `factoria test` / `run` / `mcp` and the
+    // editor leave it false: engine and player are one binary there.
+    bool exportedPlayer = false;
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
     // Watch only the files that are replaced in place (materials, shader snippets, textures, fonts, models, audio clips and songs:
     // a song reloads in the MusicPlayers that play it) and leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
