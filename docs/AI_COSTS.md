@@ -414,6 +414,49 @@ Run it after a session, or ask the AI to run it and report. For API providers ou
 `"pricing"` to the provider in `ai.json` or `costUsd` stays 0 and only token limits apply
 ([AI_PROVIDERS.md](AI_PROVIDERS.md#costs)).
 
+## Measuring what a game costs an AI with no context
+
+The numbers above come from our own long sessions. To see what the engine costs a game AI that knows nothing about it, run the
+measure by hand (**it spends quota of the CLI you run**: a run of Claude Code with `sonnet` was about 4 minutes and $0.64 at API
+rates in the table below, more when the AI struggles; it is capped at 400 model turns and 90 minutes):
+
+```bash
+scripts/agent-cost.sh --cli claude --model sonnet                  # engine: ~/FactorIA; result: feedback/agent-cost/<version>-claude.json
+scripts/agent-cost.sh --factoria /path/to/engine/folder --workdir /tmp/run1   # another engine, a folder you keep
+scripts/agent-cost.sh --report-only /tmp/run1 --reporter build/dev/tools/cli/factoria   # report an earlier run again
+```
+
+The script creates an empty folder outside the repository, starts the CLI there with a PATH that has only the engine's folder and
+the system essentials (and, for Claude Code, only the project's settings: no user plugins, skills or MCP servers), gives it the
+fixed brief (`BRIEF_ID` `platformer-3-levels-v1`, the text is in the script) and records the whole transcript
+(`transcript.jsonl` in the folder, next to `game/`). Claude Code runs with `--permission-mode acceptEdits` and an allow-list (file
+tools, `factoria`, and `ls`, `cat`, `mkdir`, `head`, `tail`, `wc`, `grep`, `echo`, `cp`, `mv`): anything else is refused. Then
+the script runs `play.auto` on the final game and calls `factoria call agent.cost`. Only `claude` is wired in; another CLI needs
+an entry in `run_cli`.
+
+What the result (`factoria.agent-cost/1`) says:
+
+- `total`: model messages (`steps`, one per assistant message), tool calls, minutes, tokens processed (input + cache + output) and
+  the cost at API rates; `cliTurns` is the CLI's own turn count.
+- `firstPlayable`: the first `factoria call play.auto` whose answer went through at least three phases whose name or scene
+  contains "level" (the brief asks for three levels), with the step, tool calls, minutes and tokens up to it. `reached: false` means no
+  `play.auto` of the run did (`playAutoCalls` says how many it ran). `finalGame` is the same check on the finished game, run by the
+  script, with how `play.auto` ended.
+- `engineErrors`: failed `factoria` calls that gave an error code, by code, with the first ones. `notCaught`: outputs that show
+  a script error (`script error`, `Uncaught`, `TypeError`...) while a `factoria test` had passed.
+
+Latest numbers (`brief` `platformer-3-levels-v1`, engine 0.21.0, Claude Code 2.1.318, `sonnet`, 2026-11-11, the "before" of M100):
+
+| | steps | tool calls | minutes | tokens processed | cost at API rates |
+|---|---|---|---|---|---|
+| whole run | 39 | 55 | 3.6 | 2,098,048 (21,221 written) | $0.64 |
+| to the first playable build | none: the AI never ran `play.auto` | | | | |
+
+The AI started from the `2d-platformer` template, wrote two more levels and a goal prefab, and its 13 tests passed, but it never
+played the game with `play.auto`; the script's own `play.auto` of the final game ended "won" in the first level (the template's
+bot stops at the end of level 1), so the game is not shown to be playable to the third level. No engine error met, none missed.
+One run is one sample: the same brief gives different numbers on another day.
+
 ## Short version
 
 - A finished game of Lantern Keep's size was about 470 steps and $20 at API rates (a floor), with Sonnet workers; most of it is

@@ -2,6 +2,26 @@
 
 # Commands: ai
 
+## `agent.cost`
+
+Not released yet (on main after 0.21.0).
+
+Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed.
+
+Reads `transcript` (the lines of `claude -p --output-format stream-json --verbose`) and returns {format, cli, model, brief, factoriaVersion, exitStatus, elapsedSeconds, total {steps, toolCalls, minutes, tokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, levelPhases, ended, scriptErrors}, engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message and its tokens are input + cache + output. firstPlayable is the first `factoria call play.auto` whose answer went through at least `levels` (default 3) phases whose name or scene contains "level"; finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls that gave an error code; notCaught are outputs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed. Example: {"transcript":"/tmp/agent-cost.x/transcript.jsonl","finalPlay":"/tmp/agent-cost.x/final-play.json","cli":"claude","model":"sonnet"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `transcript` | string | yes | Absolute path of the stream-json transcript (at most 64 MB). |
+| `finalPlay` | string | no | Absolute path of a file with the answer of play.auto on the final game. |
+| `cli` | string | no |  Default "claude". |
+| `model` | string | no |  |
+| `brief` | string | no | The id of the brief the run was given. |
+| `factoriaVersion` | string | no |  |
+| `exitStatus` | integer | no |  |
+| `elapsedSeconds` | integer | no |  |
+| `levels` | integer | no | How many levels the brief asks for. Default 3. |
+
 ## `ai.extensions`
 
 Since 0.11.0.
