@@ -25,8 +25,8 @@ struct AgentCostInput {
     int levels = 3;              // how many levels the brief asks for
 };
 
-// A play.auto answer (the JSON object, or a text that contains it) read as: how many distinct level phases it went through (`phases`
-// whose name or scene contains "level"), how it ended, and the script errors it counted. {levelPhases, ended, scriptErrors, parsed}.
+// A play.auto answer (the JSON object, or a text that contains it) read as: how many distinct `phases` it recorded (the scenes it loaded,
+// named by path, and the game.phase marks: play.auto records nothing about a level loaded inside one scene), how it ended, and the script errors it counted. {phases, ended, scriptErrors, parsed}.
 Json agent_cost_read_play_auto(const std::string& text);
 
 // {format, cli, model, brief, factoriaVersion, exitStatus, elapsedSeconds, total, firstPlayable, finalGame, engineErrors, notCaught, notes}.

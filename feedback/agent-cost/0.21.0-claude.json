@@ -25,7 +25,7 @@
   },
   "finalGame": {
     "reachedLastLevel": false,
-    "levelPhases": 0,
+    "phases": 1,
     "ended": "won",
     "scriptErrors": 0
   },
@@ -39,6 +39,6 @@
     "items": []
   },
   "notes": [
-    "No play.auto in the run reached the last level (a play.auto answer with at least 3 level phases): there is no first playable build to measure."
+    "No play.auto in the run reached the last level (a play.auto run that ended \"won\" after at least 3 phases): there is no first playable build to measure."
   ]
 }

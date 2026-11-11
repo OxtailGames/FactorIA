@@ -426,22 +426,41 @@ scripts/agent-cost.sh --factoria /path/to/engine/folder --workdir /tmp/run1   # 
 scripts/agent-cost.sh --report-only /tmp/run1 --reporter build/dev/tools/cli/factoria   # report an earlier run again
 ```
 
-The script creates an empty folder outside the repository, starts the CLI there with a PATH that has only the engine's folder and
-the system essentials (and, for Claude Code, only the project's settings: no user plugins, skills or MCP servers), gives it the
-fixed brief (`BRIEF_ID` `platformer-3-levels-v1`, the text is in the script) and records the whole transcript
-(`transcript.jsonl` in the folder, next to `game/`). Claude Code runs with `--permission-mode acceptEdits` and an allow-list (file
-tools, `factoria`, and `ls`, `cat`, `mkdir`, `head`, `tail`, `wc`, `grep`, `echo`, `cp`, `mv`): anything else is refused. Then
-the script runs `play.auto` on the final game and calls `factoria call agent.cost`. Only `claude` is wired in; another CLI needs
-an entry in `run_cli`.
+The script creates an empty folder outside the repository (`game/` inside it is the AI's working directory), starts the CLI there
+with a clean environment (`env -i`: a PATH of the throw-away `bin/` plus the system essentials, no other variables of yours) and,
+for Claude Code, only the project's settings (no user plugins, skills or MCP servers). It gives the CLI the fixed brief
+(`BRIEF_ID` `platformer-3-levels-v1`, the text is in the script) and records the whole transcript (`transcript.jsonl` in the
+folder, next to `game/`). Then it runs `play.auto` on the final game and calls `factoria call agent.cost`. Only `claude` is wired
+in; another CLI needs an entry in `run_cli`.
+
+What the measured AI may do, exactly:
+
+- Claude Code runs with `--permission-mode acceptEdits` (never `bypassPermissions`). Its file tools write inside the work folder
+  only and are refused for any path outside it, including reads of your home (`~/.zshrc`, `~/.ssh`). Checked by hand on this
+  machine with only `Bash(factoria version:*)` allowed: a write inside the folder worked; a write outside, a read of `~/.zshrc`
+  and `ls ~/.ssh` were all denied. Re-check it after a CLI upgrade.
+- Shell commands: only `factoria new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `commands`, `api`, `docs`,
+  `version` and `help` are allowed. There is no `ls`, `cat`, `cp`... entry: the AI uses its file tools. Denied, and a deny wins:
+  `factoria setup`, `feedback`, `ai`, `editor`, `export`, `mcp`, `dap`, `hooks`, `session`, and `factoria call` of
+  `setup*`, `feedback*`, `update*`, `self_update*`, `publish*`, `ios_sim*`.
+- The `factoria` the AI runs is a wrapper over a COPY of the engine made in the work folder, with a throw-away `HOME`, so no
+  command can change your installed engine, your `~/.factoria` or your settings. (The CLI itself keeps your real `HOME`, because
+  its login lives there; `--bare` is not used because it needs an API key.)
+- Caps: `--max-turns` (400), `--max-usd` (5, the CLI's own `--max-budget-usd`) and `--max-seconds` (5400). The wall-clock cap is
+  a watchdog that kills the CLI's whole process group (TERM, then KILL after 5 s) and it is recorded as the exit status.
+  Tested with `--max-seconds 3` against a fake CLI that sleeps: the CLI and its child were gone after about 3 s and the script went on to
+  report.
 
 What the result (`factoria.agent-cost/1`) says:
 
 - `total`: model messages (`steps`, one per assistant message), tool calls, minutes, tokens processed (input + cache + output) and
   the cost at API rates; `cliTurns` is the CLI's own turn count.
-- `firstPlayable`: the first `factoria call play.auto` whose answer went through at least three phases whose name or scene
-  contains "level" (the brief asks for three levels), with the step, tool calls, minutes and tokens up to it. `reached: false` means no
-  `play.auto` of the run did (`playAutoCalls` says how many it ran). `finalGame` is the same check on the finished game, run by the
-  script, with how `play.auto` ended.
+- `firstPlayable`: the first `factoria call play.auto` whose answer ended `"won"` and lists at least three distinct `phases`
+  (the brief asks for three levels), with the step, tool calls, minutes and tokens up to it. `play.auto` names a phase by the scene
+  that was loaded (a new one each time the scene changes) or by a `game.phase` mark, so a game that moves between levels by loading
+  scenes shows one phase per level; a game that swaps levels inside one scene shows one phase unless it calls `game.phase`. The
+  check is therefore a proxy, not proof. `reached: false` means no `play.auto` of the run met it (`playAutoCalls` says how many it
+  ran). `finalGame` is the same check on the finished game, run by the script (`phases`, `ended`, `scriptErrors`).
 - `engineErrors`: failed `factoria` calls that gave an error code, by code, with the first ones. `notCaught`: outputs that show
   a script error (`script error`, `Uncaught`, `TypeError`...) while a `factoria test` had passed.
 
@@ -452,9 +471,13 @@ Latest numbers (`brief` `platformer-3-levels-v1`, engine 0.21.0, Claude Code 2.1
 | whole run | 39 | 55 | 3.6 | 2,098,048 (21,221 written) | $0.64 |
 | to the first playable build | none: the AI never ran `play.auto` | | | | |
 
-The AI started from the `2d-platformer` template, wrote two more levels and a goal prefab, and its 13 tests passed, but it never
-played the game with `play.auto`; the script's own `play.auto` of the final game ended "won" in the first level (the template's
-bot stops at the end of level 1), so the game is not shown to be playable to the third level. No engine error met, none missed.
+The AI started from the `2d-platformer` template, wrote two more level scenes and a goal prefab, and its 13 tests passed, but it
+never ran `play.auto`. The script's own `play.auto` of the final game ended "won" with ONE phase (`scenes/main.scene.json`). The
+three scenes exist and `player.js` loads the next one when the player touches the goal, and the tests prove it by moving the player
+onto each goal; but the template's bot stops at x=2464, before the goal at x=2480, and a bot that ran right stayed in level 1 for 120 s.
+So the game is NOT shown playable from level 1 to 3 on foot. No engine error met, none missed. Telling "third level reached" apart from
+"first level won" without the one-phase proxy would need the brief to ask for a `game.phase` call per level: that is a new `BRIEF_ID`
+and a new run, not done yet.
 One run is one sample: the same brief gives different numbers on another day.
 
 ## Short version

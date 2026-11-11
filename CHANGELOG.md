@@ -8,7 +8,9 @@ The editor shows these notes when it offers an update, and each release on GitHu
   only the installed `factoria` on the PATH and a fixed brief ("a platformer with three levels"), records the transcript and reports
   it with the new command `agent.cost`: steps, tokens and minutes to the first playable build, the engine errors the AI met and
   the script errors no test caught. Results go to `feedback/agent-cost/<version>-<cli>.json`; the numbers and how to run it
-  (it spends quota) are in docs/AI_COSTS.md.
+  (it spends quota) are in docs/AI_COSTS.md. The measured AI runs confined (a copy of the engine, a throw-away HOME, a short
+  allow-list of `factoria` subcommands, caps on turns, dollars and wall-clock time); "reached the last level" means a `play.auto`
+  that ended "won" with at least three distinct phases.
 
 ## 0.21.0
 
