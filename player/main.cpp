@@ -99,6 +99,7 @@ int main() {
                          ".\nhint: game.pak must be the pack `factoria export --release` writes.");
     g_cfg.projectDir = "/game";
     g_cfg.hotReload = false;
+    g_cfg.exportedPlayer = true;  // no read checks on the script API objects, errors may blame an old player
     g_cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     auto proj = fa::load_project(g_cfg.projectDir);
     if (!proj.ok()) return web_error("error: " + proj.error().to_string());
@@ -402,6 +403,7 @@ int main(int argc, char** argv) {
     cfg.projectDir = projectDir.string();
     cfg.scene = scene;
     cfg.hotReload = false;
+    cfg.exportedPlayer = true;  // no read checks on the script API objects, errors may blame an old player
     cfg.maxFrames = frames;
     cfg.pluginDir = pluginDir.generic_string();
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
@@ -522,6 +524,7 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     fa::EngineConfig cfg;
     cfg.hotReload = false;
+    cfg.exportedPlayer = true;  // no read checks on the script API objects, errors may blame an old player
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
 #if defined(__ANDROID__)
     const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
