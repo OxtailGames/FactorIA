@@ -6,7 +6,8 @@
 # steps to the first playable build, the engine errors met, the ones not caught). THIS SPENDS QUOTA: run it by hand.
 #
 #   scripts/agent-cost.sh [--cli claude] [--factoria DIR] [--model sonnet] [--out FILE] [--max-turns 400]
-#                         [--max-seconds 5400] [--max-usd 5] [--workdir DIR] [--reporter BIN] [--report-only WORKDIR]
+#                         [--max-seconds 5400] [--max-usd 5] [--final-seconds 600] [--workdir DIR] [--reporter BIN]
+#                         [--cli-bin PATH] [--isolated-home] [--report-only WORKDIR] [--print-policy]
 #
 #   --cli          claude (the only one wired in; add a case to run_cli for another)
 #   --factoria     folder (or the binary) of the installed engine the AI uses; default ~/FactorIA
@@ -58,7 +59,7 @@ while [ $# -gt 0 ]; do
         --report-only) report_only="$2"; shift 2 ;;
         --isolated-home) force_isolated=1; shift ;;
         --print-policy) print_policy=1; shift ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        -h|--help) awk 'NR > 1 { if (substr($0, 1, 1) != "#") exit; print }' "$0"; exit 0 ;;
         *) echo "agent-cost: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
 done
@@ -133,9 +134,11 @@ stop_group() {
     fi
     cleanup_wd=""
 }
-trap 'echo "agent-cost: interrupted: stopping the CLI" >&2; stop_group; exit 130' INT
-trap 'echo "agent-cost: terminated: stopping the CLI" >&2; stop_group; exit 143' TERM
-trap 'stop_group' EXIT
+# The throw-away homes hold nothing worth keeping (the transcript and the game are in the work folder): removed at the end.
+remove_homes() { [ -n "${workdir:-}" ] && rm -rf "$workdir/home" "$workdir/cli-home" 2>/dev/null; return 0; }
+trap 'echo "agent-cost: interrupted: stopping the CLI" >&2; stop_group; remove_homes; exit 130' INT
+trap 'echo "agent-cost: terminated: stopping the CLI" >&2; stop_group; remove_homes; exit 143' TERM
+trap 'stop_group; remove_homes' EXIT
 
 # run_capped SECONDS COMMAND [ARGS...]: runs COMMAND (a function or a program) as its own process group; after SECONDS of wall-clock
 # time it ends the group (TERM, KILL after 5 s). Sets run_status (its exit status; 143 when the cap ended it) and run_capped_hit (1
@@ -191,7 +194,7 @@ if [ -z "$report_only" ]; then
     # runs the copy with a throw-away HOME (so `setup`, `feedback share`, the updater... have nothing of yours to change).
     mkdir -p "$workdir/bin" "$workdir/home"
     cp -R "$fdir" "$workdir/engine"
-    printf '#!/bin/sh\nHOME=%s exec %s "$@"\n' "$(sh_quote "$workdir/home")" "$(sh_quote "$workdir/engine/factoria")" > "$workdir/bin/factoria"
+    printf '#!/bin/sh\nHOME=%s exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN %s "$@"\n' "$(sh_quote "$workdir/home")" "$(sh_quote "$workdir/engine/factoria")" > "$workdir/bin/factoria"
     chmod +x "$workdir/bin/factoria"
 
     # The CLI's own HOME: its login normally lives in the real one (Keychain or ~/.claude), and so do your global CLAUDE.md and
@@ -254,9 +257,9 @@ if [ -s "$transcript" ]; then
     n="$(grep -c -F "$HOME/" "$transcript" 2>/dev/null)"
     if [ "${n:-0}" -gt 0 ]; then echo "agent-cost: WARNING transcript.jsonl names your home folder in $n line(s): read it before sharing it" >&2; fi
     # A path outside the work folder passed to `factoria` (the deny rules are globs; this reads what actually ran): list it.
-    outside="$(grep -oE '"command":"factoria([^"\\]|\\.)*' "$transcript" 2>/dev/null | grep -E "[ \"'@\\\\](/|~|\.\./)" | cut -c1-200 | head -n 10)"
+    outside="$(grep -oE '"command":"factoria([^"\\]|\\.)*' "$transcript" 2>/dev/null | grep -E "(@|\\\\\"|\"|'| )(/[A-Za-z0-9_.~-]|~|\.\./)" | cut -c1-200 | head -n 10)"
     if [ -n "$outside" ]; then
-        echo "agent-cost: WARNING the AI passed paths outside the work folder to factoria (check nothing was written there):" >&2
+        echo "agent-cost: WARNING the AI passed paths outside the work folder to factoria (attempts the deny rules may have blocked; check nothing was written there):" >&2
         printf '%s\n' "$outside" | sed 's/^/agent-cost:   /' >&2
     fi
 fi
@@ -268,7 +271,7 @@ final_bin="$workdir/bin/factoria"
 [ -x "$final_bin" ] || final_bin="$fbin"
 final_play() {
     cd "$workdir/game" || exit 2
-    PATH="$safe_path" exec "$final_bin" call --project . play.auto > "$finalplay" 2> "$workdir/final-play.err" < /dev/null
+    PATH="$safe_path" exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN "$final_bin" call --project . play.auto > "$finalplay" 2> "$workdir/final-play.err" < /dev/null
 }
 if [ -f "$workdir/game/factoria.json" ]; then
     run_capped "$final_seconds" final_play

@@ -84,9 +84,12 @@ bool shows_game_output(const EfficiencyToolCall& c) {
 }
 
 // A phase named like a menu or an end screen is not a level: menu + level + win screen would otherwise count as three levels.
+// The words are anchored on both sides ("subtitle", "twin", "close" and "gloss" are levels) and looked for in the file name only,
+// not in the folders of its path.
 bool looks_like_level(const std::string& name) {
-    static const std::regex notLevel(R"((menu|title|splash|credits|game[ _-]?over|victory|win|lose|loss|results?)([^a-z]|$))", std::regex::icase);
-    return !std::regex_search(name, notLevel);
+    static const std::regex notLevel(R"((^|[^a-z])(menu|title|splash|credits|game[ _-]?over|victory|win|lose|loss|results?)([^a-z]|$))", std::regex::icase);
+    const std::size_t slash = name.find_last_of("/\\");
+    return !std::regex_search(slash == std::string::npos ? name : name.substr(slash + 1), notLevel);
 }
 
 // The text of the JSON array that follows "phases" in a play.auto answer that was cut or wrapped: from its `[` to its matching `]` (strings
@@ -199,8 +202,10 @@ Json agent_cost_report(const AgentCostInput& in) {
             const bool isTest = is_test_call(c);
             // A failed call counts under its error code, or under "none" when the failure gave no code (a non-zero exit, a crash). A failed
             // test run is the tests doing their job, not an engine error, unless it gave a code.
+            // `factoria validate` and `factoria run` without a code fail because of the game's own files and scripts: not engine errors either.
+            const bool gameCheck = c.shell.find("factoria validate") != std::string::npos || c.shell.find("factoria run") != std::string::npos;
             const bool ranFactoria = c.shell.find("factoria ") != std::string::npos || c.command.find('.') != std::string::npos;
-            if (c.failed && (!c.code.empty() || (!isTest && ranFactoria))) {
+            if (c.failed && (!c.code.empty() || (!isTest && !gameCheck && ranFactoria))) {
                 const std::string code = c.code.empty() ? "none" : c.code;
                 ++errorCount;
                 byCode[code] = (byCode.contains(code) ? byCode[code].get<int>() : 0) + 1;
@@ -322,7 +327,7 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         "total.tokens is input + cache + output of the CLI's own result line "
         "(stepTokens and firstPlayable.tokens add up the per-step counts, whose output tokens are partial: a lower bound). "
         "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases that are not named like a menu, title, credits or end screen, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed; \"won\" is said by the game's own autoplay script, which the AI may have written, so endedWhy is kept); "
-        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run only when it gave a code), by error code, or under \"none\" when the failure gave no code; notCaught are "
+        "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run, `factoria validate` or `factoria run` only when it gave a code), by error code, or under \"none\" when the failure gave no code; notCaught are "
         "outputs of `factoria run`, `play.auto`, a test run or game.logs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed (docs or scene reads that quote the words do not count). "
         "`cliVersion` and `homeIsolated` (false: the CLI ran with the real HOME, so the user's CLAUDE.md and memory may have loaded; the report says so in notes) record how the run was made.";
     info.inputSchema = Json::parse(R"({"type":"object","additionalProperties":false,"required":["transcript"],"properties":{

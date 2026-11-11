@@ -21,7 +21,12 @@ fail=0
 check() {  # check DESCRIPTION CONDITION-EXIT-STATUS
     if [ "$2" -ne 0 ]; then echo "FAIL: $1"; fail=1; else echo "ok: $1"; fi
 }
-alive() { kill -0 "$1" 2>/dev/null; }
+# A zombie (state Z: ended, not yet reaped by its parent) answers kill -0 but is gone for our purpose.
+alive() {
+    kill -0 "$1" 2>/dev/null || return 1
+    case "$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ')" in Z*) return 1 ;; esac
+    return 0
+}
 wait_for_file() {  # wait_for_file FILE SECONDS
     local i=0
     while [ ! -s "$1" ] && [ "$i" -lt $(( $2 * 5 )) ]; do sleep 0.2; i=$((i + 1)); done
@@ -103,6 +108,9 @@ check "a run with ANTHROPIC_API_KEY ends with status 0" $?
 grep -q "^HOME=$wd/cli-home\$" "$wd/fake-env.txt" && grep -q "^CLAUDE_CONFIG_DIR=$wd/cli-home/.claude\$" "$wd/fake-env.txt"; check "the CLI gets a throw-away HOME and CLAUDE_CONFIG_DIR" $?
 grep -q '^ANTHROPIC_API_KEY=dummy-key$' "$wd/fake-env.txt"; check "the API key is passed through the clean environment" $?
 grep -q '"homeIsolated":true' "$wd/agent-cost-args.json" && ! grep -q 'real HOME' "$wd.result.json"; check "the report is told the HOME was isolated" $?
+[ ! -e "$wd/cli-home" ] && [ ! -e "$wd/home" ]; check "the throw-away home/ and cli-home/ are removed at the end" $?
+grep -q 'env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN' "$wd/bin/factoria"; check "the factoria wrapper drops the credentials" $?
+[ "$(grep -c 'exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN' "$script")" -ge 2 ]; check "the final play.auto drops the credentials too" $?
 wd="$tmp/iso2"
 run ok "$wd" --isolated-home
 grep -q "^HOME=$wd/cli-home\$" "$wd/fake-env.txt" && ! grep -q '^ANTHROPIC_API_KEY=' "$wd/fake-env.txt"; check "--isolated-home isolates HOME without a token" $?
