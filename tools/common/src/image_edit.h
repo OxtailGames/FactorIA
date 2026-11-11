@@ -167,6 +167,7 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
 void register_pixel_helper_commands(CommandRegistry& registry, const std::string& projectDir);  // image_pixel_helpers.cpp
 void register_provider_commands(CommandRegistry& registry, const std::string& projectDir);      // image_provider.cpp
 void register_tile_commands(CommandRegistry& registry, const std::string& projectDir);          // image_tile_commands.cpp
+void register_resize_command(CommandRegistry& registry, const std::string& projectDir);         // image_resize_command.cpp (image.resize)
 
 // ---- PSD (image_psd.cpp) ------------------------------------------------------------------------------------------
 

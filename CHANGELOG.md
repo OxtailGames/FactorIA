@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 Older versions, one file per minor version with its patch releases: [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
 
+## Unreleased
+
+- `image.resize {path, width, height, anchor, fill}` changes the canvas of an image document: every layer, frame and cel moves
+  or is cropped by one of nine anchors, indexed rows are cut or padded, palette, ramps, tags and sheet stay; the Image panel has
+  a Resize... button (one undo step).
+- `style.ignore {path, rules}` skips only the named style rules for a file, folder or glob; `style.set_role` and a `role`
+  (`ui`, `icon`, `effect`) in an asset's provenance turn off the rules that do not apply to that kind of picture.
+  `assets.check_art` reports what it skipped and why (`styleSkipped`). Kindlewatch drops its ignore list for roles.
+
 ## 0.22.0
 
 FactorIA 0.22.0 (M100) makes errors and tests something a game AI can trust. A test fails when the game fails: a

@@ -116,6 +116,7 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
 void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
 void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);  // assets.check_art
+void register_style_commands(CommandRegistry& registry, const std::string& projectDir);  // style.ignore, style.set_role (style_commands.cpp)
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
 void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
 void register_review_commands(CommandRegistry& registry, const std::string& projectDir);  // review.sheet, review.pick, review.list, review.info

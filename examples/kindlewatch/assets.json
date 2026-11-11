@@ -37,18 +37,16 @@
       },
       "toleranceLu": 4
     },
-    "ignore": [
-      "assets/art/sky.png",
-      "assets/art/logo.png",
-      "assets/art/pine_art.png",
-      "assets/art/flame.png",
-      "assets/art/icon_log.png",
-      "assets/art/icon_heart.png",
-      "assets/art/icon_sun.png",
-      "assets/art/panel.png",
-      "assets/art/bar_back.png",
-      "assets/art/bar_fill.png"
-    ]
+    "roles": {
+      "assets/art/sky.png": "ui",
+      "assets/art/logo.png": "ui",
+      "assets/art/pine_art.png": "ui",
+      "assets/art/panel.png": "ui",
+      "assets/art/bar_back.png": "ui",
+      "assets/art/bar_fill.png": "ui",
+      "assets/art/icon_*.png": "icon",
+      "assets/art/flame.png": "effect"
+    }
   },
   "assets": {
     "assets/art/bar_back.png": {

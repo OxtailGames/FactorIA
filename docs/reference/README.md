@@ -226,6 +226,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.pixel.rotate`](commands/assets.md#imagepixelrotate-modifies-state): Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur. _Since 0.16.0._
 - [`image.pixel.scale`](commands/assets.md#imagepixelscale-modifies-state): Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending. _Since 0.16.0._
 - [`image.pixel.shade`](commands/assets.md#imagepixelshade-modifies-state): Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition. _Since 0.16.0._
+- [`image.resize`](commands/assets.md#imageresize-modifies-state): Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake. _Not released yet._
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Since 0.16.0._
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Since 0.16.0._
 - [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Since 0.16.0._
@@ -289,6 +290,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
 - [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Since 0.16.0._
 - [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Since 0.16.0._
+- [`style.ignore`](commands/assets.md#styleignore-modifies-state): Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore. _Not released yet._
+- [`style.set_role`](commands/assets.md#styleset_role-modifies-state): Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them. _Not released yet._
 - [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Since 0.16.0._
 - [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Since 0.16.0._
 - [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Since 0.16.0._
