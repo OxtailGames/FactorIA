@@ -275,9 +275,9 @@ TEST_CASE("export: a shipped script that calls a command of a tool module is war
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     int scatter = 0, renamed = 0, nested = 0, other = 0;
     for (const std::string& w : r->warnings) {
-        if (w.find("scripts/uses_tool.js calls project.scatter_gems, the command of tools/scatter_gems.js") == 0) ++scatter;
-        if (w.find("scripts/uses_tool.js calls project.renamed, the command of tools/other_file.js") == 0) ++renamed;
-        if (w.find("scripts/uses_tool.js calls project.make_path, the command of tools/level/paths.js") == 0) ++nested;
+        if (w.find("scripts/uses_tool.js:1 calls project.scatter_gems, the command of tools/scatter_gems.js") == 0) ++scatter;
+        if (w.find("scripts/uses_tool.js:2 calls project.renamed, the command of tools/other_file.js") == 0) ++renamed;
+        if (w.find("scripts/uses_tool.js:3 calls project.make_path, the command of tools/level/paths.js") == 0) ++nested;
         for (const char* never : {"not_a_tool", "no_tool.js", "project.helper", "project.no_default"})
             if (w.find(never) != std::string::npos) ++other;
     }

@@ -1300,6 +1300,15 @@ Result<void> ScriptSystem::check_syntax(std::string_view modulePath, std::string
     if (!impl_->initialized) return Error{"script system is not initialized", ""};
     return impl_->check_syntax(modulePath, brokenImport);
 }
+Result<void> ScriptSystem::check_load(std::string_view modulePath) {
+    if (!impl_->initialized) return Error{"script system is not initialized", ""};
+    auto norm = fs::normalize_checked(modulePath);
+    if (!norm) return Error{norm.error().message, norm.error().hint};
+    auto ns = impl_->import_module(*norm, nullptr);
+    if (!ns) return ns.error();
+    JS_FreeValue(impl_->ctx, *ns);
+    return {};
+}
 TestReport ScriptSystem::run_tests(const std::vector<std::string>& files, std::string_view nameFilter) {
     if (!impl_->initialized) {
         TestReport r;

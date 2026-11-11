@@ -121,6 +121,33 @@ A class **field** with the name of a `Behaviour` member (`on`, `after`, `every`,
 instance: `on = false;` makes `this.on("x", fn)` fail. The first behaviour of the class created logs ONE warning naming the
 field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 
+### What `factoria validate` checks in a script
+
+Besides the syntax, `factoria validate` (`project.validate`) reads every script under `scripts/` and `tools/` against the
+engine's API, by scanning the text (no type inference, comments and strings left out), and loads it the way the game does.
+Each issue starts with `file:line:column`:
+
+- **Imported names** (error): `import { Behaviour, wrold } from "factoria"` names a thing the module does not export, with a
+  "did you mean". The same for `"factoria:test"`.
+- **Members of an imported namespace** (error): `physics.raycats(...)`, `game.setTimeScale`, `ns.member` after
+  `import * as ns from "factoria"`: the object is one of the engine's (`world`, `physics`, `game`, `fa`...) and its type has
+  no such member. A local variable, parameter or function with the same name anywhere in the file turns the check off for
+  that name; only members of the form `name.member` are checked, nothing deeper.
+- **Literal component names** (warning): `entity.get("Transfrom")`, `add`, `has` and `remove` with a string that is not a
+  component. A name that matches only ignoring case (`get("transform")`) is reported with the exact name. Without type
+  inference the check cannot know the receiver is an entity: a PascalCase key of a `Map` or of your own object can be
+  reported by mistake (receivers whose name says map, cache, storage, state... are skipped).
+- **`fa.call("project.<name>")` in a game script** (warning, `file:line`): `<name>` is a command a module under `tools/`
+  defines, and `tools/` is left out of an export, so the call fails in the shipped game. `factoria export` warns the same.
+- **A module whose top level throws** (error): every script is imported in the validating engine, as the game loads it, so
+  an exception at the top of the file (or of a module it imports) is reported with its own file and line. A top level that
+  reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded: keep that code in
+  `onStart`.
+
+A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
+mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
+readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
+
 ### Which callback sees what (input)
 
 A frame runs 0 to 5 fixed steps (a slow frame runs several, a fast one none), so a press must not be tied to the frame
