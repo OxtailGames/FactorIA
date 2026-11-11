@@ -690,7 +690,10 @@ in the script; a test not listed counts 2 s), so a new test runs in exactly one 
 and prints the physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third
 on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
-A newer push to the same pull request or branch cancels the older run.
+A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
+of that ref: the event and the `perfBaselines` tick are part of the concurrency group). A `_perf` test that passes inside
+the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
+in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
 so a run whose tests fail still leaves the next run a warm cache; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
