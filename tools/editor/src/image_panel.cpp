@@ -367,48 +367,55 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     at_track("img:reload");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the document and its layer files again; the undo steps stay.");
     ImGui::SameLine();
-    ImGui::BeginDisabled(!editable || !m.valid());
-    if (ImGui::Button("Resize...")) {
-        u.resizeWidth = m.width();
-        u.resizeHeight = m.height();
-        ImGui::OpenPopup("##imgresize");
-    }
-    at_track("img:resize");
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Change the canvas size (image.resize): every layer, frame and cel moves or is cropped by the anchor. Ctrl+Z undoes it.");
-    if (ImGui::BeginPopup("##imgresize")) {
-        static const char* const kAnchors[9] = {"top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"};
-        ImGui::TextUnformatted("Resize canvas (image.resize)");
-        ImGui::SetNextItemWidth(120);
-        ImGui::InputInt("Width", &u.resizeWidth);
-        ImGui::SetNextItemWidth(120);
-        ImGui::InputInt("Height", &u.resizeHeight);
-        u.resizeWidth = std::clamp(u.resizeWidth, 1, 4096);
-        u.resizeHeight = std::clamp(u.resizeHeight, 1, 4096);
-        ImGui::SetNextItemWidth(160);
-        if (ImGui::BeginCombo("Anchor", kAnchors[u.resizeAnchor])) {
-            for (int i = 0; i < 9; ++i)
-                if (ImGui::Selectable(kAnchors[i], i == u.resizeAnchor)) u.resizeAnchor = i;
-            ImGui::EndCombo();
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The part of the old canvas that stays where it is.");
-        if (ImGui::Button("Resize")) {
-            image_edited(m.resize_canvas(u.resizeWidth, u.resizeHeight, kAnchors[u.resizeAnchor], ""));
-            ImGui::CloseCurrentPopup();
-        }
-        at_track("img:resize:apply");
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
     if (m.valid()) {
         const ImageBakeStatus b = m.bake_status();
         const bool fresh = b.state == ImageBakeState::Fresh;
         ImGui::TextColored(fresh ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(1.0f, 0.8f, 0.4f, 1), "%s",
-                           fresh ? "baked" : std::string(std::string("not baked (") + image_bake_state_name(b.state) + ")").c_str());
-        if (ImGui::IsItemHovered() && !b.reason.empty()) ImGui::SetTooltip("%s", b.reason.c_str());
+                           fresh ? "baked" : "not baked");
+        // The badge stays short so the one-line toolbar fits a 1024 px window; the state and the reason are in its tooltip.
+        if (ImGui::IsItemHovered() && !fresh)
+            ImGui::SetTooltip("%s%s%s", image_bake_state_name(b.state), b.reason.empty() ? "" : ": ", b.reason.c_str());
+        else if (ImGui::IsItemHovered() && !b.reason.empty())
+            ImGui::SetTooltip("%s", b.reason.c_str());
         ImGui::SameLine();
-        ImGui::TextDisabled("%dx%d", m.width(), m.height());
+        // The canvas size doubles as the Resize button (no room for a second button in the one-line toolbar at 1024 px).
+        ImGui::BeginDisabled(!editable);
+        if (ImGui::Button(std::format("{}x{}###imgsize", m.width(), m.height()).c_str())) {
+            u.resizeWidth = m.width();
+            u.resizeHeight = m.height();
+            ImGui::OpenPopup("##imgresize");
+        }
+        at_track("img:resize", editable);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("The canvas size. Click to change it (image.resize): every layer, frame and cel moves or is cropped by the anchor. Ctrl+Z undoes it.");
+        if (ImGui::BeginPopup("##imgresize")) {
+            static const char* const kAnchors[9] = {"top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"};
+            ImGui::TextUnformatted("Resize canvas (image.resize)");
+            ImGui::SetNextItemWidth(120);
+            ImGui::InputInt("Width", &u.resizeWidth);
+            ImGui::SetNextItemWidth(120);
+            ImGui::InputInt("Height", &u.resizeHeight);
+            u.resizeWidth = std::clamp(u.resizeWidth, 1, 4096);
+            u.resizeHeight = std::clamp(u.resizeHeight, 1, 4096);
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::BeginCombo("Anchor", kAnchors[u.resizeAnchor])) {
+                for (int i = 0; i < 9; ++i)
+                    if (ImGui::Selectable(kAnchors[i], i == u.resizeAnchor)) u.resizeAnchor = i;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The part of the old canvas that stays where it is.");
+            const bool unchanged = u.resizeWidth == m.width() && u.resizeHeight == m.height();
+            ImGui::BeginDisabled(unchanged);
+            if (ImGui::Button("Resize")) {
+                image_edited(m.resize_canvas(u.resizeWidth, u.resizeHeight, kAnchors[u.resizeAnchor], ""));
+                ImGui::CloseCurrentPopup();
+            }
+            at_track("img:resize:apply", !unchanged);
+            ImGui::EndDisabled();
+            if (unchanged && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Change the width or the height first: the canvas is already this size.");
+            ImGui::EndPopup();
+        }
     }
     // view
     ImGui::SameLine(0, 24);
@@ -453,6 +460,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         ImGui::SetTooltip("Shows the picture repeated 3 x 3 so the seams show (a tile document opens with it on). Tools work on the middle copy.");
     ImGui::SameLine();
     ImGui::Checkbox("Checker", &u.checker);
+    at_track("img:checker");
 }
 
 // ------------------------------------------------------------------------------------------------------------------ tools --

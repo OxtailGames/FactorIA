@@ -13,6 +13,12 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   IK2D ground snapping takes the nearest ancestor with a `RigidBody2D` as the character (a container that also holds the terrain
   no longer hides it), warns once when a ground ray never hits, and its field docs say the ground values are world units and the
   ray is vertical; docs/ANIMATION.md's Sky Hopper tutorial teaches the IK2D ground fields.
+- **Polish of provenance and rigs (M101.P7):** every `anim3d.*` command that writes a clip (and `ik3d.key`) is no longer `readOnly`, and
+  checks `assets.json` before it touches a file. `anim3d.restore` takes `provenance` (every `undo` now carries it): an undo puts the
+  clip's record, recipe included, back, and `clip: null` deletes the record with the file. A capsule collider whose `height` is under
+  twice its `radius` now warns instead of being raised silently. A model part name may not contain `+` (rig.bake `mergeParts` joins names
+  with it). `rig.bake {mergeParts}` with no `path` skips the fresh documents already baked with that choice. docs/RIGGING.md and
+  docs/IMAGES.md say what merging does to blended submeshes and that `image.create {output}` replaces an existing PNG.
 - **Rolloff for spatial sounds (M101.3):** `AudioSource.rolloff` (`linear` default, `inverse`, `exponential`) with `refDistance` and
   `rolloffFactor`, and the same three options on `audio.play({position, range, ...})` (one formula, `audio_spatial_gain`;
   docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
@@ -22,8 +28,16 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   the shared gain; `assets.check_mix` judges loops by the `loopStart`/`loopEnd` of assets.json first (what the engine plays) and
   the WAV `smpl` chunk only as a fallback, says "skipped" (not "No sounds found") when every sound is a recipe input, and
   `assets.regenerate` lists at most 8 compared inputs (`comparedCount` has them all) and every missing input of a failure.
+- **Polish of `image.resize` and the style roles (M101.P6):** `image.resize` keeps the masks of a fill, gradient or procedural layer
+  on the same pixels (such a layer becomes a box of the old canvas and moves with the anchor, like an adjustment layer with masks),
+  cuts the text rows of indexed layers and cels to the new canvas instead of padding them (a 4x4 image resized to 4096x4096 stays a few
+  KB; more than 64 MB of rows fails with a hint) and clamps positions instead of overflowing. The Image panel's Resize button is now
+  the canvas size in the toolbar (it fit badly at 1024 px) and the popup's Resize is disabled while the size is the current one.
+  `style.ignore` with `rules` on an entry that skips every rule no longer narrows it (the result's `notes` say so);
+  `assets.set_provenance` takes `role: ""` (or null) to remove a role; `assets.regenerate`, importing a file again and
+  `assets.generate_image` with `overwrite` keep the role; `style.ignore` and `style.set_role` refuse only `..` path segments.
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
-  keeps a window of 6 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
+  keeps a window of 6 s of decoded audio (about 2.5 to 3.5 MiB per stem with its decoder and ogg) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls
   does not dry the music (a jump to a section decodes its first chunks before it plays, waiting for the service for one chunk at
   most); section jumps, loops, crossfades and layer fades land on the same frames as before and the audio callback still takes

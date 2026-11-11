@@ -1754,7 +1754,7 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
 | `track` | object | yes |  |
 
-### `anim3d.add_event`
+### `anim3d.add_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1771,7 +1771,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-### `anim3d.create`
+### `anim3d.create` (modifies state)
 
 Since 0.16.0.
 
@@ -1828,7 +1828,7 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 | `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
 | `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 
-### `anim3d.mirror_pose`
+### `anim3d.mirror_pose` (modifies state)
 
 Since 0.16.0.
 
@@ -1845,7 +1845,7 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 | `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
 | `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
 
-### `anim3d.move_keys`
+### `anim3d.move_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -1880,7 +1880,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 | `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-### `anim3d.remove_event`
+### `anim3d.remove_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1893,7 +1893,7 @@ Remove an event from a 3D clip.
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 
-### `anim3d.remove_keys`
+### `anim3d.remove_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -1906,7 +1906,7 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
-### `anim3d.remove_track`
+### `anim3d.remove_track` (modifies state)
 
 Since 0.16.0.
 
@@ -1920,18 +1920,19 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
-### `anim3d.restore`
+### `anim3d.restore` (modifies state)
 
 Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
-Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
+Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly, null removes it; without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
+| `provenance` | any | no | The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it. |
 
 ### `anim3d.retarget` (modifies state)
 
@@ -1952,7 +1953,7 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-### `anim3d.set_clip`
+### `anim3d.set_clip` (modifies state)
 
 Since 0.16.0.
 
@@ -1968,7 +1969,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 | `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
 | `doc` | string | no | What the clip shows. |
 
-### `anim3d.set_event`
+### `anim3d.set_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1986,7 +1987,7 @@ Move, rename or change the data or the game feel actions of an event of a 3D cli
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-### `anim3d.set_interp`
+### `anim3d.set_interp` (modifies state)
 
 Since 0.16.0.
 
@@ -2000,7 +2001,7 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `interp` | string | yes | linear, step, bezier or an easing name. |
 
-### `anim3d.set_keys`
+### `anim3d.set_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -2693,7 +2694,7 @@ Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
 
-Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` "" or null, are kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2711,7 +2712,7 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 | `source` | string | no | Where an imported asset came from: a URL or the original file. |
 | `date` | string | no | YYYY-MM-DD. Default: today. |
 | `notes` | string | no | Anything else, such as edits made by hand. |
-| `role` | string ["ui","icon","effect"] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). docs.read ASSETS, "Scoping the style rules". |
+| `role` | any ["ui","icon","effect","",null] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. "" or null takes the role back. docs.read ASSETS, "Scoping the style rules". |
 
 ### `assets.slice_sheet` (modifies state)
 
@@ -3745,7 +3746,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 | `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
 
-### `ik3d.key`
+### `ik3d.key` (modifies state)
 
 Since 0.16.0.
 
@@ -4400,7 +4401,7 @@ Not released yet (on main after 0.22.0).
 
 Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
 
-Sets the document's canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays where it is (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down (the extra pixel goes to the right/bottom side). Every layer of the top level moves by the offset the anchor gives (groups take their children along); a layer that follows the canvas (a fill, gradient or procedural layer with no size, an empty indexed layer) just covers the new size. Pixels and picture layers keep their PNG and are cropped only by the canvas; the text rows of an indexed (pixel-art) layer, and of its cels, are cut or padded to the new canvas. Palette, ramps, frames, tags and the sheet settings are kept; the baked sheet takes the new cell size. `fill` (a colour, default transparent) paints the area a bigger canvas adds, as a masked fill layer named 'resize fill' at the bottom; with no fill the new area shows the document's background, or is transparent. Stored selections were made for the old size and must be made again (a warning says so). One edit: the editor undoes it with Ctrl+Z. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
+Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the same pixels and it no longer covers the added area. Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be made again (a warning). One undo step. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5559,7 +5560,7 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB and musicMB (decoded audio, the music alone; not gated; read every 8th frame), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every 8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7142,7 +7143,7 @@ Not released yet (on main after 0.22.0).
 
 Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
 
-Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob. Example: {"path":"assets/ui/**","role":"ui"}
+Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back with assets.set_provenance `role` "". Example: {"path":"assets/ui/**","role":"ui"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -13285,6 +13286,11 @@ declare module "factoria" {
      * @since 0.6.0
      */
     mode: "forward" | "reverse" | "pingpong";
+    /**
+     * What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded.
+     * @since unreleased
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Index in the sheet's grid (row-major from the top-left) of the frame shown.
      * @since 0.6.0

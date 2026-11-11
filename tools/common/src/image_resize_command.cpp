@@ -40,10 +40,32 @@ int whole(const Json& a, const char* key) {
 }
 
 struct Ctx {
+    int oldW = 0, oldH = 0;
     int newW = 0, newH = 0;
     int dx = 0, dy = 0;
+    long long rowBytes = 0;  // characters of `rows` written so far, against kMaxRowBytes
     std::vector<std::string> warnings;
 };
+
+// A document keeps x and y within +-100000 (image_doc_parse.cpp); a value read from a hand-edited file may be anything.
+constexpr long long kMaxCoord = 100000;
+// The text rows an indexed layer or cel keeps are cut to the canvas, never padded: this caps what a resize may write in all.
+constexpr long long kMaxRowBytes = 64LL * 1024 * 1024;
+
+int clamp_coord(long long v) { return int(std::clamp(v, -kMaxCoord, kMaxCoord)); }
+
+long long coord(const Json& obj, const char* key) {
+    auto it = obj.find(key);
+    if (it == obj.end()) return 0;
+    if (it->is_number_integer()) return std::clamp(it->get<long long>(), -(1LL << 40), 1LL << 40);
+    if (it->is_number_float()) {
+        const double v = it->get<double>();
+        return std::isfinite(v) ? (long long)std::clamp(v, -1e12, 1e12) : 0;
+    }
+    return 0;
+}
+
+bool has_masks(const Json& layer) { return layer.contains("masks") && layer["masks"].is_array() && !layer["masks"].empty(); }
 
 // A layer with no size of its own at (0, 0) covers the canvas whatever its size: it needs no move.
 bool follows_canvas(const Json& layer) {
@@ -53,20 +75,65 @@ bool follows_canvas(const Json& layer) {
     if (kind == "indexed" && layer.contains("cels") && layer["cels"].is_array())
         for (const Json& cel : layer["cels"]) indexedArt = indexedArt || (cel.is_object() && cel.contains("rows"));
     const bool sizedByCanvas = kind == "fill" || kind == "gradient" || kind == "procedural" || kind == "svg" || (kind == "indexed" && !indexedArt);
-    return sizedByCanvas && layer.value("width", 0) == 0 && layer.value("height", 0) == 0 && layer.value("x", 0) == 0 && layer.value("y", 0) == 0;
+    return sizedByCanvas && coord(layer, "width") == 0 && coord(layer, "height") == 0 && coord(layer, "x") == 0 && coord(layer, "y") == 0;
 }
 
-// `rows` (their top-left pixel at canvas (cx, cy)) cut to the new canvas; '.' where they do not reach.
-std::vector<std::string> recut(const std::vector<std::string>& rows, int cx, int cy, int w, int h) {
-    std::vector<std::string> out(std::size_t(h), std::string(std::size_t(w), '.'));
-    for (std::size_t r = 0; r < rows.size(); ++r) {
-        const long long y = (long long)cy + (long long)r;
-        if (y < 0 || y >= h) continue;
-        const std::string& row = rows[r];
-        for (std::size_t c = 0; c < row.size(); ++c) {
-            const long long x = (long long)cx + (long long)c;
-            if (x >= 0 && x < w) out[std::size_t(y)][std::size_t(x)] = row[c];
+// A canvas-following layer with masks keeps them only if it moves with them (masks are in the layer's own pixels), so it becomes a
+// box of the old canvas size and moves like any other layer. It stops covering the area a bigger canvas adds.
+void make_box_of_old_canvas(Json& layer, const Ctx& c) {
+    if (layer.value("kind", std::string()) == "procedural") {
+        if (!layer.contains("texture") || !layer["texture"].is_object()) layer["texture"] = Json::object();
+        Json& t = layer["texture"];
+        if (!t.contains("width")) t["width"] = c.oldW;
+        if (!t.contains("height")) t["height"] = c.oldH;
+    } else {
+        layer["width"] = c.oldW;
+        layer["height"] = c.oldH;
+    }
+}
+
+void move_layer(Json& layer, const Ctx& c) {
+    layer["x"] = clamp_coord(coord(layer, "x") + c.dx);
+    layer["y"] = clamp_coord(coord(layer, "y") + c.dy);
+    if (layer.contains("cels") && layer["cels"].is_array())
+        for (Json& cel : layer["cels"]) {
+            if (!cel.is_object()) continue;
+            if (cel.contains("x")) cel["x"] = clamp_coord(coord(cel, "x") + c.dx);
+            if (cel.contains("y")) cel["y"] = clamp_coord(coord(cel, "y") + c.dy);
         }
+}
+
+struct Cut {
+    std::vector<std::string> rows;
+    long long x = 0, y = 0;  // where the first pixel of `rows` lies on the canvas
+};
+
+// `rows` (their top-left pixel at canvas (cx, cy)) cut to the part inside the new canvas, '.' where a short row does not reach. Nothing
+// outside the canvas is kept, so a big canvas costs nothing; a picture wholly outside becomes one transparent pixel.
+Cut recut(const std::vector<std::string>& rows, long long cx, long long cy, int w, int h, Ctx& c, const std::string& where) {
+    std::size_t widest = 0;
+    for (const std::string& r : rows) widest = std::max(widest, r.size());
+    const long long x0 = std::max(cx, 0LL), x1 = std::min(cx + (long long)widest, (long long)w);
+    const long long y0 = std::max(cy, 0LL), y1 = std::min(cy + (long long)rows.size(), (long long)h);
+    Cut out;
+    if (x0 >= x1 || y0 >= y1) {
+        out.rows = {"."};
+        return out;
+    }
+    c.rowBytes += (x1 - x0) * (y1 - y0);
+    if (c.rowBytes > kMaxRowBytes)
+        fail("too_large", std::format("Resizing to {}x{} would keep more than {} MB of pixel rows ({}).", c.newW, c.newH, kMaxRowBytes >> 20, where),
+             "Pixel-art rows are stored as text, one character per pixel of each layer and frame. Resize to a smaller canvas, remove frames or layers first, or "
+             "keep big art in a `pixels` layer (a PNG). Nothing was changed.");
+    out.x = x0;
+    out.y = y0;
+    out.rows.reserve(std::size_t(y1 - y0));
+    for (long long y = y0; y < y1; ++y) {
+        const std::string& row = rows[std::size_t(y - cy)];
+        const std::size_t from = std::size_t(x0 - cx), len = std::size_t(x1 - x0);
+        std::string piece = from < row.size() ? row.substr(from, len) : std::string();
+        piece.resize(len, '.');
+        out.rows.push_back(std::move(piece));
     }
     return out;
 }
@@ -79,48 +146,60 @@ std::vector<std::string> rows_of(const Json& v) {
 }
 
 // `list` is a layer list whose origin lies at canvas (px, py) once moved; only the top level (`top`) is moved by the anchor.
-void walk(Json& list, bool top, int px, int py, Ctx& c) {
+void walk(Json& list, bool top, long long px, long long py, Ctx& c) {
     if (!list.is_array()) return;
     for (Json& layer : list) {
         if (!layer.is_object()) continue;
         const std::string kind = layer.value("kind", std::string());
-        if (kind == "adjustment") continue;
-        if (top && !follows_canvas(layer)) {
-            layer["x"] = layer.value("x", 0) + c.dx;
-            layer["y"] = layer.value("y", 0) + c.dy;
-            if (layer.contains("cels") && layer["cels"].is_array())
-                for (Json& cel : layer["cels"]) {
-                    if (cel.contains("x")) cel["x"] = cel.value("x", 0) + c.dx;
-                    if (cel.contains("y")) cel["y"] = cel.value("y", 0) + c.dy;
-                }
+        if (kind == "adjustment") {
+            // It covers the whole canvas unless it has masks, which are in its own pixels: then it moves, and they go with it.
+            if (top && has_masks(layer) && (c.dx != 0 || c.dy != 0)) move_layer(layer, c);
+            continue;
+        }
+        if (top) {
+            bool follows = follows_canvas(layer);
+            if (follows && has_masks(layer) && (c.dx != 0 || c.dy != 0)) {
+                make_box_of_old_canvas(layer, c);
+                follows = false;
+            }
+            if (!follows) move_layer(layer, c);
         }
         if (kind == "group") {
-            if (layer.contains("layers")) walk(layer["layers"], false, px + layer.value("x", 0), py + layer.value("y", 0), c);
+            if (layer.contains("layers")) walk(layer["layers"], false, px + coord(layer, "x"), py + coord(layer, "y"), c);
             continue;
         }
         if (kind != "indexed") continue;
-        const int lx = layer.value("x", 0), ly = layer.value("y", 0);
+        const long long lx = coord(layer, "x"), ly = coord(layer, "y");
         const bool ownRows = layer.contains("rows") && layer["rows"].is_array();
         bool anyCelRows = false;
         if (layer.contains("cels") && layer["cels"].is_array())
             for (const Json& cel : layer["cels"]) anyCelRows = anyCelRows || cel.contains("rows");
         if (!ownRows && !anyCelRows) continue;
-        // The layer's origin goes to the canvas origin and every picture is cut to the new canvas.
-        if (ownRows) layer["rows"] = recut(rows_of(layer["rows"]), px + lx, py + ly, c.newW, c.newH);
+        const std::string name = layer.value("name", std::string("?"));
+        // Every picture is cut to the new canvas and keeps its place there (its layer or cel x / y says where).
+        long long layerX = -px, layerY = -py;
+        if (ownRows) {
+            Cut cut = recut(rows_of(layer["rows"]), px + lx, py + ly, c.newW, c.newH, c, "layer '" + name + "'");
+            layer["rows"] = cut.rows;
+            layerX = cut.x - px;
+            layerY = cut.y - py;
+        }
         if (layer.contains("cels") && layer["cels"].is_array())
             for (Json& cel : layer["cels"]) {
+                if (!cel.is_object()) continue;
                 if (cel.contains("rows")) {
-                    const int cx = cel.contains("x") ? cel.value("x", 0) : lx, cy = cel.contains("y") ? cel.value("y", 0) : ly;
-                    cel["rows"] = recut(rows_of(cel["rows"]), px + cx, py + cy, c.newW, c.newH);
-                    cel.erase("x");
-                    cel.erase("y");
+                    const long long cx = cel.contains("x") ? coord(cel, "x") : lx, cy = cel.contains("y") ? coord(cel, "y") : ly;
+                    Cut cut = recut(rows_of(cel["rows"]), px + cx, py + cy, c.newW, c.newH, c, "a cel of layer '" + name + "'");
+                    cel["rows"] = cut.rows;
+                    cel["x"] = clamp_coord(cut.x - px);
+                    cel["y"] = clamp_coord(cut.y - py);
                 } else if (cel.contains("x") || cel.contains("y")) {
                     c.warnings.push_back(std::format("The cel of '{}' at frame {} has its own position and no pixels (a linked or empty cel): check where it lands now.",
-                                                     layer.value("name", std::string("?")), cel.value("frame", 0)));
+                                                     name, cel.value("frame", 0)));
                 }
             }
-        layer["x"] = -px;
-        layer["y"] = -py;
+        layer["x"] = clamp_coord(layerX);
+        layer["y"] = clamp_coord(layerY);
     }
 }
 
@@ -130,6 +209,8 @@ Json image_resize(const std::string& projectDir, const Json& a) {
     Json& doc = d.json;
     const int oldW = doc.value("width", 0), oldH = doc.value("height", 0);
     Ctx c;
+    c.oldW = oldW;
+    c.oldH = oldH;
     c.newW = whole(a, "width");
     c.newH = whole(a, "height");
     std::string anchorName = "center";
@@ -192,14 +273,14 @@ void register_resize_command(CommandRegistry& registry, const std::string& proje
     info.readOnly = false;
     info.summary = "Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.";
     info.description =
-        "Sets the document's canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays where it is (top-left, top, top-right, left, center, "
+        "Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, "
         "right, bottom-left, bottom, bottom-right; default center): with \"top-left\" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd "
-        "difference rounds down (the extra pixel goes to the right/bottom side). Every layer of the top level moves by the offset the anchor gives (groups take their children along); "
-        "a layer that follows the canvas (a fill, gradient or procedural layer with no size, an empty indexed layer) just covers the new size. Pixels and picture layers keep their "
-        "PNG and are cropped only by the canvas; the text rows of an indexed (pixel-art) layer, and of its cels, are cut or padded to the new canvas. Palette, ramps, frames, tags "
-        "and the sheet settings are kept; the baked sheet takes the new cell size. `fill` (a colour, default transparent) paints the area a bigger canvas adds, as a masked fill layer "
-        "named 'resize fill' at the bottom; with no fill the new area shows the document's background, or is transparent. Stored selections were made for the old size and must be "
-        "made again (a warning says so). One edit: the editor undoes it with Ctrl+Z. Example: {\"path\":\"assets/art/heart.image.json\",\"width\":12,\"height\":12,\"anchor\":\"top-left\"}";
+        "difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size "
+        "just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the "
+        "same pixels and it no longer covers the added area. Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and "
+        "cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake "
+        "takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be "
+        "made again (a warning). One undo step. Example: {\"path\":\"assets/art/heart.image.json\",\"width\":12,\"height\":12,\"anchor\":\"top-left\"}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["path","width","height"],"properties":{
       "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
       "width":{"type":"integer","minimum":1,"maximum":4096,"description":"New canvas width in pixels."},

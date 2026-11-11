@@ -65,19 +65,35 @@ void run(const AssetsProject& p, const std::string& command, const Json& args) {
     check_manifest(p, command);
 }
 
-// The recipe commands named in the sources: `constexpr const char* k...Command = "x.y"` and make_recipe(projectDir, "x.y", ...).
+// Files that call make_recipe with a command that is a parameter, not a literal or a constant, and why that is fine here.
+const std::set<std::string> kVariableCommandFiles = {
+    "assets_anim3d.cpp",  // made_clip_provenance forwards its `command` parameter; its callers pass literals, which are found below
+};
+
+// The recipe commands named in the sources: the second argument of every make_recipe(projectDir, X, ...) and made_clip_provenance(projectDir, X, ...)
+// call, X being a string literal or a name set to one in the same file (`constexpr const char* kCommand = "x.y"`). An argument of any other
+// shape (a variable) fails unless its file is in kVariableCommandFiles, so a recipe command cannot be missed by the scan.
 std::set<std::string> recipe_commands_in_sources() {
     namespace stdfs = std::filesystem;
     std::set<std::string> found;
-    const std::regex constant(R"re(constexpr const char\* k\w*Command = "([a-z0-9_.]+)")re");
-    const std::regex literal(R"re((?:make_recipe|made_clip_provenance)\(\s*projectDir,\s*"([a-z0-9_.]+)")re");
+    const std::regex call(R"re((?:make_recipe|made_clip_provenance)\(\s*projectDir,\s*("[a-z0-9_.]+"|\w+)\s*,)re");
     for (const char* dir : {"tools/common/src", "tools/ai/src"}) {
         for (const auto& entry : stdfs::directory_iterator(stdfs::path(FA_REPO_ROOT) / dir)) {
             if (entry.path().extension() != ".cpp") continue;
             const std::string text = read_all(entry.path());
-            if (text.find("make_recipe(") == std::string::npos) continue;
-            for (std::sregex_iterator it(text.begin(), text.end(), literal), end; it != end; ++it) found.insert((*it)[1]);
-            for (std::sregex_iterator it(text.begin(), text.end(), constant), end; it != end; ++it) found.insert((*it)[1]);
+            if (text.find("make_recipe(") == std::string::npos && text.find("made_clip_provenance(") == std::string::npos) continue;
+            for (std::sregex_iterator it(text.begin(), text.end(), call), end; it != end; ++it) {
+                const std::string arg = (*it)[1];
+                if (arg.front() == '"') {
+                    found.insert(arg.substr(1, arg.size() - 2));
+                    continue;
+                }
+                std::smatch m;
+                const std::regex named("\\b" + arg + R"re(\s*=\s*"([a-z0-9_.]+)")re");
+                if (std::regex_search(text, m, named)) found.insert(m[1]);
+                else if (!kVariableCommandFiles.count(entry.path().filename().string()))
+                    FAIL_CHECK(entry.path().filename().string() << " passes `" << arg << "` as the command of a recipe, which this scan cannot resolve: use a string literal or a constant, or add the file to kVariableCommandFiles");
+            }
         }
     }
     return found;
@@ -127,7 +143,7 @@ TEST_CASE("every recipe command writes an assets.json that passes schemas/assets
     const Json manifest = p.manifest();
     for (const auto& [rel, entry] : manifest["assets"].items())
         if (entry.contains("provenance") && entry["provenance"].contains("recipe")) ran.insert(entry["provenance"]["recipe"]["command"].get<std::string>());
-    const std::set<std::string> named =recipe_commands_in_sources();
+    const std::set<std::string> named = recipe_commands_in_sources();
     CHECK(named.count("anim3d.generate") == 1);  // the scan itself works
     for (const std::string& command : named) {
         if (kNeedsOwnSetup.count(command)) continue;

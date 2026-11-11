@@ -6970,21 +6970,51 @@ void Editor::at_build_tools_script() {
         });
 
         // ---- Resize canvas: one undo step, and undo gives the document back
-        auto rs = std::make_shared<size_t>(0);
+        // The size button in the toolbar opens the popup; the popup's Resize button is disabled while the size is the current one.
+        struct ResizeState {
+            size_t depth = 0;
+            int w = 0, h = 0;
+        };
+        auto rs = std::make_shared<ResizeState>();
         step(2, [this, current, rs] {
             if (!current()) return;
-            *rs = undo_depth();
-            const int w = image_.model->width(), h = image_.model->height();
-            const ImageEditOutcome out = image_.model->resize_canvas(w + 4, h + 2, "bottom-right", "");
-            at_check(out.ok, "Resize canvas works: " + out.error);
-            image_edited(out);
-            at_check(image_.model->width() == w + 4 && image_.model->height() == h + 2, "...the canvas is bigger");
-            at_check(undo_depth() == *rs + 1, "...as ONE undo step of the editor's stack");
+            rs->depth = undo_depth();
+            rs->w = image_.model->width();
+            rs->h = image_.model->height();
+        });
+        click_widget("img:resize");
+        wait_until([this] { return at_visible("img:resize:apply"); });
+        step(3, [this, current, rs] {
+            at_check(current() && image_.resizeWidth == rs->w && image_.resizeHeight == rs->h, "the Resize popup opens with the document's size");
+            image_.resizeWidth = rs->w + 4;
+            image_.resizeHeight = rs->h + 2;
+            image_.resizeAnchor = 8;  // bottom-right
+        });
+        click_widget("img:resize:apply");
+        step(4, [this, current, rs] {
+            at_check(current() && image_.model->width() == rs->w + 4 && image_.model->height() == rs->h + 2,
+                     "Resize in the popup makes the canvas bigger (" + std::to_string(image_.model->width()) + "x" + std::to_string(image_.model->height()) + ")");
+            at_check(undo_depth() == rs->depth + 1, "...as ONE undo step of the editor's stack");
+            at_check(!at_visible("img:resize:apply"), "...and the popup closes");
         });
         step(2, [this] { undo(); });
-        step(4, [this, current] {
-            at_check(current() && image_.model->width() == 16 && image_.model->height() == 16, "Undo gives the old canvas back (" + std::to_string(image_.model->width()) + "x" + std::to_string(image_.model->height()) + ")");
+        step(4, [this, current, rs] {
+            at_check(current() && image_.model->width() == rs->w && image_.model->height() == rs->h,
+                     "Undo gives the old canvas back (" + std::to_string(image_.model->width()) + "x" + std::to_string(image_.model->height()) + ")");
         });
+        // the popup does not offer a resize to the size the canvas already has: its button is disabled, and a click changes nothing
+        click_widget("img:resize");
+        wait_until([this] { return at_visible("img:resize:apply"); });
+        click_widget("img:resize:apply");
+        step(4, [this, current, rs] {
+            at_check(current() && image_.model->width() == rs->w && image_.model->height() == rs->h && undo_depth() == rs->depth,
+                     "Resize with the unchanged size does nothing");
+            at_check(at_visible("img:resize:apply") && !at_enabled("img:resize:apply"), "...and the popup stays open with its Resize button disabled");
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        // the one-line toolbar fits the panel: its last widget is inside the visible part of the window
+        step(2, [this, current] { at_check(current() && at_shown("img:checker"), "the whole toolbar fits in the panel (the Checker box is inside it)"); });
 
         // ---- Save bakes
         click_widget("img:save");

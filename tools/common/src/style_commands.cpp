@@ -22,7 +22,10 @@ using tooling_detail::arg_string;
 std::string pattern_arg(const char* command, const Json& a, const char* key) {
     const std::string raw = arg_string(a, key, true);
     const std::string norm = fs::normalize(raw);
-    if (norm.empty() || norm.front() == '/' || norm.find("..") != std::string::npos || (norm.size() > 1 && norm[1] == ':'))
+    // Only a `..` path segment climbs out (a name such as "a..b.png" is fine).
+    bool climbs = false;
+    for (const std::string& seg : split(replace_all(raw, "\\", "/"), '/')) climbs = climbs || seg == "..";
+    if (norm.empty() || climbs || norm.front() == '/' || (norm.size() > 1 && norm[1] == ':'))
         arg_error(command, std::string("/") + key, "'" + raw + "' is not a path inside the project.",
                   "Use a project-relative file (\"assets/art/flame.png\"), a folder ending in a slash (\"assets/ui/\") or a glob (\"assets/ui/**\").");
     return norm + (raw.back() == '/' && norm.back() != '/' ? "/" : "");
@@ -71,7 +74,9 @@ Json style_ignore(const std::string& projectDir, const Json& a) {
         std::size_t at = list.size();
         for (std::size_t i = 0; i < list.size(); ++i)
             if (entry_path(list[i]) == path) at = i;
-        const bool whole = at < list.size() && list[at].is_string();
+        // "whole": every rule is skipped (a plain string, or an object with no `rules`, which the style parser reads the same way)
+        const bool whole = at < list.size() && (list[at].is_string() || !list[at].contains("rules") || !list[at]["rules"].is_array() || list[at]["rules"].empty());
+        const Json before = at < list.size() ? list[at] : Json();
         if (remove) {
             if (at == list.size()) {
                 notes.push_back("Nothing to remove: no style.ignore entry names '" + path + "'.");
@@ -94,7 +99,10 @@ Json style_ignore(const std::string& projectDir, const Json& a) {
             if (whole) {
                 notes.push_back("'" + path + "' was already ignored for every rule.");
             } else {
-                if (at < list.size()) list[at] = path;
+                if (at < list.size()) {
+                    notes.push_back("'" + path + "' was ignored only for " + before["rules"].dump() + "; it is now ignored for every rule.");
+                    list[at] = path;
+                }
                 else list.push_back(path);
                 changed = true;
             }
@@ -202,7 +210,8 @@ void register_style_commands(CommandRegistry& registry, const std::string& proje
             "Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn "
             "off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value "
             "and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art "
-            "lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob. "
+            "lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back "
+            "with assets.set_provenance `role` \"\". "
             "Example: {\"path\":\"assets/ui/**\",\"role\":\"ui\"}";
         info.inputSchema = Json::parse(R"({"type":"object","required":["path"],"additionalProperties":false,"properties":{
           "path":{"type":"string","description":"Project-relative file, folder ending in a slash, or glob (\"assets/ui/**\")."},

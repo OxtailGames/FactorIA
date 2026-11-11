@@ -746,11 +746,12 @@ void update_ik2d(World& w, const GroundRaycast2D& ground) {
         IK2D* ik = w.get<IK2D>(e);
         if (!ik || ik->weight <= 0.0f || ik->target.is_null()) continue;
         Result<float> r = solve_ik2d(w, e, ground);
+        if (ik->groundMask == 0) ik->groundMisses = 0;  // switched off (e.g. in the air): the count starts again
         if (ground && ik->groundMask != 0 && !ik->groundHit && ik->groundMisses >= 300 && !ik->warnedGround) {
             ik->warnedGround = true;
             FA_WARN("animation",
-                    "IK2D on '{}' has groundMask {} but its ground ray has hit nothing in {} solves. Check that the terrain's collider is on a "
-                    "layer in groundMask, that it is within groundReach ({}) of the target, and that it is not a child of the character's own "
+                    "IK2D on '{}' has groundMask {} but its ground ray has hit nothing in {} solves. Check that the character is not simply in the air (switch groundMask to 0 there), that the "
+                    "terrain's collider is on a layer in groundMask, that it is within groundReach ({}) of the target, and that it is not a child of the character's own "
                     "RigidBody2D entity (the character's colliders are ignored). groundMask 0 turns ground snapping off.",
                     label_of(w, e), ik->groundMask, ik->groundMisses, ik->groundReach);
         }
