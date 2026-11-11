@@ -1221,7 +1221,19 @@
       },
       {
        "sig": "position?: number[] | { x: number, y: number, z?: number }",
-       "doc": "Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls linearly to 0 at `range` from the AudioListener (else the primary camera) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing and play() returns 0. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play(\"assets/sfx/bite.wav\", { position: [4, 0, -2], range: 30 })."
+       "doc": "Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play(\"assets/sfx/bite.wav\", { position: [4, 0, -2], range: 30 })."
+      },
+      {
+       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\"",
+       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
+      },
+      {
+       "sig": "refDistance?: number",
+       "doc": "With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position."
+      },
+      {
+       "sig": "rolloffFactor?: number",
+       "doc": "With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position."
       },
       {
        "sig": "range?: number",
