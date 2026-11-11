@@ -243,7 +243,11 @@ void record(const std::string& path, const Json& provenance, const Json& sheet =
     auto r = assets::update_entry(path, [&](Json& entry) {
         entry.erase("analysis");
         entry.erase("sheet");
+        // What the picture is for (style role) does not change because it was made again.
+        Json role;
+        if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role") && !provenance.contains("role")) role = entry["provenance"]["role"];
         entry["provenance"] = provenance;
+        if (!role.is_null()) entry["provenance"]["role"] = role;
         if (sheet.is_object()) entry["sheet"] = sheet;
     });
     if (!r) {
@@ -845,14 +849,23 @@ Json set_provenance(const Ctx&, const Json& args) {
             throw CommandError("invalid_argument", std::format("unknown role '{}'. {}", role, did_you_mean(role, roles)), "A role is ui, icon or effect.");
         p["role"] = role;
     }
+    // `role` null or "" takes the role back; no `role` keeps the one the entry has.
+    const bool dropRole = args.contains("role") && (args["role"].is_null() || (args["role"].is_string() && args["role"].get<std::string>().empty()));
+    bool roleRemoved = false;
     // The recipe of a made asset (assets.regenerate) is not something to type here: describing who made the file keeps it.
     auto r = assets::update_entry(path, [&](Json& entry) {
-        if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
-        if (!p.contains("role") && entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role")) p["role"] = entry["provenance"]["role"];
+        const bool hadProvenance = entry.contains("provenance") && entry["provenance"].is_object();
+        if (hadProvenance && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
+        if (hadProvenance && entry["provenance"].contains("role")) {
+            if (dropRole) roleRemoved = true;
+            else if (!p.contains("role")) p["role"] = entry["provenance"]["role"];
+        }
         entry["provenance"] = p;
     });
     if (!r) fail("manifest_failed", r.error());
-    return Json::object({{"path", path}, {"provenance", p}});
+    Json out = Json::object({{"path", path}, {"provenance", p}});
+    if (roleRemoved) out["roleRemoved"] = true;
+    return out;
 }
 
 Json disclosure(const Ctx&, const Json&) {
@@ -1079,6 +1092,8 @@ ReviewOutcome apply_pick(PickState& st, const Json& sheetMeta, const std::string
         Json entry = list.contains(st.slot) && list[st.slot].is_object() ? list[st.slot] : Json::object();
         entry.erase("analysis");  // what the tools measured or sliced from the old file
         entry.erase("sheet");
+        if (!provenance.contains("role") && entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role"))
+            provenance["role"] = entry["provenance"]["role"];  // what the slot is for does not change with the picture
         entry["provenance"] = provenance;
         for (const std::string& k : keys) list.erase(k);
         list[st.slot] = entry;
@@ -1359,7 +1374,7 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
 
     add_command(
         registry, ctx, "assets.set_provenance", "Record where an asset came from (hand-made, imported, or made with AI elsewhere).",
-        "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this "
+        "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` \"\" or null, are kept). The generate commands write it for you; use this "
         "for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to "
         "true for origin generated, false otherwise). Example: {\"path\":\"assets/music/theme.ogg\",\"origin\":\"imported\","
         "\"ai\":false,\"license\":\"CC0\",\"source\":\"https://example.com/theme\",\"author\":\"A. Composer\"}",
@@ -1378,7 +1393,7 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "source":{"type":"string","description":"Where an imported asset came from: a URL or the original file."},
             "date":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"YYYY-MM-DD. Default: today."},
             "notes":{"type":"string","description":"Anything else, such as edits made by hand."},
-            "role":{"type":"string","enum":["ui","icon","effect"],"description":"What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). docs.read ASSETS, \"Scoping the style rules\"."}},
+            "role":{"type":["string","null"],"enum":["ui","icon","effect","",null],"description":"What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. \"\" or null takes the role back. docs.read ASSETS, \"Scoping the style rules\"."}},
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
     add_read_only_asset_commands(registry, ctx);

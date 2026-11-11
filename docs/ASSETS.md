@@ -868,8 +868,13 @@ itself. Three ways to leave a rule out, from the narrowest:
   sub-rule such as `value.max`; a name also covers the rules under it) only those rules are skipped and the others still check, so
   a real problem is not hidden; without `rules` every rule is skipped for the path (the plain-string entry). `remove: true` takes an
   entry, or the named rules of it, back. In assets.json: `"ignore": ["assets/old/**", {"path": "assets/fx/spark.png", "rules": ["outline"]}]`.
-- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`), and `assets.set_provenance` accepts
-  `role` for one asset (it wins over a glob and survives a rebake). `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
+  An entry with no `rules` already skips every rule, so naming rules for it changes nothing (the result says so in `notes`); to
+  narrow it, remove the entry and add the rules. Skipping every rule for a path that had only some rules widens the entry (also said in `notes`).
+  `path` is a project path: a `..` segment is refused, a name such as `a..b.png` is fine.
+- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`; `remove: true` deletes the glob), and
+  `assets.set_provenance` accepts `role` for one asset (it wins over a glob; assets.set_provenance without `role` keeps it, and
+  `assets.regenerate`, importing the file again and `assets.generate_image` with `overwrite` keep it too). `role: ""` (or null) in
+  `assets.set_provenance` takes the asset's role back. `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
   `effect` also turns off `outline`, `value` and `saturation`. The other rules keep checking.
 - `texelsPerUnit` is only judged for textures a scene draws; a texture no scene uses is left out already.
 
