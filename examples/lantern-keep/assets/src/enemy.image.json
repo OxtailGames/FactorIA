@@ -2,6 +2,7 @@
   "format": "factoria.image/1",
   "width": 40,
   "height": 30,
+  "output": "assets/enemy.png",
   "description": "Lantern Keep's keep-ghoul: a purple blob with a white rim and two yellow eyes. Pixel art, 40x30.",
   "palette": [
     {

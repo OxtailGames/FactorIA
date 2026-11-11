@@ -11,6 +11,7 @@
 
 #include "assets_internal.h"
 #include "assets_shots.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim3d.h"
 #include "fa/scene/anim3d_gen.h"
@@ -124,10 +125,38 @@ void check_can_write(const char* command, const std::string& projectDir, const s
         fail("exists", std::string(command) + ": '" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another path.");
 }
 
-void write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json) {
+// Writes the clip and its record in assets.json. `made` is the provenance of a clip a command made again from a recipe (anim3d.generate,
+// anim3d.retarget); null for every edit: the clip then keeps its record, minus the recipe (a stale hand edit must not be overwritten by
+// assets.regenerate), and a clip without a record gets "original" (made by hand with the anim3d commands).
+void write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json, const Json& made = nullptr) {
     std::string err;
     if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     clear_anim3d_cache();  // the next load reads the file again, whatever its modification time says
+    ProjectRootGuard root(projectDir);
+    auto r = assets::update_entry(rel, [&](Json& e) {
+        if (made.is_object()) {
+            e["provenance"] = made;
+            return;
+        }
+        if (e.contains("provenance") && e["provenance"].is_object()) {
+            Json& p = e["provenance"];
+            if (p.contains("recipe")) {
+                p.erase("recipe");
+                const std::string note = "Edited by hand with the anim3d commands after it was made; the recipe was removed so assets.regenerate does not overwrite the edit.";
+                p["notes"] = p.contains("notes") && p["notes"].is_string() ? p["notes"].get<std::string>() + " " + note : note;
+            }
+            return;
+        }
+        e["provenance"] = obj({{"origin", "original"}, {"ai", false}, {"kind", "anim3d"}, {"provider", "factoria anim3d"}, {"license", "CC0-1.0"}, {"author", "factoria"},
+                               {"notes", "Keyed with the anim3d commands."}, {"date", assets::today()}});
+    });
+    if (!r.ok()) fail("failed", "The clip '" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+}
+
+// The provenance of a clip anim3d.generate or anim3d.retarget made: the recipe holds the call and the SHA-256 of the rigs and the source clip.
+Json made_clip_provenance(const std::string& projectDir, const char* command, Json recipeArgs, const std::vector<std::string>& inputs, const std::string& notes) {
+    return obj({{"origin", "original"}, {"ai", false}, {"kind", "anim3d"}, {"provider", std::string("factoria ") + command}, {"license", "CC0-1.0"}, {"author", "factoria"},
+                {"notes", notes}, {"date", assets::today()}, {"recipe", make_recipe(projectDir, command, std::move(recipeArgs), inputs)}});
 }
 
 // The clip file as it is now, or null when it does not exist or is not readable JSON: what anim3d.restore puts back.
@@ -919,7 +948,9 @@ Json anim3d_generate_command(const std::string& projectDir, const Json& a) {
     const Json json = anim3d_to_json(clip);
     parse_clip_or_fail(json, out);  // what was made reads back
     const Json before = clip_before(projectDir, out);
-    write_clip_json(projectDir, out, json);
+    const Json recorded = made_clip_provenance(projectDir, "anim3d.generate", recipe_args(a, {{"rig", rig.path}, {"kind", kind}, {"params", params}, {"out", out}}), {rig.path},
+                                           "Generated from " + rig.path + ": " + kind + ".");
+    write_clip_json(projectDir, out, json, recorded);
     Json r = clip_summary(clip);
     r["path"] = out;
     r["undo"] = undo_restore(out, before);
@@ -962,7 +993,12 @@ Json anim3d_retarget_command(const std::string& projectDir, const Json& a) {
     const Json json = anim3d_to_json(result.clip);
     parse_clip_or_fail(json, out);
     const Json before = clip_before(projectDir, out);
-    write_clip_json(projectDir, out, json);
+    std::vector<std::string> inputs{recipe_path(rel), from.path};
+    if (to.path != from.path) inputs.push_back(to.path);
+    const Json recorded = made_clip_provenance(projectDir, "anim3d.retarget",
+                                           recipe_args(a, {{"path", recipe_path(rel)}, {"from", from.path}, {"to", to.path}, {"out", out}}), inputs,
+                                           "Retargeted from " + rel + " (" + from.path + ") to " + to.path + ".");
+    write_clip_json(projectDir, out, json, recorded);
     Json r = clip_summary(result.clip);
     r["path"] = out;
     r["undo"] = undo_restore(out, before);
@@ -1285,6 +1321,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.generate";
         info.category = "anim";
+        info.readOnly = false;  // it writes a clip, and assets.regenerate only runs commands that write
         info.summary = "Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.";
         info.description =
             "Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key "
@@ -1314,6 +1351,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.retarget";
         info.category = "anim";
+        info.readOnly = false;
         info.summary = "Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.";
         info.description =
             "Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not "

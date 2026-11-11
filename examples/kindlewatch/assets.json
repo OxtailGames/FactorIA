@@ -51,6 +51,289 @@
     ]
   },
   "assets": {
+    "anim/alpha_wolf_bite.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/alpha_wolf_gallop.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_trot.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/warden_attack.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/warden_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/warden.rig.glb: hit.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/warden.rig.glb",
+            "kind": "hit",
+            "params": {
+              "duration": 0.6,
+              "strength": 18.0,
+              "fromAngle": 0.0,
+              "attack": 0.18,
+              "fps": 30.0,
+              "event": "",
+              "doc": ""
+            },
+            "out": "anim/warden_hit.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.rig.glb",
+              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
+            }
+          ]
+        }
+      }
+    },
+    "anim/warden_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/warden.rig.glb: idle.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/warden.rig.glb",
+            "kind": "idle",
+            "params": {
+              "duration": 4.0,
+              "breaths": 1.0,
+              "breathAmount": 2.0,
+              "weightShift": 1.0,
+              "tailSwing": 8.0,
+              "fps": 30.0,
+              "doc": ""
+            },
+            "out": "anim/warden_idle.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.rig.glb",
+              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
+            }
+          ]
+        }
+      }
+    },
+    "anim/warden_run.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/warden_walk.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/wolf_bite.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/wolf_gallop.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/wolf_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/wolf.rig.glb: hit.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/wolf.rig.glb",
+            "kind": "hit",
+            "params": {
+              "duration": 0.6,
+              "strength": 18.0,
+              "fromAngle": 0.0,
+              "attack": 0.18,
+              "fps": 30.0,
+              "event": "",
+              "doc": ""
+            },
+            "out": "anim/wolf_hit.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.rig.glb",
+              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
+            }
+          ]
+        }
+      }
+    },
+    "anim/wolf_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/wolf.rig.glb: idle.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/wolf.rig.glb",
+            "kind": "idle",
+            "params": {
+              "duration": 4.0,
+              "breaths": 1.0,
+              "breathAmount": 2.0,
+              "weightShift": 1.0,
+              "tailSwing": 8.0,
+              "fps": 30.0,
+              "doc": ""
+            },
+            "out": "anim/wolf_idle.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.rig.glb",
+              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
+            }
+          ]
+        }
+      }
+    },
+    "anim/wolf_trot.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
     "assets/art/bar_back.png": {
       "provenance": {
         "origin": "original",

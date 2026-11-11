@@ -28,6 +28,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   trunk instead of its canopy, also with `merge`), `radius` and `height` (override the fitted values). `rig.bake` takes
   `mergeParts`: the skinned parts that share a material become one submesh (same vertices, weights and bind pose, so the
   same pose), kept in the recipe; Kindlewatch's characters go from 75 to 38 draw calls and Gem Roller's scout from 30 to 18.
+- `anim3d.generate` and `anim3d.retarget` record a provenance recipe (inputs: the rig, and for a retarget the source clip),
+  so `assets.regenerate {"stale": true}` makes a clip again after its rig is fitted again; editing a clip by hand removes the
+  recipe. `assets.set_provenance` and `schemas/assets.schema.json` take the kind `anim3d`, also for clips outside `assets/`.
+- `image.create` takes `output`, the PNG the document bakes to.
+- A test runs every recipe command in a scratch project and validates the `assets.json` it writes against the schema.
 
 ## 0.22.0
 

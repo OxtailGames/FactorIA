@@ -253,11 +253,11 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
             skipped.push_back(s);
             continue;
         }
-        if (const CommandInfo* info = registry.info(g.command); !info || info->category != "assets" || g.command == kCommand || info->readOnly) {
+        if (const CommandInfo* info = registry.info(g.command); !info || (info->category != "assets" && info->category != "anim") || g.command == kCommand || info->readOnly) {
             std::vector<std::string> names;
             for (const CommandInfo* c : registry.list("assets"))
                 if (!c->readOnly && c->name != kCommand) names.push_back(c->name);
-            const std::string message = info ? "'" + g.command + "' is not an asset maker, and regenerate only runs those (assets.* commands that write files)."
+            const std::string message = info ? "'" + g.command + "' is not an asset maker, and regenerate only runs those (assets.* and anim3d.* commands that write files)."
                                              : "the recipe names the command '" + g.command + "', which does not exist.";
             const std::string hint = info ? "Edit provenance.recipe in assets.json, or make the asset again with its own command."
                                           : (names.empty() ? std::string() : did_you_mean(g.command, names));
