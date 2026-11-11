@@ -666,11 +666,13 @@ public:
     // the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white (MeshRenderer.
     // emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). FA_SCENE_FORMAT=rgba8 forces RGBA8.
     sg_pixel_format scene_format() const { return sceneFormat_; }
-    // The GPU accepted RGBA16F as a format but could not make the game target's images in it (GLES3/WebGL2 with multisampling
-    // and no EXT_color_buffer_float, a framebuffer the driver finds incomplete): from now on the scene format is RGBA8. Every
-    // pipeline made so far is destroyed (they were built for the float format and are made again on first use); the caller
-    // rebuilds its targets. Does nothing when the format is RGBA8 already.
-    void fall_back_to_rgba8_scene();
+    // Renderer::Impl::create_targets, when the GPU accepted RGBA16F as a format but could not make the game target's images in it
+    // (GLES3/WebGL2 with multisampling and no EXT_color_buffer_float, a framebuffer the driver finds incomplete): it sets the
+    // format RGBA8 and, once the targets are made in it, calls drop_pipelines(): the pipelines made so far were built for the
+    // other format and are made again on first use. Only the game target falls back; the images of a CameraView, the bloom levels
+    // and the colour filter keep the format and their own warnings.
+    void set_scene_format(sg_pixel_format format) { sceneFormat_ = format; }
+    void drop_pipelines();
 
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.

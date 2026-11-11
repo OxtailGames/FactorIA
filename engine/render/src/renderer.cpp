@@ -207,6 +207,7 @@ struct Renderer::Impl {
     void flip_copy(ViewTarget& t);
 
     void create_targets(int w, int h);
+    void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
     void destroy_targets();
     int apply_color_filter(int mode);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
@@ -303,6 +304,37 @@ void Renderer::Impl::create_targets(int w, int h) {
     targetH = std::max(1, h);
     physW = std::max(1, int(std::lround(double(targetW) * renderScale)));
     physH = std::max(1, int(std::lround(double(targetH) * renderScale)));
+    make_game_targets();
+    // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
+    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view FAILED).
+    // Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at all. The same
+    // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
+    // check fail on a GPU that never would, to run the fall-back there.
+    // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an Expand-mode
+    // resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must neither downgrade
+    // the game for good nor drop the pipelines in the middle of it. Then the old behaviour stays: the failure is reported by
+    // the capture or the frame that needs the target.
+    if (!initialized && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
+        const char* hook = std::getenv("FA_SCENE_FORMAT");
+        if (!game_targets_valid() || (hook && std::string(hook) == "rgba16f_invalid")) {
+            destroy_targets();
+            gpu.set_scene_format(SG_PIXELFORMAT_RGBA8);
+            make_game_targets();
+            if (game_targets_valid()) {
+                gpu.drop_pipelines();
+                FA_WARN("render", "The GPU cannot make the {}x{} game target in RGBA16F{}, but can in RGBA8: the game is drawn in RGBA8 "
+                                  "(colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)",
+                        physW, physH, gpu.sample_count() > 1 ? " with multisampling" : "");
+            } else {  // RGBA8 fails too: it is not the format; keep the float one and its errors
+                destroy_targets();
+                gpu.set_scene_format(SG_PIXELFORMAT_RGBA16F);
+                make_game_targets();
+            }
+        }
+    }
+}
+
+void Renderer::Impl::make_game_targets() {
     int samples = gpu.sample_count();
     sg_image_desc cd{};
     cd.usage.color_attachment = true;
@@ -346,20 +378,6 @@ void Renderer::Impl::create_targets(int w, int h) {
     sg_view_desc dv{};
     dv.depth_stencil_attachment.image = depthImg;
     depthAtt = sg_make_view(&dv);
-    // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
-    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view FAILED).
-    // Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at all. The same
-    // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
-    // check fail on a GPU that never would, to run the fall-back there.
-    if (gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
-        const char* hook = std::getenv("FA_SCENE_FORMAT");
-        if (!game_targets_valid() || (hook && std::string(hook) == "rgba16f_invalid")) {
-            FA_WARN("render", "The GPU cannot make the {}x{} game target in RGBA16F{}; the game is drawn in RGBA8 (colours above white "
-                              "are clamped, Camera.bloom is weaker)", physW, physH, samples > 1 ? " with multisampling" : "");
-            gpu.fall_back_to_rgba8_scene();
-            create_targets(w, h);
-        }
-    }
 }
 
 bool Renderer::Impl::game_targets_valid() const {

@@ -167,10 +167,8 @@ void Gpu::shutdown() {
     lightState_ = 0;
 }
 
-void Gpu::fall_back_to_rgba8_scene() {
-    if (sceneFormat_ == SG_PIXELFORMAT_RGBA8) return;
-    sceneFormat_ = SG_PIXELFORMAT_RGBA8;
-    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so the whole cache goes: the ones that draw into the
+void Gpu::drop_pipelines() {
+    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so the whole cache can go: the ones that draw into the
     // scene (quads, meshes, sky, bloom, colour filter) carry the old format, and making the others again is cheap.
     for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
     pipelines_.clear();

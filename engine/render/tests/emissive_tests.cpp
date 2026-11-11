@@ -3,6 +3,7 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <string>
@@ -186,19 +187,48 @@ TEST_CASE("the game target falls back to RGBA8 when the GPU cannot make the floa
     fallback.shutdown();
 }
 
-TEST_CASE("bloom does not spread a NaN pixel of the float target") {
+TEST_CASE("bloom does not spread a NaN or infinite source over the glow of its neighbour") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    // A NaN red channel (a custom material's pow() of a negative, a 0/0 in a script) while green and blue are bright: the glow
-    // of the finite channels must still reach the halo (a NaN in the blur would take every texel it touches).
-    GlowScene s(Color{std::nanf(""), 0.9f, 0.9f, 1}, 1.0f);
-    s.bloom(0.2f);
-    const Image img = g.render(s.world);
-    double haloGreen = 0;
-    const int cx = img.width / 2, cy = img.height / 2;
-    for (int y = 0; y < img.height; ++y)
-        for (int x = 0; x < img.width; ++x)
-            if (std::hypot(x - cx, y - cy) > 40.0) haloGreen += img.pixel(x, y).g;
-    INFO("hdr_scene=" << g.renderer.hdr_scene());
-    CHECK(haloGreen > 1.0);
+    // Two lamps side by side: the left one glows normally, the right one writes NaN (a custom material's pow() of a negative, a
+    // 0/0 in a script). The reference is the same scene with a black right lamp. The bright pass must drop the NaN, otherwise
+    // the blur carries it over the left lamp's halo and disc and those pixels come out wrong. Compared on the left half of the
+    // picture, which holds the whole left lamp and its halo but not the right lamp's own surface.
+    auto left_half = [&](Color right) {
+        GlowScene s(Color{0.9f, 0.6f, 0.3f, 1}, 1.0f);
+        s.world.get<Transform>(s.glow)->position = {-0.6f, 0, 0};
+        Entity other = make(s.world, "other", {0.6f, 0, 0});
+        auto& m = s.world.add<MeshRenderer>(other);
+        m.mesh = "sphere";
+        m.color = Color{0, 0, 0, 1};
+        m.unlit = true;
+        m.emissive = right;
+        s.bloom(0.2f, 1.0f, 30.0f);
+        const Image img = g.render(s.world);
+        std::array<double, 3> sum{0, 0, 0};
+        for (int y = 0; y < img.height; ++y)
+            for (int x = 0; x < img.width / 2; ++x) {
+                const Color c = img.pixel(x, y);
+                sum[0] += c.r;
+                sum[1] += c.g;
+                sum[2] += c.b;
+            }
+        return sum;
+    };
+    const float nan = std::nanf("");
+    const auto clean = left_half(Color{0, 0, 0, 1});
+    const auto dirty = left_half(Color{nan, nan, nan, 1});
+    // An infinite red channel must not light the neighbour more than the brightest finite one (1.0, white) does: in the float
+    // target the bright pass drops it, in an 8-bit target it is clamped to 1 on the way in. Not with MSAA: the resolve averages
+    // the Inf at the lamp's edge with its empty samples into a large finite number, which is light to the bright pass.
+    const bool msaa = std::getenv("FA_TEST_SAMPLES") && std::atoi(std::getenv("FA_TEST_SAMPLES")) > 1;
+    const auto inf = left_half(Color{INFINITY, 0.5f, 0.5f, 1});
+    const auto one = left_half(Color{1.0f, 0.5f, 0.5f, 1});
+    INFO("hdr_scene=" << g.renderer.hdr_scene() << " clean=" << clean[0] << "," << clean[1] << "," << clean[2] << " dirty=" << dirty[0]
+                      << "," << dirty[1] << "," << dirty[2] << " inf=" << inf[0] << " one=" << one[0]);
+    CHECK(clean[0] > 100.0);  // the left lamp does glow
+    for (int c = 0; c < 3; ++c) {
+        CHECK(dirty[c] == doctest::Approx(clean[c]).epsilon(0.01));
+        if (!msaa) CHECK(inf[c] <= one[c] * 1.01);
+    }
 }
