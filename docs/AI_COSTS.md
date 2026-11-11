@@ -439,10 +439,27 @@ What the measured AI may do, exactly:
   only and are refused for any path outside it, including reads of your home (`~/.zshrc`, `~/.ssh`). Checked by hand on this
   machine with only `Bash(factoria version:*)` allowed: a write inside the folder worked; a write outside, a read of `~/.zshrc`
   and `ls ~/.ssh` were all denied. Re-check it after a CLI upgrade.
-- Shell commands: only `factoria new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `commands`, `api`, `docs`,
-  `version` and `help` are allowed. There is no `ls`, `cat`, `cp`... entry: the AI uses its file tools. Denied, and a deny wins:
-  `factoria setup`, `feedback`, `ai`, `editor`, `export`, `mcp`, `dap`, `hooks`, `session`, and `factoria call` of
-  `setup*`, `feedback*`, `update*`, `self_update*`, `publish*`, `ios_sim*`.
+- Shell commands (first line of defence, an allow-list; `scripts/agent-cost.sh --print-policy` prints every rule): the
+  subcommands `factoria new`, `templates`, `run`, `screenshot`, `test`, `validate`, `commands`, `api`, `docs`, `version` and
+  `help`, and `factoria call` only as `factoria call <command>` with the command name right after `call` (no flag, no quote
+  before it: so no `--batch`, `--json`, `-p`, `--project`), for the offline families a game developer needs: `scene.*`,
+  `tilemap.*`, `ui.*`, `game.*`, `play.*`, `physics.*`, `prefab.*`, `script.*`, `input.*`, `render.*`, `load.*`, `nav.*`,
+  `feel.*`, `vfx.*`, `i18n.*`, `perf.*`, `anim.*`, `shader.*`, `material.*`, `docs.*`, `api.*`, `project.info`,
+  `project.validate`, `project.test`, `project.templates`, `checkpoint.list`, `checkpoint.diff`, `checkpoint.create`,
+  `skills.list` and `skills.read`. There is no `ls`, `cat`, `cp`... entry: the AI uses its file tools (Claude Code lets its
+  read-only shell commands run inside the work folder).
+- Deny rules (defence in depth; a deny wins over an allow): `factoria setup`, `feedback`, `ai`, `editor`, `export`, `mcp`,
+  `dap`, `hooks`, `session`, and `factoria call` with a leading flag or quote, with `--batch` or `--project` anywhere, or with
+  `setup*`, `feedback*`, `ai*` (`ai.run` would start another agent outside the budget cap), `engine*` (updates), `update*`,
+  `self_update*`, `publish*`, `ios_sim*`, `skills.new`, `platform*`, `project.export`, `project.create`, `assets*`, `image*`,
+  `model*`, `music*`, `audio*`, `fs*`, `storage*` and `sign*` (providers and the network).
+  `scripts/agent-cost-policy-check.sh` checks both lists against the bypasses a review found (`call --batch`, `call --json
+  feedback.share`, `call "feedback.share"`, `call -p . ...`, `ai.run`, `engine.update_status`, `skills.new`) and against the
+  commands the AI needs; it spends nothing and passes today. It matches the rules as shell globs, which approximates Claude
+  Code's matcher, so it is a check of the lists, not of the CLI.
+- The second line, behind both lists: the throw-away `HOME` and the engine copy (next point). Even a command that got through
+  could not change your installed engine or your `~/.factoria`, but it could still reach the network from the copy, which is
+  why the first line is an allow-list.
 - The `factoria` the AI runs is a wrapper over a COPY of the engine made in the work folder, with a throw-away `HOME`, so no
   command can change your installed engine, your `~/.factoria` or your settings. (The CLI itself keeps your real `HOME`, because
   its login lives there; `--bare` is not used because it needs an API key.)
