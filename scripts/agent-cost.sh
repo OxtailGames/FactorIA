@@ -17,6 +17,7 @@
 #   --max-seconds  wall-clock cap (default 5400 = 90 min); --max-usd the CLI's own spending cap (default 5)
 #   --cli-bin      path of the CLI to run instead of the one on the PATH (tests use a fake one)
 #   --report-only  do not run the AI: build the result from an earlier work folder (its transcript.jsonl and game/)
+#   --print-policy print the allow and deny rules given to the CLI and exit (nothing runs)
 set -u
 
 # The brief is fixed so that runs compare. Change it only with a new BRIEF_ID, and say so in docs/AI_COSTS.md.
@@ -34,6 +35,7 @@ cli_bin_override=""
 workdir=""
 reporter=""
 report_only=""
+print_policy=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --cli) cli="$2"; shift 2 ;;
@@ -47,10 +49,37 @@ while [ $# -gt 0 ]; do
         --workdir) workdir="$2"; shift 2 ;;
         --reporter) reporter="$2"; shift 2 ;;
         --report-only) report_only="$2"; shift 2 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        --print-policy) print_policy=1; shift ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "agent-cost: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
 done
+
+# What the measured AI may run (docs/AI_COSTS.md, "What the measured AI may do"). `factoria call` is allowed ONLY as
+# `factoria call <family>.<command>` with the command name right after `call` (no flag, no quote before it, so no --batch,
+# --json, -p...), for the families a game developer needs and that stay offline. A deny rule wins over an allow rule and is
+# the second line; the first is the allow-list, and behind both the throw-away HOME and the engine copy.
+allowed=()
+for sub in new templates run screenshot test validate commands api docs version help; do allowed+=("Bash(factoria $sub:*)"); done
+for fam in scene tilemap ui game play physics prefab script input render load nav feel vfx i18n perf anim shader material \
+           project.info project.validate project.test project.templates checkpoint.list checkpoint.diff checkpoint.create \
+           docs api skills.list skills.read; do
+    case "$fam" in *.*) allowed+=("Bash(factoria call $fam*)") ;; *) allowed+=("Bash(factoria call $fam.*)") ;; esac
+done
+denied=()
+for sub in setup feedback ai editor export mcp dap hooks session; do denied+=("Bash(factoria $sub:*)"); done
+for pre in "-*" "\"*" "'*" "*--batch*" "*--project*" setup feedback ai engine update self_update publish ios_sim skills.new platform \
+           project.export project.create assets image model music audio fs storage sign; do
+    case "$pre" in
+        [-\"\'*]*) denied+=("Bash(factoria call $pre)") ;;
+        *) denied+=("Bash(factoria call $pre*)") ;;
+    esac
+done
+if [ -n "$print_policy" ]; then
+    for r in "${allowed[@]}"; do echo "allow $r"; done
+    for r in "${denied[@]}"; do echo "deny $r"; done
+    exit 0
+fi
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f "$fdir" ] && fdir="$(dirname "$fdir")"
@@ -93,12 +122,6 @@ safe_path="$workdir/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 if [ -z "$report_only" ]; then
     # Only these `factoria` subcommands may run; the file tools need no entry: acceptEdits writes inside the work folder
     # and refuses every path outside it (checked: docs/AI_COSTS.md). Nothing else is allowed, and the denied ones win.
-    allowed=()
-    for sub in new templates run screenshot test validate call commands api docs version help; do allowed+=("Bash(factoria $sub:*)"); done
-    denied=()
-    for sub in setup feedback ai editor export mcp dap hooks session; do denied+=("Bash(factoria $sub:*)"); done
-    for pre in setup feedback update self_update publish ios_sim; do denied+=("Bash(factoria call $pre*)" "Bash(factoria call --project . $pre*)"); done
-
     run_cli() {
         case "$cli" in
             claude)
