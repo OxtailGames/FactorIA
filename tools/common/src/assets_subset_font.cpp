@@ -199,17 +199,22 @@ void register_subset_font_command(CommandRegistry& registry, const std::string& 
     info.readOnly = false;
     info.summary = "Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes.";
     info.description =
-        "Reads the font `source` (an absolute path on this machine, or relative to the project) and writes `out` (under assets/) with only the "
-        "glyphs for: every character of locales/<language>.json for the `locales` (default: factoria.json's localization.languages; the same "
-        "characters the glyph check of `factoria validate` asks a font for), printable ASCII, Latin-1 (Spanish and French letters), the "
-        "full-width forms, the CJK punctuation line breaking needs, and the characters of `keep`. The shaping tables (GSUB, GPOS, GDEF, "
-        "kerning) and the name strings (the license) stay; hinting and glyph names are dropped. A variable font is pinned to one instance "
-        "(`axes`, default {\"wght\":400}; its other axes go to their default), because the engine draws a variable font's default instance and a "
-        "Thin default would draw hairlines. Runs HarfBuzz's subsetter: no Python or fontTools. The result has the sizes, the glyph and character "
-        "counts, and `missing`: characters of the strings the source font does not have. Nothing is written when the result is the same bytes, "
-        "so run it again whenever a string changes. Example: {\"source\":\"C:/fonts/NotoSansSC[wght].ttf\",\"locales\":[\"zh-Hans\"],"
-        "\"out\":\"assets/fonts/NotoSansSC-Regular-subset.ttf\"}. Check the font's license allows modifying it (SIL OFL fonts do, but ask not to keep the "
-        "Reserved Font Name; Noto has none) and keep its license file next to the result.";
+        "Reads the font `source` (an absolute path on this machine, or relative to the project) and writes "
+        "`out` (under assets/) with only the glyphs for: every character of locales/<language>.json for the "
+        "`locales` (default: factoria.json's localization.languages; the same characters the glyph check of "
+        "`factoria validate` asks a font for), printable ASCII, Latin-1 (Spanish and French letters), the "
+        "full-width forms, the CJK punctuation line breaking needs, and the characters of `keep`. The "
+        "shaping tables (GSUB, GPOS, GDEF, kerning) and the name strings (the license) stay; hinting and "
+        "glyph names are dropped. A variable font is pinned to one instance (`axes`, default {\"wght\":400}; "
+        "its other axes go to their default), because the engine draws a variable font's default instance "
+        "and a Thin default would draw hairlines. Example: "
+        "{\"source\":\"C:/fonts/NotoSansSC[wght].ttf\",\"locales\":[\"zh-Hans\"],\"out\":\"assets/fonts/NotoSansSC-Regular-subset.ttf\"}. "
+        "Check the font's license allows modifying it (SIL OFL fonts do, but ask not to keep the Reserved "
+        "Font Name; Noto has none) and keep its license file next to the result."
+        FA_COMMAND_DETAILS
+        "Runs HarfBuzz's subsetter: no Python or fontTools. The result has the sizes, the glyph and "
+        "character counts, and `missing`: characters of the strings the source font does not have. Nothing "
+        "is written when the result is the same bytes, so run it again whenever a string changes.";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["source","out"],
       "properties":{

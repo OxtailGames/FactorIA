@@ -674,9 +674,10 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
             "Changes the `skin` section of a rig document. `method`: auto (heat diffusion; a generic rig, whose bones were placed on parts, is rigid per part), heat (bone heat diffusion on the surface: smooth weights that follow the shape; works on the meshes the engine makes, "
             "SDF creatures included), voxel (distance along a voxelised copy of the surface: needs no manifold mesh; what a part falls back to when the heat solve cannot converge) or rigid (the whole part follows ONE bone: robot style). "
             "With `part` the method is that part's only (`bone` is the bone it follows: rigid = the one bone, heat and voxel = the bone the part is centred on; without `method` and `bone` the part's override is removed). Settings: `maxInfluences` (1 to 4 bones per vertex), "
-            "`smooth` (passes over the automatic weights, 0 to 8), `maxHops` (a vertex never follows bones further than this many bones from its strongest, 1 to 8) and `locality` (heat: higher hugs each bone, 0.05 to 20). `clearEdits` also removes every edit. "
-            "The weights are computed before anything is written (a bad part or bone fails and writes nothing), the .glb is baked again unless bake is false, and the answer has the `quality` of the weights. "
-            "Examples: {\"path\":\"assets/models/robot.rig.json\",\"part\":\"claw\",\"method\":\"rigid\",\"bone\":\"arm_lower_l\"}, {\"path\":\"assets/models/hero.rig.json\",\"smooth\":3,\"locality\":1.5}";
+            "`smooth` (passes over the automatic weights, 0 to 8), `maxHops` (a vertex never follows bones further than this many bones from its strongest, 1 to 8) and `locality` (heat: higher hugs each bone, 0.05 to 20). `clearEdits` also removes every edit. Nothing is written if a part or bone is wrong. "
+            "Examples: {\"path\":\"assets/models/robot.rig.json\",\"part\":\"claw\",\"method\":\"rigid\",\"bone\":\"arm_lower_l\"}, {\"path\":\"assets/models/hero.rig.json\",\"smooth\":3,\"locality\":1.5}."
+            FA_COMMAND_DETAILS
+            "The weights are computed before anything is written (a bad part or bone fails and writes nothing), the .glb is baked again unless bake is false, and the answer has the `quality` of the weights.";
         info.inputSchema = Json::object(
             {{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
              {"properties", obj({{"path", pathArg()},
@@ -713,10 +714,16 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
                      (std::string("Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormalises. max 1 makes the selection rigid per vertex. Example: {\"path\":\"assets/models/hero.rig.json\",\"max\":2,\"part\":\"hand_l\"}.") + kScope).c_str(),
                      obj({{"max", integer("Influences kept per vertex, 1 to 4 (default 4).", 1, 4)}}), {});
     add_edit_command(registry, projectDir, "skin3d.mirror", "mirror", "Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.",
-                     (std::string("Copies the weights from the side `from` (\"l\" = the character's left, +X; \"r\" = right) to the opposite side: each vertex is paired with the vertex nearest to its mirror image across the symmetry plane "
-                                  "(`symmetryX` of the rig document, else the centre of the model's bounds), preferring one of the mirrored part, and takes its weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; bones on the "
-                                  "centre line keep themselves). Vertices with no partner within a tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it after hand-editing one arm. "
-                                  "Example: {\"path\":\"assets/models/hero.rig.json\",\"from\":\"l\"}.") + kScope).c_str(),
+                     (std::string("Copies the weights from the side `from` (\"l\" = the character's left, +X; \"r\" = "
+                         "right) to the opposite side: each vertex is paired with the vertex nearest to its "
+                         "mirror image across the symmetry plane (`symmetryX` of the rig document, else the "
+                         "centre of the model's bounds), preferring one of the mirrored part, and takes its "
+                         "weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; "
+                         "bones on the centre line keep themselves). Vertices with no partner within a "
+                         "tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it "
+                         "after hand-editing one arm. Example: "
+                         "{\"path\":\"assets/models/hero.rig.json\",\"from\":\"l\"}. "
+                         FA_COMMAND_DETAILS) + kScope).c_str(),
                      obj({{"from", Json::object({{"type", "string"}, {"enum", Json::array({"l", "r"})}, {"description", "The side whose weights are copied to the other: l (+X) or r (-X)."}})}}), {"from"});
     {
         CommandInfo info;

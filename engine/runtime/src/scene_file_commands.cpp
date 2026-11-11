@@ -340,23 +340,27 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
     I.commands.add(
         {"prefab.save", "Save an entity of the running world, with its children, as a prefab file.",
-         "Writes {\"format\":\"factoria.prefab/1\",\"entity\":{...}} in the canonical compact layout (the one scene.save and "
-         "scene.format write), ready to commit and to instantiate with scene.spawn {\"prefab\":path}, a scene entity "
-         "{\"prefab\":path} or a scene.import_ascii legend. `id` is the id (or name) of an entity of the running world; the whole "
-         "tree below it is saved with every component's non-default serialized fields (runtime state such as velocities and "
-         "animation time is not). A prefab describes the reusable thing, not this instance, so the file does NOT carry: the ids "
-         "(every instantiation gets fresh ones; an id stays only where another entity of the saved tree points at it through an "
-         "Entity field, so those references survive); the root's Transform.position (where the instance happens to stand: the "
-         "spawn call, the scene entity or the legend places each new instance; children keep their positions relative to the "
-         "root; rotation and scale are kept); tags starting with 'tilemap:' (scene.import_ascii adds them to the objects it "
-         "places, and a prefab carrying one would be destroyed when that map is re-imported); Entity fields pointing at an entity "
-         "outside the saved tree (they would dangle). An entity created from a prefab saves fully expanded (no `prefab` key). "
-         "To keep the exact position, save the whole world with scene.save instead. `path` is project-relative (or absolute "
-         "inside the project), must end in .prefab.json and normally lives in prefabs/. An existing file is NOT replaced unless "
-         "`overwrite` is true. Returns {path, entity (id of the saved entity in the running world), children (number of saved "
-         "descendants), overwritten, notes?}; `notes` lists what was left out of the file when something noteworthy was. Errors "
-         "name the id with did-you-mean suggestions or the path rule with a corrected name. Example: "
-         "prefab.save {\"id\":\"enemy_3\",\"path\":\"prefabs/enemy.prefab.json\"}",
+         "Writes {\"format\":\"factoria.prefab/1\",\"entity\":{...}} in the canonical compact layout (the "
+         "one scene.save and scene.format write), ready to commit and to instantiate with scene.spawn "
+         "{\"prefab\":path}, a scene entity {\"prefab\":path} or a scene.import_ascii legend. `id` is the id "
+         "(or name) of an entity of the running world; the whole tree below it is saved with every "
+         "component's non-default serialized fields (runtime state such as velocities and animation time is "
+         "not). Example: prefab.save {\"id\":\"enemy_3\",\"path\":\"prefabs/enemy.prefab.json\"}"
+         FA_COMMAND_DETAILS
+         "A prefab describes the reusable thing, not this instance, so the file does NOT carry: the ids "
+         "(every instantiation gets fresh ones; an id stays only where another entity of the saved tree "
+         "points at it through an Entity field, so those references survive); the root's Transform.position "
+         "(where the instance happens to stand: the spawn call, the scene entity or the legend places each "
+         "new instance; children keep their positions relative to the root; rotation and scale are kept); "
+         "tags starting with 'tilemap:' (scene.import_ascii adds them to the objects it places, and a prefab "
+         "carrying one would be destroyed when that map is re-imported); Entity fields pointing at an entity "
+         "outside the saved tree (they would dangle). An entity created from a prefab saves fully expanded "
+         "(no `prefab` key). To keep the exact position, save the whole world with scene.save instead. "
+         "`path` is project-relative (or absolute inside the project), must end in .prefab.json and normally "
+         "lives in prefabs/. An existing file is NOT replaced unless `overwrite` is true. Returns {path, "
+         "entity (id of the saved entity in the running world), children (number of saved descendants), "
+         "overwritten, notes?}; `notes` lists what was left out of the file when something noteworthy was. "
+         "Errors name the id with did-you-mean suggestions or the path rule with a corrected name.",
          parse_schema(R"({"type":"object","required":["id","path"],"properties":{
                "id":{"type":"string","description":"Id (or name) of the entity to save; its children are saved with it."},
                "path":{"type":"string","description":"Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json."},
@@ -366,22 +370,27 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"scene.format", "Rewrite scene and prefab files in the canonical compact layout, without loading them.",
-         "Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space "
-         "indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` "
-         "one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. "
-         "Only whitespace changes: values and key order are kept, and every file is read back and compared with the original "
-         "data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already "
-         "have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or "
-         "folders (searched recursively), project-relative; without `paths` the command writes NOTHING and "
-         "fails (code paths_required) saying how many files would change and the first ones; `all` true formats the whole project "
-         "(skipping folders that start with '.', node_modules and a top-level build/). With `check` true nothing is written: the "
-         "files that are not canonical are listed (the whole project when `paths` is absent; use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and "
-         "column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: "
-         "[{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, "
-         "notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint "
-         "says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI "
-         "step can gate on it. project.validate lists the non-canonical ones in one informational note (not a warning). Example: "
-         "scene.format {\"paths\":[\"prefabs\"],\"check\":true}",
+         "Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes "
+         "scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at "
+         "about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or "
+         "prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values "
+         "and key order are kept, and every file is read back and compared with the original data before it "
+         "is written. Nothing is loaded into the running world, so nothing else changes (files that already "
+         "have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or "
+         ".prefab.json) or folders (searched recursively), project-relative; without `paths` the command "
+         "writes NOTHING and fails (code paths_required) saying how many files would change and the first "
+         "ones; `all` true formats the whole project (skipping folders that start with '.', node_modules and "
+         "a top-level build/). With `check` true nothing is written: the files that are not canonical are "
+         "listed (the whole project when `paths` is absent; use it in CI or to review). Example: "
+         "scene.format {\"paths\":[\"prefabs\"],\"check\":true}"
+         FA_COMMAND_DETAILS
+         "A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; "
+         "the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, "
+         "line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, "
+         "errors, notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the "
+         "message lists the files, the hint says to run scene.format without `check`) when any file is not "
+         "canonical: `factoria call` exits non-zero, so a CI step can gate on it. project.validate lists the "
+         "non-canonical ones in one informational note (not a warning).",
          parse_schema(R"({"type":"object","properties":{
                "paths":{"type":"array","minItems":1,"items":{"type":"string"},
                         "description":"Scene/prefab files or folders (recursive), project-relative. Needed to write: without it (and without all or check) the command fails and writes nothing."},

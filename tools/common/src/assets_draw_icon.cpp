@@ -489,23 +489,27 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
     info.readOnly = false;
     info.summary = "Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and text, no image provider needed.";
     info.description =
-        "Draws on the CPU (anti-aliased, identical everywhere, works headless): a background plus layers drawn in order. Writes "
-        "the 1024x1024 icon at `path` (default: factoria.json `icon`, else assets/icon.png) and the Android adaptive-icon foreground "
-        "(432x432, transparent; the 0..100 drawing box is scaled into the 66/108 safe zone, so nothing inside it is cropped) at "
-        "`foreground` (default: export.android.adaptiveIcon.foreground, else assets/icon_fg.png; false = skip). An icon or "
-        "foreground path factoria.json does not name yet is added to it. Files are replaced; assets.json gets provenance "
-        "origin \"original\", ai false.\n"
-        "Drawing space: x and y run 0..100 across the icon, origin top-left, y down; sizes and radii are in the same units "
-        "(shapes may reach outside 0..100: the icon crops them). Layer types: rect {x,y,w,h} (x,y = top-left), roundRect "
-        "{x,y,w,h,radius}, circle {x,y,radius} (x,y = centre), ellipse {x,y,rx,ry}, polygon {points:[[x,y],...]} and text "
-        "{text,x,y,size,font}: x,y = centre of the text, size = em height, font = a project .ttf (default DejaVu Sans), one "
-        "line, no shaping. Shapes take fill and/or outline (colours \"#rrggbb\"[aa] or names), fillBottom (vertical gradient "
-        "from fill at the top of the icon to fillBottom at its bottom), outlineWidth (default 2), softness (feathers the edge: "
-        "glows). Text takes fill. foreground: false on a layer keeps it out of the Android foreground (backdrops such as a "
-        "ground or arch; the adaptive icon has its own background colour). Unknown keys and types are errors with suggestions.\n"
-        "Example: {\"background\":{\"color\":\"#141428\",\"shape\":\"rounded\"},\"layers\":[{\"type\":\"circle\",\"x\":50,"
-        "\"y\":50,\"radius\":28,\"fill\":\"#ffcc44\",\"outline\":\"#ffffff\"},{\"type\":\"text\",\"text\":\"K\",\"x\":50,\"y\":50,"
-        "\"size\":34,\"fill\":\"#141428\"}]}.";
+        "Draws on the CPU (anti-aliased, identical everywhere, works headless): a background plus layers "
+        "drawn in order. Writes the 1024x1024 icon at `path` (default: factoria.json `icon`, else "
+        "assets/icon.png) and the Android adaptive-icon foreground (432x432, transparent; the 0..100 drawing "
+        "box is scaled into the 66/108 safe zone, so nothing inside it is cropped) at `foreground` (default: "
+        "export.android.adaptiveIcon.foreground, else assets/icon_fg.png; false = skip). An icon or "
+        "foreground path factoria.json does not name yet is added to it. Files are replaced; assets.json "
+        "gets provenance origin \"original\", ai false.\n"
+        "Drawing space: x and y run 0..100 across the icon, origin top-left, y down; sizes and radii are in "
+        "the same units (shapes may reach outside 0..100: the icon crops them).\n"
+        "\n"
+        "Example: "
+        "{\"background\":{\"color\":\"#141428\",\"shape\":\"rounded\"},\"layers\":[{\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":28,\"fill\":\"#ffcc44\",\"outline\":\"#ffffff\"},{\"type\":\"text\",\"text\":\"K\",\"x\":50,\"y\":50,\"size\":34,\"fill\":\"#141428\"}]}."
+        FA_COMMAND_DETAILS
+        "Layer types: rect {x,y,w,h} (x,y = top-left), roundRect {x,y,w,h,radius}, circle {x,y,radius} (x,y "
+        "= centre), ellipse {x,y,rx,ry}, polygon {points:[[x,y],...]} and text {text,x,y,size,font}: x,y = "
+        "centre of the text, size = em height, font = a project .ttf (default DejaVu Sans), one line, no "
+        "shaping. Shapes take fill and/or outline (colours \"#rrggbb\"[aa] or names), fillBottom (vertical "
+        "gradient from fill at the top of the icon to fillBottom at its bottom), outlineWidth (default 2), "
+        "softness (feathers the edge: glows). Text takes fill. foreground: false on a layer keeps it out of "
+        "the Android foreground (backdrops such as a ground or arch; the adaptive icon has its own "
+        "background colour). Unknown keys and types are errors with suggestions.";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["background","layers"],
       "properties":{

@@ -31,6 +31,7 @@
 #include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/setup.h"
+#include "js_scan.h"
 #include "util.h"
 
 #if defined(_WIN32)
@@ -352,115 +353,26 @@ static std::string report_folder(const std::string& path) {
     return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
 }
 
-// A small reader of JavaScript source for report_tool_only_calls: no regex, so a huge script cannot exhaust the stack of
-// a recursive regex engine (libstdc++). It only skips blanks and matches fixed words; strings and comments are not
-// parsed, which is enough for the literal calls it looks for.
-namespace {
-struct JsScan {
-    const std::string& s;
-    std::size_t i = 0;
-    void blanks() {
-        while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
-    }
-    bool word(std::string_view w) {
-        if (s.compare(i, w.size(), w) != 0) return false;
-        i += w.size();
-        return true;
-    }
-    // A quoted string ('...' or "..."), without escapes: the names looked for have none.
-    bool quoted(std::string& out) {
-        if (i >= s.size() || (s[i] != '"' && s[i] != '\'')) return false;
-        const char q = s[i];
-        const std::size_t close = s.find(q, i + 1);
-        if (close == std::string::npos || s.find('\n', i + 1) < close) return false;
-        out = s.substr(i + 1, close - i - 1);
-        i = close + 1;
-        return true;
-    }
-};
-
-bool js_ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
-
-// The name a tool module registers: the first `name: "<text>"` after `export default`, cleaned the way the script
-// module cleans it (every character but letters, digits and '_' becomes '_'). Empty when there is none: the engine
-// does not register such a file either.
-std::string tool_module_name(const std::string& text) {
-    const std::size_t def = text.find("export default");
-    if (def == std::string::npos) return {};
-    JsScan sc{text, def};
-    for (std::size_t at = text.find("name", def); at != std::string::npos; at = text.find("name", at + 4)) {
-        if (at > 0 && js_ident_char(text[at - 1])) continue;
-        sc.i = at + 4;
-        sc.blanks();
-        if (!sc.word(":")) continue;
-        sc.blanks();
-        std::string name;
-        if (!sc.quoted(name)) continue;
-        for (char& c : name)
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) c = '_';
-        return name;
-    }
-    return {};
-}
-
-// Every literal `fa.call("project.<name>"` in a script, as <name>.
-std::set<std::string> literal_project_calls(const std::string& text) {
-    std::set<std::string> out;
-    for (std::size_t at = text.find("fa"); at != std::string::npos; at = text.find("fa", at + 2)) {
-        if (at > 0 && js_ident_char(text[at - 1])) continue;
-        JsScan sc{text, at + 2};
-        sc.blanks();
-        if (!sc.word(".")) continue;
-        sc.blanks();
-        if (!sc.word("call")) continue;
-        sc.blanks();
-        if (!sc.word("(")) continue;
-        sc.blanks();
-        std::string target;
-        if (!sc.quoted(target) || target.rfind("project.", 0) != 0) continue;
-        out.insert(target.substr(8));
-    }
-    return out;
-}
-}  // namespace
 
 // The project's own commands (the modules under tools/, subfolders included) are for the people and AIs who work on the
 // game: `factoria export` leaves tools/ out, so a shipped game has no `project.<name>` command and a script that calls
 // one fails when it runs there. Warns, for each shipped script, about every literal `fa.call("project.<name>")` whose
 // command a tool defines (docs/EXPORTING.md).
 static void report_tool_only_calls(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
-    constexpr std::uintmax_t kMaxScriptBytes = 1u << 20;  // a script over 1 MiB is generated code: not scanned
-    std::map<std::string, std::string> toolFile;           // command name -> the tool file that defines it
-    const stdfs::path toolsDir = os_path(p.dir / "tools");
-    std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(toolsDir, stdfs::directory_options::skip_permission_denied, ec), end;
-         !ec && it != end; it.increment(ec)) {
-        std::error_code fec;
-        if (!it->is_regular_file(fec) || to_lower(fs::path_to_utf8(it->path().extension())) != ".js") continue;
-        const auto size = it->file_size(fec);
-        if (fec || size > kMaxScriptBytes) continue;
-        const auto text = read_file(it->path());
-        if (!text) continue;
-        const std::string name = tool_module_name(*text);
-        if (name.empty()) continue;
-        toolFile.emplace(name, "tools/" + fs::path_to_utf8(it->path().lexically_relative(toolsDir)));
-    }
+    using namespace tooling_detail;
+    const std::map<std::string, std::string> toolFile = tool_commands(p.dir);  // command name -> the tool file that defines it
     if (toolFile.empty()) return;
     for (const std::string& f : files) {
         if (to_lower(fs::extension(f)) != ".js") continue;
         std::error_code sec;
         const auto size = stdfs::file_size(os_path(p.dir / f), sec);
-        if (sec || size > kMaxScriptBytes) continue;
+        if (sec || size > kMaxScanScriptBytes) continue;
         const auto text = read_file(p.dir / f);
         if (!text) continue;
-        for (const std::string& name : literal_project_calls(*text)) {
-            const auto tool = toolFile.find(name);
+        for (const ProjectCall& call : literal_project_calls(*text)) {
+            const auto tool = toolFile.find(call.name);
             if (tool == toolFile.end()) continue;
-            report.warnings.push_back(
-                f + " calls project." + name + ", the command of " + tool->second + ". tools/ is left out of the export, so in the "
-                "shipped game that call fails (there is no such command). Tools are for working on the game: move what the game "
-                "needs into a module under scripts/ and import it from both the tool and the script (docs/EXPORTING.md, \"What "
-                "is shipped and what is not\")");
+            report.warnings.push_back(tool_only_call_message(f, call, tool->second));
         }
     }
 }
@@ -1193,46 +1105,64 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.readOnly = false;
     info.summary = "Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).";
     info.description =
-        "Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a "
-        "fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an "
-        "export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that "
-        "name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). "
-        "linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria "
-        "binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project "
-        "that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the "
-        "first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "
-        "\"apk\" (default) or \"aab\" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports "
-        "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
-        "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole "
-        "game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode "
-        "unless export.scriptBytecode is false; each file compressed with its type's codec, export.pack.codecs overrides it per "
-        "extension; the files in the order play sessions first read them unless export.pack.useLoadOrder is false) and "
-        "reports it as `pack` with the packed paths in `packed` and `packStats` {bytes, fileBytes, codecs: [{codec, files, "
-        "bytes, storedBytes}], order: \"firstUse\"|\"path\", orderedFiles}. ios: the game plus an Xcode/CMake "
-        "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
-        "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
-        "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "
-        "$FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error "
-        "says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is "
-        "(<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` \"appimage\" also builds the whole game as one "
-        "<out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the "
-        "folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, "
-        "found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms [\"web\"], else a web build of "
-        "the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with "
-        "index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format \"zip\"; `mode` says where the player came from: explicit, package, "
-        "installed or build). windows with `format` \"msix\" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
-        "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in export.windows.msix; sign it with `sign.windows`, upload it with "
-        "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command; `project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click (`artifact`, format \"html\"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
-        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files "
-        "(builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json "
-        "names them in full, with their licenses in the notices (`builtinFonts` in the result). "
-        "Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], "
-        "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
-        "writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, "
-        "format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), "
-        "player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read "
-        "{\"name\":\"exporting\"}. Examples: {\"platform\":\"windows\",\"release\":true}, "
-        "{\"platform\":\"android\",\"format\":\"aab\",\"release\":true}.";
+        "Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, replaced on every call but only "
+        "when it is empty or an earlier export wrote it; any other existing folder of that name is an error that says how "
+        "to proceed, never deleted. The project itself is not modified, except that a layered image document "
+        "(*.image.json) whose PNG is missing or stale is baked first. linux/windows/macos: the game plus the factoria_player runtime next to the running factoria "
+        "binary, so exporting for another OS than this machine's fails with a hint. android: a Gradle project that is "
+        "then BUILT with its own wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build "
+        "takes minutes): `format` \"apk\" (default) or \"aab\" leaves <slug>[-debug].apk/.aab, "
+        "reported as `artifact`; \"gradle\" only writes the project. ios: the game plus an Xcode/CMake project. web: a "
+        "folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: signed with export.android.signing), `dryRun` "
+        "true checks everything and writes nothing. Examples: "
+        "{\"platform\":\"windows\",\"release\":true}, {\"platform\":\"android\",\"format\":\"aab\",\"release\":true}."
+        FA_COMMAND_DETAILS
+        "`singleFile` true (web) writes one html page; the first Android build needs network. "
+        "Every export leaves a .factoria-export file at the top of its folder, which is how a later call knows it may "
+        "replace it; the image documents are described in docs/IMAGES.md. Checked first: factoria.json, the name, mainScene, the reverse-DNS id, the icon and the export settings. "
+        "android: the first build downloads Gradle and the Android Gradle plugin; \"aab\" is the Google Play bundle, and "
+        "\"gradle\" only writes the project and builds nothing. `release` builds the release variant "
+        "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is "
+        "true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the "
+        "executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is "
+        "false; each file compressed with its type's codec, export.pack.codecs overrides it per extension; "
+        "the files in the order play sessions first read them unless export.pack.useLoadOrder is false) and "
+        "reports it as `pack` with the packed paths in `packed` and `packStats` {bytes, fileBytes, codecs: "
+        "[{codec, files, bytes, storedBytes}], order: \"firstUse\"|\"path\", orderedFiles}. ios: the game "
+        "plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "
+        "\"prebuilt\" (the engine is the ready-made player in the mobile/ folder next to the factoria binary "
+        "of the FactorIA download: no engine source, and for Android no NDK or CMake) or \"source\" (the "
+        "engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs "
+        "from a development build); with no players and no checkout the error says what to do. A failed "
+        "Gradle build is an error that quotes what went wrong and where the log is "
+        "(<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "
+        "\"appimage\" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported "
+        "as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the "
+        "folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and "
+        "factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary "
+        "in web/, else installed by `setup.install` component players with platforms [\"web\"], else a web "
+        "build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever "
+        "`release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its "
+        "root: upload it to itch.io as an HTML5 game (`artifact`, format \"zip\"; `mode` says where the "
+        "player came from: explicit, package, installed or build). windows with `format` \"msix\" (or "
+        "export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
+        "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in "
+        "export.windows.msix; sign it with `sign.windows`, upload it with `publish.microsoft`). A browser "
+        "needs the folder served over http, not opened as a file (nextSteps has the command; "
+        "`project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which "
+        "writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click "
+        "(`artifact`, format \"html\"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and "
+        "notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the "
+        "licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts "
+        "that are files (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to "
+        "builtin-fonts/ only when a scene, prefab, script, data file or factoria.json names them in full, "
+        "with their licenses in the notices (`builtinFonts` in the result). Returns {outputDir, mode "
+        "(android/ios/web), format and artifact (android, web), pack (web too), notices, files[], "
+        "nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: "
+        "true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the "
+        "folder an export would replace), mode, format, artifact (the file a build would write) and "
+        "toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the "
+        "error the export would give (e.g. no JDK installed). Details: docs_read {\"name\":\"exporting\"}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{

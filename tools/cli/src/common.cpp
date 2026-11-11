@@ -16,6 +16,7 @@
 #include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
 #include "fa/tooling/tooling.h"
+#include "fa/tooling/agent_cost.h"
 
 namespace fa::cli {
 
@@ -252,6 +253,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
+        register_agent_cost_commands(registry);
         register_setup_commands(registry);
         register_update_commands(registry);
         CommandInfo info;
@@ -270,7 +272,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         ci.summary = "Create a new game project from a template.";
         ci.description =
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
-            "scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
+            "scripts, a test, AGENTS.md (the guide for AI agents; CLAUDE.md imports it), ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
             "`factoria mcp --project <dir>` to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
         ci.readOnly = false;
         ci.category = "project";

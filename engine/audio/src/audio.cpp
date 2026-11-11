@@ -1821,6 +1821,12 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
     return {};
 }
 
+void Audio::forget_logged_warnings() {
+    Impl::Call call(*impl_);
+    impl_->failedLogged.clear();
+    impl_->rejectWarned.clear();
+}
+
 void Audio::reset_bus_effects() {
     Impl::Call call(*impl_);
     Impl& im = *impl_;

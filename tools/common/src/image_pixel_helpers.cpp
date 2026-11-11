@@ -887,11 +887,20 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
     };
 
     add("image.pixel.outline", "Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).",
-        "Outlines the shape of an INDEXED layer (everything that is not transparent). `side`: \"outer\" (default) puts the outline on the transparent pixels next to the shape, \"inner\" on the shape's own edge pixels. "
-        "`connectivity` 4 (default) is a thin outline whose corners stay open, 8 closes the corners. `mode`: \"flat\" paints `color` (the default when `color` is given); \"darkest\" (default without `color`) uses, for each outline pixel, "
-        "the darkest colour of the ramp of the fill colour it touches (a colour in no declared ramp: the darkest palette colour derived from it, see image.palette); \"selective\" is sel-out: the outline pixel takes its fill colour `shade` steps darker "
-        "(default 2) along the ramp, and on the side that faces the light `litShade` steps (default shade - 1), so the outline is lighter where the light hits. The light is `light` or style.lightDirection; without one every pixel is `shade` steps darker. "
-        "With `selection` only outline pixels inside it are written (the shape is still read from the whole layer). Frames: `frame` or `frames`. Only indexed layers: pixel art is palette-exact; a pixels layer must be converted first."
+        "Outlines the shape of an INDEXED layer (everything that is not transparent). `side`: \"outer\" "
+        "(default) puts the outline on the transparent pixels next to the shape, \"inner\" on the shape's "
+        "own edge pixels. `connectivity` 4 (default) is a thin outline whose corners stay open, 8 closes the "
+        "corners. `mode`: \"flat\" paints `color` (the default when `color` is given); \"darkest\" (default "
+        "without `color`) uses, for each outline pixel, the darkest colour of the ramp of the fill colour it "
+        "touches (a colour in no declared ramp: the darkest palette colour derived from it, see "
+        "image.palette); \"selective\" is sel-out: the outline pixel takes its fill colour `shade` steps "
+        "darker (default 2) along the ramp, and on the side that faces the light `litShade` steps (default "
+        "shade - 1), so the outline is lighter where the light hits. The light is `light` or "
+        "style.lightDirection; without one every pixel is `shade` steps darker. With `selection` only "
+        "outline pixels inside it are written (the shape is still read from the whole layer). Frames: "
+        "`frame` or `frames`. Only indexed layers: pixel art is palette-exact; a pixels layer must be "
+        "converted first. "
+        FA_COMMAND_DETAILS
         + resultDoc + " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"mode\":\"selective\",\"light\":\"upper-left\"}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{" + commonProps + ","
         "\"side\":{\"type\":\"string\",\"enum\":[\"outer\",\"inner\"],\"default\":\"outer\",\"description\":\"outer: on the transparent pixels around the shape. inner: on the shape's own edge pixels.\"},"
@@ -904,11 +913,17 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_outline);
 
     add("image.pixel.shade", "Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition.",
-        "Shades the shape (the non-transparent pixels of the layer, or of the `selection`) as if lit from `light`: along the light's axis, `shadowLevels` bands of `shadowWidth` pixels at the edge facing away from the light step the "
-        "colour darker (the outermost the most, the inner bands one step less), and `highlightLevels` bands of `highlightWidth` pixels at the edge facing the light step it lighter. A step follows the colour's declared ramp, or the nearest darker / "
-        "lighter palette colour (image.palette). Shadow wins where both reach a pixel. `dither` N makes the first N pixels of each band after the first a Bayer-ordered mix with the stronger band before it, so the transition is not a hard line. "
-        "The light is `light` or style.lightDirection (an error teaches both when neither exists). Run it on a flat-coloured shape (a body, a ball, a hat): shading is relative to what is in the pixel, so shading twice shades twice. "
-        "Frames: `frame` or `frames`." + resultDoc + " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"selection\":\"body\",\"light\":\"upper-left\",\"shadowWidth\":2,\"dither\":1}",
+        "Shades the shape (the non-transparent pixels of the layer, or of the `selection`) as if lit from "
+        "`light`: along the light's axis, `shadowLevels` bands of `shadowWidth` pixels at the edge facing "
+        "away from the light step the colour darker (the outermost the most, the inner bands one step less), "
+        "and `highlightLevels` bands of `highlightWidth` pixels at the edge facing the light step it "
+        "lighter. A step follows the colour's declared ramp, or the nearest darker / lighter palette colour "
+        "(image.palette). Shadow wins where both reach a pixel. `dither` N makes the first N pixels of each "
+        "band after the first a Bayer-ordered mix with the stronger band before it, so the transition is not "
+        "a hard line. The light is `light` or style.lightDirection (an error teaches both when neither "
+        "exists). Run it on a flat-coloured shape (a body, a ball, a hat): shading is relative to what is in "
+        "the pixel, so shading twice shades twice. Frames: `frame` or `frames`. "
+        FA_COMMAND_DETAILS + resultDoc + " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"selection\":\"body\",\"light\":\"upper-left\",\"shadowWidth\":2,\"dither\":1}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{" + commonProps + ","
         "\"light\":{\"description\":\"" + lightDoc + "\"},"
         "\"shadowWidth\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":64,\"default\":2,\"description\":\"Pixels per shadow band, measured along the light's direction.\"},"
@@ -919,10 +934,16 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_shade);
 
     add("image.pixel.dither", "Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction.",
-        "Writes into the region (`selection`, and/or `rect`, else the whole layer box; transparent pixels too unless `onlyFilled`) a blend of palette colours made of pixels of exactly those colours, arranged by an ordered pattern. "
-        "`colors` are 2 or more palette colours (or `ramp`: any colour of a declared ramp uses the whole ramp). Either `level` 0..1, the share of the second colour (bayer2 has 5 steps, bayer4 17, bayer8 65; checker alternates the two between a quarter and three quarters), "
-        "or `gradient` {from [x,y], to [x,y]} in canvas pixels: the first colour at `from`, the last at `to`, the colours between spaced evenly and dithered into each other (with `ramp` the gradient runs from the lightest colour to the darkest). "
-        "The patterns line up with the canvas, not with the layer, so two layers dithered alike match. Frames: `frame` or `frames`." + resultDoc +
+        "Writes into the region (`selection`, and/or `rect`, else the whole layer box; transparent pixels "
+        "too unless `onlyFilled`) a blend of palette colours made of pixels of exactly those colours, "
+        "arranged by an ordered pattern. `colors` are 2 or more palette colours (or `ramp`: any colour of a "
+        "declared ramp uses the whole ramp). Either `level` 0..1, the share of the second colour (bayer2 has "
+        "5 steps, bayer4 17, bayer8 65; checker alternates the two between a quarter and three quarters), or "
+        "`gradient` {from [x,y], to [x,y]} in canvas pixels: the first colour at `from`, the last at `to`, "
+        "the colours between spaced evenly and dithered into each other (with `ramp` the gradient runs from "
+        "the lightest colour to the darkest). The patterns line up with the canvas, not with the layer, so "
+        "two layers dithered alike match. Frames: `frame` or `frames`. "
+        FA_COMMAND_DETAILS + resultDoc +
         " Example: {\"path\":\"assets/art/sky.image.json\",\"layer\":\"sky\",\"colors\":[\"sky-light\",\"sky\",\"sky-dark\"],\"gradient\":{\"from\":[0,0],\"to\":[0,31]},\"pattern\":\"bayer4\"}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{" + commonProps + ","
         "\"colors\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":16,\"description\":\"Two or more palette colours (index, name, single character or #rrggbb in the palette). With `level` the first two are blended.\"},"
@@ -935,11 +956,19 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_dither);
 
     add("image.pixel.cleanup", "Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed.",
-        "Three passes (`passes`, default all, in this order). orphans: a pixel with no neighbour of its own colour takes the commonest opaque colour around it, or disappears when only transparency is around (`connectivity` 8 default counts diagonal neighbours, `holes` also fills "
-        "single transparent holes inside colour). doubles: the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed so the line is one pixel wide everywhere; the right-angled corners of shapes are left alone. "
-        "jaggies: a one-pixel line that is nearly straight (never more than `tolerance` pixels, default 1, from the straight line between its ends) but has uneven steps (3,3,1,3) is redrawn evenly between its ends, when the pixels it needs are free. "
-        "`keep` lists palette colours never touched (a one-pixel highlight on purpose). A single-pixel highlight or eye dot is an orphan to this command: name its colour in `keep`. Frames: `frame` or `frames`. "
-        "Result: as image.pixel, plus per frame `orphans`, `doubles`, `jaggies` (pixels changed by each pass) and `changedPixels` ([x, y] on the canvas, the first 100)." +
+        "Three passes (`passes`, default all, in this order). orphans: a pixel with no neighbour of its own "
+        "colour takes the commonest opaque colour around it, or disappears when only transparency is around "
+        "(`connectivity` 8 default counts diagonal neighbours, `holes` also fills single transparent holes "
+        "inside colour). doubles: the corner pixel of a one-pixel line where it bends in an L (two pixels "
+        "thick at the bend) is removed so the line is one pixel wide everywhere; the right-angled corners of "
+        "shapes are left alone. jaggies: a one-pixel line that is nearly straight (never more than "
+        "`tolerance` pixels, default 1, from the straight line between its ends) but has uneven steps "
+        "(3,3,1,3) is redrawn evenly between its ends, when the pixels it needs are free. `keep` lists "
+        "palette colours never touched (a one-pixel highlight on purpose). A single-pixel highlight or eye "
+        "dot is an orphan to this command: name its colour in `keep`. Frames: `frame` or `frames`. Result: "
+        "as image.pixel, plus per frame `orphans`, `doubles`, `jaggies` (pixels changed by each pass) and "
+        "`changedPixels` ([x, y] on the canvas, the first 100). "
+        FA_COMMAND_DETAILS +
             std::string(" Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"frames\":\"all\",\"keep\":[\"shine\"]}"),
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{" + commonProps + ","
         "\"passes\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"enum\":[\"orphans\",\"doubles\",\"jaggies\"]},\"description\":\"Which passes to run (default all three).\"},"
@@ -950,9 +979,15 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_cleanup);
 
     add("image.pixel.rotate", "Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur.",
-        "Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees clockwise about `pivot` (canvas pixels; default the centre of those pixels) and draws them back; the layer's box grows to hold the result. "
-        "A multiple of 90 degrees is an exact turn of the pixels. Otherwise `method` \"rotsprite\" (default) enlarges the picture 8 times with Scale2x (EPX) three times, rotates by nearest sample and takes the commonest colour of each 8x8 block back down, "
-        "which keeps edges and thin lines far better than a plain nearest rotation (\"nearest\", fast and blocky); the pixels to rotate are at most 256 x 256 for rotsprite. Only palette colours appear. Frames: `frame` or `frames`." + resultDoc +
+        "Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees clockwise about "
+        "`pivot` (canvas pixels; default the centre of those pixels) and draws them back; the layer's box "
+        "grows to hold the result. A multiple of 90 degrees is an exact turn of the pixels. Otherwise "
+        "`method` \"rotsprite\" (default) enlarges the picture 8 times with Scale2x (EPX) three times, "
+        "rotates by nearest sample and takes the commonest colour of each 8x8 block back down, which keeps "
+        "edges and thin lines far better than a plain nearest rotation (\"nearest\", fast and blocky); the "
+        "pixels to rotate are at most 256 x 256 for rotsprite. Only palette colours appear. Frames: `frame` "
+        "or `frames`. "
+        FA_COMMAND_DETAILS + resultDoc +
         " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sword\",\"angle\":30,\"pivot\":[12,20]}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\",\"angle\"],\"properties\":{" + commonProps + ","
         "\"angle\":{\"type\":\"number\",\"description\":\"Degrees, clockwise (negative: counter-clockwise).\"},"
@@ -961,10 +996,17 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_rotate);
 
     add("image.pixel.scale", "Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending.",
-        "Scales the visible pixels of the layer (or of the `selection`) by `factor` (a number, or [horizontal, vertical]) or to `size` {width, height} (one of them keeps the proportions), around `pivot` (canvas pixels, default the centre of the pixels); "
-        "the layer's box grows to hold the result. `method`: \"nearest\" repeats the pixel under each new pixel's centre (a whole factor makes exact blocks); \"mode\" gives each new pixel the commonest colour of the old pixels it covers (the clean way to shrink; opaque wins a tie); "
-        "\"scale2x\" / \"scale3x\" are the EPX-style enlargers by exactly 2 / 3 that round off corners instead of copying them; \"auto\" (default) is nearest when enlarging and mode when shrinking. A non-integer enlargement works but repeats some rows and columns "
-        "and not others, and a warning says so. Only palette colours appear. Frames: `frame` or `frames`." + resultDoc + " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"factor\":2,\"method\":\"scale2x\"}",
+        "Scales the visible pixels of the layer (or of the `selection`) by `factor` (a number, or "
+        "[horizontal, vertical]) or to `size` {width, height} (one of them keeps the proportions), around "
+        "`pivot` (canvas pixels, default the centre of the pixels); the layer's box grows to hold the "
+        "result. `method`: \"nearest\" repeats the pixel under each new pixel's centre (a whole factor makes "
+        "exact blocks); \"mode\" gives each new pixel the commonest colour of the old pixels it covers (the "
+        "clean way to shrink; opaque wins a tie); \"scale2x\" / \"scale3x\" are the EPX-style enlargers by "
+        "exactly 2 / 3 that round off corners instead of copying them; \"auto\" (default) is nearest when "
+        "enlarging and mode when shrinking. A non-integer enlargement works but repeats some rows and "
+        "columns and not others, and a warning says so. Only palette colours appear. Frames: `frame` or "
+        "`frames`. "
+        FA_COMMAND_DETAILS + resultDoc + " Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"factor\":2,\"method\":\"scale2x\"}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{" + commonProps + ","
         "\"factor\":{\"description\":\"A multiplier (2 doubles, 0.5 halves) or [horizontal, vertical]. Give this or `size`.\"},"
         "\"size\":{\"type\":\"object\",\"description\":\"The new size {width, height} in pixels of the scaled pixels; give one to keep the proportions. Give this or `factor`.\"},"
@@ -973,12 +1015,24 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         image_pixel_scale);
 
     add("image.to_pixel_art", "Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer.",
-        "Takes `source` (a layer of the document of any kind: a pixels layer, a painted, generated or vector one, drawn alone with its masks and effects) or `png` (a PNG of the project), makes it `width` x `height` pixels (one keeps the proportions) or "
-        "`pixelSize` source pixels per art pixel, and writes the result into the indexed layer `into` (created at the top, or replaced). `method`: \"dominant\" (default) turns every source pixel into its nearest palette colour (OKLab) first and gives each art pixel "
-        "the commonest colour of the source pixels it covers, so edges stay crisp and no colour is a blend; \"average\" averages the covered area (a box filter with exact fractional edges, not bilinear) and then quantizes to the palette with the dither of image.layer.convert "
-        "(`dither` none, bayer2/4/8, floydSteinberg, atkinson; `strength`; `space` oklab or rgb). Art pixels under `alphaThreshold` opaque (default 0.5) are transparent. Then `orphans` (default true, but false with a `dither`, whose pixels would look stray) removes stray single pixels (image.pixel.cleanup) and `outline` "
-        "(a palette colour, or \"darkest\" for the darkest of each fill colour's ramp) adds a 4-connected outer outline. The palette is the document's, else `palette` (written into the document), else the style palette. The art lands where the source's pixels were "
-        "(a PNG: at 0, 0) unless `x` / `y` say otherwise. `frame` chooses the frame whose cel receives it. Result: as image.pixel plus `sourceSize`, `size`, `at`, `colorsUsed`, `orphansFixed`, `outlinePixels`. Example: "
+        "Takes `source` (a layer of the document of any kind: a pixels layer, a painted, generated or vector "
+        "one, drawn alone with its masks and effects) or `png` (a PNG of the project), makes it `width` x "
+        "`height` pixels (one keeps the proportions) or `pixelSize` source pixels per art pixel, and writes "
+        "the result into the indexed layer `into` (created at the top, or replaced). `method`: \"dominant\" "
+        "(default) turns every source pixel into its nearest palette colour (OKLab) first and gives each art "
+        "pixel the commonest colour of the source pixels it covers, so edges stay crisp and no colour is a "
+        "blend; \"average\" averages the covered area (a box filter with exact fractional edges, not "
+        "bilinear) and then quantizes to the palette with the dither of image.layer.convert (`dither` none, "
+        "bayer2/4/8, floydSteinberg, atkinson; `strength`; `space` oklab or rgb). Art pixels under "
+        "`alphaThreshold` opaque (default 0.5) are transparent."
+        FA_COMMAND_DETAILS
+        "Then `orphans` (default true, but false with a `dither`, whose pixels would look stray) removes "
+        "stray single pixels (image.pixel.cleanup) and `outline` (a palette colour, or \"darkest\" for the "
+        "darkest of each fill colour's ramp) adds a 4-connected outer outline. The palette is the "
+        "document's, else `palette` (written into the document), else the style palette. The art lands where "
+        "the source's pixels were (a PNG: at 0, 0) unless `x` / `y` say otherwise. `frame` chooses the frame "
+        "whose cel receives it. Result: as image.pixel plus `sourceSize`, `size`, `at`, `colorsUsed`, "
+        "`orphansFixed`, `outlinePixels`. Example: "
         "{\"path\":\"assets/art/hero.image.json\",\"source\":\"painting\",\"into\":\"sprite\",\"width\":32,\"outline\":\"darkest\"}",
         "{\"type\":\"object\",\"required\":[\"path\",\"into\"],\"properties\":{"
         "\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"

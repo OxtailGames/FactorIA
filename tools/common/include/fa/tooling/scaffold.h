@@ -5,7 +5,7 @@
 // Text files get placeholders replaced:
 //   {{PROJECT_NAME}} {{PROJECT_ID}} {{ENGINE_VERSION}} {{DATE}}
 // (inside .json files the values are JSON-escaped).
-// Always generated: ENGINE_FEEDBACK.json, AGENTS.md + CLAUDE.md (same guide),
+// Always generated: ENGINE_FEEDBACK.json, AGENTS.md + CLAUDE.md (the one line `@AGENTS.md`),
 // .gitignore, jsconfig.json, .mcp.json (Claude Code), types/factoria.d.ts (the real typings).
 #pragma once
 

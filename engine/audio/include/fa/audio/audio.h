@@ -209,6 +209,11 @@ public:
     // Switches off every low-pass, reverb and ducking and puts the snapshot scales back to 1, at once (the volumes stay).
     // The test runner calls it before each test.
     void reset_bus_effects();
+    // Forgets which "cannot load this file" and "the mixer refused this clip" errors were already logged, so the next failure
+    // logs them again. The test runner calls it before each test: a result must not depend on which test ran first. It does
+    // not put the list back afterwards (unlike the script system's own), so on a live Play a "missing file" error the game
+    // already logged can log once more after a test run: log noise, never a failure.
+    void forget_logged_warnings();
     // Pauses the whole mix (every voice, music included, keeps its position and plays on from there) while the app is in the
     // background (ScriptSystem::app_event, project setting pauseOnSuspend). Not a game option: the game's own pause menu
     // keeps using buses and volumes.

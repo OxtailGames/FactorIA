@@ -315,20 +315,25 @@ void register_regenerate_command(CommandRegistry& registry, const std::string& p
     info.readOnly = false;
     info.summary = "Make a made asset again from the recipe its provenance records, and say what changed.";
     info.description =
-        "The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules, assets.generate_texture, assets.synth_sound, "
-        "assets.generate_loop, assets.pack_atlas, assets.slice_sheet) record in assets.json "
-        "`provenance.recipe`: {command, args, inputs: [{path, sha256}]}, the command that made the asset, the arguments that make the "
-        "same bytes again and the project files it read with their hashes. This command runs that recipe through the command registry "
-        "(any assets.* command that writes a recipe works, there is no list) with `overwrite: true`, and reports per file what changed: "
-        "\"pixels changed\", \"bytes changed (same pixels)\", \"unchanged\" or \"created\", the size and the `sheet` layout before and after. "
-        "Give `path` for one asset, `all` for every asset with a recipe, or `stale` for those whose `inputs` no longer match the files "
-        "(an SVG or other source file you edited). Assets that read the output of another (a sheet sliced from a picture made from an SVG) "
-        "are made after it, and `stale` looks again at their inputs when their turn comes. `dryRun` lists what would run and which inputs "
-        "changed, and changes nothing. What a person recorded in the provenance (license, author, notes) is kept; the recipe and the date "
-        "are new. Several files made by one call (an icon and its foreground, a texture and its normal map, the capsules of a store) are "
-        "made once. Provider-made assets (assets.generate_image...) have no recipe: they would cost money and give a different picture, so "
-        "asking for one is an error that says so. `factoria validate` warns about a stale asset with this command in its hint. "
-        "Example: {\"stale\":true} or {\"path\":\"assets/art/coin.png\"}.";
+        "The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules, "
+        "assets.generate_texture, assets.synth_sound, assets.generate_loop, assets.pack_atlas, "
+        "assets.slice_sheet) record in assets.json `provenance.recipe`: {command, args, inputs: [{path, "
+        "sha256}]}, the command that made the asset, the arguments that make the same bytes again and the "
+        "project files it read with their hashes. This command runs that recipe through the command registry "
+        "(any assets.* command that writes a recipe works, there is no list) with `overwrite: true`, and "
+        "reports per file what changed: \"pixels changed\", \"bytes changed (same pixels)\", \"unchanged\" "
+        "or \"created\", the size and the `sheet` layout before and after. Give `path` for one asset, `all` "
+        "for every asset with a recipe, or `stale` for those whose `inputs` no longer match the files (an "
+        "SVG or other source file you edited). Assets that read the output of another (a sheet sliced from a "
+        "picture made from an SVG) are made after it, and `stale` looks again at their inputs when their "
+        "turn comes. `dryRun` lists what would run and which inputs changed, and changes nothing. Example: "
+        "{\"stale\":true} or {\"path\":\"assets/art/coin.png\"}."
+        FA_COMMAND_DETAILS
+        "What a person recorded in the provenance (license, author, notes) is kept; the recipe and the date "
+        "are new. Several files made by one call (an icon and its foreground, a texture and its normal map, "
+        "the capsules of a store) are made once. Provider-made assets (assets.generate_image...) have no "
+        "recipe: they would cost money and give a different picture, so asking for one is an error that says "
+        "so. `factoria validate` warns about a stale asset with this command in its hint.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{

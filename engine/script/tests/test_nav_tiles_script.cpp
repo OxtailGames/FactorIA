@@ -75,8 +75,8 @@ TEST_CASE("AI_GUIDE recipe 9.27: the cellOf lines read the tile size from the Ti
         return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
       };)";
     CHECK(eval_ok(h, (std::string(cellOf) + "JSON.stringify(cellOf({ x: 27, y: 11 }))").c_str()) == "{\"col\":1,\"row\":1}");
-    // an entity has no `component` of its own (that is `entity.tilemap.component`): the old recipe threw here
-    CHECK(eval_ok(h, "world.find('ground').component === undefined").get<bool>());
+    // an entity has no `component` of its own (that is `entity.tilemap.component`): the old recipe threw here (reading it throws too)
+    CHECK(eval_ok(h, "!('component' in world.find('ground'))").get<bool>());
     CHECK(eval_ok(h, "world.find('ground').tilemap.component.tileSize.x").get<int>() == 16);
 }
 

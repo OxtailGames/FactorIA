@@ -126,7 +126,10 @@ progress.
 - Cut the branch from the latest `origin/main` (`git fetch` first) and merge `origin/main` into it again before the
   PR. If it needs work whose PR has not merged yet, cut it from that PR's branch.
 - Version: the minor for a milestone (0.4.0 -> 0.5.0), the patch for a batch of fixes only. Bump `VERSION` in
-  CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph summary, replace every
+  CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph summary (CHANGELOG.md keeps `## Unreleased` and the newest minor version with its patches;
+  the older minor versions live in `changelog/0.<n>.md`, so move the previous minor's sections there and link it; a test
+  fails otherwise), set README.md's "Version x.y" line to the new minor and README.es.md's "al día en la versión x.y"
+  note with it (a test compares both with CMakeLists.txt), replace every
   `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/ARCHITECTURE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
 - Before the push: the Debug build of every target and the full Debug `ctest` (`scripts/agent-build.sh
@@ -138,6 +141,8 @@ progress.
   hours and CI still found failures): CI is the cross-platform check. The preflight and the native Windows check on
   the user's PC (`scripts/ci-remote-windows.sh`) are for when the user asks or to confirm a CI fix; the PC is often
   off: never switch it on or wake it, ask the user.
+- Feedback guard: `factoria feedback collect examples/*` must match feedback/ROADMAP.md (count line, every open entry
+  named); the ctest `tooling` case "feedback/ROADMAP.md counts and names..." fails otherwise and says what to add.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask): `gh pr merge <n> --auto --merge`. If CI
   fails, fix it on the same branch and push again; never merge red. A PR that changes `.github/workflows/release.yml`
   is the exception: its Release run is not part of `CI result`, so merge it by hand once that run is green too.

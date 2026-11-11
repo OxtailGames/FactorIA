@@ -8,6 +8,7 @@
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/play_auto.h"
+#include "fa/tooling/agent_cost.h"
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/serve_web.h"
 #include "fa/tooling/sign.h"
@@ -18,6 +19,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_feedback_commands(registry, projectDir);
     register_docs_commands(registry);
     register_api_export_commands(registry);
+    register_agent_cost_commands(registry);
     register_fs_commands(registry, projectDir);
     register_asset_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
@@ -64,6 +66,8 @@ ValidateOptions engine_validate_options(Engine& engine) {
         }
         return issues;
     };
+    vo.loadCheck = [e](const std::string& scriptPath) { return e->scripts().check_load(scriptPath); };
+    vo.scriptApi = e->scripts().api_manifest();
     vo.propsCheck = [e](const std::string& modulePath, const Json& props) { return e->scripts().check_props(modulePath, props); };
     vo.hooksCheck = [e](const std::string& modulePath) { return e->scripts().check_hooks(modulePath); };
     return vo;
@@ -76,15 +80,19 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         // project.validate bound to this engine: script syntax and Script.props go through its script system.
         if (const CommandInfo* ci = registry.info("project.validate")) {
             CommandInfo info = *ci;
-            info.description += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
+            info.details += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
                                 "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
-                                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world).";
+                                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, "
+                                "a name imported from \"factoria\" that does not exist, a member the engine's objects lack "
+                                "(physics.raycats), a literal component name that is wrong, a module whose top level throws, and a "
+                                "colour array that mixes 0..1 and 0..255 (docs/SCRIPTING.md, \"What factoria validate checks in a script\").";
             Engine* e = &engine;
             registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
         }
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
+        register_agent_cost_commands(registry);
         register_setup_commands(registry);
     }
     register_api_reference_command(registry, engine.scripts());

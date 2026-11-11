@@ -388,7 +388,8 @@ bool json_to(const Json& j, Vec4& out, std::string* err) {
 
 bool json_to(const Json& j, Color& out, std::string* err) {
     static const char* const keys[] = {"r", "g", "b", "a"};
-    constexpr const char* form = "[r, g, b(, a)] (0..1), \"#rrggbb\", \"#rrggbbaa\" or a color name like \"red\"";
+    constexpr const char* form =
+        "[r, g, b(, a)] (0..1, or 0..255 when any channel is over 1), \"#rrggbb\", \"#rrggbbaa\" or a color name like \"red\"";
     if (j.is_string()) {
         if (parse_color(j.get<std::string>(), out)) return true;
         if (err) {

@@ -1470,6 +1470,30 @@
         "Fixed in a4e2d36 (M27.6): a NavLink3D joins two parts of a NavMesh3D (one way or both, with a cost) and nav.findPath lists the links it takes (links: [{point, entity}]) so a script can jump or climb there; Collider3D.navWalkable keeps a kinematic or jointed body (a bridge plank, the seesaw, a moving platform) in the mesh and re-marks it as it moves, so a path across it reports disconnected while it is away. The mover and seesaw prefabs and the rope bridges are navWalkable, a dog follows the courier across a bridge (tests/mechanics.test.js), and dog.js makes one query, closest: true, without the second one to the nearest point."
       ],
       "engineIssue": "#179"
+    },
+    {
+      "id": "FB-0057",
+      "date": "2026-11-11",
+      "reporter": {
+        "kind": "ai",
+        "agent": "m100-4-validate-scripts",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-3d",
+      "severity": "minor",
+      "title": "A glow brighter than white cannot be written on a mesh (no HDR value or intensity)",
+      "missing": "The lanterns and glowing props of market_1..3 and prefabs/lantern.prefab.json were written with glow colours such as [1.5, 1, 0.4, 1] to glow brighter than white. A colour array with any channel over 1 is read as 0..255, so they were read as nearly black (about 0.006) and never glowed, and MeshRenderer has no field for the strength of the glow.",
+      "workaround": "M100.4 clamped the 184 colours to channels of at most 1 (for example [1, 1, 0.4, 1]), so they glow at full colour but no brighter.",
+      "workaroundFiles": [
+        "scenes/market_1.scene.json",
+        "scenes/market_2.scene.json",
+        "scenes/market_3.scene.json",
+        "prefabs/lantern.prefab.json"
+      ],
+      "suggestion": "A glow intensity (or an HDR glow colour) on MeshRenderer, useful with bloom, so a glow can pass 1 without the 0..255 reading.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

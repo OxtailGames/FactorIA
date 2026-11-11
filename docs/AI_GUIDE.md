@@ -2092,6 +2092,7 @@ Patterns that work:
 - `game.load` gives a test a known starting state. Within one file, anything else (variables, `session`, behaviour fields) carries over between tests unless the test loads or resets it.
 - Storage is an empty in-memory store for each test file, so tests never read or write the real save. `session` is also reset per file.
 - Keep tests fast: headless steps do not draw, so `game.step(600)` costs little. Take a screenshot only where you need to see something, and avoid `--render-all`, which draws every frame in software and is much slower.
+- **A test fails when the game fails.** A test passes only if its assertions hold AND no game script threw while it ran (a callback, an event handler, a module's top level) AND the engine logged no `ERROR` (a sound or texture that is not there, a refused command). The first such error is the test's message, so a script bug cannot hide behind green assertions. `console.error` is the game's own message and is not an error. A test that is about an error says so: `game.expectErrors(/part of the text/)` inside the test, or `test(name, fn, { expectErrors: [/part of the text/] })`; an expected error that is never logged fails the test too. Fix the script; use `expectErrors` only where the error is what the test checks.
 - `console.log`, `console.warn` and `console.error` in scripts are log lines with category `script`. `factoria test` shows what each test printed, indented under the test (and under `logs` with `--json`). Use `console.log` while you debug, and remove it before you finish.
 - Import JSON data in tests the same way as in scripts (`import levels from "../data/levels.json";`).
 
@@ -2231,7 +2232,10 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 - Reading raw keys in gameplay. Declare an action in `factoria.json` and read the action.
 - Using `Date.now()` or `new Date()` (the real clock) or `Math.random` (it works, drawing from `rng`, but write `rng`).
   Use `rng`, `dt` and `game.today()`.
-- Writing colours as 0..255. Use 0..1, or `"#rrggbb"`.
+- Mixing colour scales. `[255, 128, 0, 255]` is read as 0..255 because a channel is over 1, so `[255, 255, 255, 1]` has an alpha of 1/255 and `[1, 1, 1, 255]` is black; use 0..1 for every channel, or `"#rrggbb"`. `factoria validate` warns about a mixed array (JSON pointer, both readings).
+- Misspelling what a script imports or calls: a wrong name in `import { Behaviour } from "factoria"`, `physics.raycats`, `entity.get("Transfrom")`, a `fa.call("project.<tool>")` in a game script (tools are not exported), or a top level that throws. `factoria validate` reports each with `file:line:column` and a "did you mean" (docs/SCRIPTING.md, "What `factoria validate` checks in a script"); run it after every script edit.
+- Keeping your own data on an entity (`entity.hp = 3`) and reading it before it is written. In `test`, `run` and the editor reading a member an `Entity`, `input`, `world`, `expect(...)` or another namespace does not have throws (`'input' has no 'axs'. Did you mean 'axis'?`); the exported player gives `undefined` instead, so fix it where it throws. Keep state in the Behaviour (`this.hp`) or in a component's fields (docs/SCRIPTING.md, "Reading a member that does not exist").
+- Writing a component name in the wrong case (`entity.get("transform")`). It works and logs one warning with the exact name; write `"Transform"`.
 - Expecting +Y to point down in the world. In the world +Y is up. Only screen-space UI has +Y down.
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.
 - Forgetting the primary `Camera`.

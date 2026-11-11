@@ -495,11 +495,25 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     RawClient plain(port_of(*url));
     REQUIRE(plain.send(RawClient::post(path_of(*url),
                                        R"({"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"test_block","arguments":{}}})")));
-    const auto end2 = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (!started && std::chrono::steady_clock::now() < end2) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    // A safety net, not a known fix: the cancel has to find request 42 in the session, and the first case above already
+    // checks requests_in_flight() == 1 once its command has started, so this wait probably changes nothing (the server
+    // showed no bug for the Windows 204 failure; only CI runs tell whether it comes back). The deadline is far above
+    // normal use, and when it passes the test says what it waited for instead of going on to a cancel with nothing to stop.
+    const auto end2 = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while ((!started || session->requests_in_flight() != 1) && std::chrono::steady_clock::now() < end2)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    INFO("command started: " << started.load() << ", requests in flight: " << session->requests_in_flight());
     REQUIRE(started);
-    CHECK(send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":42}})").status == 202);
+    REQUIRE(session->requests_in_flight() == 1);
+    const auto cancelSentAt = std::chrono::steady_clock::now();
+    const auto cancelReply = send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":42}})");
+    CHECK(cancelReply.status == 202);
     const std::string plainReply = plain.read_all();
+    const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - cancelSentAt).count();
+    // What the client saw, for a log that is all there is to learn from (a reply wiped by a connection reset, a 408 after
+    // the receive timeout, or nothing at all look different here).
+    INFO("cancel notification status " << cancelReply.status << "; waited " << waitedMs << " ms for the plain client's reply; it read "
+                                       << plainReply.size() << " bytes: " << plainReply.substr(0, 200));
     CHECK(plainReply.find("HTTP/1.1 204") == 0);
     CHECK(plainReply.find("Content-Length") == std::string::npos);
     CHECK(sawCancel);

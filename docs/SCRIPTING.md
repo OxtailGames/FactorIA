@@ -121,6 +121,64 @@ A class **field** with the name of a `Behaviour` member (`on`, `after`, `every`,
 instance: `on = false;` makes `this.on("x", fn)` fail. The first behaviour of the class created logs ONE warning naming the
 field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 
+### What `factoria validate` checks in a script
+
+Besides the syntax, `factoria validate` (`project.validate`) reads every script under `scripts/` and `tools/` against the
+engine's API, by scanning the text (no type inference, comments and strings left out), and loads it the way the game does.
+Each issue starts with `file:line:column`:
+
+- **Imported names** (error): `import { Behaviour, wrold } from "factoria"` names a thing the module does not export, with a
+  "did you mean". The same for `"factoria:test"`.
+- **Members of an imported namespace** (error): `physics.raycats(...)`, `game.setTimeScale`, `ns.member` after
+  `import * as ns from "factoria"`: the object is one of the engine's (`world`, `physics`, `game`, `fa`...) and its type has
+  no such member. A local variable, parameter or function with the same name anywhere in the file turns the check off for
+  that name; only members of the form `name.member` are checked, nothing deeper.
+- **Literal component names** (warning): `entity.get("Transfrom")`, `add`, `has` and `remove` with a string that is not a
+  component. A name that matches only ignoring case (`get("transform")`) is reported with the exact name. Without type
+  inference the check cannot know the receiver is an entity: a PascalCase key of a `Map` or of your own object can be
+  reported by mistake (receivers whose name says map, cache, storage, state... or is a plural such as `levels` are skipped, and a
+  name that matches only ignoring case is still reported).
+- **`fa.call("project.<name>")` in a game script** (warning, `file:line`): `<name>` is a command a module under `tools/`
+  defines, and `tools/` is left out of an export, so the call fails in the shipped game. `factoria export` warns the same.
+- **A module whose top level throws** (error): every script is imported in the validating engine, as the game loads it, so
+  an exception at the top of the file (or of a module it imports) is reported with its own file and line. A top level that
+  reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded (`factoria
+  validate` and `factoria test` load none; the running game has one): keep that code in `onStart`. When `project.validate`
+  runs inside a live engine (over MCP or in the editor) it imports the project's modules, `tools/` included, in that engine, so
+  their top-level code runs there too.
+
+A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
+mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
+readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
+
+### Reading a member that does not exist
+
+In every run that is not an exported player (`factoria test`, `run`, `mcp`, the editor's Play) the engine's objects check
+reads: an `Entity`, the namespaces of `"factoria"` (`input`, `world`, `audio`, `ui`, `physics`, `scene`, ...) and the
+`expect` matchers. Reading a member they do not have throws instead of giving `undefined`:
+
+```
+'input' has no 'axs'. Did you mean 'axis'? Its members: pressed, released, down, value, axis, vector, ...
+```
+
+so a typo fails where it is written, with the line of your script, and not as `x is not a function` or a `NaN` later.
+What passes: symbols, `then` (what `await` probes), `toJSON` (what `JSON.stringify` probes) and the members every object has
+(`hasOwnProperty`, `toString`...). Writes are never checked, and an entity can carry a field you gave it (`entity.hp = 3`
+and later `entity.hp` works; the members list then names `hp`), but reading a field nobody wrote throws: `entity.hp` before
+`entity.hp = 3` is the mistake it finds, so keep game state in the `Behaviour` (`this.hp`) or in a component's fields.
+`session` and `plugins` are the namespaces left open: `session` holds the game's own keys, and `plugins` is frozen and read with
+`if (plugins.steam)`, so a plugin that is not there is `undefined`, not an error. The check sits behind the object (its
+prototype), so reading a member that exists costs nothing; the exported player has no check at all, and there a missing
+member is `undefined` again. `plugins` and `game` of `"factoria:test"` check their reads too.
+
+In an exported player only, an error that says the player lacks a member of the engine (an import of `"factoria"` that is
+not there, a call of a method the engine object has not) adds that the player may be older than the game's engine; in the
+other runs engine and player are one binary and the sentence would be wrong.
+
+A component name that is right except for its case (`entity.get("transform")`) works and logs one warning per name with
+the exact spelling; use the exact one, it is what scene files, commands and the typings use. An unknown name
+(`entity.get("NoSuch")`) lists the closest names and how many components there are.
+
 ### Which callback sees what (input)
 
 A frame runs 0 to 5 fixed steps (a slow frame runs several, a fast one none), so a press must not be tied to the frame
@@ -1708,7 +1766,8 @@ test("player jumps", () => {
 });
 ```
 
-- `test(name, fn)`, `test.skip`, `describe(name, fn)`
+- `test(name, fn, options?)`, `test.skip`, `describe(name, fn)`
+- **A test fails when the game fails.** Besides its assertions, a test fails when a game script threw while it ran (a callback such as `onUpdate`, an event handler, a promise, a module's top level) or the engine logged an `ERROR` (a missing sound or file, a refused command). The message is the first such error with its file and line, and the summary counts these failures (`2 passed, 1 failed (1 because the game logged an error ...)`, and `loggedError: true` on the case with `--json`); the exit code follows. A script error is reported to every test that causes it, not only the first. `console.error` and `console.assert` are not errors. A test that is about an error says so with `game.expectErrors(/pattern/, ...)` (a RegExp, or a string that is part of the text) or `test(name, fn, { expectErrors: [/pattern/] })`: those errors do not fail it, any other one still does, and an expected error that is never logged fails it too. Each test starts with the once-per-run errors of the audio system (a missing audio file) and of scripts forgotten (the engine's other once-per-run errors are not), so every test that causes one sees it, whatever ran before and whatever `--filter` selected. Errors count from just before the test's own reset (not from the test file's import: an import error is reported as a load error of the file). An `expectErrors` pattern is matched against the error's message, which for a script error includes its stack text. `test.skip` checks its arguments like `test`; `test.skip("name")` with no function is a pending test (reported as skipped). If a run logs more than 20000 ERROR records, the extra ones are counted in a final error that says how many were dropped. Fix the script rather than expecting its error.
 - `robust(check, { runs = 5, nudge = 0.005 })`: runs `check(p)` `runs` times under small repeatable perturbations and fails naming the run that failed. Run 0 is not perturbed; `p.nudge(...entitiesOrIds)` moves entities by up to `nudge` metres per axis and `p.nudgeBodies()` does it for every RigidBody2D/3D (call it after `game.load`, before the first `game.step`; the check loads its own scene). Offsets are a hash of the run, the entity id and the axis, not the RNG, so a test nudges the same way everywhere. The engine's physics gives the same bits on Linux, Windows and macOS (AI_GUIDE.md, "Physics and platforms"), but a change to a level, to a script that feeds numbers into physics, or to the engine moves a chaotic setup anyway: use `robust` where a level test would otherwise assert an exact frame count or position of such a setup, and assert what holds for every run (reached, delivered, a range, "not slower than").
 - `expect(v)`: `toBe toEqual toBeCloseTo(n, digits) toBeGreaterThan toBeGreaterThanOrEqual toBeLessThan
   toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`;

@@ -182,7 +182,7 @@ TEST_CASE("platform.add_backend admob: is listed with the arguments it reads") {
     REQUIRE(props.contains("admobBuild"));
     CHECK(props["admobBuild"]["default"] == true);
     CHECK_FALSE(props["admobBuild"].value("description", std::string()).empty());
-    CHECK(has(info->description, "admob: "));
+    CHECK(has(info->full_description(), "admob: "));
     REQUIRE(props.contains("admobPlatforms"));
     CHECK(props["admobPlatforms"]["items"]["enum"] == Json::parse(R"(["android", "ios"])"));
     REQUIRE(props.contains("sdk"));

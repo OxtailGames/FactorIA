@@ -78,6 +78,7 @@ Json TestReport::to_json() const {
         o["name"] = c.name;
         o["passed"] = c.passed;
         if (!c.message.empty()) o["message"] = c.message;
+        if (c.loggedError) o["loggedError"] = true;
         o["ms"] = std::round(c.milliseconds * 100.0) / 100.0;
         if (!c.logs.empty()) o["logs"] = logs_json(c.logs);
         arr.push_back(std::move(o));
@@ -104,6 +105,8 @@ std::string TestReport::summary() const {
     }
     for (const auto& e : loadErrors) s += "  ERROR " + e.to_string() + "\n";
     s += std::format("{} passed, {} failed", passed, failed);
+    if (const auto n = std::count_if(cases.begin(), cases.end(), [](const TestCaseResult& c) { return !c.passed && c.loggedError; }); n > 0)
+        s += std::format(" ({} because the game logged an error or an expected error never came)", n);
     if (!loadErrors.empty()) s += std::format(", {} file(s) failed to load", loadErrors.size());
     return s;
 }
@@ -360,15 +363,18 @@ bool parse_first_user_frame(const std::string& stack, std::string& file, int& li
 
 std::string hint_for(const std::string& msg) {
     auto has = [&](const char* s) { return msg.find(s) != std::string::npos; };
+    // "'x' has no 'y'. ... Its members: a, b, ..." lists names: a member called null or undefined is not a null value.
+    if (has(" has no '") && has("Its members:")) return "";
     if (has("was destroyed")) return "Check entity.alive before using an entity that may have been destroyed.";
     if (has("took too long")) return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
+    // "not a function" comes first: the message of a call the player lacks says both, and the name to check is the useful part.
+    if (has("not a function"))
+        return "Check the method name against `factoria api` / types/factoria.d.ts, and that the object is not null "
+               "(entity.get(name) returns null when the component is missing).";
     if (has("older than the game's engine"))
         return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and export again, "
                "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from the same build\"); "
                "for the web, `cmake --build --preset web-release` and export: it prefers build/web-release.";
-    if (has("not a function"))
-        return "Check the method name against `factoria api` / types/factoria.d.ts, and that the object is not null "
-               "(entity.get(name) returns null when the component is missing).";
     if (has("cannot read property") || has("null") || has("undefined"))
         return "A value was null/undefined. world.find(id) and entity.get(name) return null when nothing matches; "
                "check before using the result.";
@@ -376,13 +382,34 @@ std::string hint_for(const std::string& msg) {
     return "";
 }
 
+// The string-named enumerable own members of a JS object, in definition order.
+std::vector<std::string> own_member_names(JSContext* ctx, JSValueConst obj) {
+    std::vector<std::string> names;
+    JSPropertyEnum* tab = nullptr;
+    uint32_t n = 0;
+    if (JS_GetOwnPropertyNames(ctx, &tab, &n, obj, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return names;
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        if (const char* s = JS_AtomToCString(ctx, tab[i].atom)) {
+            names.emplace_back(s);
+            JS_FreeCString(ctx, s);
+        }
+    }
+    JS_FreePropertyEnum(ctx, tab, n);
+    return names;
+}
+
 }  // namespace
 
-// A script that needs something the player lacks (the player is older than the engine the game was made with) fails with
-// QuickJS's generic message. Names the module and the missing export, or the object and method of the call, and says why.
+// A script that needs something the API object it uses does not have fails with QuickJS's generic message. Names the module and
+// the missing export, or the object and method of the call, with the closest real name and the members. Only an exported
+// player can be older than the game's engine (in `test`, `run`, `mcp` and the editor the engine and the player are one binary),
+// so only there the message says why.
 void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
     std::string& message = e.message;
-    const std::string tail = "; this player may be older than the game's engine";
+    const std::string tail = exportedPlayer ? "; this player may be older than the game's engine" : "";
     // SyntaxError: Could not find export 'x' in module 'factoria'
     static const std::string find = "ould not find export '";
     if (const size_t at = message.find(find); at != std::string::npos) {
@@ -393,8 +420,12 @@ void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
             if (modEnd != std::string::npos) {
                 const std::string name = message.substr(at + find.size(), end - at - find.size());
                 const std::string module = message.substr(mod + 12, modEnd - mod - 12);
-                if (module == "factoria" || module.rfind("factoria:", 0) == 0)
-                    message += " (module '" + module + "' has no export '" + name + "'" + tail + ")";
+                if (module == "factoria" || module.rfind("factoria:", 0) == 0) {
+                    const std::vector<std::string> exports =
+                        own_member_names(ctx, module == "factoria" ? factoria.get() : testApi.get());
+                    message += " (module '" + module + "' has no export '" + name + "'" +
+                               (exports.empty() ? std::string() : ". " + did_you_mean(name, exports, 40)) + tail + ")";
+                }
             }
         }
         return;
@@ -424,9 +455,11 @@ void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
         JSAtom atom = JS_NewAtom(ctx, method.c_str());
         const int has = JS_HasProperty(ctx, api, atom);
         JS_FreeAtom(ctx, atom);
-        if (has == 0)
-            message += " (the engine's '" + object + "' from \"factoria\" has no '" + method + "'" + tail + ", if " + object +
-                       " is that object)";
+        if (has == 0) {
+            const std::vector<std::string> members = own_member_names(ctx, api);
+            message += " (the engine's '" + object + "' from \"factoria\" has no '" + method + "', if " + object + " is that object" +
+                       (members.empty() ? std::string() : ". " + did_you_mean(method, members, 40)) + tail + ")";
+        }
     }
     JS_FreeValue(ctx, api);
 }
@@ -995,6 +1028,7 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
 
     JSValue N = JS_NewObject(ctx);
     install_natives(N);
+    JS_SetPropertyStr(ctx, N, "exportedPlayer", JS_NewBool(ctx, exportedPlayer));  // the prelude adds its read checks unless true
     native = JsVal(ctx, N);
 
     std::string_view src = embedded_script("factoria.js");
@@ -1131,6 +1165,7 @@ ScriptSystem::~ScriptSystem() {
 }
 
 void ScriptSystem::set_debugger(std::shared_ptr<ScriptDebugger> debugger) { impl_->debugger = std::move(debugger); }
+void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = exported; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
@@ -1296,6 +1331,15 @@ Result<Json> ScriptSystem::eval(std::string_view code) {
 Result<void> ScriptSystem::check_syntax(std::string_view modulePath, std::string* brokenImport) {
     if (!impl_->initialized) return Error{"script system is not initialized", ""};
     return impl_->check_syntax(modulePath, brokenImport);
+}
+Result<void> ScriptSystem::check_load(std::string_view modulePath) {
+    if (!impl_->initialized) return Error{"script system is not initialized", ""};
+    auto norm = fs::normalize_checked(modulePath);
+    if (!norm) return Error{norm.error().message, norm.error().hint};
+    auto ns = impl_->import_module(*norm, nullptr);
+    if (!ns) return ns.error();
+    JS_FreeValue(impl_->ctx, *ns);
+    return {};
 }
 TestReport ScriptSystem::run_tests(const std::vector<std::string>& files, std::string_view nameFilter) {
     if (!impl_->initialized) {

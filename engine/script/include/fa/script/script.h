@@ -324,6 +324,7 @@ struct TestCaseResult {
     std::string name;
     bool passed = false;
     std::string message;  // failure message with expected/actual
+    bool loggedError = false;  // failed (also) because the game logged an error while the test ran (script error or engine ERROR)
     double milliseconds = 0.0;
     std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };
@@ -378,6 +379,12 @@ public:
     // The longest a callback (onUpdate, an event handler, ...) may run before it is stopped as an endless loop: 2 seconds
     // by default, tests make it small. Time spent paused in the debugger does not count.
     void set_callback_limit(double seconds);
+    // The scripts run in an exported player (`factoria_player`, the mobile and web players): call before init(). Development
+    // runs (`factoria test` / `run` / `mcp`, the editor) are the default. The difference: a development run gives `Entity`,
+    // the namespaces of "factoria" (`input`, `world`, ...) and the `expect` matchers a read check (reading a member they do
+    // not have throws with a "did you mean" and the member list); a player has none, so it costs nothing there. And only a
+    // player can be older than the engine the game was made with, so only its errors say so.
+    void set_exported_player(bool exported);
 
     // The `plugins` object of scripts (call before init; the typings and api_manifest list them too).
     void set_plugins(std::vector<ScriptPlugin> plugins);
@@ -414,6 +421,11 @@ public:
     // (`import levels from "./levels.json"`) that is not valid JSON, the error is THAT file's ("file:line:column: invalid
     // JSON: ...") and *brokenImport (if given) gets its project-relative path; otherwise *brokenImport is left empty.
     Result<void> check_syntax(std::string_view modulePath, std::string* brokenImport = nullptr);
+    // Loads a module the way the game does (imports resolved, top level run, in this script context) and reports why it
+    // fails: a top level that throws, an import that does not exist. The error message starts with "file:line:column:".
+    // A module that loaded is cached, so a second call (or check_props / check_hooks) does not run it again. Used by
+    // `factoria validate` for modules that passed check_syntax.
+    Result<void> check_load(std::string_view modulePath);
     TestReport run_tests(const std::vector<std::string>& files, std::string_view nameFilter = {});
     const std::vector<ScriptError>& errors() const;
     void clear_errors();

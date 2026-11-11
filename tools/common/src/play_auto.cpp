@@ -143,19 +143,36 @@ void register_play_auto_commands(CommandRegistry& registry, const std::string& p
     c.readOnly = false;
     c.summary = "Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.";
     c.description =
-        "Run this after you build a feature and BEFORE you ask the user to play: it plays the game with nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what breaks. "
-        "A second headless engine in this process (fake platform, in-memory saves, fixed 1/fixedHz steps, the same `seed` plays the same game) plays up to `seconds` GAME seconds. The bot is the game's own: "
-        "scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input actions to hold (docs/SCRIPTING.md, \"The bot\"; the project templates ship one that finishes their sample level). "
-        "Without that file a generic explorer holds the declared input actions in seeded patterns (and taps the menu actions when the scene has buttons), so any game still gets smoke-played; bot \"explorer\" forces it. "
-        "The run ends with `ended`: \"won\" or \"lost\" (the hook returned { end } or the game called game.phase(name, { ends })), \"timeout\" (the seconds passed), \"quit\" (the game quit), \"stuck\" (nothing moved and nothing changed for "
-        "stuckSeconds, or a menu has nobody to press it), \"broken\" (a script raised errors every second for 3 seconds, something pulled by gravity fell out of the world, a position became NaN, or scripts/autoplay.js could not be loaded) or \"aborted\" (a real-time safety net of 800 seconds, far above any normal run). "
-        "Each problem becomes a mark with its `kind`, the `step`, a screenshot and a one-line note. The session is written to .factoria/sessions/<name>/ with \"source\": \"auto\" next to the editor's: session.json (perf, spikes, warnings, errors, marks, "
-        "`phases` = the scenes and the game.phase(\"boss\") marks with their game time and a screenshot, `score`, `ended`, `endedWhy`, `notes`, `scriptErrors`, `auto`), input.json (the bot's input in the replay format) and the pictures. "
-        "Returns {session, dir, ended, endedWhy, score, gameSeconds, steps, frames, bot (\"hook\" or \"explorer\"), seed, speed, phases, problems, scriptErrors, warningsAndErrorsLogged, notes, avgFrameMs, maxFrameMs, screenshots, endScreenshot, replay, next} "
-        "and the picture of the end ($image). Read the details with play.report {session}; replay the problem with the `replay` command (factoria run --headless --input ... --seed ...). "
-        "Without a GPU the numbers, phases and marks are complete and `notes` says there are no pictures (a Linux machine without a display needs Mesa's EGL, llvmpipe). "
-        "From the editor or any process that already uses the graphics card the command runs `factoria call play.auto` in a child process. The result never depends on how fast the machine is. "
-        "Example: {\"seconds\":120,\"seed\":7} or {\"scene\":\"scenes/level2.scene.json\",\"bot\":\"explorer\",\"speed\":4}.";
+        "Run this after you build a feature and BEFORE you ask the user to play: it plays the game with "
+        "nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what "
+        "breaks. A second headless engine in this process (fake platform, in-memory saves, fixed 1/fixedHz "
+        "steps, the same `seed` plays the same game) plays up to `seconds` GAME seconds. The bot is the "
+        "game's own: scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input "
+        "actions to hold (docs/SCRIPTING.md, \"The bot\"; the project templates ship one that finishes their "
+        "sample level). Without that file a generic explorer holds the declared input actions in seeded "
+        "patterns (and taps the menu actions when the scene has buttons), so any game still gets "
+        "smoke-played; bot \"explorer\" forces it. Example: {\"seconds\":120,\"seed\":7} or "
+        "{\"scene\":\"scenes/level2.scene.json\",\"bot\":\"explorer\",\"speed\":4}."
+        FA_COMMAND_DETAILS
+        "The run ends with `ended`: \"won\" or \"lost\" (the hook returned { end } or the game called "
+        "game.phase(name, { ends })), \"timeout\" (the seconds passed), \"quit\" (the game quit), \"stuck\" "
+        "(nothing moved and nothing changed for stuckSeconds, or a menu has nobody to press it), \"broken\" "
+        "(a script raised errors every second for 3 seconds, something pulled by gravity fell out of the "
+        "world, a position became NaN, or scripts/autoplay.js could not be loaded) or \"aborted\" (a "
+        "real-time safety net of 800 seconds, far above any normal run). Each problem becomes a mark with "
+        "its `kind`, the `step`, a screenshot and a one-line note. The session is written to "
+        ".factoria/sessions/<name>/ with \"source\": \"auto\" next to the editor's: session.json (perf, "
+        "spikes, warnings, errors, marks, `phases` = the scenes and the game.phase(\"boss\") marks with "
+        "their game time and a screenshot, `score`, `ended`, `endedWhy`, `notes`, `scriptErrors`, `auto`), "
+        "input.json (the bot's input in the replay format) and the pictures. Returns {session, dir, ended, "
+        "endedWhy, score, gameSeconds, steps, frames, bot (\"hook\" or \"explorer\"), seed, speed, phases, "
+        "problems, scriptErrors, warningsAndErrorsLogged, notes, avgFrameMs, maxFrameMs, screenshots, "
+        "endScreenshot, replay, next} and the picture of the end ($image). Read the details with play.report "
+        "{session}; replay the problem with the `replay` command (factoria run --headless --input ... --seed "
+        "...). Without a GPU the numbers, phases and marks are complete and `notes` says there are no "
+        "pictures (a Linux machine without a display needs Mesa's EGL, llvmpipe). From the editor or any "
+        "process that already uses the graphics card the command runs `factoria call play.auto` in a child "
+        "process. The result never depends on how fast the machine is.";
     c.inputSchema = Json::parse(R"({"type":"object","additionalProperties":false,"properties":{
         "scene":{"type":"string","description":"Project-relative scene to start in (default: the project's mainScene)."},
         "seconds":{"type":"number","minimum":0.1,"maximum":3600,"default":60,"description":"How many GAME seconds to play at most (simulation time: steps / fixedHz, never the clock). The run ends \"timeout\" when they pass."},

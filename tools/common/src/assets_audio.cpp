@@ -424,19 +424,27 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Make a seamless loop offline (a wind or fire bed, a clock, a drone or chord pad) as a WAV or Ogg: no provider, no key.";
         info.description =
-            "Synthesizes a mono loop at `path` (under assets/, .wav or .ogg) from `kind`, with no AI provider and no key. The same arguments and "
-            "`seed` always give the same bytes. The end of the loop meets its start: filters run round the loop, gusts and hums have a whole number of "
-            "cycles, and pops, ticks and notes wrap round the end. Records provenance in assets.json (origin original, ai false, license CC0).\n"
-            "kind \"noise\": a bed of `color` noise (white = hiss, pink = rain, brown = rumble and wind) low-passed at `cutoff` Hz and scaled by `level`; "
-            "`gusts` (0 to 1) swells it slowly; `crackles` adds random pops per second (a fire); `tick` adds a tick-tock every that many seconds (a "
-            "clock; make `seconds` a multiple of it and `level` 0 for the ticks alone); `hum` adds sines at those Hz (a cellar's mains hum).\n"
-            "kind \"drone\": `chords`, an array of chords of notes (\"A3\", \"F#2\", \"Eb4\", or Hz); each chord is a soft pad lasting `chordSeconds`, with "
-            "the first note an octave down at `bass` level. A single chord is a drone. `arpeggio` {every, pattern, gain} plays music-box plucks over "
-            "it: `pattern` holds chord indexes (null = a rest, past the chord's end = an octave up).\n"
-            "Wind: {\"kind\":\"noise\",\"color\":\"brown\",\"cutoff\":900,\"gusts\":0.6,\"seconds\":20}. Fire: {\"kind\":\"noise\",\"color\":\"brown\",\"cutoff\":600,\"crackles\":4}. "
-            "Clock: {\"kind\":\"noise\",\"level\":0,\"tick\":1,\"seconds\":4}. Score: {\"kind\":\"drone\",\"chords\":[[\"D3\",\"F3\",\"A3\"],[\"Bb2\",\"D3\",\"F3\"]],"
-            "\"chordSeconds\":6,\"arpeggio\":{\"every\":0.75,\"pattern\":[0,2,1,2],\"gain\":0.16}}. A WAV loops sample for sample; an Ogg loop is smaller and "
-            "within the codec's noise at the seam (see assets.convert_audio).";
+            "Synthesizes a mono loop at `path` (under assets/, .wav or .ogg) from `kind`, with no AI "
+            "provider and no key. The same arguments and `seed` always give the same bytes. The end of the "
+            "loop meets its start: filters run round the loop, gusts and hums have a whole number of cycles, "
+            "and pops, ticks and notes wrap round the end. Records provenance in assets.json (origin "
+            "original, ai false, license CC0).\n"
+            "kind \"noise\": a bed of `color` noise (white = hiss, pink = rain, brown = rumble and wind) "
+            "low-passed at `cutoff` Hz and scaled by `level`; `gusts` (0 to 1) swells it slowly; `crackles` "
+            "adds random pops per second (a fire); `tick` adds a tick-tock every that many seconds (a clock; "
+            "make `seconds` a multiple of it and `level` 0 for the ticks alone); `hum` adds sines at those "
+            "Hz (a cellar's mains hum).\n"
+            "kind \"drone\": `chords`, an array of chords of notes (\"A3\", \"F#2\", \"Eb4\", or Hz); each "
+            "chord is a soft pad lasting `chordSeconds`, with the first note an octave down at `bass` level. "
+            "A single chord is a drone. `arpeggio` {every, pattern, gain} plays music-box plucks over it: "
+            "`pattern` holds chord indexes (null = a rest, past the chord's end = an octave up)."
+            FA_COMMAND_DETAILS
+            "Wind: {\"kind\":\"noise\",\"color\":\"brown\",\"cutoff\":900,\"gusts\":0.6,\"seconds\":20}. "
+            "Fire: {\"kind\":\"noise\",\"color\":\"brown\",\"cutoff\":600,\"crackles\":4}. Clock: "
+            "{\"kind\":\"noise\",\"level\":0,\"tick\":1,\"seconds\":4}. Score: "
+            "{\"kind\":\"drone\",\"chords\":[[\"D3\",\"F3\",\"A3\"],[\"Bb2\",\"D3\",\"F3\"]],\"chordSeconds\":6,\"arpeggio\":{\"every\":0.75,\"pattern\":[0,2,1,2],\"gain\":0.16}}. "
+            "A WAV loops sample for sample; an Ogg loop is smaller and within the codec's noise at the seam "
+            "(see assets.convert_audio).";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["path","kind"],"additionalProperties":false,
           "properties":{

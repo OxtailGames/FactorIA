@@ -6,6 +6,7 @@
 
 #include "fa/ai/session.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/api_export.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -121,6 +122,7 @@ ToolDef tool_def_for_command(const CommandInfo& info) {
     ToolDef t;
     t.name = tool_name_for_command(info.name);
     t.description = info.description.empty() ? info.summary : info.summary + "\n\n" + info.description;
+    if (!info.details.empty()) t.description += "\n\n" + command_details_pointer(info);
     t.inputSchema = info.inputSchema;
     return t;
 }
@@ -243,7 +245,7 @@ Json describe_commands(const CommandRegistry& registry, const std::vector<std::s
                                          {"tool", tool_name_for_command(info->name)},
                                          {"category", info->category},
                                          {"summary", info->summary},
-                                         {"description", info->description},
+                                         {"description", info->full_description()},
                                          {"readOnly", is_read_only_tool(*info)},
                                          {"inputSchema", info->inputSchema}}));
     }

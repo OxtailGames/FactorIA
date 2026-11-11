@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -13,6 +14,7 @@
 
 #include <quickjs.h>
 
+#include "fa/core/log.h"
 #include "fa/core/profiler.h"
 
 #include "fa/platform/accessibility.h"
@@ -86,6 +88,9 @@ struct ScriptSystem::Impl {
     ScriptHost* host = nullptr;
     ScriptSystem* owner = nullptr;
     std::shared_ptr<ScriptDebugger> debugger;  // debug mode (set_debugger); null for a normal run
+    bool exportedPlayer = false;               // set_exported_player: no read checks on the API objects; errors may blame an old player
+    std::set<std::string> caseWarned;          // component names already warned about for a wrong case (find_type)
+    std::map<std::string, const TypeInfo*> caseFixed;  // the same names -> the component they mean, so a repeat skips the search
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     int observerId = -1;
@@ -110,6 +115,16 @@ struct ScriptSystem::Impl {
     std::vector<ScriptSystem::AutoplayPhase> autoplayPhases;
     static constexpr std::size_t kMaxAutoplayPhases = 200;  // marks kept between two calls of autoplay_take_phases
     std::set<std::string> loggedKeys;
+    // The ERROR records a test run collects itself (run_tests' sink), so a chatty test cannot push an earlier error out of the log ring
+    // before testRun reads it. Null outside run_tests.
+    struct TestErrors {
+        std::mutex mu;
+        std::vector<LogEntry> list;  // oldest first, capped at kMaxTestErrors
+        std::size_t dropped = 0;
+        std::uint64_t lastDroppedSeq = 0;  // seq of the latest record dropped: logErrors reports the drop only to the test that saw it
+    };
+    static constexpr std::size_t kMaxTestErrors = 20000;
+    std::shared_ptr<TestErrors> testErrors;
     struct Rejection { JSValue promise, reason; };  // rejected with no handler yet (owned); reported when the job queue drains
     std::vector<Rejection> pendingRejections;
     void flush_rejections();

@@ -444,13 +444,26 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
     info.readOnly = true;
     info.summary = "Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.";
     info.description =
-        "Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for each of `sizes`) and a row for each background, so you can judge a set of assets the way the player meets them: small, on the real ground, in black and white. "
-        "`backgrounds` default to a light colour, a dark colour and the clear colour of the first primary camera of the project's main scene (when it has one); the last row is the same pictures in greyscale over mid-grey (`greyscale: false` leaves it out). "
-        "`sizes` are pixels of the longest side of each picture as the player sees it (Sprite.size on screen times the render scale): [32, 64] draws every picture twice, shrunk with averaging or grown with hard pixels; without `sizes` each picture is drawn at its native size (at most 512). "
-        "PNG, JPG, BMP and TGA files are drawn as they are; a sprite sheet (one with a `sheet` entry in assets.json) shows its first frame, or all frames with `allFrames: true`. "
-        "A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; without one the command fails with no_gpu, and you can leave the models out); "
-        "a model in the real scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then the sheet continues below. "
-        "Nothing is written unless `path` is given: then the PNG is also saved there (an existing file is not replaced without `overwrite: true`). The same inputs give the same picture. Example: {\"paths\":[\"assets/hero.png\",\"assets/slime.png\"],\"sizes\":[32,64]}.";
+        "Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for "
+        "each of `sizes`) and a row for each background, so you can judge a set of assets the way the player "
+        "meets them: small, on the real ground, in black and white. `backgrounds` default to a light colour, "
+        "a dark colour and the clear colour of the first primary camera of the project's main scene (when it "
+        "has one); the last row is the same pictures in greyscale over mid-grey (`greyscale: false` leaves "
+        "it out). `sizes` are pixels of the longest side of each picture as the player sees it (Sprite.size "
+        "on screen times the render scale): [32, 64] draws every picture twice, shrunk with averaging or "
+        "grown with hard pixels; without `sizes` each picture is drawn at its native size (at most 512). "
+        "PNG, JPG, BMP and TGA files are drawn as they are; a sprite sheet (one with a `sheet` entry in "
+        "assets.json) shows its first frame, or all frames with `allFrames: true`. Example: "
+        "{\"paths\":[\"assets/hero.png\",\"assets/slime.png\"],\"sizes\":[32,64]}."
+        FA_COMMAND_DETAILS
+        "A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three "
+        "quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; "
+        "without one the command fails with no_gpu, and you can leave the models out); a model in the real "
+        "scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name "
+        "and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then "
+        "the sheet continues below. Nothing is written unless `path` is given: then the PNG is also saved "
+        "there (an existing file is not replaced without `overwrite: true`). The same inputs give the same "
+        "picture.";
     auto prop = [](const char* type, const char* text) { return Json::object({{"type", type}, {"description", text}}); };
     info.inputSchema = Json::object(
         {{"type", "object"},

@@ -38,6 +38,7 @@ struct EfficiencyToolCall {
     std::string name;            // the tool as the model called it ("scene_inspect", "tool_call", "Bash")
     std::string command;         // the engine command it ran ("scene.inspect"), or the tool name when it is not one
     std::string ref;             // what it acted on: a file, a doc topic, a search query, an entity ("" = unknown)
+    std::string shell;           // a shell call's command line of a CLI agent, cut to 200 bytes ("" = not a shell call)
     std::string code;            // the error code of a failed call ("" = it did not fail, or no code was given)
     bool failed = false;
     std::int64_t ms = 0;         // how long the tool ran (0 = not recorded)
@@ -70,6 +71,10 @@ inline constexpr std::size_t kEfficiencyMaxLine = 8u * 1024 * 1024;         // a
 
 // The steps of the transcript `text` (JSON lines). Never fails: a line that is not JSON is skipped and counted.
 EfficiencySession read_efficiency_session(const std::string& text, const std::string& id);
+// The transcript of `claude -p --output-format stream-json --verbose` (scripts/agent-cost.sh): a step is one model message (one `message.id`,
+// whatever number of lines it was streamed in), with the message's own token counts (input + cache + output; `estimated` stays false) and the
+// tools it called; a Bash call of `factoria call X` has command X. Never fails: a line that is not JSON is skipped and counted.
+EfficiencySession read_claude_stream_session(const std::string& text, const std::string& id);
 // The same, read from a stream line by line: only one line (at most kEfficiencyMaxLine bytes) and one 64 KB chunk are held in memory, and
 // at most kEfficiencyMaxBytes bytes are read (the rest sets `truncated`).
 // `maxBytes` is kEfficiencyMaxBytes unless a test lowers it.

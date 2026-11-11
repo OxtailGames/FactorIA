@@ -6,8 +6,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <mutex>
 
 #include "common.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/api_export.h"
@@ -34,8 +37,8 @@ Command make_new_command() {
     c.summary = "Create a new game project from a template.";
     c.usage = "<dir> [--template T] [--name NAME] [--id ID]";
     c.details =
-        "Creates <dir> with factoria.json, a first scene, a script, a test, project tools, AGENTS.md/CLAUDE.md (the guide\n"
-        "for AI agents), ENGINE_FEEDBACK.json, the real script typings (types/factoria.d.ts) and a .mcp.json that connects\n"
+        "Creates <dir> with factoria.json, a first scene, a script, a test, project tools, AGENTS.md (the guide for\n"
+        "AI agents; CLAUDE.md is one line importing it), ENGINE_FEEDBACK.json, the real script typings (types/factoria.d.ts) and a .mcp.json that connects\n"
         "Claude Code to 'factoria mcp'.";
     c.maxPositional = 1;
     c.flags = {{"template", "NAME", "Template: 2d-empty (default), 2d-platformer, 3d-empty. See 'factoria templates'."},
@@ -97,6 +100,88 @@ Command make_templates_command() {
     return c;
 }
 
+bool report_already_says(const ValidationReport& rep, const std::string& logMessage) {
+    // A message of the report is "in" a log line when the line contains it whole; a short generic message ("Bad value")
+    // would cover unrelated lines, so only a message long enough to be specific counts. Both sides use '/' (Windows
+    // paths in one and not in the other).
+    constexpr size_t kMinSpecific = 24;
+    auto slashes = [](std::string s) {
+        std::replace(s.begin(), s.end(), '\\', '/');
+        return s;
+    };
+    const std::string text = slashes(logMessage);
+    for (const auto* list : {&rep.errors, &rep.warnings, &rep.notes})
+        for (const auto& i : *list) {
+            const std::string m = slashes(i.message);
+            if (m.size() >= kMinSpecific && text.find(m) != std::string::npos) return true;
+        }
+    return false;
+}
+
+namespace {
+// `factoria validate` reports what the engine logged while it opened the session and loaded the scenes inside its
+// report, each once: this keeps those warnings and errors off stderr and collects them for the report instead. The
+// stderr filter stays on until the capture is destroyed, after the session (the teardown and --fix-types log too).
+class LogCapture {
+public:
+    LogCapture() : shared_(std::make_shared<Shared>()) {
+        auto shared = shared_;
+        id_ = add_log_sink([shared](const LogEntry& e) {
+            if (e.level < LogLevel::Warn) return;
+            std::lock_guard<std::mutex> lock(shared->mutex);
+            shared->entries.push_back(e);
+        });
+        set_log_stderr_filter([](const LogEntry&) { return false; });
+    }
+    ~LogCapture() { stop(); }
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    void stop() {
+        if (id_ < 0) return;
+        set_log_stderr_filter({});
+        remove_log_sink(id_);
+        id_ = -1;
+    }
+    // The captured entries (a copy; the capture goes on).
+    std::vector<LogEntry> entries() {
+        std::lock_guard<std::mutex> lock(shared_->mutex);
+        return shared_->entries;
+    }
+    // Something other than a report ended the command: the lines it held back go to `err` as the log would have
+    // written them, so the failure is not seen without them.
+    void replay(std::ostream& err) {
+        stop();
+        for (const auto& e : entries()) err << format_log_line(e) << "\n";
+    }
+    // Adds every captured entry the report does not already say as a warning, one per distinct text.
+    // May be called again later (after the session is gone): a text folded before is not added twice.
+    void fold_into(ValidationReport& rep) {
+        std::vector<std::string>& seen = folded_;
+        auto covered = [&](const std::string& text) {
+            return report_already_says(rep, text) || std::find(seen.begin(), seen.end(), text) != seen.end();
+        };
+        for (const auto& e : entries()) {
+            if (covered(e.message)) continue;
+            seen.push_back(e.message);
+            ValidationIssue w;
+            w.file = e.category.empty() ? "log" : e.category;
+            w.message = std::string(e.level >= LogLevel::Error ? "The engine logged an error while loading: " : "The engine logged a warning while loading: ") + e.message;
+            w.hint = "Fix what the message names; it is shown here once instead of as a log line.";
+            rep.warnings.push_back(w);
+        }
+    }
+
+private:
+    std::vector<std::string> folded_;
+    struct Shared {
+        std::mutex mutex;
+        std::vector<LogEntry> entries;
+    };
+    std::shared_ptr<Shared> shared_;
+    int id_ = -1;
+};
+}  // namespace
+
 Command make_validate_command() {
     Command c;
     c.name = "validate";
@@ -111,6 +196,8 @@ Command make_validate_command() {
     c.examples = {"factoria validate", "factoria validate games/my-game --json"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
+        LogCapture capture;  // the log lines of the load go into the report, not to stderr
+        auto body = [&]() -> int {
         // Script syntax and Script.props go through a logic-only engine; if the project cannot even load, scripts
         // are skipped and the scene/project errors below explain why.
         std::unique_ptr<Session> session;
@@ -125,6 +212,7 @@ Command make_validate_command() {
         ValidateOptions vo = session ? engine_validate_options(session->engine()) : ValidateOptions{};
         vo.checkScenes = !ctx.args.has("no-scenes");
         ValidationReport rep = validate_project(dir, vo);
+        capture.fold_into(rep);
         if (!engineProblem.empty()) {
             ValidationIssue w;
             w.file = "scripts";
@@ -133,13 +221,19 @@ Command make_validate_command() {
             rep.warnings.push_back(w);
         }
         if (ctx.args.has("fix-types")) {
-            if (!session) return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
+            if (!session) {
+                capture.replay(ctx.err);  // the report is not printed: the load's own lines are the explanation
+                return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
+            }
             std::string text = export_typescript(session->engine().scripts());
             std::string path = (fsys::path(dir) / "types" / "factoria.d.ts").string();
             std::error_code ec;
             fsys::create_directories(fsys::path(path).parent_path(), ec);
             std::ofstream f(path, std::ios::binary);
-            if (!f) return report_failure(ctx, "Cannot write " + path);
+            if (!f) {
+                capture.replay(ctx.err);
+                return report_failure(ctx, "Cannot write " + path);
+            }
             f << text;
             f.close();
             // The placeholder warning is moot now.
@@ -148,6 +242,9 @@ Command make_validate_command() {
                                rep.warnings.end());
             if (!ctx.args.has("json")) ctx.out << "Wrote " << path << " (" << text.size() << " bytes)\n";
         }
+        // The session's teardown logs too: close it now and fold what it said, so the report has it as well.
+        session.reset();
+        capture.fold_into(rep);
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep.to_json());
         } else {
@@ -155,6 +252,13 @@ Command make_validate_command() {
             if (rep.ok) ctx.out << "OK: " << dir << "\n";
         }
         return rep.ok ? 0 : 1;
+        };
+        try {
+            return body();
+        } catch (...) {  // not a report: what the load logged is shown before the failure, not lost
+            capture.replay(ctx.err);
+            throw;
+        }
     };
     return c;
 }

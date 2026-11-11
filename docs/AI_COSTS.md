@@ -414,6 +414,114 @@ Run it after a session, or ask the AI to run it and report. For API providers ou
 `"pricing"` to the provider in `ai.json` or `costUsd` stays 0 and only token limits apply
 ([AI_PROVIDERS.md](AI_PROVIDERS.md#costs)).
 
+## Measuring what a game costs an AI with no context
+
+The numbers above come from our own long sessions. To see what the engine costs a game AI that knows nothing about it, run the
+measure by hand (**it spends quota of the CLI you run**: a run of Claude Code with `sonnet` was about 4 minutes and $0.64 at API
+rates in the table below, more when the AI struggles; it is capped at 400 model turns and 90 minutes):
+
+```bash
+scripts/agent-cost.sh --cli claude --model sonnet                  # engine: ~/FactorIA; result: feedback/agent-cost/<version>-claude.json
+scripts/agent-cost.sh --factoria /path/to/engine/folder --workdir /tmp/run1   # another engine, a folder you keep
+scripts/agent-cost.sh --report-only /tmp/run1 --reporter build/dev/tools/cli/factoria   # report an earlier run again
+```
+
+The script creates an empty folder outside the repository (`game/` inside it is the AI's working directory), starts the CLI there
+with a clean environment (`env -i`: a PATH of the throw-away `bin/` plus the system essentials, and `ANTHROPIC_API_KEY` or
+`CLAUDE_CODE_OAUTH_TOKEN` when you have set one; no other variables of yours) and, for Claude Code, only the project's settings
+(no user plugins, skills or MCP servers). It gives the CLI the fixed brief
+(`BRIEF_ID` `platformer-3-levels-v1`, the text is in the script) and records the whole transcript (`transcript.jsonl` in the
+folder, next to `game/`). Then it runs `play.auto` on the final game and calls `factoria call agent.cost`. Only `claude` is wired
+in; another CLI needs an entry in `run_cli`.
+
+What the measured AI may do, exactly:
+
+- Claude Code runs with `--permission-mode acceptEdits` (never `bypassPermissions`). Its file tools write inside the work folder
+  only and are refused for any path outside it, including reads of your home (`~/.zshrc`, `~/.ssh`). Checked by hand on this
+  machine with only `Bash(factoria version:*)` allowed: a write inside the folder worked; a write outside, a read of `~/.zshrc`
+  and `ls ~/.ssh` were all denied. Re-check it after a CLI upgrade.
+- Shell commands (first line of defence, an allow-list; `scripts/agent-cost.sh --print-policy` prints every rule): the
+  subcommands `factoria new`, `templates`, `run`, `screenshot`, `test`, `validate`, `commands`, `api`, `docs`, `version` and
+  `help`, and `factoria call` only as `factoria call <command>` with the command name right after `call` (no flag, no quote
+  before it: so no `--batch`, `--json`, `-p`, `--project`), for the offline families a game developer needs: `scene.*`,
+  `tilemap.*`, `ui.*`, `game.*`, `play.*`, `physics.*`, `prefab.*`, `script.*`, `input.*`, `render.*`, `load.*`, `nav.*`,
+  `feel.*`, `vfx.*`, `i18n.*`, `perf.*`, `anim.*`, `shader.*`, `material.*`, `docs.*`, `api.*`, `project.info`,
+  `project.validate`, `project.test`, `project.templates`, `checkpoint.list`, `checkpoint.diff`, `checkpoint.create`,
+  `skills.list` and `skills.read`. There is no `ls`, `cat`, `cp`... entry: the AI uses its file tools (Claude Code lets its
+  read-only shell commands run inside the work folder).
+- Paths: no `factoria` subcommand may get an absolute path, a `~` path or a `..` path, on the command line, inside a JSON
+  argument or after an `@` (`factoria new /tmp/x`, `screenshot ../a.png`, `call game.screenshot '{"path":"/tmp/a.png"}'` are
+  denied), because those commands write where they are told. The deny globs are an approximation of the CLI's matcher, so the
+  script also audits the transcript after the run and lists any `factoria` command that carried such a path.
+- Deny rules (defence in depth; a deny wins over an allow): `factoria setup`, `feedback`, `ai`, `editor`, `export`, `mcp`,
+  `dap`, `hooks`, `session`, and `factoria call` with a leading flag or quote, with `--batch` or `--project` anywhere, or with
+  `setup*`, `feedback*`, `ai*` (`ai.run` would start another agent outside the budget cap), `engine*` (updates), `update*`,
+  `self_update*`, `publish*`, `ios_sim*`, `skills.new`, `platform*`, `project.export`, `project.create`, `assets*`, `image*`,
+  `model*`, `music*`, `audio*`, `fs*`, `storage*` and `sign*` (providers and the network).
+  `scripts/agent-cost-policy-check.sh` checks both lists against the bypasses a review found (`call --batch`, `call --json
+  feedback.share`, `call "feedback.share"`, `call -p . ...`, `ai.run`, `engine.update_status`, `skills.new`) and against the
+  commands the AI needs, and the path cases above; it spends nothing (ctest `agent_cost_policy`). It matches the rules as shell globs, which approximates Claude
+  Code's matcher, so it is a check of the lists, not of the CLI.
+- The second line, behind both lists: the throw-away `HOME` and the engine copy (next point). Even a command that got through
+  could not change your installed engine or your `~/.factoria`, but it could still reach the network from the copy, which is
+  why the first line is an allow-list.
+- The `factoria` the AI runs is a wrapper over a COPY of the engine made in the work folder, with a throw-away `HOME`, so no
+  command can change your installed engine, your `~/.factoria` or your settings.
+- The CLI's own `HOME`: with `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` set (or `--isolated-home`) the CLI runs with a
+  throw-away `HOME` and `CLAUDE_CONFIG_DIR` too, so your global `CLAUDE.md` and memory cannot load into the run. Without a token
+  it logs in from your real `HOME`, so it keeps it: the script prints a warning, and the result says in its `notes` (and
+  `homeIsolated` in the input) that the run may carry your global instructions. The init line of the transcript lists the MCP
+  servers and plugins the CLI loaded; the script warns if it is not empty. Whether `--setting-sources project` leaves out
+  `~/.claude/CLAUDE.md` in the version you use was not checked (it takes a model call): compare a run with `--isolated-home`.
+  `--bare` is not used because it needs an API key. `claude --version` is recorded as `cliVersion`.
+- Caps: `--max-turns` (400), `--max-usd` (5, the CLI's own `--max-budget-usd`), `--max-seconds` (5400) and `--final-seconds`
+  (600, the `play.auto` that checks the finished game, which runs the AI's own code). The wall-clock cap is a watchdog that kills
+  the CLI's whole process group (TERM, then KILL after 5 s) and it is recorded as the exit status. Ctrl-C (or a TERM) sent to the
+  script stops the CLI's group the same way, because the CLI runs in its own group and would not get the signal otherwise.
+  `scripts/agent-cost-selftest.sh` (ctest `agent_cost_script`) proves it with a fake CLI that starts a child and sleeps, and
+  also the clean environment, the throw-away `HOME`, the wrapper in a folder whose path holds a quote, the final cap and the
+  outside-path audit; it spends nothing. A real terminal Ctrl-C (SIGINT) is not in the test, only TERM.
+
+What the result (`factoria.agent-cost/1`) says:
+
+- `total`: model messages (`steps`, one per assistant message), tool calls, minutes, tokens processed (input + cache + output) and
+  the cost at API rates; `cliTurns` is the CLI's own turn count. `tokens` is the CLI's own total from the `result` line of the
+  transcript; `stepTokens` is the sum over the assistant lines, whose output counts are partial, so it is lower. The tokens of
+  `firstPlayable` are a sum of the step ones too, a lower bound.
+- `firstPlayable`: the first `factoria call play.auto` whose answer ended `"won"` and lists at least three distinct `phases`
+  (the brief asks for three levels), with the step, tool calls, minutes and tokens up to it. `play.auto` names a phase by the scene
+  that was loaded (a new one each time the scene changes) or by a `game.phase` mark, so a game that moves between levels by loading
+  scenes shows one phase per level; a game that swaps levels inside one scene shows one phase unless it calls `game.phase`. The
+  check is therefore a proxy, not proof. A phase named like a menu, title, credits, game over or win screen is not a level, and the
+  `ended` of `play.auto` is trusted only as far as the AI's own autoplay is (a note says so). `finalGame` carries `levelPhases`
+  and `endedWhy` too. `reached: false` means no `play.auto` of the run met it (`playAutoCalls` says how many it
+  ran). `finalGame` is the same check on the finished game, run by the script (`phases`, `ended`, `scriptErrors`).
+- `engineErrors`: failed `factoria` calls, by error code (`none` when the failure gave no code, e.g. a `factoria info` that
+  crashed), with the first ones; a failed `factoria test`, `factoria validate` or `factoria run` counts only with a code (their
+  failures are the game's tests, files and scripts, not the engine). `notCaught`: outputs of `factoria run`, `play.auto`, `factoria test` and the game logs that show a script error
+  (`script error`, `Uncaught`, `TypeError`...) while a `factoria test` had passed; a doc or a file the AI read that quotes one
+  does not count. The result also has `cliVersion` (`claude --version`).
+
+Latest numbers (`brief` `platformer-3-levels-v1`, engine 0.21.0, Claude Code 2.1.318, `sonnet`, 2026-11-11, the "before" of M100):
+
+| | steps | tool calls | minutes | tokens processed | cost at API rates |
+|---|---|---|---|---|---|
+| whole run | 39 | 55 | 3.6 | 2,098,048 (21,221 written) | $0.64 |
+| to the first playable build | none: the AI never ran `play.auto` | | | | |
+
+(The tokens are the sum over the steps, as the report counted them then. The CLI's own `result` line says 2,118,333 for the
+same run, which is what `total.tokens` shows since M100 polish; `feedback/agent-cost/0.21.0-claude.json` predates `stepTokens`
+and `cliVersion` and was not re-run, because that costs quota.)
+
+The AI started from the `2d-platformer` template, wrote two more level scenes and a goal prefab, and its 13 tests passed, but it
+never ran `play.auto`. The script's own `play.auto` of the final game ended "won" with ONE phase (`scenes/main.scene.json`). The
+three scenes exist and `player.js` loads the next one when the player touches the goal, and the tests prove it by moving the player
+onto each goal; but the template's bot stops at x=2464, before the goal at x=2480, and a bot that ran right stayed in level 1 for 120 s.
+So the game is NOT shown playable from level 1 to 3 on foot. No engine error met, none missed. Telling "third level reached" apart from
+"first level won" without the one-phase proxy would need the brief to ask for a `game.phase` call per level: that is a new `BRIEF_ID`
+and a new run, not done yet.
+One run is one sample: the same brief gives different numbers on another day.
+
 ## Short version
 
 - A finished game of Lantern Keep's size was about 470 steps and $20 at API rates (a floor), with Sonnet workers; most of it is

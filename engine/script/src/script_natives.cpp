@@ -155,12 +155,31 @@ bool need_entity(Impl* I, JSContext* ctx, JSValueConst v, Entity& out, JSValue& 
     }
 
 const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc) {
-    const TypeInfo* t = TypeRegistry::global().find(name);
-    if (!t) t = TypeRegistry::global().find_ci(name);
+    const TypeRegistry& reg = TypeRegistry::global();
+    const TypeInfo* t = reg.find(name);
     if (!t) {
-        std::string sug = TypeRegistry::global().suggest(name);
-        *exc = throw_err(ctx, "unknown component '" + name + "'" +
-                                  (sug.empty() ? std::string("; see `factoria api components`") : "; did you mean '" + sug + "'?"));
+        auto& fixed = impl_of(ctx)->caseFixed;
+        if (const auto hit = fixed.find(name); hit != fixed.end()) return hit->second;  // a wrong case seen before: no search, no warning
+        t = reg.find_ci(name);
+        // Names are case-sensitive everywhere else (scene files, commands, the typings): it works here, once, with a warning.
+        if (t && fixed.size() < 1024) fixed.emplace(name, t);
+        if (t && impl_of(ctx)->caseWarned.insert(name).second)
+            log(LogLevel::Warn, "script",
+                "the component is called '" + t->name + "', not '" + name + "': use entity.get(\"" + t->name +
+                    "\") (names are case-sensitive in scene files, commands and the typings; this call works, this warning shows once)");
+    }
+    if (!t) {
+        const std::string sug = reg.suggest(name);
+        // The closest names by edit distance (case-insensitive), nearest first, so a wrong guess still shows where to look.
+        std::vector<std::pair<std::size_t, std::string>> ranked;
+        for (const TypeInfo* c : reg.all())
+            if (c->name != "EntityInfo") ranked.emplace_back(edit_distance(name, c->name), c->name);
+        std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::string closeNames;
+        for (std::size_t i = 0; i < ranked.size() && i < 4; ++i) closeNames += (i ? ", " : "") + ranked[i].second;
+        *exc = throw_err(ctx, "unknown component '" + name + "'" + (sug.empty() ? std::string(".") : "; did you mean '" + sug + "'?") +
+                                  " The closest of the " + std::to_string(ranked.size()) + " components: " + closeNames +
+                                  "; all of them: `factoria api components`");
     }
     return t;
 }
@@ -503,6 +522,50 @@ NATIVE(watchdogCuts) {
 NATIVE(logSeq) {
     (void)thisv; (void)argc; (void)argv;
     return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
+}
+
+// The ERROR log records after `since` (a seq from logSeq), oldest first, as [{ category, message }]. A test that ran while the game
+// logged an error fails (testRun in factoria.js). During a test run the records come from run_tests' own ERROR-only sink, which a
+// chatty test cannot push out; otherwise from the log ring (the last 4096 records of every level).
+NATIVE(logErrors) {
+    SETUP;
+    const std::uint64_t since = static_cast<std::uint64_t>(std::max(0.0, arg_num(ctx, argc, argv, 0, 0)));
+    JSValue arr = JS_NewArray(ctx);
+    uint32_t i = 0;
+    auto add = [&](const LogEntry& e) {
+        JSValue o = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, o, "category", JS_NewString(ctx, e.category.c_str()));
+        JS_SetPropertyStr(ctx, o, "message", JS_NewString(ctx, e.message.c_str()));
+        JS_SetPropertyUint32(ctx, arr, i++, o);
+    };
+    if (I->testErrors) {
+        std::lock_guard<std::mutex> lk(I->testErrors->mu);
+        for (const LogEntry& e : I->testErrors->list)
+            if (e.seq > since) add(e);
+        // The list is capped: say so, never let a flood look like a short list. Only a test that started before the last drop
+        // is told (the ones after the flood have all their errors).
+        if (I->testErrors->dropped > 0 && I->testErrors->lastDroppedSeq > since) {
+            LogEntry note;
+            note.category = "script";
+            note.message = std::to_string(I->testErrors->dropped) + " more ERROR records of this test run were dropped (the runner keeps the first " +
+                           std::to_string(I->kMaxTestErrors) + ").";
+            add(note);
+        }
+    } else {
+        for (const LogEntry& e : recent_logs(4096, LogLevel::Error, since)) add(e);
+    }
+    return arr;
+}
+
+// A script error is logged once per file:line:message (a repeat is dropped). Each test forgets them at its start, so a test whose
+// game throws the same error as the test before still sees it and fails. The same goes for the engine's own once-per-run errors
+// the audio system keeps. run_tests restores `loggedKeys` at its end, but NOT the audio system's list: on a live Play the
+// "missing file" errors the game already logged can log once more after a test run (log noise only, never a failure).
+NATIVE(forgetLoggedErrors) {
+    SETUP;
+    I->loggedKeys.clear();
+    I->host->audio().forget_logged_warnings();  // the audio system's "missing file" errors are logged once per path too
+    return JS_UNDEFINED;
 }
 
 NATIVE(sourceCaret) {
@@ -4217,7 +4280,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(logErrors, 1), R(forgetLoggedErrors, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
