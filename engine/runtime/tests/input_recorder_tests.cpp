@@ -371,6 +371,20 @@ TEST_CASE("input recorder: an action pressed with game.input by name is recorded
     CHECK(st.value()["entities"].dump() == played.dump());
 }
 
+TEST_CASE("input recorder: an action already forced down when the recording starts is written to frame 0") {
+    RecProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    REQUIRE(e.commands().call("game.input", Json::parse(R"({"press":["boost"]})")).ok);
+    e.frame(0.016);
+    e.start_input_recording();
+    e.frame(0.016);
+    const Json replay = e.stop_input_recording();
+    CHECK(replay["frames"]["0"]["actions"]["boost"] == true);
+    e.shutdown();
+}
+
 TEST_CASE("input recorder: a chord (Ctrl held, then a key) is recorded as its keys and replays without problems") {
     RecProject p;
     Json replay;

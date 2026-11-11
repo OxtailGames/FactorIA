@@ -537,6 +537,8 @@ public:
     // press+release between two begin_frame() calls (of the view being read) still yields both edges.
     void set_action_override(std::string_view action, bool down);
     void clear_action_overrides();
+    // The actions forced down right now (set_action_override), in no particular order.
+    std::vector<std::string> action_overrides() const;
 
     // Debug snapshot: keys down, mouse, touches, actions down.
     Json snapshot() const;

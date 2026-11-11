@@ -1,12 +1,14 @@
 // Records the input a game receives, in the input replay format (`factoria run --headless --input`, game.input):
 //   {"frames": {"<n>": {"keys": {"Space": true}, "mouse": {"position": [x, y], "left": true},
 //                       "gamepad": [{"index": 0, "buttons": {"A": true}, "axes": {"LeftX": 0.5}}],
-//                       "touch": [{"id": 1, "position": [x, y], "down": true}], "actions": {"move_left": true}, "back": true, "clipboard": "text",
+//                       "touch": [{"id": 1, "position": [x, y], "down": true}], "actions": {"move_left": true}, "back": true,
+//                       "clipboard": "text",
 //                       "http": [{"result": {"status": 200, "headers": {}, "text": "..."}}], "loadUnits": 3}},
 //    "timing": [[dt, steps], ...], "date": "2026-10-23"}
 // Frame numbers are relative to the start of the recording; an entry is applied BEFORE that frame runs, which is what the
 // events received between two frames mean. Each frame's dt and fixed-step count go to "timing", so the replay runs the same
-// frames (exact even when the window ran slower or faster than the fixed rate).
+// frames (exact even when the window ran slower or faster than the fixed rate). An entry holds the LAST value of a key,
+// button or action in that frame: a press and release between two frames record only the release (no edge in the replay).
 //
 // The Engine owns one (Engine::start_input_recording / stop_input_recording, the `input.record` command) and installs it as
 // the Input observer: every key, mouse, touch, gamepad and Back event the game receives, from a window, a test, a script
