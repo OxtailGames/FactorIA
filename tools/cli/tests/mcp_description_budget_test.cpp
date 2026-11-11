@@ -3,8 +3,8 @@
 // description names. This test walks the REAL registry (engine, tooling, ai and skills commands, as `factoria mcp` serves it).
 #include <doctest.h>
 
+#include <cctype>
 #include <filesystem>
-#include <regex>
 #include <string>
 
 #include "common.h"  // tools/cli/src: Session
@@ -31,7 +31,30 @@ struct RootGuard {
         stdfs::remove_all(root, ec);
     }
 };
+
+// True when a sentence starts right after a full stop that closes `}`, `)` or `]`: "{mask}.Without". A hand loop, not
+// std::regex (slow over a long text and deep recursion on MSVC). `foo(x).Bar(` and `a[0].Name.x` are member accesses: the
+// word after the dot is followed by `(`, `.`, `=`, `[` or `<`.
+bool has_glued_sentence(const std::string& t) {
+    for (std::size_t i = 0; i + 3 < t.size(); ++i) {
+        if (t[i] != '}' && t[i] != ')' && t[i] != ']') continue;
+        if (t[i + 1] != '.' || t[i + 2] < 'A' || t[i + 2] > 'Z' || t[i + 3] < 'a' || t[i + 3] > 'z') continue;
+        std::size_t e = i + 3;
+        while (e < t.size() && (std::isalnum(static_cast<unsigned char>(t[e])) || t[e] == '_')) ++e;
+        if (e < t.size() && std::string("(.=[<").find(t[e]) != std::string::npos) continue;
+        return true;
+    }
+    return false;
+}
 }  // namespace
+
+TEST_CASE("mcp: the glued-sentence check") {
+    CHECK(has_glued_sentence("see {mask}.Without it"));
+    CHECK(has_glued_sentence("a (b).Next"));
+    CHECK_FALSE(has_glued_sentence("foo(x).Bar(1)"));
+    CHECK_FALSE(has_glued_sentence("a[0].Name.x"));
+    CHECK_FALSE(has_glued_sentence("done. Next {x}. Then"));
+}
 
 TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
     constexpr std::size_t kBudget = 1536;
@@ -81,10 +104,9 @@ TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
                                  "with FA_COMMAND_DETAILS), and end the description by naming that section (doc and heading).");
         }
         // A sentence glued to the next one ("{mask}.Without") is a text that lost its space when it was split or joined.
-        const std::regex glued(R"([})\]]\.[A-Z][a-z])");
         for (const CommandInfo* c : session->registry().list()) {
-            CHECK_MESSAGE(!std::regex_search(c->description, glued), c->name << ": a sentence starts right after a full stop, with no space");
-            CHECK_MESSAGE(!std::regex_search(c->details, glued), c->name << ": a sentence of `details` starts right after a full stop, with no space");
+            CHECK_MESSAGE(!has_glued_sentence(c->description), c->name << ": a sentence starts right after a full stop, with no space");
+            CHECK_MESSAGE(!has_glued_sentence(c->details), c->name << ": a sentence of `details` starts right after a full stop, with no space");
         }
     }
 }

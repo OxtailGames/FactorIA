@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 
 ### Changes
 
+- **M100 polish, second wave:** `test.skip("name")` with no function is a pending test; a test run that logs over 20000
+  errors says how many it dropped; `validate` finds `fa.call` inside a template's `${ }`, and reports what the session's
+  teardown logs; `factoria docs read X --json` prints the `docs.read` result without a range flag; the feedback review
+  scores `details` words of six letters or more (three at most); `skin3d.auto` and `project.export` say in their visible
+  description that a bad part writes nothing and that `release` signs on Android.
 - **For game authors and AIs (M100 polish):** `factoria test` and `validate` are steadier. Each test forgets the engine's
   once-per-run errors (a missing sound) so the result does not depend on test order or `--filter`; the errors of a run are
   collected in their own list, so a chatty test cannot push an earlier error out and pass green; errors logged by the

@@ -207,3 +207,16 @@ TEST_CASE("validate scripts: plural receivers, the case caveat, later declarator
     CHECK(find_issue(r.errors, "scripts/polish.js:8") == nullptr);  // `physics` is declared by `let a = 1, physics = ...`
     CHECK(find_issue(r.warnings, "project.scatter") == nullptr);    // only in a comment and a string
 }
+
+TEST_CASE("validate scripts: a call inside a template substitution is found, a call in the template's text is not") {
+    testing::TempDir tmp;
+    const std::string dir = make_game(tmp);
+    write_script(dir, "tools/scatter.js", "export default { name: \"scatter\", summary: \"x\", run() { return {}; } };\n");
+    write_script(dir, "scripts/tpl.js",
+                 "import { Behaviour, fa } from \"factoria\";\nexport default class T extends Behaviour {\n"
+                 "  onStart() {\n    const s = `text ${ [1].map((x) => `${x}`).join(\"\") + fa.call(\"project.scatter\", {}) } end`;\n"
+                 "    return s;\n  }\n}\n");
+    const ValidationReport r = validate_with_engine(dir);
+    for (const ValidationIssue& i : r.warnings) MESSAGE("warning: " << i.to_string());
+    CHECK(find_issue(r.warnings, "scripts/tpl.js:4 calls project.scatter, the command of tools/scatter.js") != nullptr);
+}

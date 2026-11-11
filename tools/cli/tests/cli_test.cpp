@@ -189,6 +189,9 @@ TEST_CASE("docs read refuses a range docs.read would clamp, and --json prints th
     CHECK(parsed.contains("nextStartLine"));
     CHECK(parsed.value("content", std::string()).size() <= 2100);
     CHECK(j.err.empty());
+    auto bare = run({"docs", "read", "ai-guide", "--json"});  // --json alone is a docs.read result too, not the text
+    REQUIRE(bare.code == 0);
+    CHECK(fa::Json::parse(bare.out).contains("content"));
     auto jerr = run({"docs", "read", "ai-guide", "--heading", "Platformr character", "--json"});
     CHECK(jerr.code == 1);
     CHECK(fa::Json::parse(jerr.out).value("ok", true) == false);

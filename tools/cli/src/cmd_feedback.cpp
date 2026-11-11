@@ -669,7 +669,7 @@ Command make_docs_command() {
             for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << d.title << "\n";
             return 0;
         }
-        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes"))
+        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
             return run_docs_read_part(ctx);
         auto t = read_doc(ctx.args.pos(0));
         if (!t.ok()) {
