@@ -1674,8 +1674,8 @@ void register_builtin_components(TypeRegistry& r) {
         .asset_field("song", &MusicPlayer::song, "music", "Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize).")
         .enum_field("mode", &MusicPlayer::mode, {"auto", "live", "stems"},
                     "How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). "
-                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. "
-                    "auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).")
+                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from disk through a small window instead of being decoded whole; it falls back to live, with a warning, when they are missing. "
+                    "auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).")
         .field("volume", &MusicPlayer::volume, "Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.").range(0, 1)
         .field("bus", &MusicPlayer::bus, "Mixer bus the music is summed into: \"music\" (default), \"sfx\", \"ui\" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.")
         .field("intensity", &MusicPlayer::intensity, "0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.").range(0, 1)

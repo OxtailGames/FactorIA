@@ -205,6 +205,15 @@ TEST_CASE("music.render: one stem per layer, same length and loop points, adding
     CHECK(all["count"] == 1);
     CHECK(all["regenerated"][0]["outputs"].size() == 3);
 
+    // the author's `stream` choice in the mix entry survives a new render
+    {
+        Json m = p.manifest();
+        m["assets"][kWav]["import"]["music"]["stream"] = "always";
+        write_all(p.file("assets.json"), m.dump(2) + "\n");
+        p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}, {"stems", "layers"}});
+        CHECK(entry(p, kWav)["import"]["music"]["stream"] == "always");
+    }
+
     // fewer layers: the stem of the layer that went is deleted
     edit(p, Json::array({{{"op", "set_layers"}, {"layers", {{"harmony", nullptr}}}}}));
     const Json again = p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}, {"stems", "layers"}});

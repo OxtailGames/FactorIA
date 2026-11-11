@@ -599,6 +599,7 @@ void Mixer::mix_block(float* out, int frames) {
             float* const dst = t.busBuf[std::size_t(ch.bus)].data();
             const bool was = ch.tr.active();
             ch.tr.set_rate_ratio(rateRatio);
+            ch.tr.set_sync_decode(syncFill_);  // streamed stems: decode a missing chunk here on the null device, play silence on a sound device
             ch.tr.mix(dst, frames);
             if (was || ch.tr.active()) t.used[std::size_t(ch.bus)] = 1;
         }
