@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **IK2D plants feet on the ground (M101.10b, FB-0025):** `IK2D.groundMask` / `groundReach` / `groundOffset` / `groundRest` make
+  the engine aim the chain at the floor under the target (a ray into the 2D physics world, the character's own colliders
+  ignored), keeping the swing lift of a walk clip above the rest height, so a foot marker animated by a clip can be the target
+  and the game needs no ray script. `groundMask` 0 (the default) changes nothing. `update_ik2d` / `solve_ik2d` take an optional
+  `GroundRaycast2D` like `update_ik3d`; one-off solves pass none. Sky Hopper's `feet()` shrinks to switching the mask in the air.
 - **audio.play at a place (M101.3, KW/FB-0006):** `audio.play(path, { position: [x, y, z], range })` plays a one-shot from a
   point with no entity, attenuated and panned by the `AudioListener` as an `AudioSource` with `spatial: true` is (linear
   fall-off to 0 at `range`, default 800; `[x, y]` in 2D). Out of range it plays nothing and returns 0. It does not follow

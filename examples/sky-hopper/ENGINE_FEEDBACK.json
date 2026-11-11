@@ -576,7 +576,10 @@
       ],
       "suggestion": "An optional IK2D.ground mask (project the target onto the first collider below it, within a reach) would make planted feet a data setting.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 252170da: IK2D.groundMask / groundReach / groundOffset / groundRest aim the chain at the floor under the target (the swing lift above groundRest is kept, the character's own colliders are ignored); the clip's gait markers are the IK targets now and feet() only switches groundMask off in the air."
+      ]
     },
     {
       "id": "FB-0026",
