@@ -12,6 +12,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   `rolloffFactor`, and the same three options on `audio.play({position, range, ...})` (one formula, `audio_spatial_gain`;
   docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
   range no longer adds its caption, and `Audio::play_at` returns 0 only out of range (a silent in-range sound still gets an id).
+- **Sound checks (M101.P5):** `sfx.bake` and `sfx.render {variants}` find the shared normalization gain (`normalize.shared`)
+  once per patch instead of once per variant (a 64-variant patch rendered about 4000 times); a velocity no longer disappears into
+  the shared gain; `assets.check_mix` judges loops by the `loopStart`/`loopEnd` of assets.json first (what the engine plays) and
+  the WAV `smpl` chunk only as a fallback, says "skipped" (not "No sounds found") when every sound is a recipe input, and
+  `assets.regenerate` lists at most 8 compared inputs (`comparedCount` has them all) and every missing input of a failure.
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
   keeps a window of 6 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls

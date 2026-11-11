@@ -463,6 +463,8 @@ Result<double> sfx_shared_gain_db(const SfxPatch& patch, const SfxRenderOptions&
     const SfxNormalize norm = options.normalize ? *options.normalize : patch.normalize;
     SfxRenderOptions raw = options;
     raw.normalize = SfxNormalize{SfxNormalizeMode::None, 0.0, 0.0, false};
+    raw.velocity = 1.0;  // the gain levels the sound, not the hit: the caller's velocity stays on top of it
+    raw.sharedGainDb.reset();
     double best = 1e9;  // the lowest gain is the loudest variant's
     const int count = std::max(1, patch.variations.count);
     for (int v = 0; v < count; ++v) {
@@ -491,9 +493,13 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
         const SfxNormalize norm = options.normalize ? *options.normalize : base.normalize;
         double g = 0.0;
         if (norm.mode != SfxNormalizeMode::None) {
-            auto r = sfx_shared_gain_db(base, options);
-            if (!r) return r.error();
-            g = *r;
+            if (options.sharedGainDb) {
+                g = *options.sharedGainDb;
+            } else {
+                auto r = sfx_shared_gain_db(base, options);
+                if (!r) return r.error();
+                g = *r;
+            }
         }
         SfxRenderOptions flat = options;
         flat.normalize = SfxNormalize{SfxNormalizeMode::None, 0.0, 0.0, false};
