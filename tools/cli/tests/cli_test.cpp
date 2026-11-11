@@ -1,6 +1,7 @@
 // In-process tests of the argument parser, command dispatch and the path options of run/call.
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -678,6 +679,70 @@ TEST_CASE("test: named files, folders and globs select what runs; a non-test pat
     auto bad = run({"test", dir, "scripts/helper.js"});
     CHECK(bad.code != 0);
     CHECK(bad.err.find("is not a test file") != std::string::npos);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
+
+// docs/SCRIPTING.md, "Commands from a test", says which commands `fa.call` does NOT have in a test (between the markers
+// `fa-call-not-in-tests` and `end`: exact names or a prefix ending in `*`): the commands of the AI module, which a test run
+// does not register. The list must be exactly the difference between the registry of `factoria call` and that of
+// `factoria test`, and assets.provenance / assets.disclosure answer in a test.
+TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of the test runtime") {
+    const stdfs::path repo = FA_REPO_ROOT;
+    std::ifstream f(repo / "docs/SCRIPTING.md", std::ios::binary);
+    std::string line;
+    std::vector<std::string> lacks;
+    bool in = false;
+    while (std::getline(f, line)) {
+        if (line.find("<!-- fa-call-not-in-tests") != std::string::npos) in = true;
+        else if (line.find("<!-- end -->") != std::string::npos) in = false;
+        else if (in)
+            for (size_t i = line.find('`'); i != std::string::npos; i = line.find('`', i + 1)) {
+                const size_t j = line.find('`', i + 1);
+                if (j == std::string::npos) break;
+                lacks.push_back(line.substr(i + 1, j - i - 1));
+                i = j;
+            }
+    }
+    REQUIRE_FALSE(lacks.empty());
+    const auto matches = [](const std::string& pattern, const std::string& name) {
+        return !pattern.empty() && pattern.back() == '*' ? name.starts_with(pattern.substr(0, pattern.size() - 1)) : name == pattern;
+    };
+
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_commands");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    {
+        std::set<std::string> all, inTest;
+        fa::cli::SessionOptions so;
+        so.gfx = fa::cli::Gfx::None;
+        {
+            auto session = fa::cli::Session::open(dir, so);
+            fa::cli::register_cli_commands(session->registry(), dir, &session->engine());  // what `factoria call` has
+            for (const fa::CommandInfo* c : session->registry().list()) all.insert(c->name);
+        }
+        {
+            auto session = fa::cli::Session::open(dir, so);
+            (void)fa::cli::run_project_tests(session->engine(), "");  // what a test has
+            for (const fa::CommandInfo* c : session->registry().list()) inTest.insert(c->name);
+            for (const char* name : {"assets.provenance", "assets.disclosure"}) {
+                auto r = session->registry().call(name, fa::Json::object());
+                CHECK_MESSAGE(r.ok, name << ": " << r.error.dump());
+            }
+        }
+        for (const std::string& name : all) {
+            const bool documented = std::any_of(lacks.begin(), lacks.end(), [&](const std::string& p) { return matches(p, name); });
+            if (inTest.count(name)) CHECK_MESSAGE(!documented, name << " is registered in a test but docs/SCRIPTING.md says it is not");
+            else CHECK_MESSAGE(documented, "docs/SCRIPTING.md does not list '" << name << "' as missing in a test");
+        }
+        for (const std::string& p : lacks)
+            CHECK_MESSAGE(std::any_of(all.begin(), all.end(), [&](const std::string& n) { return matches(p, n) && !inTest.count(n); }),
+                          "docs/SCRIPTING.md lists '" << p << "' as missing in a test but nothing matches it");
+    }
     std::error_code ec;
     stdfs::remove_all(root, ec);
     fa::fs::set_project_root(oldRoot);

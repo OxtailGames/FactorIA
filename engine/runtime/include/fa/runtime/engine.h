@@ -80,6 +80,9 @@ struct EngineConfig {
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless
     // --date says otherwise; a replay file carries the date it was recorded on. An impossible date makes init fail.
+    // Show the touch interface on a desktop: touch-only controls (TouchStick, TouchButton) are drawn and Input::last_device()
+    // says touch (`factoria run --touch`). Same setting as the ui.force_touch command and game.screenshot {forceTouch}.
+    bool forceTouch = false;
     std::string date;
     int dateUtcOffsetMinutes = 0;  // the player's offset from UTC in minutes (utcOffsetMinutes of game.today()); 0 for a fixed date
     // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
@@ -271,6 +274,8 @@ public:
     const Json& scene_props() const override;
     void request_quit() override;
     void step_frames(int n) override;
+    // Forces the touch interface on or off (Input::set_force_touch) and shows the touch-only controls at once, without a step.
+    void set_force_touch(bool on);
     void set_text_scale(float scale) override;  // also the renderer's
     void set_ui_scale(float scale) override;    // also the renderer's (text measuring)
     bool default_ui_mirror_rtl() const override;  // the ui.mirrorRtl of factoria.json

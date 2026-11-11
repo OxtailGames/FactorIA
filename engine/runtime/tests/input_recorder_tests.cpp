@@ -182,7 +182,7 @@ struct RecProject {
     stdfs::path dir = fs::make_temp_dir("fa_input_rec");
     RecProject() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"scenes/main.scene.json",
-                                   "display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
+                                   "display":{"width":64,"height":64},"physics":{"fixedHz":60},"input":{"actions":{"boost":["B"]}}})");
         write("scenes/main.scene.json",
               R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
                   {"id":"p","components":{"Transform":{},"Script":{"path":"p.js"}}},
@@ -195,6 +195,8 @@ struct RecProject {
                       "    if (pad.pressed('A')) p.y += 1;\n"
                       "    if (input.keyDown('Space')) p.z += 0.25;\n"
                       "    if (input.keyPressed('Enter')) p.z += 100;\n"
+                      "    if (input.down('boost')) p.x += 0.125;\n"
+                      "    if (input.pressed('boost')) p.y += 10;\n"
                       "  }\n"
                       "}\n");
         write("props.js", "import { Behaviour, game, input, scene } from 'factoria';\n"
@@ -324,6 +326,49 @@ TEST_CASE("input recorder: a recorded keyboard and pad session replays to the sa
     auto st = load_json_file(o.stateOutPath);
     REQUIRE(st.ok());
     CHECK(std::hash<std::string>{}(st.value()["entities"].dump()) == std::hash<std::string>{}(played.dump()));
+}
+
+TEST_CASE("input recorder: an action pressed with game.input by name is recorded and replays to the same state") {
+    RecProject p;
+    Json played;
+    int frames = 0;
+    {
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+        e.start_input_recording();
+        for (int i = 0; i < 8; ++i) {
+            if (i == 1) {
+                auto r = e.commands().call("game.input", Json::parse(R"({"press":["boost"]})"));
+                REQUIRE(r.ok);
+            }
+            if (i == 5) {
+                auto r = e.commands().call("game.input", Json::parse(R"({"action":"boost","down":false})"));
+                REQUIRE(r.ok);
+            }
+            e.frame(0.016);
+        }
+        frames = int(e.input_recording_frames());
+        played = e.state()["entities"];
+        const Json replay = e.stop_input_recording();
+        CHECK(replay["frames"]["1"]["actions"]["boost"] == true);
+        CHECK(replay["frames"]["5"]["actions"]["boost"] == false);
+        REQUIRE(save_json_file((p.dir / "session.json").generic_string(), replay).ok());
+        e.shutdown();
+    }
+    const Json playedState = Json::object({{"entities", played}});
+    CHECK(entity_position(playedState, "p")[1].get<double>() == doctest::Approx(10.0));
+    CHECK(entity_position(playedState, "p")[0].get<double>() > 0.0);
+    HeadlessRunOptions o;
+    o.frames = frames;
+    o.inputReplayPath = (p.dir / "session.json").generic_string();
+    o.stateOutPath = (p.dir / "state.json").generic_string();
+    Json report;
+    CHECK(run_headless(p.config(), o, &report) == 0);
+    CHECK_FALSE(report.contains("problems"));
+    auto st = load_json_file(o.stateOutPath);
+    REQUIRE(st.ok());
+    CHECK(st.value()["entities"].dump() == played.dump());
 }
 
 TEST_CASE("input recorder: a chord (Ctrl held, then a key) is recorded as its keys and replays without problems") {

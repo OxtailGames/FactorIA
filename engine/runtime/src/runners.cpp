@@ -366,12 +366,12 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http",
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "actions", "back", "clipboard", "http",
                                                        "loadUnits"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
+                     " A frame entry takes press, release, keys, actions, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -412,6 +412,21 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
                 note("'loadUnits' " + u.dump() + " is out of range: it was clamped to " + std::to_string(n) + " (0.." +
                      std::to_string(BackgroundLoader::kMaxReplayUnits) + ")");
             I.replayLoadUnits = int(n);
+        }
+    }
+    if (entry.contains("actions")) {
+        // Actions forced down or released by name (what game.input {"press": ["move_left"]} did when it was recorded).
+        if (!entry["actions"].is_object()) {
+            note("'actions' must be an object like {\"move_left\": true}");
+        } else {
+            for (auto it = entry["actions"].begin(); it != entry["actions"].end(); ++it) {
+                if (!it->is_boolean()) { note("action '" + it.key() + "' must be true or false"); continue; }
+                if (!I.input.has_action(it.key())) {
+                    note("unknown action '" + it.key() + "' (ignored). " + did_you_mean(it.key(), I.input.action_names()));
+                    continue;
+                }
+                I.input.set_action_override(it.key(), it->get<bool>());
+            }
         }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");

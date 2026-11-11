@@ -161,6 +161,8 @@ public:
     virtual void observe_gamepad_button(int, GamepadButton, bool) {}
     virtual void observe_gamepad_axis(int, GamepadAxis, float) {}
     virtual void observe_back() {}
+    // An action forced down or released with set_action_override (game.input by action name); only real changes.
+    virtual void observe_action(const std::string& /*action*/, bool /*down*/) {}
     virtual void observe_release_all() {}
 };
 
@@ -338,7 +340,13 @@ public:
     // -------- last input (for button prompts and "press a key" screens)
     // The device that produced input last: a key going down, a mouse move/button/wheel, a pad button press or a stick
     // pushed past the deadzone, a finger. A finger counts as touch (not as the mouse it also drives). Keyboard at start.
-    InputDevice last_device() const { return lastDevice_; }
+    // While force_touch() is on it is always Touch (a desktop previewing or testing the touch interface).
+    InputDevice last_device() const { return forceTouch_ ? InputDevice::Touch : lastDevice_; }
+    // Makes the game behave as if the last input came from a finger, whatever really arrives: the touch-only controls
+    // (TouchStick, TouchButton) and the touch prompts are shown on a desktop. Off by default; `factoria run --touch`,
+    // EngineConfig::forceTouch and the ui.force_touch command set it.
+    void set_force_touch(bool on) { forceTouch_ = on; }
+    bool force_touch() const { return forceTouch_; }
     // The binding name ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) of an input that went down
     // this frame, or "" when none did: what a "press a key to rebind" screen waits for. With modifiers held it is the chord
     // ("Ctrl+Z", "Shift+MouseLeft"). A modifier key pressed on its own is reported when it is RELEASED (by its key name,
@@ -682,6 +690,7 @@ private:
     std::vector<TouchControl> touchControls_;
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;
+    bool forceTouch_ = false;
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
     bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;

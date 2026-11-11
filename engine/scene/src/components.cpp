@@ -185,7 +185,7 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
 constexpr const char* kTouchOnlyDoc =
     "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice \"touch\"; "
     "a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on "
-    "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).";
+    "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.";
 
 // autoSize of Button, Toggle and Slider.
 constexpr const char* kAutoSizeDoc =

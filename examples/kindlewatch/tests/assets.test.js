@@ -7,9 +7,9 @@ import { fa } from "factoria";
 /** The commands that make an asset without a provider and without a source file (M51-M59, plus the offline loop and icon makers). */
 const OFFLINE_MAKERS = /^(image\.|sfx\.|audio\.|music\.|model\.|rig\.|skin3d\.|anim3d\.|assets\.generate_loop$|assets\.draw_icon$)/;
 
-const assetsJson = () => JSON.parse(fa.call("fs.read", { path: "assets.json" }).content).assets;
-/** Every record of assets.json as { path, provenance }. */
-const records = () => Object.entries(assetsJson()).map(([path, a]) => ({ path, provenance: a.provenance || {} }));
+/** assets.provenance: every record of assets.json as { path, provenance }, and the art, sound and model files with no record. */
+const provenance = () => fa.call("assets.provenance", {});
+const records = () => provenance().assets;
 
 test("every asset has a recipe of an engine command, none is imported or made by a provider", () => {
   const all = records();
@@ -36,9 +36,7 @@ test("every baked output is fresh: assets.regenerate {stale: true} has nothing t
 });
 
 test("no picture, sound or model sits under assets/ without a record", () => {
-  const known = assetsJson();
-  const files = fa.call("fs.list", { path: "assets", recursive: true }).entries.filter((e) => e.type === "file" && /\.(png|wav|ogg|glb|gltf|mp3)$/.test(e.path));
-  expect(files.length).toBeGreaterThan(60);
-  const unknown = files.map((e) => e.path).filter((p) => !(p in known));
-  expect(unknown, `files with no recipe in assets.json: ${unknown.join(", ")}`).toEqual([]);
+  const { assets, withoutProvenance } = provenance();
+  expect(assets.length).toBeGreaterThan(60);
+  expect(withoutProvenance, `files with no recipe in assets.json: ${withoutProvenance.join(", ")}`).toEqual([]);
 });

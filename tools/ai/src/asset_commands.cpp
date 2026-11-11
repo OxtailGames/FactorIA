@@ -1186,7 +1186,30 @@ Json pick_command(const Ctx& ctx, const Json& args) {
     return out;
 }
 
+void add_read_only_asset_commands(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx) {
+    add_command(
+        registry, ctx, "assets.provenance", "Show where assets came from: the provenance record of one file, or all of them.",
+        "With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many "
+        "are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {\"path\":\"assets/hero.png\"}",
+        Json::parse(R"({"type":"object","properties":{
+            "path":{"type":"string","description":"Project-relative path under assets/. Omit to list every record."}},
+            "additionalProperties":false})"),
+        true, provenance_command);
+    add_command(
+        registry, ctx, "assets.disclosure", "Write the AI-generated content disclosure for store forms (Steam) from the provenance records.",
+        "Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was "
+        "pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that "
+        "nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that "
+        "still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as "
+        "AI_CONTENT_DISCLOSURE.md. Example: {}",
+        Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
+}
+
 }  // namespace
+
+void register_read_only_asset_commands(CommandRegistry& registry, std::function<std::string()> projectDir) {
+    add_read_only_asset_commands(registry, std::make_shared<Ctx>(Ctx{{}, std::move(projectDir), {}, nullptr, {}, {}}));
+}
 
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
                              ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey, AssetApprover approver) {
@@ -1315,14 +1338,6 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         false, file_handler(MediaKind::Model3d));
 
     add_command(
-        registry, ctx, "assets.provenance", "Show where assets came from: the provenance record of one file, or all of them.",
-        "With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many "
-        "are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {\"path\":\"assets/hero.png\"}",
-        Json::parse(R"({"type":"object","properties":{
-            "path":{"type":"string","description":"Project-relative path under assets/. Omit to list every record."}},
-            "additionalProperties":false})"),
-        true, provenance_command);
-    add_command(
         registry, ctx, "assets.set_provenance", "Record where an asset came from (hand-made, imported, or made with AI elsewhere).",
         "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this "
         "for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to "
@@ -1345,14 +1360,7 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "notes":{"type":"string","description":"Anything else, such as edits made by hand."}},
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
-    add_command(
-        registry, ctx, "assets.disclosure", "Write the AI-generated content disclosure for store forms (Steam) from the provenance records.",
-        "Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was "
-        "pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that "
-        "nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that "
-        "still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as "
-        "AI_CONTENT_DISCLOSURE.md. Example: {}",
-        Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
+    add_read_only_asset_commands(registry, ctx);
 }
 
 namespace asset_support {

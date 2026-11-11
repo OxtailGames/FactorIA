@@ -701,6 +701,51 @@ test("move and jump at once; the fingers are the pad's, not touches", () => {
     e.shutdown();
 }
 
+TEST_CASE("ui.force_touch shows the touch controls on a desktop, survives a key press, and game.findByTag is in factoria:test") {
+    TempProject p("forcetouch", R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180}})");
+    p.write("scenes/pad.scene.json", R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "w1", "tags": ["wolf"], "components": { "Transform": {} } },
+    { "id": "w2", "name": "pack", "tags": ["wolf"], "components": { "Transform": {} } },
+    { "id": "w3", "name": "pack", "components": { "Transform": {} } },
+    { "id": "stick", "components": { "Transform": { "position": [10, -10] },
+        "TouchStick": { "anchor": [0, 1], "pivot": [0, 0], "size": [80, 80] } } }
+  ]
+})");
+    p.write("tests/touch.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { world, fa } from "factoria";
+
+test("forced touch shows the stick; the lookups match world", () => {
+  game.load("scenes/pad.scene.json");
+  game.step(1);
+  expect(world.find("stick").get("TouchStick").shown).toBe(false);
+  fa.call("ui.force_touch", { enabled: true });
+  expect(world.find("stick").get("TouchStick").shown).toBe(true);
+  game.tapKey("Space");                            // a key does not hide it
+  game.step(2);
+  expect(world.find("stick").get("TouchStick").shown).toBe(true);
+  fa.call("ui.force_touch", { enabled: false });
+  game.step(1);
+  expect(world.find("stick").get("TouchStick").shown).toBe(false);
+  expect(game.findByTag("wolf").map((e) => e.id)).toEqual(["w1", "w2"]);
+  expect(game.findByTag("wolf").length).toBe(world.findByTag("wolf").length);
+  expect(game.findAll("pack").length).toBe(2);
+  expect(game.findByTag("nothing")).toEqual([]);
+});
+)JS");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
+    CHECK(t.result["passed"].get<int>() == 1);
+    e.shutdown();
+}
+
 TEST_CASE("game.input back is the Back button: a script handler consumes it") {
     TempProject p("back");
     Engine e;
