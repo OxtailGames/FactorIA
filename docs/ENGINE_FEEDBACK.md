@@ -568,6 +568,12 @@ its arguments, exits 0 when everything was done and 1 when a `shareId` is not on
    that version compare the same pattern before and after ("Did the fix work?"), and an entry filed again with `afterFix` is the proof that
    a fix saved nothing.
 
+In this repository the same loop is guarded by a test: the doctest case "feedback/ROADMAP.md counts and names what the
+examples have open" (`tools/common/tests/feedback_roadmap_test.cpp`, ctest `tooling`) runs `feedback collect` over
+`examples/*` and fails when the count line of `feedback/ROADMAP.md` ("N entries from M project(s), K distinct gap(s)")
+differs, or when an open entry is cited nowhere below its "# Next engine milestones" heading as `XX/FB-nnnn` (no package,
+no triage line). The failure lists the ids, the line to add and the command that regenerates the count.
+
 A reason is plain text, 1 to 500 characters, whitespace collapsed, and it is shown verbatim to the person who sent the report, so write
 only about that report: what the engine has and where it is documented (a component, a field, a command, a doc page), or why it is not an engine
 gap. Never mention other installations, other users or anything from the inbox that is not in the report itself. Start from the ready
