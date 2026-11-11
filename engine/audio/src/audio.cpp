@@ -3311,7 +3311,7 @@ float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, floa
     r = std::min(r, reach * 0.999f);
     const float dc = std::max(d, r);
     switch (rolloff) {
-        case AudioRolloff::Inverse: return saturate(r / std::max(r + factor * (dc - r), 1e-6f));
+        case AudioRolloff::Inverse: return saturate(r / std::max(r + factor * (dc - r), r));
         case AudioRolloff::Exponential: return r > 0.0f ? saturate(std::pow(dc / r, -factor)) : 1.0f;
         case AudioRolloff::Linear: break;
     }
@@ -3360,14 +3360,18 @@ static ListenerPose find_listener(World& world) {
 }
 
 VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range,
-                       AudioRolloff rolloff, float refDistance, float rolloffFactor) {
+                       AudioRolloff rolloff, float refDistance, float rolloffFactor, bool* outOfRange) {
+    if (outOfRange) *outOfRange = false;
     const ListenerPose l = find_listener(world);
     PlayParams p = params;
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
         const float reach = std::max(range, 1e-3f) * l.zoom;
-        if (length(d) >= reach) return 0;  // out of range: no voice taken (a quiet sound in range still gets an id)
+        if (length(d) >= reach) {
+            if (outOfRange) *outOfRange = true;
+            return 0;
+        }  // out of range: no voice taken (a quiet sound in range still gets an id)
         p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) * l.volume;
         p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
     }

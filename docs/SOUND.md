@@ -479,7 +479,8 @@ names follow Web Audio's `distanceModel` and OpenAL: `refDistance` (r) is the di
 | `"exponential"` | `(d / r) ^ -k` | `k = 1` is the same as inverse at `r`; higher `k` falls faster |
 
 `refDistance` 0 (the default) means 0 for `linear` and `range / 20` for `inverse` and `exponential` (they need a reference above 0).
-`inverse` and `exponential` never reach 0 by themselves, so every curve is cut at `range` (0 beyond it): choose a `range` where the
+A `refDistance` at or above `range` is held at 99.9% of `range`: the sound stays at full volume up to there and `linear` then drops to 0 just
+before `range`. `inverse` and `exponential` never reach 0 by themselves, so every curve is cut at `range` (0 beyond it): choose a `range` where the
 chosen curve is already quiet. The listener's `zoom` stretches `range` and `refDistance` together. The mixer applies the value
 to the sound's volume, so it multiplies with `volume`, the bus and the listener's own `volume`.
 

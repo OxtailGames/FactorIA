@@ -635,7 +635,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it. Range 0.0..1000000.0. |
 | `rolloff` | enum: linear \| inverse \| exponential | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}). (not released yet, on main after 0.22.0) |
-| `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. Range 0.0..1000000.0. (not released yet, on main after 0.22.0) |
+| `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`. Range 0.0..1000000.0. (not released yet, on main after 0.22.0) |
 | `rolloffFactor` | float | `1.0` | Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away. Range 0.0..100.0. (not released yet, on main after 0.22.0) |
 | `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (since 0.21.0) |
 
@@ -16140,7 +16140,7 @@ declare module "factoria" {
      */
     rolloff: "linear" | "inverse" | "exponential";
     /**
-     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20.
+     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
      * @since unreleased
      */
     refDistance: number;
