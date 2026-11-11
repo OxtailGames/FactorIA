@@ -981,10 +981,25 @@ declare module "factoria" {
      */
     priority?: number;
     /**
-     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls linearly to 0 at `range` from the AudioListener (else the primary camera) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing and play() returns 0. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
+     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
      * @since unreleased
      */
     position?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
+     * @since unreleased
+     */
+    rolloff?: "linear" | "inverse" | "exponential";
+    /**
+     * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
+     * @since unreleased
+     */
+    refDistance?: number;
+    /**
+     * With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position.
+     * @since unreleased
+     */
+    rolloffFactor?: number;
     /**
      * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
      * @since unreleased
@@ -7675,9 +7690,24 @@ declare module "factoria" {
      */
     spatial: boolean;
     /**
-     * Spatial only: distance in world units where the volume reaches 0.
+     * Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it.
      */
     range: number;
+    /**
+     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
+     * @since unreleased
+     */
+    rolloff: "linear" | "inverse" | "exponential";
+    /**
+     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20.
+     * @since unreleased
+     */
+    refDistance: number;
+    /**
+     * Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.
+     * @since unreleased
+     */
+    rolloffFactor: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
      * @since 0.21.0
@@ -9908,7 +9938,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; priority?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential"; refDistance?: number; rolloffFactor?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

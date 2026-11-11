@@ -1158,6 +1158,9 @@ struct NavLink3D {
 };
 
 // ---------------------------------------------------------------- audio ---
+// How a spatial sound gets quieter with distance (AudioSource.rolloff, audio.play's rolloff): see audio_spatial_gain in fa/audio/audio.h.
+enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential };
+
 struct AudioSource {
     std::string clip;                 // asset path (.wav, .ogg, .mp3)
     std::int32_t variants = 0;        // 0 or 1: play `clip`; 2..64: each play picks one of clip_01 ... clip_NN (sfx.bake of a patch with `variations`)
@@ -1168,6 +1171,9 @@ struct AudioSource {
     bool playing = false;             // runtime: true while a voice is playing; set true to play, false to stop
     bool spatial = false;             // pan/attenuate relative to the AudioListener
     float range = 800.0f;             // spatial: distance where volume reaches 0 (world units)
+    AudioRolloff rolloff = AudioRolloff::Linear;  // spatial: the fall-off curve between refDistance and range
+    float refDistance = 0.0f;         // spatial: distance up to which the sound is at full volume (0: linear starts at 0, the others use range / 20)
+    float rolloffFactor = 1.0f;       // spatial: steepness of the curve (linear: 1 reaches 0 at range; inverse and exponential: higher = faster)
     std::int32_t priority = 128;      // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 

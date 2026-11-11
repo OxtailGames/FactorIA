@@ -8,6 +8,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **Rolloff for spatial sounds (M101.3):** `AudioSource.rolloff` (`linear` default, `inverse`, `exponential`) with `refDistance` and
+  `rolloffFactor`, and the same three options on `audio.play({position, range, ...})` (one formula, `audio_spatial_gain`;
+  docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
+  range no longer adds its caption, and `Audio::play_at` returns 0 only out of range (a silent in-range sound still gets an id).
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
   keeps a window of 4.5 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls
