@@ -324,6 +324,7 @@ struct TestCaseResult {
     std::string name;
     bool passed = false;
     std::string message;  // failure message with expected/actual
+    bool loggedError = false;  // failed (also) because the game logged an error while the test ran (script error or engine ERROR)
     double milliseconds = 0.0;
     std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };

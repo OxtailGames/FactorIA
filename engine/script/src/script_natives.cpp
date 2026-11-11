@@ -505,6 +505,30 @@ NATIVE(logSeq) {
     return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
 }
 
+// The ERROR log records after `since` (a seq from logSeq), oldest first, as [{ category, message }]. A test that ran while the game
+// logged an error fails (testRun in factoria.js). The ring keeps 4096 records; errors are rare, so that is far more than a test makes.
+NATIVE(logErrors) {
+    (void)thisv;
+    const std::uint64_t since = static_cast<std::uint64_t>(std::max(0.0, arg_num(ctx, argc, argv, 0, 0)));
+    JSValue arr = JS_NewArray(ctx);
+    uint32_t i = 0;
+    for (const LogEntry& e : recent_logs(4096, LogLevel::Error, since)) {
+        JSValue o = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, o, "category", JS_NewString(ctx, e.category.c_str()));
+        JS_SetPropertyStr(ctx, o, "message", JS_NewString(ctx, e.message.c_str()));
+        JS_SetPropertyUint32(ctx, arr, i++, o);
+    }
+    return arr;
+}
+
+// A script error is logged once per file:line:message (a repeat is dropped). Each test forgets them at its start, so a test whose
+// game throws the same error as the test before still sees it and fails.
+NATIVE(forgetLoggedErrors) {
+    SETUP;
+    I->loggedKeys.clear();
+    return JS_UNDEFINED;
+}
+
 NATIVE(sourceCaret) {
     (void)thisv;
     return JS_NewString(ctx, source_caret(arg_str(ctx, argc, argv, 0), static_cast<int>(arg_num(ctx, argc, argv, 1, 0)),
@@ -4217,7 +4241,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(logErrors, 1), R(forgetLoggedErrors, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),

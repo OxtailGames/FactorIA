@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs (M100.2):** a test fails when the game fails. A test during which a game script threw (a callback, an event handler, a promise, a module's top level) or the engine logged an `ERROR` (a sound that is not there, a refused command) now fails with the first such error, its file and line as its message, whatever its assertions said; before, only the test's own exceptions and assertions counted, and a script error showed up in the log while every test passed. `console.error` is not an error. A test about an error says so: `game.expectErrors(/pattern/)` inside it or `test(name, fn, { expectErrors: [/pattern/] })`; an expected error that is never logged fails too. `factoria test` counts these failures in its summary (`loggedError` on the case in `--json`) and its exit code follows. A script error is logged again for each test that causes it (it used to be logged once per file). The tests of every example and template pass under the rule.
+
 ## 0.21.0
 
 FactorIA 0.21.0 (M91) makes the runtime independent of the renderer. Sprite animators and particles advance in the
