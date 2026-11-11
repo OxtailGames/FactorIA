@@ -1177,6 +1177,39 @@ std::string tiny_wav() {
 }
 }  // namespace
 
+TEST_CASE("audio.play at a position is attenuated and panned by the listener") {
+    TestHost h("audioat");
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+const scene = { format: "factoria.scene/1", entities: [{ id: "ear", components: { AudioListener: {} } }] };
+test("position and range", () => {
+  game.loadJson(scene);
+  game.step(1);
+  audio.play("assets/sfx/coin.wav", { position: [50, 0, 0], range: 100 });
+  audio.play("assets/sfx/coin.wav", { position: { x: 0, y: 0 }, range: 100, volume: 0.5 });
+  expect(audio.play("assets/sfx/coin.wav", { position: [100, 0, 0], range: 100 })).toBe(0);
+  const log = game.audioLog();
+  expect(log).toHaveLength(2);
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[0].pan).toBeCloseTo(1);
+  expect(log[1].volume).toBeCloseTo(0.5);
+  expect(log[1].pan).toBeCloseTo(0);
+});
+test("bad arguments explain", () => {
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1] })).toThrow(/position is \[x, y, z\]/);
+  expect(() => audio.play("assets/sfx/coin.wav", { range: 5 })).toThrow(/needs a position/);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 2);
+    CHECK_MESSAGE(rep.cases[0].passed, rep.cases[0].message);
+    CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+}
+
 TEST_CASE("tests: game.audioLog and toContainPlayed assert which sounds played") {
     TestHost h("audiolog");
     h.file("assets/sfx/jump.wav", tiny_wav());
