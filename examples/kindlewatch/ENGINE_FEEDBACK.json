@@ -162,7 +162,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in a6649245: audio.play(path, { position, range }) plays a one-shot from a place with the AudioSource spatial model (docs/SOUND.md, \"A sound at a place\"). There is no rolloff option: AudioSource has only the linear fall-off."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0007",
