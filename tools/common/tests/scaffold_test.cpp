@@ -41,7 +41,7 @@ TEST_CASE("scaffold: every template produces a valid project") {
         for (const char* f : {"factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md", "CLAUDE.md", ".gitignore", "jsconfig.json",
                               ".mcp.json", "types/factoria.d.ts", "README.md", "scenes/main.scene.json"})
             CHECK_MESSAGE(stdfs::exists(stdfs::path(dir) / f), f);
-        CHECK(testing::read_all(stdfs::path(dir) / "AGENTS.md") == testing::read_all(stdfs::path(dir) / "CLAUDE.md"));
+        CHECK(testing::read_all(stdfs::path(dir) / "CLAUDE.md") == "@AGENTS.md\n");
         CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find(".factoria/") != std::string::npos);
         CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find("\nbuild/\n") != std::string::npos);
         CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "template.json"));
@@ -89,6 +89,8 @@ TEST_CASE("scaffold: AGENTS.md is a crisp guide") {
     CHECK(guide.find("feedback") != std::string::npos);
     CHECK(guide.find("factoria validate") != std::string::npos);
     CHECK(std::count(guide.begin(), guide.end(), '\n') < 200);
+    CHECK(guide.find("--heading") != std::string::npos);  // read by section, never the whole ai-guide
+    CHECK(guide.find("never whole") != std::string::npos);
 }
 
 TEST_CASE("scaffold: refuses non-empty dir unless forced, unknown template teaches") {
