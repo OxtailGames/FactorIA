@@ -5980,9 +5980,14 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.
      */
     loop: boolean;
+    /**
+     * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
+     * @since unreleased
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Set false to pause, true to play.
      */
@@ -9847,7 +9852,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };

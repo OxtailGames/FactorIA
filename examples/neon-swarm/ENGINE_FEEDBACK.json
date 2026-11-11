@@ -441,7 +441,11 @@
       "suggestion": "A tri-state loop override on SpriteAnimator (inherit / loop / once).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e10a8c7d",
+      "notes": [
+        "Fixed in e10a8c7d: SpriteAnimator.loopMode (inherit | loop | once) overrides the clip's loop flag; the bool loop stays as an alias (false = once)."
+      ]
     },
     {
       "id": "FB-0020",

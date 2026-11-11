@@ -168,6 +168,7 @@ struct Sprite {
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
 enum class SpriteAnimMode : std::int32_t { Forward, Reverse, PingPong };
+enum class SpriteLoopMode : std::int32_t { Inherit, Loop, Once };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
 // it overwrites Sprite.region every frame. `clip` takes the grid and the clip from the sheet entry of the texture in
@@ -178,7 +179,8 @@ struct SpriteAnimator {
     std::int32_t firstFrame = 0;      // inclusive, row-major index into the grid
     std::int32_t lastFrame = 0;       // inclusive
     float fps = 10.0f;
-    bool loop = true;
+    bool loop = true;                 // alias kept for old scenes: false = once; true (default) = no opinion (see loopMode)
+    SpriteLoopMode loopMode = SpriteLoopMode::Inherit;  // inherit: the clip's own loop flag (or `loop`); loop; once
     bool playing = true;
     float time = 0.0f;                // runtime: elapsed time in the current clip (seconds)
     std::int32_t frame = 0;           // runtime: current frame index

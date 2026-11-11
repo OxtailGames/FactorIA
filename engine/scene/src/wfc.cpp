@@ -896,7 +896,10 @@ struct Generator::Impl {
         failure.cellRule = -1;
         ++failedAttempts;
         if (isContradiction) ++stats.contradictions;
-        else ++stats.rejected;
+        else {
+            ++stats.rejected;
+            if (reason.find("cut off") != std::string::npos) ++stats.cutOff;
+        }
         if (attempt >= opt.maxAttempts) {
             status = GenStatus::Failed;
             if (isContradiction) failure.cellRule = nearest_cell_rule(x, y);
@@ -1554,6 +1557,10 @@ std::string Generator::failure_message() const {
         }
     } else {
         m += ". The last finished level was refused: " + f.reason;
+        if (s.cutOff * 2 > s.attempts)
+            m += ". Cut-off areas refused " + std::to_string(s.cutOff) + " of " + std::to_string(s.attempts) +
+                 " attempts, so the sample's shape is the cause: it joins its open areas (rooms) by passages one cell wide, or draws walkable pockets "
+                 "closed by walls, and the level repeats that, leaving islands";
     }
     return m;
 }
@@ -1578,6 +1585,9 @@ std::string Generator::failure_hint() const {
         if (!o.forbidden.empty()) h += ", fewer forbidden tiles (they remove every pattern that holds them)";
         if (anyMin) h += ", lower minimums (a missing tile is pinned at a cell drawn from the seed, which can clash with its neighbours)";
         h += ".";
+    } else if (f.x < 0 && impl_->stats.cutOff * 2 > impl_->stats.attempts) {
+        h = "Fix the sample: draw open areas with passages 2-3 cells wide, no walkable pocket closed by walls, and no isolated walkable tile; "
+            "or drop reachability.allConnected (or give reachability.from so only the area around it must be whole), or give more attempts (maxAttempts) or another seed.";
     } else if (f.countRule >= 0) {
         h = "Lower the minimum or raise the maximum, ask for a bigger output, make the sample show the tile (a tile that is rare in the sample is rare in the level, and one drawn only on the sample's edge can hardly be placed), "
             "give more attempts (maxAttempts), or use another seed.";

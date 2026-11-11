@@ -553,7 +553,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("firstFrame", &SpriteAnimator::firstFrame, "First frame of the clip (inclusive, row-major index).")
         .field("lastFrame", &SpriteAnimator::lastFrame, "Last frame of the clip (inclusive, row-major index).")
         .field("fps", &SpriteAnimator::fps, "Playback speed in frames per second.").range(0, 1000)
-        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.")
+        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.")
+        .enum_field("loopMode", &SpriteAnimator::loopMode, {"inherit", "loop", "once"},
+                    "Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop "
+                    "flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last "
+                    "frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. "
+                    "Anything but inherit wins over `loop`.")
         .field("playing", &SpriteAnimator::playing, "Set false to pause, true to play.")
         .field("clip", &SpriteAnimator::clip,
                "Name of a clip of the Sprite texture's `sheet` entry in assets.json (\"run\"); \"\" = none, the numeric fields alone. "
