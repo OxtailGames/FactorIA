@@ -530,3 +530,49 @@ TEST_CASE("anim3d.generate and anim3d.retarget record a recipe; assets.regenerat
     CHECK(blank["ai"] == false);
     CHECK_FALSE(blank.contains("recipe"));
 }
+
+TEST_CASE("anim3d writing commands are not read-only, check assets.json before they write, and restore puts the clip's record back too") {
+    RigProject p;
+    for (const char* cmd : {"anim3d.create", "anim3d.set_keys", "anim3d.remove_track", "anim3d.restore", "anim3d.move_keys", "anim3d.remove_keys", "anim3d.set_interp", "anim3d.set_clip",
+                            "anim3d.add_event", "anim3d.set_event", "anim3d.remove_event", "anim3d.mirror_pose", "anim3d.generate", "anim3d.retarget", "ik3d.key"})
+        CHECK_MESSAGE(p.registry.info(cmd)->readOnly == false, cmd << " writes files");
+    for (const char* cmd : {"anim3d.info", "anim3d.preview", "anim3d.generators", "ik3d.check", "ik3d.solve"}) CHECK_MESSAGE(p.registry.info(cmd)->readOnly, cmd);
+
+    // a broken assets.json: the command fails and no file changed
+    const std::string walk = "anim/hero_walk.anim.json";
+    p.ok("anim3d.generate", {{"rig", kHero}, {"kind", "walk"}, {"out", walk}});
+    const std::string clipBefore = read_all(p.file(walk));
+    const std::string manifest = read_all(p.file("assets.json"));
+    write_all(p.file("assets.json"), "[1, 2");
+    const std::string err = p.error_text("anim3d.set_clip", {{"path", walk}, {"loop", false}});
+    CHECK(contains(err, "assets.json"));
+    CHECK(read_all(p.file(walk)) == clipBefore);
+    CHECK(contains(p.error_text("anim3d.create", {{"path", "anim/x.anim.json"}}), "assets.json"));
+    CHECK_FALSE(p.exists("anim/x.anim.json"));
+    CHECK(contains(p.error_text("anim3d.restore", {{"path", walk}, {"clip", nullptr}}), "assets.json"));
+    CHECK(p.exists(walk));
+    write_all(p.file("assets.json"), manifest);
+
+    // an edit drops the recipe; its undo puts the clip AND the record (recipe included) back, with no "Edited by hand" note
+    const Json recorded = p.manifest()["assets"][walk]["provenance"];
+    REQUIRE(recorded.contains("recipe"));
+    const Json edit = p.ok("anim3d.set_clip", {{"path", walk}, {"loop", false}});
+    CHECK_FALSE(p.manifest()["assets"][walk]["provenance"].contains("recipe"));
+    const Json redo = p.ok("anim3d.restore", edit["undo"]["args"]);
+    CHECK(read_all(p.file(walk)) == clipBefore);
+    CHECK(p.manifest()["assets"][walk]["provenance"] == recorded);
+    // and the redo goes forward again
+    p.ok("anim3d.restore", redo["undo"]["args"]);
+    CHECK_FALSE(p.manifest()["assets"][walk]["provenance"].contains("recipe"));
+    CHECK(p.clip(walk)["loop"] == false);
+
+    // deleting a clip (clip: null) removes its record; the undo of the delete brings both back
+    p.ok("anim3d.generate", {{"rig", kHero}, {"kind", "idle"}, {"out", "anim/hero_idle.anim.json"}});
+    const Json idleRecord = p.manifest()["assets"]["anim/hero_idle.anim.json"]["provenance"];
+    const Json deleted = p.ok("anim3d.restore", {{"path", "anim/hero_idle.anim.json"}, {"clip", nullptr}});
+    CHECK_FALSE(p.exists("anim/hero_idle.anim.json"));
+    CHECK_FALSE(p.manifest()["assets"].contains("anim/hero_idle.anim.json"));
+    p.ok("anim3d.restore", deleted["undo"]["args"]);
+    CHECK(p.exists("anim/hero_idle.anim.json"));
+    CHECK(p.manifest()["assets"]["anim/hero_idle.anim.json"]["provenance"] == idleRecord);
+}

@@ -264,7 +264,7 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
 | `track` | object | yes |  |
 
-## `anim3d.add_event`
+## `anim3d.add_event` (modifies state)
 
 Since 0.16.0.
 
@@ -281,7 +281,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-## `anim3d.create`
+## `anim3d.create` (modifies state)
 
 Since 0.16.0.
 
@@ -338,7 +338,7 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 | `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
 | `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 
-## `anim3d.mirror_pose`
+## `anim3d.mirror_pose` (modifies state)
 
 Since 0.16.0.
 
@@ -355,7 +355,7 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 | `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
 | `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
 
-## `anim3d.move_keys`
+## `anim3d.move_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -390,7 +390,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 | `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-## `anim3d.remove_event`
+## `anim3d.remove_event` (modifies state)
 
 Since 0.16.0.
 
@@ -403,7 +403,7 @@ Remove an event from a 3D clip.
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 
-## `anim3d.remove_keys`
+## `anim3d.remove_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -416,7 +416,7 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
-## `anim3d.remove_track`
+## `anim3d.remove_track` (modifies state)
 
 Since 0.16.0.
 
@@ -430,18 +430,19 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
-## `anim3d.restore`
+## `anim3d.restore` (modifies state)
 
 Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
-Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
+Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly, null removes it; without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
+| `provenance` | any | no | The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it. |
 
 ## `anim3d.retarget` (modifies state)
 
@@ -462,7 +463,7 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-## `anim3d.set_clip`
+## `anim3d.set_clip` (modifies state)
 
 Since 0.16.0.
 
@@ -478,7 +479,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 | `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
 | `doc` | string | no | What the clip shows. |
 
-## `anim3d.set_event`
+## `anim3d.set_event` (modifies state)
 
 Since 0.16.0.
 
@@ -496,7 +497,7 @@ Move, rename or change the data or the game feel actions of an event of a 3D cli
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-## `anim3d.set_interp`
+## `anim3d.set_interp` (modifies state)
 
 Since 0.16.0.
 
@@ -510,7 +511,7 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `interp` | string | yes | linear, step, bezier or an easing name. |
 
-## `anim3d.set_keys`
+## `anim3d.set_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -540,7 +541,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 | `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
 
-## `ik3d.key`
+## `ik3d.key` (modifies state)
 
 Since 0.16.0.
 

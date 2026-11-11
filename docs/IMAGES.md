@@ -284,7 +284,8 @@ and unknown anchors are errors with the JSON pointer and a "did you mean".
 
 - `image.create {path, width, height, background?, layers?, description?, output?, overwrite?}` writes a new document (it
   refuses to replace one unless `overwrite`). `output` is the project-relative `.png` the document bakes to (the document's
-  `output` field, checked like the other path arguments); without it the PNG goes next to the document.
+  `output` field, checked like the other path arguments); without it the PNG goes next to the document. An `output` over a PNG that
+  already exists (an imported one, say) is replaced by the bake, and that file's `assets.json` record is rewritten to the bake's.
 - `image.info {path}` lists the layers as a tree (index path, name, kind, size, source, number of masks, adjustments and
   effects), whether the document is valid, its palette (source, number of colours and ramps) when it has one, its bake status,
   the files it reads and its stored selections. Read-only.
