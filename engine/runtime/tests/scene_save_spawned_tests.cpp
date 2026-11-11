@@ -37,7 +37,7 @@ export default class Builder extends Behaviour {
     const group = world.spawn({ id: 'spawned_group', name: 'Group', components: { Transform: { position: [1, 2, 0] } },
                                 children: [{ id: 'spawned_kid', components: { Transform: { position: [3, 0, 0] } } }] });
     world.spawn({ id: 'spawned_loose', components: { Shape2D: { size: [4, 4] } } });
-    world.spawn({ id: 'under_hero', components: {} }, world.find('hero'));
+    world.spawn({ id: 'under_hero', components: {} }, { parent: world.find('hero') });
   }
 }
 )JS";

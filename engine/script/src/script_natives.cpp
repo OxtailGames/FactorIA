@@ -155,12 +155,28 @@ bool need_entity(Impl* I, JSContext* ctx, JSValueConst v, Entity& out, JSValue& 
     }
 
 const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc) {
-    const TypeInfo* t = TypeRegistry::global().find(name);
-    if (!t) t = TypeRegistry::global().find_ci(name);
+    const TypeRegistry& reg = TypeRegistry::global();
+    const TypeInfo* t = reg.find(name);
     if (!t) {
-        std::string sug = TypeRegistry::global().suggest(name);
-        *exc = throw_err(ctx, "unknown component '" + name + "'" +
-                                  (sug.empty() ? std::string("; see `factoria api components`") : "; did you mean '" + sug + "'?"));
+        t = reg.find_ci(name);
+        // Names are case-sensitive everywhere else (scene files, commands, the typings): it works here, once, with a warning.
+        if (t && impl_of(ctx)->caseWarned.insert(name).second)
+            log(LogLevel::Warn, "script",
+                "the component is called '" + t->name + "', not '" + name + "': use entity.get(\"" + t->name +
+                    "\") (names are case-sensitive in scene files, commands and the typings; this call works, this warning shows once)");
+    }
+    if (!t) {
+        const std::string sug = reg.suggest(name);
+        // The closest names by edit distance (case-insensitive), nearest first, so a wrong guess still shows where to look.
+        std::vector<std::pair<std::size_t, std::string>> ranked;
+        for (const TypeInfo* c : reg.all())
+            if (c->name != "EntityInfo") ranked.emplace_back(edit_distance(name, c->name), c->name);
+        std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::string closeNames;
+        for (std::size_t i = 0; i < ranked.size() && i < 4; ++i) closeNames += (i ? ", " : "") + ranked[i].second;
+        *exc = throw_err(ctx, "unknown component '" + name + "'" + (sug.empty() ? std::string(".") : "; did you mean '" + sug + "'?") +
+                                  " The closest of the " + std::to_string(ranked.size()) + " components: " + closeNames +
+                                  "; all of them: `factoria api components`");
     }
     return t;
 }
