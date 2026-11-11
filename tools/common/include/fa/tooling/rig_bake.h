@@ -3,6 +3,7 @@
 // (fa/scene/rig_doc.h, rig_fit.h, rig_glb.h); this is the project side, shared by the rig.* commands, project.validate and `factoria export`.
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -58,10 +59,20 @@ const char* rig_bake_state_name(RigBakeState state);
 struct RigBakeOptions {
     bool onlyIfNeeded = false;  // do nothing when the status is Fresh
     bool overwrite = false;     // replace a file at the output that this document did not make
+    // Weld the skinned parts that share a material into one submesh (one draw call each, rig_merge_parts). Not given: what the last bake of
+    // this document used (its recipe in assets.json), else false.
+    std::optional<bool> mergeParts;
 };
+// Joins the submeshes of `mesh` that have the same material into one (in order of first appearance; its part is the parts joined with "+").
+// Only the index list is reordered: no vertex is added, moved or dropped, so per-vertex skin weights, joints and the bind pose stay valid and a
+// posed frame looks the same. Returns the number of submeshes left.
+std::size_t rig_merge_parts(MeshData& mesh);
 struct RigBakeResult {
     std::string document;  // project-relative
     std::string output;    // the .glb, project-relative
+    bool mergeParts = false;           // the parts were merged
+    std::size_t submeshesBefore = 0;   // draw calls (per pass) of the baked model before and after the merge
+    std::size_t submeshesAfter = 0;
     bool written = false;  // false: it was Fresh and onlyIfNeeded was set
     std::size_t bytes = 0;
     std::string sha256;

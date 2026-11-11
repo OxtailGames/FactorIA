@@ -340,7 +340,11 @@
       ],
       "suggestion": "Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: rig.bake {mergeParts} regroups the skinned submeshes by material. The scout bakes with it (8 submeshes -> 2); the example's drawCalls go 30 -> 18 (tools/cli/tests/perf/gem-roller.perf.json)."
+      ]
     },
     {
       "id": "FB-0015",

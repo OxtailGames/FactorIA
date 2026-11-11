@@ -419,7 +419,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: model.game_ready's collider takes part (fit to one named part, also with merge), radius and height. pine.model.json uses {shape capsule, part trunk, radius 0.32}; the 66 scene overrides are removed."
+      ]
     },
     {
       "id": "FB-0017",
@@ -547,7 +551,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: rig.bake {mergeParts} regroups the skinned submeshes by material (same vertices, weights and bind pose). The three rigs are baked with it; the game's drawCalls go 75 -> 38 (tools/cli/tests/perf/kindlewatch.perf.json)."
+      ]
     }
   ]
 }
