@@ -1,0 +1,44 @@
+{
+  "format": "factoria.agent-cost/1",
+  "cli": "claude",
+  "model": "sonnet",
+  "brief": "platformer-3-levels-v1",
+  "factoriaVersion": "0.21.0",
+  "exitStatus": 0,
+  "elapsedSeconds": 217,
+  "total": {
+    "steps": 39,
+    "toolCalls": 55,
+    "minutes": 3.6,
+    "tokens": 2098048,
+    "costUsd": 0.64,
+    "inputTokens": 78,
+    "outputTokens": 21221,
+    "cacheWriteTokens": 54956,
+    "cacheReadTokens": 2042078,
+    "stopReason": "completed",
+    "cliTurns": 56
+  },
+  "firstPlayable": {
+    "reached": false,
+    "playAutoCalls": 0
+  },
+  "finalGame": {
+    "reachedLastLevel": false,
+    "phases": 1,
+    "ended": "won",
+    "scriptErrors": 0
+  },
+  "engineErrors": {
+    "count": 0,
+    "byCode": {},
+    "first": []
+  },
+  "notCaught": {
+    "count": 0,
+    "items": []
+  },
+  "notes": [
+    "No play.auto in the run reached the last level (a play.auto run that ended \"won\" after at least 3 phases): there is no first playable build to measure."
+  ]
+}

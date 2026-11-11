@@ -16,6 +16,7 @@
 #include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
 #include "fa/tooling/tooling.h"
+#include "fa/tooling/agent_cost.h"
 
 namespace fa::cli {
 
@@ -252,6 +253,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
+        register_agent_cost_commands(registry);
         register_setup_commands(registry);
         register_update_commands(registry);
         CommandInfo info;
