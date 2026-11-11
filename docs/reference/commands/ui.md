@@ -48,7 +48,7 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 
 ## `ui.force_touch` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
 

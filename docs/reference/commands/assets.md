@@ -1480,7 +1480,7 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 
 ## `image.resize` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
 
@@ -2743,7 +2743,7 @@ Moves the weights of each vertex towards the average of the vertices that share 
 
 ## `style.ignore` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
 
@@ -2757,7 +2757,7 @@ Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets
 
 ## `style.set_role` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
 

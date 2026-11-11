@@ -226,7 +226,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.pixel.rotate`](commands/assets.md#imagepixelrotate-modifies-state): Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur. _Since 0.16.0._
 - [`image.pixel.scale`](commands/assets.md#imagepixelscale-modifies-state): Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending. _Since 0.16.0._
 - [`image.pixel.shade`](commands/assets.md#imagepixelshade-modifies-state): Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition. _Since 0.16.0._
-- [`image.resize`](commands/assets.md#imageresize-modifies-state): Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake. _Not released yet._
+- [`image.resize`](commands/assets.md#imageresize-modifies-state): Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake. _Since 0.23.0._
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Since 0.16.0._
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Since 0.16.0._
 - [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Since 0.16.0._
@@ -290,8 +290,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
 - [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Since 0.16.0._
 - [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Since 0.16.0._
-- [`style.ignore`](commands/assets.md#styleignore-modifies-state): Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore. _Not released yet._
-- [`style.set_role`](commands/assets.md#styleset_role-modifies-state): Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them. _Not released yet._
+- [`style.ignore`](commands/assets.md#styleignore-modifies-state): Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore. _Since 0.23.0._
+- [`style.set_role`](commands/assets.md#styleset_role-modifies-state): Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them. _Since 0.23.0._
 - [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Since 0.16.0._
 - [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Since 0.16.0._
 - [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Since 0.16.0._
@@ -573,7 +573,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ui.caption`](commands/ui.md#uicaption-modifies-state): Show a subtitle line on the Captions component for a few seconds. _Since 0.2.0._
 - [`ui.check_layout`](commands/ui.md#uicheck_layout-modifies-state): Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen. _Since 0.2.0._
 - [`ui.clear_captions`](commands/ui.md#uiclear_captions-modifies-state): Remove every subtitle from the screen now. _Since 0.2.0._
-- [`ui.force_touch`](commands/ui.md#uiforce_touch-modifies-state): Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch. _Not released yet._
+- [`ui.force_touch`](commands/ui.md#uiforce_touch-modifies-state): Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch. _Since 0.23.0._
 - [`ui.set_mirror_rtl`](commands/ui.md#uiset_mirror_rtl-modifies-state): Turn the mirroring of the screen-space UI in a right-to-left language on or off. _Since 0.3.0._
 - [`ui.set_scale`](commands/ui.md#uiset_scale-modifies-state): Set the interface scale: every screen-space widget and Text gets bigger or smaller. _Since 0.3.0._
 - [`ui.set_slider`](commands/ui.md#uiset_slider-modifies-state): Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent. _Since 0.3.0._

@@ -140,7 +140,7 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `lastFrame` | int | `0` | Last frame of the clip (inclusive, row-major index). |
 | `fps` | float | `10.0` | Playback speed in frames per second. Range 0.0..1000.0. |
 | `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`. |
-| `loopMode` | enum: inherit \| loop \| once | `"inherit"` | Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`. (not released yet, on main after 0.22.0) |
+| `loopMode` | enum: inherit \| loop \| once | `"inherit"` | Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`. (since 0.23.0) |
 | `playing` | bool | `true` | Set false to pause, true to play. |
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \| reverse \| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
@@ -190,10 +190,10 @@ Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the 
 | `bend` | enum: positive \| negative | `"positive"` | twoBone: which way the middle joint (the elbow, the knee) bends. positive = this bone's rotation.z ends up counter-clockwise (greater) from the one above it, negative = clockwise. A character facing right with a knee in front usually wants one of them; flipping the whole character (a negative Transform.scale.x) is taken into account, so the knee stays in front. |
 | `weight` | float | `1.0` | 0 to 1. 1 = the chain takes the solved pose; 0 = the animated pose stays; in between blends each bone's angle the short way round. Fade it in while a foot is planted, out in the air. Range 0.0..1.0. |
 | `solver` | enum: twoBone \| ccd | `"twoBone"` | twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`. |
-| `groundMask` | int | `0` | Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0. (not released yet, on main after 0.22.0) |
-| `groundReach` | float | `24.0` | Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default. Range 0.0..10000.0. (not released yet, on main after 0.22.0) |
-| `groundOffset` | float | `0.0` | Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default. (not released yet, on main after 0.22.0) |
-| `groundRest` | float | `0.0` | Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default. (not released yet, on main after 0.22.0) |
+| `groundMask` | int | `0` | Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0. (since 0.23.0) |
+| `groundReach` | float | `24.0` | Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default. Range 0.0..10000.0. (since 0.23.0) |
+| `groundOffset` | float | `0.0` | Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default. (since 0.23.0) |
+| `groundRest` | float | `0.0` | Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default. (since 0.23.0) |
 
 ### Shape2D
 
@@ -366,7 +366,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `metallic` | float | `0.0` | 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `roughness` | float | `0.6` | 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light emitted by the surface regardless of lighting (glow). Black = none. |
-| `emissiveStrength` | float | `1.0` | HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch. Range 0.0..100.0. (not released yet, on main after 0.22.0) |
+| `emissiveStrength` | float | `1.0` | HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch. Range 0.0..100.0. (since 0.23.0) |
 | `unlit` | bool | `false` | true = ignore lighting and draw the flat base color. |
 | `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. |
 | `receiveShadows` | bool | `true` | Receive shadows from shadow-casting lights. |
@@ -634,9 +634,9 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `playing` | bool | `false` | Runtime state: true while a voice is playing. Set true to play, false to stop. Runtime-only (not saved). |
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it. Range 0.0..1000000.0. |
-| `rolloff` | enum: linear \| inverse \| exponential | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}). (not released yet, on main after 0.22.0) |
-| `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`. Range 0.0..1000000.0. (not released yet, on main after 0.22.0) |
-| `rolloffFactor` | float | `1.0` | Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away. Range 0.0..100.0. (not released yet, on main after 0.22.0) |
+| `rolloff` | enum: linear \| inverse \| exponential | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}). (since 0.23.0) |
+| `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`. Range 0.0..1000000.0. (since 0.23.0) |
+| `rolloffFactor` | float | `1.0` | Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away. Range 0.0..100.0. (since 0.23.0) |
 | `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (since 0.21.0) |
 
 ### MusicPlayer
@@ -4397,7 +4397,7 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 
 ### `image.resize` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
 
@@ -7125,7 +7125,7 @@ Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `
 
 ### `style.ignore` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
 
@@ -7139,7 +7139,7 @@ Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets
 
 ### `style.set_role` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
 
@@ -7387,7 +7387,7 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 
 ### `ui.force_touch` (modifies state)
 
-Not released yet (on main after 0.22.0).
+Since 0.23.0.
 
 Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
 
@@ -9426,27 +9426,27 @@ declare module "factoria" {
     priority?: number;
     /**
      * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
-     * @since unreleased
+     * @since 0.23.0
      */
     position?: number[] | { x: number, y: number, z?: number };
     /**
      * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
-     * @since unreleased
+     * @since 0.23.0
      */
     rolloff?: "linear" | "inverse" | "exponential";
     /**
      * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
-     * @since unreleased
+     * @since 0.23.0
      */
     refDistance?: number;
     /**
      * With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position.
-     * @since unreleased
+     * @since 0.23.0
      */
     rolloffFactor?: number;
     /**
      * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
-     * @since unreleased
+     * @since 0.23.0
      */
     range?: number;
     /**
@@ -13288,7 +13288,7 @@ declare module "factoria" {
     mode: "forward" | "reverse" | "pingpong";
     /**
      * What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded.
-     * @since unreleased
+     * @since 0.23.0
      */
     loopMode: "inherit" | "loop" | "once";
     /**
@@ -13449,22 +13449,22 @@ declare module "factoria" {
 
   /**
    * What music.setIntensity, goToSection and crossfadeTo return: where the change lands. The frame is worked out from the mixer's latest state, so it is exact on the null device (headless runs, tests) and a block or two off with a sound device that has not caught up; the "section" or "crossfade" event carries the real one.
-   * @since unreleased
+   * @since 0.23.0
    */
   export interface MusicChange {
     /**
      * The audio frame the change lands on (the same count as `frame` in the music events and audio.music_state's mixedFrames); null when it cannot be placed yet (nothing plays, or the song is still loading).
-     * @since unreleased
+     * @since 0.23.0
      */
     frame: number | null;
     /**
      * That frame in seconds of the audio clock; null with the frame.
-     * @since unreleased
+     * @since 0.23.0
      */
     time: number | null;
     /**
      * The boundary used: the one given or the player's own default.
-     * @since unreleased
+     * @since 0.23.0
      */
     quantize: "none" | "beat" | "bar" | "section";
   }
@@ -13556,27 +13556,27 @@ declare module "factoria" {
     readonly intensity: number;
     /**
      * The intensity last set (MusicPlayer.intensity): the layers follow it from the layerQuantize boundary on.
-     * @since unreleased
+     * @since 0.23.0
      */
     readonly requestedIntensity: number;
     /**
      * The intensity the layers follow now (status.intensity); it changes on the layerQuantize boundary after a setIntensity, so it differs from `intensity` until then.
-     * @since unreleased
+     * @since 0.23.0
      */
     readonly appliedIntensity: number;
     /**
      * The song the next queued section change or crossfade lands in (status.pendingSong); null when none waits. `song` stays the audible one until then.
-     * @since unreleased
+     * @since 0.23.0
      */
     readonly pendingSong: string | null;
     /**
      * The section that queued change lands in (status.pendingSection); null when none waits.
-     * @since unreleased
+     * @since 0.23.0
      */
     readonly pendingSection: string | null;
     /**
      * The audio frame that queued change lands on (the `frame` of the "section" or "crossfade" event it fires); null when none waits or it is not scheduled yet.
-     * @since unreleased
+     * @since 0.23.0
      */
     readonly pendingAt: number | null;
     /**
@@ -14459,7 +14459,7 @@ declare module "factoria" {
     loop: boolean;
     /**
      * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
-     * @since unreleased
+     * @since 0.23.0
      */
     loopMode: "inherit" | "loop" | "once";
     /**
@@ -14596,22 +14596,22 @@ declare module "factoria" {
     solver: "twoBone" | "ccd";
     /**
      * Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.
-     * @since unreleased
+     * @since 0.23.0
      */
     groundMask: number;
     /**
      * Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default.
-     * @since unreleased
+     * @since 0.23.0
      */
     groundReach: number;
     /**
      * Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default.
-     * @since unreleased
+     * @since 0.23.0
      */
     groundOffset: number;
     /**
      * Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.
-     * @since unreleased
+     * @since 0.23.0
      */
     groundRest: number;
   }
@@ -15286,7 +15286,7 @@ declare module "factoria" {
     set emissive(value: ColorLike);
     /**
      * HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch.
-     * @since unreleased
+     * @since 0.23.0
      */
     emissiveStrength: number;
     /**
@@ -16144,17 +16144,17 @@ declare module "factoria" {
     range: number;
     /**
      * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
-     * @since unreleased
+     * @since 0.23.0
      */
     rolloff: "linear" | "inverse" | "exponential";
     /**
      * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
-     * @since unreleased
+     * @since 0.23.0
      */
     refDistance: number;
     /**
      * Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.
-     * @since unreleased
+     * @since 0.23.0
      */
     rolloffFactor: number;
     /**
@@ -18980,12 +18980,12 @@ declare module "factoria:test" {
     find(idOrName: string): Entity | null;
     /**
      * Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame.
-     * @since unreleased
+     * @since 0.23.0
      */
     findAll(name: string): Entity[];
     /**
      * Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag("wolf").length.
-     * @since unreleased
+     * @since 0.23.0
      */
     findByTag(tag: string): Entity[];
     readonly world: WorldAPI;
