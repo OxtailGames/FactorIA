@@ -351,7 +351,7 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
         const auto modIt = api.exports.find(imp.module);
         if (modIt == api.exports.end()) continue;
         const auto& exports = modIt->second;
-        if (imp.exported == "*") {
+        if (imp.exported == "*" || imp.exported == "default") {  // the module builds both from the same object
             // `ns.member` on the whole module: member must be an export
             owned.emplace_back();
             std::set<std::string>& names = owned.back();
@@ -359,11 +359,6 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
             if (imp.module == "factoria")
                 for (const std::string& c : componentNames) names.insert(c);
             if (!declared.count(imp.local)) targets.push_back({imp.local, "the \"" + imp.module + "\" module", &names});
-            continue;
-        }
-        if (imp.exported == "default") {
-            out.errors.push_back({file, "", at_text(file, text, imp.at) + ": \"" + imp.module + "\" has no default export",
-                                  "Import by name: import { Behaviour, world } from \"" + imp.module + "\";"});
             continue;
         }
         const auto item = exports.find(imp.exported);
