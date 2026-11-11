@@ -404,16 +404,33 @@ void register_model_import_clean_command(CommandRegistry& registry, const std::s
     info.readOnly = false;
     info.summary = "Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake.";
     info.description =
-        "Takes the mesh `source` (project-relative; assets.generate_model and assets.import put meshes there) and does, in order: `upAxis` (z-up exports are turned to y-up), weld (vertices at the same place with the same uv, colour and a similar normal become one, so seams stay), "
-        "degenerate and repeated triangles removed, floating pieces removed (separate pieces whose size is under `minPieceSize`, default 2%, of the biggest piece's; the biggest is always kept, and the report lists what went), a consistent winding "
-        "(neighbouring triangles agree and closed pieces face outward), scale (`height` in metres, `reference` = \"human\" (1.8 m) or a project model whose height to match, or `scale` factor; without one the size is kept, with a warning when it is not a size a game uses), "
-        "`origin` (keep, center, bottom or bottom_center, the ground centre: the default), an optional remesh (`remesh: true`: the surface is rebuilt from a thickened distance field, so holes, non-manifold edges and self-intersections of AI meshes become one closed manifold surface; "
-        "`remeshCells` along the longest side or `remeshVoxel` metres; texture coordinates cannot survive it, so base colour textures are sampled into vertex colours and the surface is unwrapped again; thin sheets become thin solids), "
-        "and decimation to `triangles` or the `platform` budget (desktop 100000, mobile 20000, web 40000; meshoptimizer, keeping uvs, colours and part seams). `unwrap`: auto (default; unwrap with model_uv when the mesh has no uvs or was remeshed), always, never. "
-        "A .obj goes through assets.import's converter first (the .gltf is written next to it and reused when it exists). Materials and textures of the source stay (embedded textures are written as project files). "
-        "The result is a model document `<name>_clean.model.json` (or `out`) with a `mesh` node reading the cleaned mesh `<name>_clean.mesh.glb`, baked to `<name>_clean.glb`: modifiers, selections, uv and gameReady apply to it like to any model. "
-        "The report teaches what was done: triangles and vertices before and after, vertices welded, pieces found and removed (size, place), triangles reoriented, non-manifold and open edges before and after, scale factor and its reason, the origin shift, remesh and decimation details, "
-        "the fit to every platform's budget, and warnings. Example: {\"source\":\"assets/models/robot.glb\",\"height\":1.8,\"platform\":\"mobile\"}";
+        "Takes the mesh `source` (project-relative; assets.generate_model and assets.import put meshes "
+        "there) and does, in order: `upAxis` (z-up exports are turned to y-up), weld (vertices at the same "
+        "place with the same uv, colour and a similar normal become one, so seams stay), degenerate and "
+        "repeated triangles removed, floating pieces removed (separate pieces whose size is under "
+        "`minPieceSize`, default 2%, of the biggest piece's; the biggest is always kept, and the report "
+        "lists what went), a consistent winding (neighbouring triangles agree and closed pieces face "
+        "outward), scale (`height` in metres, `reference` = \"human\" (1.8 m) or a project model whose "
+        "height to match, or `scale` factor; without one the size is kept, with a warning when it is not a "
+        "size a game uses), `origin` (keep, center, bottom or bottom_center, the ground centre: the "
+        "default), an optional remesh (`remesh: true` ... Example: "
+        "{\"source\":\"assets/models/robot.glb\",\"height\":1.8,\"platform\":\"mobile\"}"
+        FA_COMMAND_DETAILS
+        "... the surface is rebuilt from a thickened distance field, so holes, non-manifold edges and "
+        "self-intersections of AI meshes become one closed manifold surface; `remeshCells` along the longest "
+        "side or `remeshVoxel` metres; texture coordinates cannot survive it, so base colour textures are "
+        "sampled into vertex colours and the surface is unwrapped again; thin sheets become thin solids), "
+        "and decimation to `triangles` or the `platform` budget (desktop 100000, mobile 20000, web 40000; "
+        "meshoptimizer, keeping uvs, colours and part seams). `unwrap`: auto (default; unwrap with model_uv "
+        "when the mesh has no uvs or was remeshed), always, never. A .obj goes through assets.import's "
+        "converter first (the .gltf is written next to it and reused when it exists). Materials and textures "
+        "of the source stay (embedded textures are written as project files). The result is a model document "
+        "`<name>_clean.model.json` (or `out`) with a `mesh` node reading the cleaned mesh "
+        "`<name>_clean.mesh.glb`, baked to `<name>_clean.glb`: modifiers, selections, uv and gameReady apply "
+        "to it like to any model. The report teaches what was done: triangles and vertices before and after, "
+        "vertices welded, pieces found and removed (size, place), triangles reoriented, non-manifold and "
+        "open edges before and after, scale factor and its reason, the origin shift, remesh and decimation "
+        "details, the fit to every platform's budget, and warnings.";
     info.inputSchema = Json::object(
         {{"type", "object"}, {"required", Json::array({"source"})}, {"additionalProperties", false},
          {"properties",

@@ -1134,19 +1134,27 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
     info.readOnly = false;
     info.summary = "Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.";
     info.description =
-        "Exports the web build (the same as project.export {platform:\"web\"}, into build/serve-web/, so the real export folder is not touched; the web "
-        "player must be installed: `factoria setup players --platforms web`) and serves it from a small HTTP server inside this process. It listens on "
-        "127.0.0.1 (this computer only) unless `lan` is true, on a random port, and the URL has a random token in its path: "
-        "http://<address>:<port>/<token>/ (a request without the token is a 404). Returns {running, state, url (this computer), lanUrl and urls[] (lan), "
-        "port, version, warnings[]}. While the server runs, a changed script, scene, asset or factoria.json exports the build again and every open page "
-        "reloads itself (a banner on the page says when it is rebuilding or when the export failed); what the page logs (console.log/warn/error and uncaught "
-        "errors) comes back to the log with category \"phone\" (read it with game.logs or in the editor console). With lan, open the URL on a phone on the "
-        "same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code. The server stops with the process or with {\"stop\":true}; it "
-        "lives in the process that runs it: the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when the call returns. "
-        "Calling it again with the same project and `lan` returns the current status; with another `lan` it restarts the server (new port and token). "
-        "In the editor the call never waits: it answers {running:false, state:\"starting\"} while the server starts and exports on a helper thread; call it again "
-        "(same arguments) until state is \"ready\" (a start that failed is reported as an error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. "
-        "Limits: 8 connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read {\"name\":\"exporting\"}, section Web, and MOBILE.md.";
+        "Exports the web build (the same as project.export {platform:\"web\"}, into build/serve-web/, so the "
+        "real export folder is not touched; the web player must be installed: `factoria setup players "
+        "--platforms web`) and serves it from a small HTTP server inside this process. It listens on "
+        "127.0.0.1 (this computer only) unless `lan` is true, on a random port, and the URL has a random "
+        "token in its path: http://<address>:<port>/<token>/ (a request without the token is a 404). Returns "
+        "{running, state, url (this computer), lanUrl and urls[] (lan), port, version, warnings[]}. While "
+        "the server runs, a changed script, scene, asset or factoria.json exports the build again and every "
+        "open page reloads itself (a banner on the page says when it is rebuilding or when the export "
+        "failed); what the page logs (console.log/warn/error and uncaught errors) comes back to the log with "
+        "category \"phone\" (read it with game.logs or in the editor console). With lan, open the URL on a "
+        "phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code."
+        FA_COMMAND_DETAILS
+        "The server stops with the process or with {\"stop\":true}; it lives in the process that runs it: "
+        "the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when "
+        "the call returns. Calling it again with the same project and `lan` returns the current status; with "
+        "another `lan` it restarts the server (new port and token). In the editor the call never waits: it "
+        "answers {running:false, state:\"starting\"} while the server starts and exports on a helper thread; "
+        "call it again (same arguments) until state is \"ready\" (a start that failed is reported as an "
+        "error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. Limits: 8 "
+        "connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read "
+        "{\"name\":\"exporting\"}, section Web, and MOBILE.md.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "additionalProperties":false,

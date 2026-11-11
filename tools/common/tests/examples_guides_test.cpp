@@ -1,5 +1,7 @@
-// The example games ship the same guide twice (scaffold.cpp writes AGENTS.md and CLAUDE.md from one text); a
-// hand edit of one of them leaves the other one stale for the AI that reads it.
+// The example games carry what `factoria new` writes (tools/common/src/scaffold.cpp): the guide in AGENTS.md and a
+// CLAUDE.md that is the one line `@AGENTS.md` (Claude Code imports it), so the two can never drift. To refresh the
+// guides after the template (templates/common/AGENTS.md) changes, run `factoria new <tmp> --name "<Name>"` for each
+// example and copy that AGENTS.md and CLAUDE.md over the example's.
 #include <doctest.h>
 
 #include <algorithm>
@@ -20,7 +22,7 @@ std::string read_all(const std::filesystem::path& p) {
 
 }  // namespace
 
-TEST_CASE("examples: CLAUDE.md is the same text as AGENTS.md") {
+TEST_CASE("examples: CLAUDE.md is the one line @AGENTS.md and AGENTS.md is the template guide") {
     namespace fs = std::filesystem;
     const fs::path root = fs::path(FA_REPO_ROOT) / "examples";
     std::error_code ec;
@@ -35,14 +37,18 @@ TEST_CASE("examples: CLAUDE.md is the same text as AGENTS.md") {
         const fs::path agents = dir / "AGENTS.md";
         const fs::path claude = dir / "CLAUDE.md";
         INFO("example " << name);
-        REQUIRE_MESSAGE(fs::exists(agents, ec), "examples/" << name << "/AGENTS.md is missing. Regenerate the guide from the template: "
-                                                "the text of templates/common/AGENTS.md written by `factoria new`.");
-        REQUIRE_MESSAGE(fs::exists(claude, ec), "examples/" << name << "/CLAUDE.md is missing. Copy examples/" << name
-                                                << "/AGENTS.md to it: both files are the same guide.");
-        CHECK_MESSAGE(read_all(agents) == read_all(claude),
-                      "examples/" << name << "/CLAUDE.md differs from examples/" << name << "/AGENTS.md. The two are the same guide "
-                                  << "(tools/common/src/scaffold.cpp writes one text to both): regenerate them from the template "
-                                  << "(templates/common/AGENTS.md via `factoria new`) instead of editing one by hand, or copy the "
-                                  << "edited AGENTS.md over CLAUDE.md.");
+        REQUIRE_MESSAGE(fs::exists(agents, ec), "examples/" << name << "/AGENTS.md is missing. Write it with `factoria new <tmp> --name \""
+                                                << name << "\"` and copy the AGENTS.md it makes.");
+        REQUIRE_MESSAGE(fs::exists(claude, ec), "examples/" << name << "/CLAUDE.md is missing. It is the one line `@AGENTS.md`.");
+        std::string claudeText = read_all(claude);  // a Windows checkout with autocrlf has \r\n
+        claudeText.erase(std::remove(claudeText.begin(), claudeText.end(), '\r'), claudeText.end());
+        CHECK_MESSAGE(claudeText == "@AGENTS.md\n",
+                      "examples/" << name << "/CLAUDE.md is not the one line `@AGENTS.md` that `factoria new` writes. Replace "
+                                  << "it with that line: the guide lives in AGENTS.md only, a second copy drifts.");
+        // The old copies said "created ... engine 0.14.1" and lacked the sentence on reading the guide by sections.
+        CHECK_MESSAGE(read_all(agents).find("factoria docs read ai-guide --contents") != std::string::npos,
+                      "examples/" << name << "/AGENTS.md is an old copy of the template (it does not tell to read ai-guide by "
+                                  << "sections). Regenerate it: `factoria new <tmp> --name \"" << name
+                                  << "\"` and copy the AGENTS.md it makes.");
     }
 }

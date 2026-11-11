@@ -15,7 +15,7 @@ orchestrator decides. Read-only commands (git, grep) are fine.
 Every turn of yours sends your whole context again, so an answer costs its number of turns. Put independent calls in
 ONE message (several Greps, the Reads of several files, several web searches), read what Grep pointed at with
 `offset` and `limit` instead of whole files, and do not read again what is already in your context. For "does the
-engine already have X" check the code, `docs/`, `feedback/ROADMAP.md` and `feedback/ROADMAP_DONE.md`, and say which
+engine already have X" check the code, `docs/`, `feedback/ROADMAP.md` and `feedback/done/`, and say which
 it is: done, planned (which milestone) or new.
 
 Say only what you checked. Mark every finding `verified` (you read the code or the page that shows it: give the

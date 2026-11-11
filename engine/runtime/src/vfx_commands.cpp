@@ -266,19 +266,28 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"vfx.budget", "What an effect document costs on a phone: live particles and the screen they cover, with the fixes.",
-           "Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is "
-           "not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, "
-           "peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, "
-           "capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, "
-           "ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft "
-           "sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, "
-           "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves "
-           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
-           "and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw is measured through the project's main camera "
-           "(the active primary Camera with the lowest depth in the loaded scene): its quads are projected with the effect "
-           "5 m in front of the camera, on its axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). `camera` in the result says "
-           "which was used ({used:true, projection, distance, fov | height}); when there is no camera (no scene loaded, or none in it) a 3D emitter's particles are "
-           "counted but its overdraw is 0 and not measured, and `camera` is {used:false, reason} and `notes` says so. Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
+           "Plays the document in a scratch world with the same timeline and particle sim a game runs (no "
+           "renderer, no sound, the game is not touched, the same document and seed always give the same "
+           "numbers) and returns {peakParticles, peakAt, peakOverdraw, peakOverdrawAt, meanOverdraw, "
+           "settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, "
+           "capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: "
+           "{command, args}}], notes, limits, ok}. `overdraw` is the sum of the particles' quads in screens "
+           "(1.0 = as much quad area as the view has; stacked soft sprites are what a phone's GPU pays for). "
+           "`findings` are what is over the `preset`'s budget (phone: 300 live particles, 1.5 screens, 5 "
+           "emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries "
+           "a vfx.edit call (`fix`) that moves the effect toward it (run vfx.budget again to see where it "
+           "lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on "
+           "that camera (its lens, and the scene that is loaded), so the same document can give other "
+           "numbers in another scene. Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}"
+           FA_COMMAND_DETAILS
+           "The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon "
+           "trails and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw "
+           "is measured through the project's main camera (the active primary Camera with the lowest depth "
+           "in the loaded scene): its quads are projected with the effect 5 m in front of the camera, on its "
+           "axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). "
+           "`camera` in the result says which was used ({used:true, projection, distance, fov | height}); "
+           "when there is no camera (no scene loaded, or none in it) a 3D emitter's particles are counted "
+           "but its overdraw is 0 and not measured, and `camera` is {used:false, reason} and `notes` says so.",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["path"],"properties":{
                "path":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
                "preset":{"type":"string","enum":["phone","desktop"],"default":"phone","description":"Whose budget the findings use."},
@@ -336,23 +345,29 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"vfx.filmstrip", "Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.",
-           "Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; in a 3D game the point 5 m in front of "
-           "the main 3D camera, on its axis, which the result says in `positionNote`), steps the game and captures `region` at each step into one "
-           "labelled grid PNG (label \"f3 +100\" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME "
-           "ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film "
-           "on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect "
-           "must read against. The first picture is the frame after the effect started. By default the strip covers the effect's "
-           "length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures "
-           "instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` "
-           "magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. "
-           "Without `path` the picture is temporary (the MCP server shows it then deletes the file). The effect's sound and command "
-           "parts really act on the game (a feel.hitStop stretches the labelled times, an audio.music keeps playing, a feel.spawn leaves its "
-           "prefab). A `position` the camera cannot project into the view fails (it is behind the camera: aim the camera or give `region`). "
-           "Result: {path (only with `path`), effect, duration, width, height, frames: [{index, frame, t}], columns, rows, tileWidth, "
-           "tileHeight, zoom, everyFrames, region, position: [x, y, z] (where it played), positionDefault (true when `position` was left out), "
-           "positionNote (only then: which default was used), $image}. "
-           "vfx.review gives the picture to a vision model with the budget numbers. Example: "
-           "vfx.filmstrip {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"frames\":12}",
+           "Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; "
+           "in a 3D game the point 5 m in front of the main 3D camera, on its axis, which the result says in "
+           "`positionNote`), steps the game and captures `region` at each step into one labelled grid PNG "
+           "(label \"f3 +100\" = picture 3, 100 ms after the effect started), then removes the effect. THE "
+           "GAME ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about "
+           "3 s at most by default), so film on a stage scene or a paused moment; the camera and the "
+           "backdrop are the ones the game has, which is what the effect must read against. The first "
+           "picture is the frame after the effect started. By default the strip covers the effect's length "
+           "(from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between "
+           "two pictures instead. The view is `size` design pixels around the effect, `region` [x, y, width, "
+           "height] overrides it, and `zoom` magnifies (default: a sheet about 1600 px wide). At most 64 "
+           "pictures, a sheet at most 8192 px a side. Needs graphics. Example: vfx.filmstrip "
+           "{\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"frames\":12}"
+           FA_COMMAND_DETAILS
+           "Without `path` the picture is temporary (the MCP server shows it then deletes the file). The "
+           "effect's sound and command parts really act on the game (a feel.hitStop stretches the labelled "
+           "times, an audio.music keeps playing, a feel.spawn leaves its prefab). A `position` the camera "
+           "cannot project into the view fails (it is behind the camera: aim the camera or give `region`). "
+           "Result: {path (only with `path`), effect, duration, width, height, frames: [{index, frame, t}], "
+           "columns, rows, tileWidth, tileHeight, zoom, everyFrames, region, position: [x, y, z] (where it "
+           "played), positionDefault (true when `position` was left out), positionNote (only then: which "
+           "default was used), $image}. vfx.review gives the picture to a vision model with the budget "
+           "numbers.",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["effect"],"properties":{
                "effect":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
                "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view in a 2D game; in a 3D game the point 5 m in front of the main camera on its axis (the result says which in `positionNote`)."},

@@ -818,6 +818,7 @@
     "Vfx.time": "0.17.0"
   },
   "commands": {
+    "agent.cost": "0.22.0",
     "ai.extensions": "0.11.0",
     "ai.hooks": "0.11.0",
     "ai.hooks_test": "0.11.0",
@@ -2462,6 +2463,7 @@
     "test:TestGame.click": "0.1.0",
     "test:TestGame.closeWindow": "0.3.0",
     "test:TestGame.drag": "0.3.0",
+    "test:TestGame.expectErrors": "0.22.0",
     "test:TestGame.fileReads": "0.3.0",
     "test:TestGame.find": "0.1.0",
     "test:TestGame.focus": "0.3.0",
@@ -2516,6 +2518,8 @@
     "test:TestGamepad.release": "0.1.0",
     "test:TestGamepad.setType": "0.1.6",
     "test:TestGamepad.tap": "0.1.0",
+    "test:TestOptions": "0.22.0",
+    "test:TestOptions.expectErrors": "0.22.0",
     "test:TestPlatform": "0.2.0",
     "test:TestPlatform.ad": "0.3.0",
     "test:TestPlatform.calls": "0.2.0",

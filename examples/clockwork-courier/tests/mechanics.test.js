@@ -485,10 +485,10 @@ describe("particles", () => {
     const c = arena();
     c.position = [100, 0.62, 0];
     game.step(2);
-    const sparks = game.world.findByName ? game.world.findByName("fx_sparks") : null;
+    const sparks = game.world.find("fx_sparks");
     if (sparks) expect(sparks.get("ParticleEmitter").is3D).toBe(true);
     game.step(120);
-    const gone = game.world.findByName ? game.world.findByName("fx_sparks") : null;
+    const gone = game.world.find("fx_sparks");
     expect(gone ?? null).toBeNull();
   });
 

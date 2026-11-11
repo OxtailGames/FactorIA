@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "feedback_admin.h"
+#include "fa/core/command.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/docs.h"
@@ -564,6 +565,89 @@ Command make_feedback_command() {
     return g;
 }
 
+namespace {
+
+std::vector<FlagSpec> docs_read_flags() {
+    return {{"contents", "", "Print only the page's headings with their line numbers, and the command that reads one (docs.read's `contents`)."},
+            {"heading", "TITLE", "Print only the section with this heading (case-insensitive; an exact title wins, else part of one)."},
+            {"start-line", "N", "First line to print (1-based). With --heading: where to continue a long section."},
+            {"max-lines", "N", "Maximum number of lines (default 2000)."},
+            {"max-bytes", "N", "Maximum size in bytes (1000 to 90000, default 40000); the cut falls on a line boundary."}};
+}
+
+// `factoria docs read <name> --heading/--start-line/--max-lines/--max-bytes`: the docs.read command itself, so the CLI and
+// MCP cut, find headings and word the paging hint the same way.
+int run_docs_read_part(Context& ctx) {
+    CommandRegistry registry;
+    register_docs_commands(registry);
+    Json args = Json::object({{"name", ctx.args.pos(0)}});
+    const bool contentsOnly = ctx.args.has("contents");
+    if (contentsOnly) args["maxLines"] = 1;  // a page of more than one line is "cut", and a cut read carries its contents
+    if (ctx.args.has("heading")) args["heading"] = ctx.args.str("heading");
+    // The ranges docs.read documents (kDocReadMaxBytes is 90000 in docs.cpp): out of range is a usage error, never a
+    // silent clamp that returns something other than what was asked.
+    auto ranged = [&](const std::string& flag, int def, int lo, int hi) {
+        const int v = ctx.args.integer(flag, def);
+        if (v < lo || v > hi)
+            throw UsageError("--" + flag + " " + std::to_string(v) + " is out of range.",
+                             "Use --" + flag + " between " + std::to_string(lo) + " and " + std::to_string(hi) + ".");
+        return v;
+    };
+    if (ctx.args.has("start-line")) args["startLine"] = ranged("start-line", 1, 1, 1000000);
+    if (ctx.args.has("max-lines")) {
+        const int maxLines = ranged("max-lines", 2000, 1, 1000000);
+        if (!contentsOnly) args["maxLines"] = maxLines;
+    }
+    if (ctx.args.has("max-bytes")) args["maxBytes"] = ranged("max-bytes", 40000, 1000, 90000);
+    CommandResult r = registry.call("docs.read", args);
+    if (!r.ok) {
+        std::string message = r.error.value("message", std::string("docs.read failed."));
+        std::string hint = r.error.value("hint", std::string());
+        const std::string code = r.error.value("code", std::string());
+        const std::string doc = ctx.args.pos(0);
+        // docs.read words its hints for MCP (`heading`, `startLine`); the CLI has flags. The error code says what failed:
+        // a heading error only happens when the page itself was found.
+        if (code == "not_found" && !read_doc(doc).ok()) {
+            std::vector<std::string> names;
+            for (const auto& d : list_docs()) names.push_back(d.name);
+            if (hint.empty()) hint = fa::did_you_mean(doc, names);
+        } else if (code == "not_found" && ctx.args.has("heading")) {
+            hint = "Print the page's headings with their line numbers: factoria docs read " + doc +
+                   " --contents (or factoria docs search \"...\").";
+        } else if (code == "invalid_argument" && ctx.args.has("heading")) {
+            hint = "Repeat with the full title of one of them in --heading, or add --start-line.";
+        }
+        return report_failure(ctx, message, hint);
+    }
+    if (ctx.args.has("json")) {  // the docs.read result itself (content, startLine, endLine, truncated, next, contents)
+        print_json(ctx.out, r.result);
+        return 0;
+    }
+    if (contentsOnly) {
+        if (!r.result.contains("contents")) {
+            ctx.out << "'" << ctx.args.pos(0) << "' is one line: read it with 'factoria docs read " << ctx.args.pos(0) << "'.\n";
+            return 0;
+        }
+        ctx.out << r.result.value("contents", std::string())
+                << "Read one section: factoria docs read " << ctx.args.pos(0) << " --heading \"<a heading above>\"\n";
+        return 0;
+    }
+    const std::string content = r.result.value("content", std::string());
+    ctx.out << content;
+    if (content.empty() || content.back() != '\n') ctx.out << "\n";
+    if (r.result.value("truncated", false)) {
+        ctx.err << "-- cut at line " << r.result.value("endLine", 0) << " of " << r.result.value("totalLines", 0) << " --\n"
+                << "Continue: factoria docs read " << ctx.args.pos(0);
+        if (r.result.contains("heading")) ctx.err << " --heading \"" << r.result.value("heading", std::string()) << "\"";
+        ctx.err << " --start-line " << r.result.value("nextStartLine", 0) << "\n"
+                << "One section: factoria docs read " << ctx.args.pos(0) << " --heading \"<a heading below>\"; a range: --start-line N --max-lines M.\n"
+                << r.result.value("contents", std::string()) << "\n";
+    }
+    return 0;
+}
+
+}  // namespace
+
 Command make_docs_command() {
     Command g;
     g.name = "docs";
@@ -572,7 +656,8 @@ Command make_docs_command() {
     g.details = "'factoria docs' lists documents; 'factoria docs <name>' prints one (same as 'docs read'). The same docs are MCP resources.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output (with no name: the list)."}};
-    g.examples = {"factoria docs", "factoria docs scripting", "factoria docs search \"collision events\"", "factoria docs list --json"};
+    for (const FlagSpec& f : docs_read_flags()) g.flags.push_back(f);
+    g.examples = {"factoria docs", "factoria docs scripting", "factoria docs read ai-guide --heading \"Platformer character\"", "factoria docs search \"collision events\"", "factoria docs list --json"};
     g.run = [](Context& ctx) {
         if (ctx.args.positional().empty()) {
             Json arr = Json::array();
@@ -584,6 +669,8 @@ Command make_docs_command() {
             for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << d.title << "\n";
             return 0;
         }
+        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
+            return run_docs_read_part(ctx);
         auto t = read_doc(ctx.args.pos(0));
         if (!t.ok()) {
             std::vector<std::string> names;
@@ -606,7 +693,15 @@ Command make_docs_command() {
     read.summary = "Print one document.";
     read.usage = "<name>";
     read.maxPositional = 1;
-    read.examples = {"factoria docs read scripting"};
+    read.flags = docs_read_flags();
+    read.flags.push_back({"json", "", "Print the docs.read result as JSON (with a partial-read flag)."});
+    read.details = "Without flags the whole page is printed. With --heading, --start-line, --max-lines or --max-bytes it is the "
+                   "docs.read command: a section or a range, at most --max-bytes (default 40000); when it cuts, the hint with the "
+                   "exact next call and the page's contents (headings with line numbers) follow on stderr. "
+                   "With --json the docs.read result (content, startLine, endLine, totalLines, truncated, next, contents) is printed.";
+    read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --contents",
+                     "factoria docs read ai-guide --heading \"Platformer character\"",
+                     "factoria docs read architecture --start-line 400 --max-bytes 20000"};
     read.run = [run = g.run](Context& ctx) {
         if (ctx.args.positional().empty()) throw UsageError("Missing document name.", "See 'factoria docs list'.");
         return run(ctx);

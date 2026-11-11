@@ -405,13 +405,25 @@ void register_model_eyes_commands(CommandRegistry& registry, const std::string& 
         info.readOnly = true;
         info.summary = "Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix.";
         info.description =
-            "Builds the document in memory and checks the mesh the game gets (the evaluated mesh, with the `gameReady` origin and merge applied). Findings, errors first: `inside_out` (a closed piece whose triangles all face inward), `inconsistent_winding` "
-            "(neighbouring triangles disagree on the side that is out), `non_manifold` (an edge of more than two triangles), then warnings: `flipped_normals`, `open_edges` (holes: the model is not a closed solid), `degenerate` (triangles with no area), "
-            "`scale` (the height differs from `expectedHeight` by more than `tolerance`, or, with no expectation, the largest side is under 2 cm or over 100 m: probably authored in the wrong unit), `origin` (the model is far from its origin), "
-            "`triangle_budget` and `draw_call_budget` (more triangles or submeshes than a platform's budget for one model; the same table model.game_ready reports, and a LOD of the document's gameReady that fits makes the triangle finding information). "
-            "Every finding has `message` (what is wrong, with the parts and bounds), `hint` (how to fix it), and for mesh faults `count`, `parts`, `bounds` and up to `samples` positions in model space. `ok` is false when there is an error. "
-            "`platforms` limits the budgets checked (default all); `ignore` lists codes not to report (an open surface that is meant to be open: [\"open_edges\"]). With no `path` or `document` it returns the catalog of checks and budgets. Nothing is written. "
-            "Example: {\"path\":\"assets/models/door.model.json\",\"expectedHeight\":2.1,\"platforms\":[\"mobile\"]}";
+            "Builds the document in memory and checks the mesh the game gets (the evaluated mesh, with the "
+            "`gameReady` origin and merge applied). Findings, errors first: `inside_out` (a closed piece "
+            "whose triangles all face inward), `inconsistent_winding` (neighbouring triangles disagree on "
+            "the side that is out), `non_manifold` (an edge of more than two triangles), then warnings: "
+            "`flipped_normals`, `open_edges` (holes: the model is not a closed solid), `degenerate` "
+            "(triangles with no area), `scale` (the height differs from `expectedHeight` by more than "
+            "`tolerance`, or, with no expectation, the largest side is under 2 cm or over 100 m: probably "
+            "authored in the wrong unit), `origin` (the model is far from its origin), `triangle_budget` and "
+            "`draw_call_budget` (more triangles or submeshes than a platform's budget for one model; the "
+            "same table model.game_ready reports, and a LOD of the document's gameReady that fits makes the "
+            "triangle finding information). Example: "
+            "{\"path\":\"assets/models/door.model.json\",\"expectedHeight\":2.1,\"platforms\":[\"mobile\"]}"
+            FA_COMMAND_DETAILS
+            "Every finding has `message` (what is wrong, with the parts and bounds), `hint` (how to fix it), "
+            "and for mesh faults `count`, `parts`, `bounds` and up to `samples` positions in model space. "
+            "`ok` is false when there is an error. `platforms` limits the budgets checked (default all); "
+            "`ignore` lists codes not to report (an open surface that is meant to be open: "
+            "[\"open_edges\"]). With no `path` or `document` it returns the catalog of checks and budgets. "
+            "Nothing is written.";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathProp},
                                                              {"document", docProp},

@@ -95,6 +95,22 @@ TEST_CASE("ai.review_feedback: a good share text passes, the entry becomes revie
     CHECK(req.system.find("notPossibleYet") != std::string::npos);
 }
 
+TEST_CASE("ai.review_feedback: the commands that look related are found by their details too") {
+    Fixture f;
+    CommandInfo info;
+    info.name = "zzfx.helper";
+    info.summary = "Does something unrelated.";
+    info.description = "Short. " FA_COMMAND_DETAILS "Lets a platform be crossed upward: oneWay ledges.";
+    f.registry.add(info, [](const Json&) { return Json::object(); });
+    f.provider->script = {text_response(kAllOk)};
+    REQUIRE(f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0001"}})).ok);
+    REQUIRE(f.provider->requests.size() == 1);
+    const std::string& text = f.provider->requests[0].messages[0].text;
+    const size_t related = text.find("## Commands that look related");
+    REQUIRE(related != std::string::npos);
+    CHECK(text.find("- zzfx.helper: Does something unrelated.", related) != std::string::npos);
+}
+
 TEST_CASE("ai.review_feedback: a rewrite of share is stored when the model gives a better one, and the model's JSON may be wrapped in prose") {
     Fixture f(R"({"title":"Knight cannot jump through ledges","missing":"The knight needs to pass up through ledges in the crypt level."})");
     const std::string reply =

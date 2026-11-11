@@ -17,10 +17,16 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      perfBaselines:
+        description: 'Only record the examples'' performance baselines on each runner (the "Perf baselines" job); builds and tests nothing else'
+        type: boolean
+        default: false
 
-# Keep only the newest run per branch or pull request.
+# Keep only the newest run per branch or pull request. The event and the perfBaselines tick are part of the group, so a
+# manual "Perf baselines" run and a push or pull request run on the same ref do not cancel each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}-${{ inputs.perfBaselines || false }}
   cancel-in-progress: true
 
 permissions:
@@ -43,7 +49,14 @@ jobs:
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PERF_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.perfBaselines }}
         run: |
+          # "Run workflow" with perfBaselines ticked builds and tests nothing: only the `perf-baselines` job runs.
+          if [[ "$PERF_ONLY" == "true" ]]; then
+            echo "Only the perf baselines run"
+            { echo "code=false"; echo "mobile=false"; echo "web=false"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
           if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
             echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
@@ -119,6 +132,12 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
+
+      # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary
+      # (scripts/ci-perf-warnings.sh reads Testing/Temporary/LastTest.log, so it runs before any other ctest in the tree).
+      - name: Performance warnings (linux)
+        if: ${{ !cancelled() }}
+        run: ./scripts/ci-perf-warnings.sh build/linux-release
 
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
@@ -260,6 +279,12 @@ jobs:
         # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
+      # Each shard's own LastTest.log: the `_perf` tests that passed inside the warning band (see the linux job).
+      - name: Performance warnings (windows, shard ${{ matrix.shard }}/3)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: ./scripts/ci-perf-warnings.sh build/windows-release
+
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
       # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
@@ -334,6 +359,10 @@ jobs:
           FA_REQUIRE_SHDC: '1'
         run: ctest --preset macos-release --parallel 3  # the runner's 3 vCPUs
 
+      - name: Performance warnings (macos)
+        if: ${{ !cancelled() }}
+        run: ./scripts/ci-perf-warnings.sh build/macos-release
+
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
       # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
@@ -353,6 +382,89 @@ jobs:
             build/**/test-output/**/*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  # Perf baselines: "Run workflow" with perfBaselines ticked (the `changes` job then skips every other job). Builds factoria
+  # the way the jobs above do and runs scripts/perf-baselines.sh on each runner: `perf.baseline` for every example scene,
+  # whose entries (this runner's `runners.<id>`) are uploaded as the artifact perf-baselines-<os>. Nothing is committed: copy
+  # the entries into tools/cli/tests/perf/ (docs/PERFORMANCE.md, "Baselines from CI"). A new example's first baselines come
+  # from here, as `provisional` entries until then (KW/FB-0020). The runners and the build are the ones of the test jobs, so
+  # the runner ids are the ones the `example_<name>_perf` tests look up. Not part of `CI result`: it only runs on request.
+  perf-baselines:
+    name: Perf baselines (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.perfBaselines
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, runner: macos-latest, preset: macos-release }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (linux)
+        if: matrix.os == 'linux'
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Install Ninja and ccache (macos)
+        if: matrix.os == 'macos'
+        run: brew install ninja ccache
+
+      # ccache, restored from the test jobs' newest cache and never saved here (see the jobs above for the Windows shim).
+      - name: Restore ccache
+        if: matrix.os != 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
+          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+
+      - name: Install ccache (windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      - name: Restore ccache (windows)
+        if: matrix.os == 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\AppData\Local\ccache
+          key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-windows-
+
+      - name: Configure and build factoria (${{ matrix.preset }})
+        shell: bash
+        run: |
+          cmake --preset ${{ matrix.preset }}
+          cmake --build --preset ${{ matrix.preset }} --target factoria --parallel
+
+      - name: Measure the baselines
+        shell: bash
+        run: |
+          cli=$(find build/${{ matrix.preset }}/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/${{ matrix.preset }}/tools/cli"; exit 1; }
+          if [[ "${{ matrix.os }}" == "linux" ]]; then
+            xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/perf-baselines.sh "$cli" "$RUNNER_TEMP/perf-baselines"
+          else
+            ./scripts/perf-baselines.sh "$cli" "$RUNNER_TEMP/perf-baselines"
+          fi
+          mkdir -p perf-baselines && cp "$RUNNER_TEMP"/perf-baselines/* perf-baselines/
+
+      - name: Upload the entries
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baselines-${{ matrix.os }}
+          path: perf-baselines
+          if-no-files-found: warn
+          retention-days: 30
 
   # iOS, in two jobs on two runners, because a simulator's first boot takes 5-7 minutes and slows a build on the same
   # machine: `ios-build` builds the player for the simulator with Xcode while `ios` boots the simulator, then `ios` runs
@@ -473,7 +585,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Not `needs: ios-build`, which would only start the boot after the build. If ios-build fails, this step times out.
+      # Not `needs: ios-build`, which would only start the boot after the build. So that a build that ends without an app
+      # (a failure, or a cancel when GitHub found no macOS runner for it: 2026-11-04) does not leave this loop spinning
+      # until the step's 20 minutes run out, it asks for the build job's conclusion on every turn and stops at the first
+      # one that is not "success".
       # --boot also builds the touch UI test meanwhile (1-4 minutes on this busy runner); `wait` lets it finish before
       # the smoke test, which then only runs it.
       - name: Boot the simulator and build the touch UI test while ios-build builds the app, then download the app
@@ -482,7 +597,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ./scripts/ios-smoke.sh --boot &
-          until gh run download "$GITHUB_RUN_ID" -n ios-app -D "$RUNNER_TEMP" 2>/dev/null; do sleep 10; done
+          until gh run download "$GITHUB_RUN_ID" -n ios-app -D "$RUNNER_TEMP" 2>/dev/null; do
+            build=$(gh run view "$GITHUB_RUN_ID" --json jobs --jq '.jobs[] | select(.name == "iOS Simulator build (Xcode)") | .conclusion' 2>/dev/null || true)
+            if [ -n "$build" ] && [ "$build" != success ]; then
+              echo "::error::The job 'iOS Simulator build (Xcode)' ended with '$build' and produced no ios-app: there is no app to run (a cancelled build usually means GitHub did not get a macOS runner for it; see that job)."
+              exit 1
+            fi
+            sleep 10
+          done
           tar -xzf "$RUNNER_TEMP/ios-app.tgz" -C "$RUNNER_TEMP"
           wait
 

@@ -4,11 +4,19 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
+
+#include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
 #include "fa/ai/project_settings.h"
@@ -117,6 +125,76 @@ TEST_CASE("templates and docs work without a project") {
     auto bad = run({"docs", "scriptin"});
     CHECK(bad.code == 1);
     CHECK(bad.err.find("scripting") != std::string::npos);
+}
+
+TEST_CASE("docs read takes --heading, --start-line and --max-bytes like docs.read and prints the paging hint") {
+    auto sec = run({"docs", "read", "ai-guide", "--heading", "Platformer character"});
+    REQUIRE(sec.code == 0);
+    CHECK(sec.out.find("latformer") != std::string::npos);
+    auto whole = run({"docs", "read", "ai-guide"});
+    CHECK(sec.out.size() < whole.out.size());
+
+    auto toc = run({"docs", "read", "ai-guide", "--contents"});
+    REQUIRE(toc.code == 0);
+    CHECK(toc.out.find("latformer character (line ") != std::string::npos);
+    CHECK(toc.out.find("--heading") != std::string::npos);
+    CHECK(toc.out.size() < 12000);
+    CHECK(toc.err.empty());
+
+    auto cut = run({"docs", "read", "ai-guide", "--max-bytes", "2000"});
+    REQUIRE(cut.code == 0);
+    CHECK(cut.out.size() <= 2100);
+    CHECK(cut.err.find("--start-line") != std::string::npos);  // the exact next call
+    CHECK(cut.err.find("--heading") != std::string::npos);
+
+    auto range = run({"docs", "read", "architecture", "--start-line", "3", "--max-lines", "2"});
+    REQUIRE(range.code == 0);
+    CHECK(std::count(range.out.begin(), range.out.end(), '\n') == 2);
+
+    auto bad = run({"docs", "read", "ai-guide", "--heading", "Platformr character"});
+    CHECK(bad.code == 1);
+    CHECK(bad.err.find("no heading matching") != std::string::npos);
+    CHECK(bad.err.find("--contents") != std::string::npos);  // CLI flags, not the MCP `heading`/`startLine` names
+    CHECK(bad.err.find("without `heading`") == std::string::npos);
+
+    auto missing = run({"docs", "read", "ai-guide", "--heading"});  // a flag without its value
+    CHECK(missing.code == 2);
+
+    auto ambiguous = run({"docs", "read", "ai-guide", "--heading", "e"});  // part of many titles
+    CHECK(ambiguous.code == 1);
+    CHECK(ambiguous.err.find("matches") != std::string::npos);
+    CHECK(ambiguous.err.find("--heading") != std::string::npos);
+    CHECK(ambiguous.err.find("startLine") == std::string::npos);
+
+    auto nodoc = run({"docs", "read", "ai-guid", "--heading", "x"});
+    CHECK(nodoc.code == 1);
+    CHECK(nodoc.err.find("ai-guide") != std::string::npos);  // did you mean
+}
+
+TEST_CASE("docs read refuses a range docs.read would clamp, and --json prints the docs.read result") {
+    auto zero = run({"docs", "read", "ai-guide", "--start-line", "0"});
+    CHECK(zero.code == 2);
+    CHECK(zero.err.find("--start-line") != std::string::npos);
+    CHECK(zero.err.find("between 1 and") != std::string::npos);
+    auto small = run({"docs", "read", "ai-guide", "--max-bytes", "5"});
+    CHECK(small.code == 2);
+    CHECK(small.err.find("between 1000 and 90000") != std::string::npos);
+    CHECK(run({"docs", "read", "ai-guide", "--max-bytes", "90001"}).code == 2);
+    CHECK(run({"docs", "read", "ai-guide", "--max-lines", "0"}).code == 2);
+
+    auto j = run({"docs", "read", "ai-guide", "--max-bytes", "2000", "--json"});
+    REQUIRE(j.code == 0);
+    fa::Json parsed = fa::Json::parse(j.out);
+    CHECK(parsed.value("truncated", false));
+    CHECK(parsed.contains("nextStartLine"));
+    CHECK(parsed.value("content", std::string()).size() <= 2100);
+    CHECK(j.err.empty());
+    auto bare = run({"docs", "read", "ai-guide", "--json"});  // --json alone is a docs.read result too, not the text
+    REQUIRE(bare.code == 0);
+    CHECK(fa::Json::parse(bare.out).contains("content"));
+    auto jerr = run({"docs", "read", "ai-guide", "--heading", "Platformr character", "--json"});
+    CHECK(jerr.code == 1);
+    CHECK(fa::Json::parse(jerr.out).value("ok", true) == false);
 }
 
 // The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs
@@ -1095,4 +1173,187 @@ TEST_CASE("ai doctor and ai run use the AI settings of the project they run in")
         CHECK((*rep)["projectSettings"]["pendingTrust"] == true);
         CHECK((*rep)["projectSettings"]["applied"] == false);
     }
+}
+
+// M100.5: `factoria test` prints one trace for the same failure in many tests; `factoria validate` says each load
+// problem once, in its report, and with --json stderr stays empty.
+namespace {
+#ifdef _WIN32
+int fd_dup(int fd) { return _dup(fd); }
+int fd_dup2(int from, int to) { return _dup2(from, to); }
+int fd_close(int fd) { return _close(fd); }
+int fd_open_write(const stdfs::path& p) { return _wopen(p.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0600); }
+#else
+int fd_dup(int fd) { return dup(fd); }
+int fd_dup2(int from, int to) { return dup2(from, to); }
+int fd_close(int fd) { return close(fd); }
+int fd_open_write(const stdfs::path& p) { return open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644); }
+#endif
+// Sends fd 2 (where the log writes) to a file for its lifetime and puts it back in the destructor, also when a CHECK
+// throws or a REQUIRE fails in between. `ok` is false when dup or open failed (fd 2 is then left alone).
+class StderrRedirect {
+public:
+    explicit StderrRedirect(const stdfs::path& tmp) {
+        std::fflush(stderr);
+        saved_ = fd_dup(2);
+        if (saved_ < 0) return;
+        const int fd = fd_open_write(tmp);
+        if (fd < 0) {
+            fd_close(saved_);
+            saved_ = -1;
+            return;
+        }
+        ok_ = fd_dup2(fd, 2) >= 0;
+        fd_close(fd);
+        if (!ok_) {
+            fd_close(saved_);
+            saved_ = -1;
+        }
+    }
+    ~StderrRedirect() { restore(); }
+    StderrRedirect(const StderrRedirect&) = delete;
+    StderrRedirect& operator=(const StderrRedirect&) = delete;
+    bool ok() const { return ok_; }
+    void restore() {
+        if (!ok_) return;
+        std::fflush(stderr);
+        fd_dup2(saved_, 2);
+        fd_close(saved_);
+        ok_ = false;
+    }
+
+private:
+    int saved_ = -1;
+    bool ok_ = false;
+};
+// Runs `f` with the process's stderr going to a file; returns what was written.
+template <class F>
+std::string with_process_stderr(const stdfs::path& tmp, F f) {
+    {
+        StderrRedirect redirect(tmp);
+        REQUIRE_MESSAGE(redirect.ok(), "could not redirect the process stderr (fd 2) to a file");
+        f();
+    }  // fd 2 is back
+    std::ifstream in(tmp, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+size_t count_of(const std::string& hay, const std::string& needle) {
+    size_t n = 0;
+    for (size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + needle.size())) ++n;
+    return n;
+}
+}  // namespace
+
+TEST_CASE("test: ten tests failing with the same error print the trace once") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_fold");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    stdfs::create_directories(root / "game" / "tests");
+    {
+        std::ofstream f(root / "game" / "tests" / "many.test.js");
+        f << "import { test } from \"factoria:test\";\nfunction boom() { throw new Error(\"same boom\"); }\n";
+        for (int i = 0; i < 10; ++i) f << "test(\"case" << i << "\", () => { boom(); });\n";
+    }
+    auto r = run({"test", dir, "tests/many.test.js"});
+    CHECK(r.code == 1);
+    CHECK(count_of(r.out, "Error: same boom") == 1);
+    CHECK(count_of(r.out, "an exception was thrown inside the test") == 1);
+    CHECK(count_of(r.out, "FAIL  ") == 10);
+    // each other test says so on its own line, once; there is no second summary of the same names
+    CHECK(count_of(r.out, "(same error as ") == 9);
+    CHECK(r.out.find("more tests") == std::string::npos);
+    // the fixed sentence sits right after the first trace, before the second test's line
+    const size_t hint = r.out.find("an exception was thrown inside the test");
+    REQUIRE(hint != std::string::npos);
+    CHECK(hint < r.out.find(" > case1 ("));
+    CHECK(r.out.size() < 4000);
+    // --json stays complete: every case keeps its own message.
+    auto j = run({"test", dir, "tests/many.test.js", "--json"});
+    CHECK(count_of(j.out, "same boom") >= 10);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("test: a test whose game logged an error exits 1 and says why, with loggedError in --json") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_logged");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    stdfs::create_directories(root / "game" / "tests");
+    {
+        std::ofstream f(root / "game" / "tests" / "logged.test.js");
+        f << "import { test, expect } from \"factoria:test\";\nimport { audio } from \"factoria\";\n"
+             "test(\"plays a missing sound\", () => { audio.play(\"assets/sfx/nope.wav\"); expect(1).toBe(1); });\n";
+    }
+    auto r = run({"test", dir, "tests/logged.test.js"});
+    CHECK(r.code == 1);
+    CHECK(r.out.find("the game logged an error") != std::string::npos);
+    auto j = run({"test", dir, "tests/logged.test.js", "--json"});
+    CHECK(j.code == 1);
+    CHECK(j.out.find("\"loggedError\": true") != std::string::npos);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("test: only the hint line leaves a failed test's message, not what follows it") {
+    const std::string hint = "  (an exception was thrown inside the test; check the game scripts too)";
+    std::string a = "Error: boom\n  at x.js:1:1" + std::string("\n") + hint;
+    CHECK(fa::cli::take_exception_hint(a) == hint);
+    CHECK(a == "Error: boom\n  at x.js:1:1");
+    // a watchdog explanation after the hint line is part of the trace and stays
+    std::string b = "Error: boom\n" + hint + "\na callback was cut by the watchdog after 2 s. Fix the loop.";
+    CHECK(fa::cli::take_exception_hint(b) == hint);
+    CHECK(b == "Error: boom\na callback was cut by the watchdog after 2 s. Fix the loop.");
+    std::string other = "expected 1 to be 2";
+    CHECK(fa::cli::take_exception_hint(other).empty());
+    CHECK(other == "expected 1 to be 2");
+}
+
+TEST_CASE("validate: a log line is covered only by a specific report message, whatever the path separators") {
+    fa::ValidationReport rep;
+    fa::ValidationIssue shortIssue;
+    shortIssue.message = "Bad value";
+    rep.errors.push_back(shortIssue);
+    CHECK_FALSE(fa::cli::report_already_says(rep, "Bad value in a file that has nothing to do with it"));
+    fa::ValidationIssue longIssue;
+    longIssue.message = "scenes\\main.scene.json: unknown component 'Sprit'";
+    rep.warnings.push_back(longIssue);
+    CHECK(fa::cli::report_already_says(rep, "Cannot load scenes/main.scene.json: unknown component 'Sprit' (did you mean Sprite?)"));
+    CHECK_FALSE(fa::cli::report_already_says(rep, "Cannot load scenes/other.scene.json: unknown component 'Sprit'"));
+}
+
+TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_validate_once");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    {
+        std::ofstream f(root / "game" / "scenes" / "main.scene.json", std::ios::trunc);
+        f << R"({"format":"factoria.scene/1","entities":[
+          {"id":"camera","name":"Main Camera","components":{"Camera":{"projection":"orthographic","primary":true}}},
+          {"id":"a","name":"A","components":{"Sprit":{}}}]})";
+    }
+    Result text, json;
+    const std::string errText = with_process_stderr(root / "err1.txt", [&] { text = run({"validate", dir}); });
+    CHECK(errText.empty());
+    CHECK(text.code == 1);
+    CHECK(count_of(text.out, "Unknown component 'Sprit'") == 1);
+    const std::string errJson = with_process_stderr(root / "err2.txt", [&] { json = run({"validate", dir, "--json"}); });
+    CHECK(errJson.empty());
+    CHECK(json.err.empty());
+    auto parsed = fa::parse_json(json.out, "validate");
+    REQUIRE(parsed);
+    CHECK(count_of(json.out, "Unknown component 'Sprit'") == 1);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
 }

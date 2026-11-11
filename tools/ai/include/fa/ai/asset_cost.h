@@ -50,6 +50,9 @@ AssetEstimate estimate_asset_cost(const ProviderConfig& provider, const AssetReq
 // The paragraph every command that can spend money adds to its description (what the result carries, the limits, the approval).
 const char* asset_cost_doc();
 
+// The part of asset_cost_doc() that must stay in the short description (the approval rule); the rest goes after FA_COMMAND_DETAILS.
+const char* asset_cost_short();
+
 // "$0.167", "$0.50", "$12.40": money as text (at least two decimals, at most four).
 std::string format_usd(double usd);
 // The estimate as the fields of a result: {estimatedCostUsd (null when unknown), costIsEstimate: true, cost: {basis, ...}}.

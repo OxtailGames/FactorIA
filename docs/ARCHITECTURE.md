@@ -66,7 +66,7 @@ examples/          sample games (also used as integration tests: the `example_*`
 platforms/         android/ (Gradle), ios/, web/ and plugins/ (the store and ads backend plugins) packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
 cmake/             CMake functions, platform selection and toolchain files
 scripts/           build, test, CI and packaging scripts for each operating system (docs/BUILDING.md)
-feedback/          ROADMAP.md, ROADMAP_DONE.md and the feedback collected from the examples
+feedback/          ROADMAP.md, done/ (one file per finished milestone) and the feedback collected from the examples
 external/          vendored third-party code (do not edit)
 ```
 
@@ -100,7 +100,11 @@ and script export, and the generated reference prints it. A new component, field
 `nav.findTilePath` is the one of `NavAPI.findTilePath`), `Type.member` for each member or static of a class or interface
 (`NavAPI.findTilePath`), and the same with a `test:` prefix for the `factoria:test` module (`test:TestGame.setDate`);
 the generated `types/factoria.d.ts` gets an `@since` tag from it. The test `api_since` in `tools/common/tests` lists
-the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
+the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version (CHANGELOG.md keeps `## Unreleased` and the newest minor version with its patches, because
+`.github/workflows/release.yml` reads the tag's section from it; when a release is published, the previous minor version's sections move to
+`changelog/0.<minor>.md`, one file per minor version with its patches, and the index line at the top of CHANGELOG.md gets the link; the test `changelog_split` fails while CHANGELOG.md holds two minor versions (the
+patches of the newest stay); the README's "Version x.y" line and the Spanish README's "al día en la versión x.y" note
+change to the new minor too, checked by `readme_version`), and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
 docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus
 `factoria api --dts --project examples/<name>` for the committed typings).
@@ -145,6 +149,18 @@ uses it (`tools/cli/tests/command_schema_test.cpp` walks the whole registry and 
 listed). The one key the registry removes before validating is `_meta`, the MCP transport's metadata, unless the command
 declares a property of that name. Defaults are applied first, then the check. When you add a command, declare every key
 the handler reads, with a `description`; the same rule applies to `project.<name>` tools (their `input`).
+
+**A description stays under 1.5 KB.** MCP's `tools/list` sends every command's summary and description with every
+request, so `tools/list` costs the sum of them. `tools/cli/tests/mcp_description_budget_test.cpp` walks the real registry and
+fails, naming the command and its size, when the description as MCP sends it (JSON escaped: a quote or a newline
+counts two bytes) passes 1536 bytes. What does not fit goes in `CommandInfo::details` (the last member, or after
+`FA_COMMAND_DETAILS` inside the description, for commands a helper builds from a summary and a description; set one of
+the two, not both: when `details` is set the marker is removed with a warning): the first part is a complete statement
+of what the command does and its essentials, the
+rest is what a reader needs only once working with it. `details` is printed after the description in the docs reference
+(`docs/reference/commands/<category>.md`, `docs_commands {"name": ...}`, `factoria commands <name>`, `commands.describe`), and
+the description MCP and the built-in agent send ends with a sentence that names that section (`command_details_pointer`).
+So nothing is lost: the arguments table of the reference has always carried each argument's own description.
 
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through

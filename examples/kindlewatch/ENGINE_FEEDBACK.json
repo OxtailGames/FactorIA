@@ -460,7 +460,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M100.10",
+      "notes": [
+        "Fixed in M100.10: tween(world.settings, {skyColor, horizonColor, ambientLight, fogColor, fogDensity...}) already moved the scene's environment; docs/ANIMATION.md (Tweens) now has the dawn recipe and the doctest case \"tween: world.settings moves the sky, ambient light and fog together\" in engine/script/tests/test_animation_script.cpp keeps it true. No settings.animate or day-night component is needed (triage 2026-11-10)."
+      ]
     },
     {
       "id": "FB-0020",
@@ -485,7 +489,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "d62c5b3c",
+      "notes": [
+        "Fixed in d62c5b3c (M100.9a): a baseline entry with \"provisional\": true enforces only drawCalls, entities, triangles and lights; the Linux and macOS entries of tools/cli/tests/perf/kindlewatch.perf.json are provisional. Running the CI workflow by hand with perfBaselines ticked runs perf.baseline on each runner and uploads the entries (scripts/perf-baselines.sh, docs/PERFORMANCE.md, \"Baselines from CI\")."
+      ]
     },
     {
       "id": "FB-0021",

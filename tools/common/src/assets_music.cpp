@@ -831,13 +831,24 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
         info.readOnly = false;
         info.summary = "Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram.";
         info.description =
-            "Renders the song at `path` with the preview voices: every note of the arrangement is played by its track's instrument at the note's pitch (a built-in instrument, a preset, or your own .sfx.json patch), with the track's volume, "
-            "pan, swing and automation lanes and the song's master lanes. The result is a stereo 16-bit WAV at `out` (default: the song's path with .preview.wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other "
-            "program: the same song, options and seed give the same bytes on every platform. The file gets provenance and a recipe in assets.json whose inputs are the song and every patch it read, so project.validate warns when they "
-            "changed after the preview was made and assets.regenerate renders it again. `fromBar` and `bars` render a part, `solo` and `mute` choose tracks, `seed` is another take of the instruments' noise, `sampleRate` 22050, 32000, 44100 "
-            "(default) or 48000. A song longer than 180 s needs a range. An existing file that music.preview did not make is an `exists` error unless overwrite is true. The result has the measurements (lufs, peakDb), the numbers of the "
-            "file as written (`analysis`) and the spectrogram picture (`$image`). The song's mixer applies: track effects and sends, the buses, the master limiter and the loudness normalization to the style's music loudness; `mix` in the result says what each did (music.mix gives the same without writing a file). "
-            "Example: {\"path\":\"assets/music/theme.song.json\",\"fromBar\":5,\"bars\":4,\"solo\":[\"lead\"]}";
+            "Renders the song at `path` with the preview voices: every note of the arrangement is played by "
+            "its track's instrument at the note's pitch (a built-in instrument, a preset, or your own "
+            ".sfx.json patch), with the track's volume, pan, swing and automation lanes and the song's "
+            "master lanes. The result is a stereo 16-bit WAV at `out` (default: the song's path with "
+            ".preview.wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: "
+            "the same song, options and seed give the same bytes on every platform. The file gets provenance "
+            "and a recipe in assets.json whose inputs are the song and every patch it read, so "
+            "project.validate warns when they changed after the preview was made and assets.regenerate "
+            "renders it again. `fromBar` and `bars` render a part, `solo` and `mute` choose tracks, `seed` "
+            "is another take of the instruments' noise, `sampleRate` 22050, 32000, 44100 (default) or 48000. "
+            "A song longer than 180 s needs a range. An existing file that music.preview did not make is an "
+            "`exists` error unless overwrite is true. Example: "
+            "{\"path\":\"assets/music/theme.song.json\",\"fromBar\":5,\"bars\":4,\"solo\":[\"lead\"]}"
+            FA_COMMAND_DETAILS
+            "The result has the measurements (lufs, peakDb), the numbers of the file as written (`analysis`) "
+            "and the spectrogram picture (`$image`). The song's mixer applies: track effects and sends, the "
+            "buses, the master limiter and the loudness normalization to the style's music loudness; `mix` "
+            "in the result says what each did (music.mix gives the same without writing a file).";
         auto props = songArgs();
         info.inputSchema = Json::object({{"type", "object"},
                                          {"required", Json::array({"path"})},

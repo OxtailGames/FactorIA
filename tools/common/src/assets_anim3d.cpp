@@ -1287,11 +1287,20 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         info.category = "anim";
         info.summary = "Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.";
         info.description =
-            "Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, gallop (a quadruped's four legs), idle (spine breathing, a little sway), "
-            "swing (the bones of a tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with 'did you mean'). "
-            "A gait is solved with the rig's own proportions: each foot follows a path that stands still on the ground in stance (the clip's `contacts` say when) and the clip's `groundSpeed` is the speed to move the entity at so the planted feet do not slide. "
-            "The clip records the kind and every parameter used in `generated`, so the same call writes the same bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which template has it. Refuses to replace a file unless `overwrite`. "
-            "Example: {\"rig\":\"assets/models/hero.rig.glb\",\"kind\":\"walk\",\"params\":{\"strideLength\":1.2,\"cadence\":1.0},\"out\":\"anim/hero_walk.anim.json\"}";
+            "Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key "
+            "by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, "
+            "gallop (a quadruped's four legs), idle (spine breathing, a little sway), swing (the bones of a "
+            "tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` "
+            "are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with "
+            "'did you mean'). A gait is solved with the rig's own proportions: each foot follows a path that "
+            "stands still on the ground in stance (the clip's `contacts` say when) and the clip's "
+            "`groundSpeed` is the speed to move the entity at so the planted feet do not slide. The clip "
+            "records the kind and every parameter used in `generated`, so the same call writes the same "
+            "bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which "
+            "template has it. Refuses to replace a file unless `overwrite`."
+            FA_COMMAND_DETAILS
+            "Example: "
+            "{\"rig\":\"assets/models/hero.rig.glb\",\"kind\":\"walk\",\"params\":{\"strideLength\":1.2,\"cadence\":1.0},\"out\":\"anim/hero_walk.anim.json\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"rig", "kind"})},
                                          {"properties", obj({{"rig", rigProp},
                                                              {"kind", Json::object({{"type", "string"}, {"enum", Json::array({"walk", "run", "trot", "gallop", "idle", "swing", "hit"})}, {"description", "What to generate."}})},

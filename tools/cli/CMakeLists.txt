@@ -110,6 +110,18 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_mcp_update PROPERTIES TIMEOUT 300)
     endif()
+
+    # scripts/agent-cost.sh against a fake engine and a fake CLI (no model, no quota): the wall-clock cap and TERM end the
+    # CLI's process group, the clean environment, the throw-away HOME and the wrapper. Plus its allow/deny rules.
+    find_program(FA_BASH bash)
+    if(UNIX AND FA_BASH)
+        add_test(NAME agent_cost_script
+            COMMAND ${FA_BASH} ${FA_ROOT}/scripts/agent-cost-selftest.sh $<TARGET_FILE:factoria>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(agent_cost_script PROPERTIES TIMEOUT 300)
+        add_test(NAME agent_cost_policy COMMAND ${FA_BASH} ${FA_ROOT}/scripts/agent-cost-policy-check.sh WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(agent_cost_policy PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 # The example games (examples/*) are integration tests too: each must validate cleanly and pass its
@@ -149,9 +161,9 @@ if(FA_BUILD_TESTS)
             set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
                 DISABLED ${fa_examples_disabled})
             # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
-            # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
-            # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
-            # developer machine it passes.
+            # baseline of this runner in tests/perf/<example>.perf.json. Counters (draw calls, entities) are exact, memory and time
+            # fail only past a wide band, a time only in CI (the CI environment variable). A runner with no baseline
+            # fails in CI and prints the entry to commit; on a developer machine it passes.
             # One example may measure several scenes: <example>.perf.json and <example>-*.perf.json (not <example>*, which
             # would catch another example with the same prefix). Each file names its scene.
             # An example whose bot is the hook that `play.auto` runs (scripts/autoplay.js) is played by that command: Lantern Keep

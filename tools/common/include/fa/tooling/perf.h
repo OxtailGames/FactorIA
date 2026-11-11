@@ -13,9 +13,22 @@
 namespace fa {
 
 // What one measured run costs: the `perf` object of the `factoria run --headless --json` report.
+struct PerfFrame {
+    int frame = 0;
+    double ms = 0;
+};
 struct PerfSample {
     int frames = 0;
     double cpuMsAvg = 0, cpuMsP95 = 0, cpuMsMax = 0;  // CPU time of the engine per frame (process CPU, not wall clock)
+    // The median frame. -1 = not recorded (a baseline from before it: the average stands in for it, which is never lower, so the
+    // comparison only gets more lenient). Time is gated on the median and the p95; the average and the maximum are only reported,
+    // because one slow frame decides them.
+    double cpuMsMedian = -1;
+    // The slowest frames of the run, slowest first (at most kPerfSlowestFrames): so a spike is seen, not hidden in a number.
+    std::vector<PerfFrame> slowestFrames;
+    // A baseline entry only: "provisional": true. Only the counters (draw calls, entities, triangles, lights) are enforced, never
+    // time or memory: the entry is an estimate until a CI run of that runner replaces it (perf.baseline).
+    bool provisional = false;
     double peakMemoryMB = 0;                          // peak resident memory of the process
     int drawCalls = 0;                                // max over the run
     int entities = 0;                                 // max over the run
@@ -30,41 +43,57 @@ struct PerfSample {
     double startupMs = -1;
     std::string graphics;                             // the GPU used, "none" without one
 };
-Json perf_sample_json(const PerfSample& s);
+constexpr int kPerfSlowestFrames = 5;
+// `withSlowest` false leaves the slowest frames out: a baseline entry is the same on every run, a measurement is not.
+Json perf_sample_json(const PerfSample& s, bool withSlowest = true);
 PerfSample perf_sample_from_json(const Json& j);  // missing or mistyped fields read as 0
 
-// How far a measurement may go past its baseline. A limit is max(baseline * (1 + ratio), baseline + slack): the slack keeps
-// a tiny baseline (0.3 ms, 3 draw calls) from failing on noise.
+// How far a measurement may go past its baseline. There are two kinds of metric.
+//  - COUNTERS (draw calls, entities, triangles, lights): the same on every run of a fixed scene, so the limit is the baseline
+//    itself (ratio 0, slack 0) and one more fails. Fewer is fine. texture memory is nearly one: it keeps a small band.
+//  - NOISE (the median and p95 frame time, peak memory): a shared CI runner moves them by several times. A row has two limits.
+//    Past `warnLimit` = max(baseline * (1 + ratio), baseline + slack) it warns; only past `limit` =
+//    max(baseline * (1 + failRatio), baseline + failSlack) does it fail (a time only when strictTime). The wide band, not the
+//    re-measures, is what absorbs the noise, so a baseline is never refreshed to make a check pass. The absolute slack matters
+//    under a millisecond, where a ratio alone is noise (0.46 ms measured as 1.75 ms is 3.8x and not a regression).
 struct PerfTolerance {
-    double cpuAvg = 1.0;      // +100%: CPU time is noisy, even as CPU time (other processes share caches, clocks scale)
-    double cpuP95 = 1.5;      // +150%
-    double memory = 0.10;     // +10%: peak memory is nearly deterministic
-    double drawCalls = 0.10;  // +10%: deterministic for a fixed scene
-    double entities = 0.10;
-    double triangles = 0.10;  // deterministic for a fixed scene
-    double lights = 0.10;
+    double cpuMedian = 1.0;   // warn at +100% (and cpuSlackMs)
+    double cpuP95 = 1.5;      // warn at +150%
+    double cpuFail = 5.0;     // fail at +500% (6x the baseline) or cpuFailSlackMs, the larger
+    double cpuFailSlackMs = 10.0;
+    double memory = 0.10;     // warn at +10% (and memorySlackMB)
+    double memoryFail = 0.5;  // fail at +50% or memoryFailSlackMB, the larger
+    double memoryFailSlackMB = 32.0;
+    double drawCalls = 0.0;   // exact: one more fails
+    double entities = 0.0;
+    double triangles = 0.0;
+    double lights = 0.0;
     double textureMB = 0.10;
     double textureSlackMB = 1.0;
     double startup = 2.0;         // +200%: reading files and compiling shaders depends on the disk, its cache and the driver
     double startupSlackMs = 500.0;
     double cpuSlackMs = 1.0;
     double memorySlackMB = 8.0;
-    double countSlack = 2.0;
+    double countSlack = 0.0;
 };
 // Defaults overridden by the keys of `j` (the "tolerance" object of a budget file); problems (unknown key, bad value) go to `problems`.
 PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* problems = nullptr);
 
 struct PerfCheckRow {
-    std::string metric;  // "cpuMsAvg", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities", "triangles", "lights", "textureMB"; "maxTriangles"... for a budget
-    double measured = 0, baseline = 0, limit = 0;
-    bool timing = false;  // a time metric (also maxStartupMs): over budget only warns outside CI
-    bool exceeded = false;
+    std::string metric;  // "cpuMsMedian", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities", "triangles", "lights", "textureMB", "startupMs"; "maxTriangles"... for a budget
+    double measured = 0, baseline = 0;
+    double limit = 0;      // past it the row FAILS (a time: only when strictTime)
+    double warnLimit = 0;  // past it, up to `limit`, the row warns; equal to `limit` for a counter or an absolute cap
+    bool timing = false;   // a time metric (also maxStartupMs): over budget only warns outside CI
+    bool exceeded = false;  // measured > limit
+    bool warned = false;    // warnLimit < measured <= limit
 };
 struct PerfVerdict {
-    std::string status;  // "pass", "warn" (time over budget outside CI) or "fail"
+    std::string status;  // "pass", "warn" (inside a band, or a time over budget outside CI) or "fail"
     std::vector<PerfCheckRow> rows;
 };
-// `strictTime`: a time over budget fails (CI); otherwise it only warns. Memory, draw calls and entities always fail.
+// `strictTime`: a time past its limit fails (CI); otherwise it only warns. Memory and the counters past theirs always fail.
+// A provisional baseline (PerfSample::provisional) compares the counters only: no time, memory, texture or start-up row.
 PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline, const PerfTolerance& tol, bool strictTime);
 
 // Absolute caps, whatever the runner: the "budgets" object of a budget file or the `budgets` argument of perf.check.

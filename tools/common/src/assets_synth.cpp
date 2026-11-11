@@ -121,11 +121,16 @@ void register_synth_sound_command(CommandRegistry& registry, const std::string& 
     info.readOnly = false;
     info.summary = "Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.";
     info.description =
-        "Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no "
-        "key. The presets are sound patches rendered by the engine's synthesizer: sfx.preset returns one as an editable *.sfx.json (docs/SOUND.md), so to change a "
-        "sound instead of taking it as it is, write the patch, edit it and call sfx.render. The same preset, seed and seconds always give the same bytes; another `seed` is "
-        "another take of the same sound (the noise changes and the pitch moves up to 10 percent). `seconds` stretches the whole sound. Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license "
-        "CC0, the preset and the seed). Presets:" + presets +
+        "Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from "
+        "`preset`, with no AI provider and no key. The presets are sound patches rendered by the engine's "
+        "synthesizer: sfx.preset returns one as an editable *.sfx.json (docs/SOUND.md), so to change a sound "
+        "instead of taking it as it is, write the patch, edit it and call sfx.render. The same preset, seed "
+        "and seconds always give the same bytes; another `seed` is another take of the same sound (the noise "
+        "changes and the pitch moves up to 10 percent). `seconds` stretches the whole sound. Levelled to "
+        "about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records "
+        "provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). "
+        "Presets: "
+        FA_COMMAND_DETAILS + presets +
         "\nGood for placeholders and simple effects; for richer sounds import a CC0 kit (docs/ASSETS.md) or use assets.generate_sound. "
         "Example: {\"path\":\"assets/audio/dog_bark.wav\",\"preset\":\"bark\",\"seed\":3}";
     info.inputSchema = Json::object(

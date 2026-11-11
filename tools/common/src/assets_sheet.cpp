@@ -449,20 +449,24 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
     info.readOnly = false;
     info.summary = "Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them.";
     info.description =
-        "SpriteAnimator plays a uniform grid of frames (columns x rows, row-major from the top-left). Two ways to get one:\n"
-        "1. The image already is a grid: give columns/rows (or frameWidth/frameHeight). The grid is checked against the image "
-        "size (a width that columns does not divide is an error that lists the columns that fit) and recorded as the `sheet` of "
-        "the image in assets.json. Example: {\"path\":\"assets/hero.png\",\"columns\":4,\"rows\":2,\"fps\":12}.\n"
-        "2. Frames separated by transparent gutters and of uneven sizes, as AI-generated and downloaded sheets often are: pass "
-        "auto: true. Every group of touching pixels is a sprite (sprites whose boxes overlap are one frame), ordered by rows then "
-        "columns, and repacked into a uniform grid of the largest sprite's size, each centred (align \"bottom\" stands characters "
-        "on the same ground line). The new PNG is `out` (default <name>_sheet.png next to the image; the source is kept). "
-        "`frames` is the number of sprites you expect: a different count is an error that lists what was found. Example: "
-        "{\"path\":\"assets/hero_raw.png\",\"auto\":true,\"frames\":8,\"align\":\"bottom\",\"background\":\"auto\"}.\n"
-        "background \"auto\" first makes a solid background transparent (the four corners must be the same opaque colour; the "
-        "background that touches them is cleared, the same colour inside a sprite stays), also for a grid. The result has the "
-        "`sheet`, the SpriteAnimator fields and the Sprite texture to use. Aseprite files need no slicing: assets.import reads "
-        "their frames and tags.";
+        "SpriteAnimator plays a uniform grid of frames (columns x rows, row-major from the top-left). Two "
+        "ways to get one:\n"
+        "1. The image already is a grid: give columns/rows (or frameWidth/frameHeight). The grid is checked "
+        "against the image size (a width that columns does not divide is an error that lists the columns "
+        "that fit) and recorded as the `sheet` of the image in assets.json. Example: "
+        "{\"path\":\"assets/hero.png\",\"columns\":4,\"rows\":2,\"fps\":12}.\n"
+        "2. Frames separated by transparent gutters and of uneven sizes, as AI-generated and downloaded "
+        "sheets often are: pass auto: true. Every group of touching pixels is a sprite (sprites whose boxes "
+        "overlap are one frame), ordered by rows then columns, and repacked into a uniform grid of the "
+        "largest sprite's size, each centred (align \"bottom\" stands characters on the same ground line). "
+        "The new PNG is `out` (default <name>_sheet.png next to the image; the source is kept). `frames` is "
+        "the number of sprites you expect: a different count is an error that lists what was found. Example: "
+        "{\"path\":\"assets/hero_raw.png\",\"auto\":true,\"frames\":8,\"align\":\"bottom\",\"background\":\"auto\"}."
+        FA_COMMAND_DETAILS
+        "background \"auto\" first makes a solid background transparent (the four corners must be the same "
+        "opaque colour; the background that touches them is cleared, the same colour inside a sprite stays), "
+        "also for a grid. The result has the `sheet`, the SpriteAnimator fields and the Sprite texture to "
+        "use. Aseprite files need no slicing: assets.import reads their frames and tags.";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["path"],
       "properties":{

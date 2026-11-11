@@ -1281,17 +1281,36 @@ void register_vector_rig_command(CommandRegistry& registry, const std::string& p
     info.readOnly = false;
     info.summary = "Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.";
     info.description =
-        "Reads a project SVG and makes a character that animates in parts, with no other step. Every group with an id is a PART (a group nested in a group is a child part; ids an editor makes up, like g123, do not count; `parts` names the groups yourself). "
-        "Each part is drawn alone (its own shapes only, with the transforms and styles of its groups), trimmed, padded and packed into ONE atlas picture (`layout: \"atlas\"`, default; \"files\" writes a picture per part). "
-        "The prefab (default prefabs/<name>.prefab.json) has an entity per part, named by its id, in the hierarchy of the drawing, with a Sprite (region, size, pivot, layer from the SVG order, pixelArt from the style), a Transform at the joint and a Bone2D (length to the farthest child joint). "
-        "Rotating a part (Transform.rotation.z, in a clip) turns it, and its children, about its joint. "
-        "JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG marks the joint by its centre (it is not drawn); else `pivots` {part: [x, y]} in the drawing; else the `data-pivot=\"x y\"` attribute of the group; else the overlap with the nearest ancestor part that has a picture (its centre, moved to the nearer end of a long part such as an arm); else the top centre of the part. The result says which one was used (`pivotFrom`). "
-        "HIERARCHY: nesting in the SVG, then the `data-parent` attribute and `parents` {part: parent, \"\" = root}, then names (`naming`): arm_lower_l hangs from arm_upper_l, and when one of root/body/torso/trunk/hips/pelvis/chest is left with no parent the other parentless parts hang from it. "
-        "`data-min-angle` / `data-max-angle` on a group set Bone2D.minAngle / maxAngle. "
-        "Running it again UPDATES the prefab in place: the entities keep their names and everything you added (an Animator, colliders, other children); only Transform.position, Sprite and Bone2D.length are rewritten, new parts are added, and parts that left the SVG are reported (with the clips that name them; `prune: true` removes them). "
-        "Result: `parts` (parent, pivot, pivotFrom, bone length, region), the atlas, `restPose` {matches, maxDifference, differingPixels} from composing the prefab's sprites and comparing them with the SVG drawn whole, a side-by-side `$image` (SVG left, rig right with a cross at each joint) and `warnings`. "
-        "The pictures get a provenance recipe in assets.json, so assets.regenerate and `factoria validate` find the rig stale when the SVG changes. SVG y points down, the engine's up: the prefab's y is flipped, and the rig's origin is the bottom centre of the drawing (`origin`). "
-        "Example: {\"source\": \"assets/art/hero.svg\", \"pixelsPerUnit\": 4}. Docs: docs.read VECTOR (Characters in parts).";
+        "Reads a project SVG and makes a character that animates in parts, with no other step. Every group "
+        "with an id is a PART (a group nested in a group is a child part; ids an editor makes up, like g123, "
+        "do not count; `parts` names the groups yourself). Each part is drawn alone (its own shapes only, "
+        "with the transforms and styles of its groups), trimmed, padded and packed into ONE atlas picture "
+        "(`layout: \"atlas\"`, default; \"files\" writes a picture per part). The prefab (default "
+        "prefabs/<name>.prefab.json) has an entity per part, named by its id, in the hierarchy of the "
+        "drawing, with a Sprite (region, size, pivot, layer from the SVG order, pixelArt from the style), a "
+        "Transform at the joint and a Bone2D (length to the farthest child joint). Rotating a part "
+        "(Transform.rotation.z, in a clip) turns it, and its children, about its joint. Example: "
+        "{\"source\": \"assets/art/hero.svg\", \"pixelsPerUnit\": 4}. Docs: docs.read VECTOR (Characters in "
+        "parts)."
+        FA_COMMAND_DETAILS
+        "JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG marks the joint by "
+        "its centre (it is not drawn); else `pivots` {part: [x, y]} in the drawing; else the `data-pivot=\"x "
+        "y\"` attribute of the group; else the overlap with the nearest ancestor part that has a picture "
+        "(its centre, moved to the nearer end of a long part such as an arm); else the top centre of the "
+        "part. The result says which one was used (`pivotFrom`). HIERARCHY: nesting in the SVG, then the "
+        "`data-parent` attribute and `parents` {part: parent, \"\" = root}, then names (`naming`): "
+        "arm_lower_l hangs from arm_upper_l, and when one of root/body/torso/trunk/hips/pelvis/chest is left "
+        "with no parent the other parentless parts hang from it. `data-min-angle` / `data-max-angle` on a "
+        "group set Bone2D.minAngle / maxAngle. Running it again UPDATES the prefab in place: the entities "
+        "keep their names and everything you added (an Animator, colliders, other children); only "
+        "Transform.position, Sprite and Bone2D.length are rewritten, new parts are added, and parts that "
+        "left the SVG are reported (with the clips that name them; `prune: true` removes them). Result: "
+        "`parts` (parent, pivot, pivotFrom, bone length, region), the atlas, `restPose` {matches, "
+        "maxDifference, differingPixels} from composing the prefab's sprites and comparing them with the SVG "
+        "drawn whole, a side-by-side `$image` (SVG left, rig right with a cross at each joint) and "
+        "`warnings`. The pictures get a provenance recipe in assets.json, so assets.regenerate and `factoria "
+        "validate` find the rig stale when the SVG changes. SVG y points down, the engine's up: the prefab's "
+        "y is flipped, and the rig's origin is the bottom centre of the drawing (`origin`).";
     const auto str = [](const char* d) { return Json::object({{"type", "string"}, {"description", d}}); };
     const auto num = [](const char* d, double lo, double hi) { return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"description", d}}); };
     const auto boolean = [](const char* d, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", d}}); };

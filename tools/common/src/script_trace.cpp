@@ -395,15 +395,26 @@ void register_script_trace_commands(CommandRegistry& registry, const std::string
     c.readOnly = true;
     c.summary = "Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.";
     c.description =
-        "The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same "
-        "input gives the same answer) with the scripts instrumented, and at each traced line records what is there instead of stopping. A point is {file, line, condition?, watch?, log?}: "
-        "`file` a project-relative script, `line` a line that starts a statement (an error names the nearest ones when it does not), `condition` a JavaScript expression that must be true for the point to record, "
-        "`watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). "
-        "Returns {hits: [{point (index in points), frame (0-based fixed frame), file, line, function (e.g. Player.onUpdate), stack (innermost first, \"fn file:line\"), locals: {name: value}, watch: {expression: value}}], "
-        "logs: [{frame, file, line, text}], errors (script errors raised during the run, scene problems, conditions that threw), framesRun, truncated}. Values are JSON: numbers, strings and booleans as such; "
-        "objects are expanded `depth` levels (0 = a short preview string, 1 = the fields as JSON with nested objects as previews); an expression that throws gives \"<error: ...>\". After `maxHits` hits of a point "
-        "it stops recording and `truncated` is true. A point in code that never runs gives no hits (check `scene` and `input`). Debugging slows the scripts 2-4x. "
-        "See docs/DEBUGGING.md. Example: {\"points\":[{\"file\":\"scripts/player.js\",\"line\":17,\"condition\":\"dt > 0\",\"watch\":[\"this.body.velocity\"]}],\"frames\":120,\"maxHits\":5}.";
+        "The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` "
+        "fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same "
+        "input gives the same answer) with the scripts instrumented, and at each traced line records what is "
+        "there instead of stopping. A point is {file, line, condition?, watch?, log?}: `file` a "
+        "project-relative script, `line` a line that starts a statement (an error names the nearest ones "
+        "when it does not), `condition` a JavaScript expression that must be true for the point to record, "
+        "`watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the "
+        "point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). "
+        "Example: {\"points\":[{\"file\":\"scripts/player.js\",\"line\":17,\"condition\":\"dt > "
+        "0\",\"watch\":[\"this.body.velocity\"]}],\"frames\":120,\"maxHits\":5}."
+        FA_COMMAND_DETAILS
+        "Returns {hits: [{point (index in points), frame (0-based fixed frame), file, line, function (e.g. "
+        "Player.onUpdate), stack (innermost first, \"fn file:line\"), locals: {name: value}, watch: "
+        "{expression: value}}], logs: [{frame, file, line, text}], errors (script errors raised during the "
+        "run, scene problems, conditions that threw), framesRun, truncated}. Values are JSON: numbers, "
+        "strings and booleans as such; objects are expanded `depth` levels (0 = a short preview string, 1 = "
+        "the fields as JSON with nested objects as previews); an expression that throws gives \"<error: "
+        "...>\". After `maxHits` hits of a point it stops recording and `truncated` is true. A point in code "
+        "that never runs gives no hits (check `scene` and `input`). Debugging slows the scripts 2-4x. See "
+        "docs/DEBUGGING.md.";
     c.inputSchema = Json::parse(R"({"type":"object","required":["points"],"properties":{
         "points":{"type":"array","minItems":1,"description":"The lines to trace.","items":{"type":"object","required":["file","line"],"properties":{
             "file":{"type":"string","description":"Project-relative script, e.g. scripts/player.js."},

@@ -97,6 +97,12 @@ std::optional<double> image_price(const AssetPricing& p, const std::vector<std::
 
 }  // namespace
 
+const char* asset_cost_short() {
+    return " COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns "
+           "{needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call "
+           "again with approved:true. An AI must never set approved:true on its own.";
+}
+
 const char* asset_cost_doc() {
     return " COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake "
            "provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and "
