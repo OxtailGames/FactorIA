@@ -839,9 +839,16 @@ Json set_provenance(const Ctx&, const Json& args) {
     }
     if (const std::optional<i64> seed = seed_arg(args)) p["seed"] = *seed;
     if (std::vector<std::string> refs = string_list(args, "references"); !refs.empty()) p["references"] = refs;
+    if (const std::string role = str(args, "role"); !role.empty()) {
+        const auto& roles = style_roles();
+        if (std::find(roles.begin(), roles.end(), role) == roles.end())
+            throw CommandError("invalid_argument", std::format("unknown role '{}'. {}", role, did_you_mean(role, roles)), "A role is ui, icon or effect.");
+        p["role"] = role;
+    }
     // The recipe of a made asset (assets.regenerate) is not something to type here: describing who made the file keeps it.
     auto r = assets::update_entry(path, [&](Json& entry) {
         if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
+        if (!p.contains("role") && entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role")) p["role"] = entry["provenance"]["role"];
         entry["provenance"] = p;
     });
     if (!r) fail("manifest_failed", r.error());
@@ -1370,7 +1377,8 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "author":{"type":"string","description":"Person, studio or agent that made or chose the asset."},
             "source":{"type":"string","description":"Where an imported asset came from: a URL or the original file."},
             "date":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"YYYY-MM-DD. Default: today."},
-            "notes":{"type":"string","description":"Anything else, such as edits made by hand."}},
+            "notes":{"type":"string","description":"Anything else, such as edits made by hand."},
+            "role":{"type":"string","enum":["ui","icon","effect"],"description":"What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). docs.read ASSETS, \"Scoping the style rules\"."}},
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
     add_read_only_asset_commands(registry, ctx);

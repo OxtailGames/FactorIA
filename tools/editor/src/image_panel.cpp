@@ -367,6 +367,40 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     at_track("img:reload");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the document and its layer files again; the undo steps stay.");
     ImGui::SameLine();
+    ImGui::BeginDisabled(!editable || !m.valid());
+    if (ImGui::Button("Resize...")) {
+        u.resizeWidth = m.width();
+        u.resizeHeight = m.height();
+        ImGui::OpenPopup("##imgresize");
+    }
+    at_track("img:resize");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Change the canvas size (image.resize): every layer, frame and cel moves or is cropped by the anchor. Ctrl+Z undoes it.");
+    if (ImGui::BeginPopup("##imgresize")) {
+        static const char* const kAnchors[9] = {"top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"};
+        ImGui::TextUnformatted("Resize canvas (image.resize)");
+        ImGui::SetNextItemWidth(120);
+        ImGui::InputInt("Width", &u.resizeWidth);
+        ImGui::SetNextItemWidth(120);
+        ImGui::InputInt("Height", &u.resizeHeight);
+        u.resizeWidth = std::clamp(u.resizeWidth, 1, 4096);
+        u.resizeHeight = std::clamp(u.resizeHeight, 1, 4096);
+        ImGui::SetNextItemWidth(160);
+        if (ImGui::BeginCombo("Anchor", kAnchors[u.resizeAnchor])) {
+            for (int i = 0; i < 9; ++i)
+                if (ImGui::Selectable(kAnchors[i], i == u.resizeAnchor)) u.resizeAnchor = i;
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The part of the old canvas that stays where it is.");
+        if (ImGui::Button("Resize")) {
+            image_edited(m.resize_canvas(u.resizeWidth, u.resizeHeight, kAnchors[u.resizeAnchor], ""));
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("img:resize:apply");
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
     if (m.valid()) {
         const ImageBakeStatus b = m.bake_status();
         const bool fresh = b.state == ImageBakeState::Fresh;

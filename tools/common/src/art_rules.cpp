@@ -6,6 +6,7 @@
 #include <format>
 #include <set>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/tooling/art_check.h"
 #include "util.h"
 
@@ -44,7 +45,7 @@ ArtRule make(const char* id, double value, double threshold, std::optional<doubl
     return r;
 }
 
-const char* kIgnoreHint = " If this asset is meant to differ (UI, an effect), list it in assets.json style.ignore.";
+const char* kIgnoreHint = " If this asset is meant to differ (UI, an effect), give it a role (assets.set_provenance role) or skip this rule with style.ignore.";
 
 void outline_rules(const ArtMeasure& m, const StyleOutline& o, std::vector<ArtRule>& out) {
     if (m.ringPixels < 12) return;  // no silhouette: an opaque tile or a full-frame picture
@@ -204,17 +205,67 @@ std::vector<ArtRule> evaluate_style_rules(const ArtMeasure& m, const StyleGuide&
     return out;
 }
 
+std::string style_role_of(const Json& manifest, const StyleGuide& style, const std::string& path, std::string* source) {
+    if (manifest.is_object() && manifest.contains("assets") && manifest["assets"].is_object()) {
+        const Json& assets = manifest["assets"];
+        auto entry = assets.find(path);
+        if (entry != assets.end() && entry->is_object() && entry->contains("provenance") && (*entry)["provenance"].is_object()) {
+            const Json& p = (*entry)["provenance"];
+            if (p.contains("role") && p["role"].is_string()) {
+                if (source) *source = "provenance.role";
+                return p["role"].get<std::string>();
+            }
+        }
+    }
+    for (const auto& [glob, role] : style.roles)
+        if (style_path_matches(glob, path)) {
+            if (source) *source = "style.roles " + glob;
+            return role;
+        }
+    return "";
+}
+
+void apply_style_scope(const StyleGuide& style, const std::string& path, const std::string& role, const std::string& roleSource, std::vector<ArtRule>& rules,
+                       std::vector<StyleSkip>& skipped) {
+    const std::vector<std::string> roleOff = style_role_skips(role);
+    std::vector<ArtRule> kept;
+    for (ArtRule& r : rules) {
+        std::string reason;
+        for (const StyleIgnoreRule& e : style.ignoreRules) {
+            if (!style_path_matches(e.path, path)) continue;
+            for (const std::string& name : e.rules)
+                if (style_rule_matches(name, r.rule)) { reason = "style.ignore entry '" + e.path + "' skips " + name; break; }
+            if (!reason.empty()) break;
+        }
+        if (reason.empty())
+            for (const std::string& name : roleOff)
+                if (style_rule_matches(name, r.rule)) { reason = "role " + role + " (" + roleSource + ") does not ask for " + name; break; }
+        if (reason.empty()) kept.push_back(std::move(r));
+        else skipped.push_back({r.rule, std::move(reason)});
+    }
+    rules = std::move(kept);
+}
+
 void check_art_style(const std::string& projectDir, const std::set<std::string>& textures, const ProjectArtUse& use, std::vector<ValidationIssue>& warnings) {
     StyleParse parsed = load_style_guide(projectDir);
     const StyleGuide& style = parsed.guide;
     if (!style.has_art_rules()) return;
+    const Json manifest = [&] {
+        tooling_detail::ProjectRootScope root(projectDir);
+        return assets::manifest();
+    }();
     for (const std::string& rel : textures) {
         if (style.ignores(rel)) continue;
         std::error_code ec;
         if (!std::filesystem::is_regular_file(std::filesystem::path(projectDir) / rel, ec)) continue;
         auto measure = measure_art_file(projectDir, rel);
         if (!measure) continue;
-        for (const ArtRule& r : evaluate_style_rules(*measure, style, use.of(rel)))
+        std::string roleSource;
+        const std::string role = style_role_of(manifest, style, rel, &roleSource);
+        std::vector<ArtRule> rules = evaluate_style_rules(*measure, style, use.of(rel));
+        std::vector<StyleSkip> skipped;
+        apply_style_scope(style, rel, role, roleSource, rules, skipped);  // assets.check_art reports what was skipped
+        for (const ArtRule& r : rules)
             if (r.verdict == Verdict::Fail)
                 warnings.push_back({rel, "", "Breaks the style rule '" + r.rule + "' (assets.json style): " + r.message, r.hint});
     }

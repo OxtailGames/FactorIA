@@ -33,6 +33,12 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   recipe. `assets.set_provenance` and `schemas/assets.schema.json` take the kind `anim3d`, also for clips outside `assets/`.
 - `image.create` takes `output`, the PNG the document bakes to.
 - A test runs every recipe command in a scratch project and validates the `assets.json` it writes against the schema.
+- `image.resize {path, width, height, anchor, fill}` changes the canvas of an image document: every layer, frame and cel moves
+  or is cropped by one of nine anchors, indexed rows are cut or padded, palette, ramps, tags and sheet stay; the Image panel has
+  a Resize... button (one undo step).
+- `style.ignore {path, rules}` skips only the named style rules for a file, folder or glob; `style.set_role` and a `role`
+  (`ui`, `icon`, `effect`) in an asset's provenance turn off the rules that do not apply to that kind of picture.
+  `assets.check_art` reports what it skipped and why (`styleSkipped`). Kindlewatch drops its ignore list for roles.
 
 ## 0.22.0
 

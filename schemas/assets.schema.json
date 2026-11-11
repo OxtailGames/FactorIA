@@ -281,9 +281,25 @@
         "ignore": {
           "type": "array",
           "items": {
-            "type": "string"
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "description": "A file, a folder ending in a slash or a glob." },
+                  "rules": { "type": "array", "items": { "type": "string" }, "description": "Only these rules are skipped for the path (outline, value, saturation, lightDirection, texelsPerUnit, pixelArt, palette or a sub-rule such as outline.width). Without it every rule is skipped." }
+                }
+              }
+            ]
           },
-          "description": "Project-relative files, or folders ending in a slash, that the art checks of project.validate skip (UI, effects, photos). assets.check_art still checks a file you name."
+          "description": "Project-relative files, folders ending in a slash or globs that the art checks skip (UI, effects, photos): a plain string skips every rule, {path, rules} only the rules named. assets.check_art still checks a file you name and reports what it skipped. Written by style.ignore."
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": { "enum": ["ui", "icon", "effect"] },
+          "description": "Path pattern (file, folder ending in a slash or glob) to role. A role turns off the style rules that do not apply to that kind of picture: ui and icon texelsPerUnit and lightDirection; effect also outline, value and saturation. A provenance.role wins over a glob. Written by style.set_role."
         }
       }
     },
@@ -307,6 +323,7 @@
           "enum": ["image", "sound", "music", "voice", "model3d", "prefab", "anim3d"],
           "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart. `anim3d` is a 3D bone clip (anim3d.generate and anim3d.retarget write its recipe; the other anim3d commands record it as original). `prefab` is the prefab file model.game_ready writes next to a model."
         },
+        "role": { "enum": ["ui", "icon", "effect"], "description": "What the picture is for. The style checks leave out the rules that do not apply to the role (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Set by assets.set_provenance; kept when the document is baked again." },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
         "prompt": { "type": "string", "description": "Prompt (or spoken text) the asset was generated from, style prompt included." },
