@@ -182,7 +182,7 @@ void MusicStemStream::prime(std::int64_t first, std::int64_t count) {
         Primed& p = primed_[primedNext_];
         primedNext_ = (primedNext_ + 1) % primed_.size();
         p.chunk = c;
-        p.until = pass_.load(std::memory_order_relaxed) + kPrimedPasses;
+        p.until = pass_.load(std::memory_order_relaxed) + kPrimedBlocks;
         ensure(c, true);
     }
 }
