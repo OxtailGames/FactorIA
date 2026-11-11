@@ -87,6 +87,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [ai](commands/ai.md)
 
+- [`agent.cost`](commands/ai.md#agentcost): Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed. _Not released yet._
 - [`ai.extensions`](commands/ai.md#aiextensions): Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading. _Since 0.11.0._
 - [`ai.hooks`](commands/ai.md#aihooks): List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook. _Since 0.11.0._
 - [`ai.hooks_test`](commands/ai.md#aihooks_test): Run the configured hooks of one event with a sample input and show what they decide. _Since 0.11.0._
