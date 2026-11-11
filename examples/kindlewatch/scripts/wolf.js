@@ -7,7 +7,7 @@
 import { Behaviour, physics, world, rng, camera, audio } from "factoria";
 import { yawOf, turnToward, flatDistance, behaviourOf } from "./common.js";
 
-/** How far from the camera (the AudioListener, 18 units above the clearing) a wolf sound is heard, in world units. */
+/** How far from the camera (the listener: it sits at (0, 15, 10), about 18 units from the clearing's centre) a wolf sound is heard, in world units. */
 const EARS = 48;
 
 export default class Wolf extends Behaviour {

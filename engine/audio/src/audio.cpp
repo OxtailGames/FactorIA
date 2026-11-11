@@ -3302,15 +3302,33 @@ Json Audio::music_players() const {
 
 // ============================================================ world driving ==
 
+float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance, float factor) {
+    reach = std::max(reach, 1e-3f);
+    const float d = std::max(distance, 0.0f);
+    if (d >= reach) return 0.0f;
+    factor = std::max(factor, 0.0f);
+    float r = refDistance > 0.0f ? refDistance : (rolloff == AudioRolloff::Linear ? 0.0f : reach / 20.0f);
+    r = std::min(r, reach * 0.999f);
+    const float dc = std::max(d, r);
+    switch (rolloff) {
+        case AudioRolloff::Inverse: return saturate(r / std::max(r + factor * (dc - r), 1e-6f));
+        case AudioRolloff::Exponential: return r > 0.0f ? saturate(std::pow(dc / r, -factor)) : 1.0f;
+        case AudioRolloff::Linear: break;
+    }
+    return saturate(1.0f - factor * (dc - r) / (reach - r));
+}
+
+namespace {
 // The listener spatial sounds are heard from: the first active AudioListener entity, else the primary (or first) camera.
-struct Listener {
+struct ListenerPose {
     bool have = false;
     Vec3 pos{}, right{1, 0, 0};
     float volume = 1.0f, zoom = 1.0f;
 };
+}  // namespace
 
-static Listener find_listener(World& world) {
-    Listener l;
+static ListenerPose find_listener(World& world) {
+    ListenerPose l;
     auto take = [&](Entity e, float vol, float zoom) {
         Mat4 m = world.world_matrix(e);
         l.pos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
@@ -3341,17 +3359,18 @@ static Listener find_listener(World& world) {
     return l;
 }
 
-VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range) {
-    const Listener l = find_listener(world);
+VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range,
+                       AudioRolloff rolloff, float refDistance, float rolloffFactor) {
+    const ListenerPose l = find_listener(world);
     PlayParams p = params;
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
         const float reach = std::max(range, 1e-3f) * l.zoom;
-        p.volume = params.volume * saturate(1.0f - length(d) / reach) * l.volume;
+        if (length(d) >= reach) return 0;  // out of range: no voice taken (a quiet sound in range still gets an id)
+        p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) * l.volume;
         p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
     }
-    if (p.volume <= 0.0f) return 0;  // out of range: silent, no voice taken
     return play(clipPath, p);
 }
 
@@ -3385,7 +3404,7 @@ void Audio::update(World& world, float dt) {
             feel.failedSounds.insert(fs.options.path);
     }
     // ---- listener: AudioListener entity, else the primary (or first) camera
-    const Listener listener = find_listener(world);
+    const ListenerPose listener = find_listener(world);
     const bool haveListener = listener.have;
     const Vec3 lpos = listener.pos, lright = listener.right;
     const float lvol = listener.volume, lzoom = listener.zoom;
@@ -3436,7 +3455,7 @@ void Audio::update(World& world, float dt) {
             Vec3 d = world.world_position(e) - lpos;
             // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
             float range = std::max(src->range, 1e-3f) * lzoom;
-            gain = saturate(1.0f - length(d) / range);
+            gain = audio_spatial_gain(src->rolloff, length(d), range, src->refDistance * lzoom, src->rolloffFactor);
             pan = clamp(dot(d, lright) / (range * 0.5f), -1.0f, 1.0f);
         }
         const float volume = src->volume * gain * (haveListener ? lvol : 1.0f);

@@ -115,6 +115,14 @@ using AudioSnapshots = std::map<std::string, AudioSnapshot>;
 
 struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
 
+// The volume factor (0..1) of a spatial sound `distance` away from the listener, the one model of AudioSource (spatial) and
+// Audio::play_at. `reach` is the range already stretched by the listener's zoom; `refDistance` and `factor` are in the same
+// units (refDistance 0 = the default: 0 for linear, reach / 20 for the others). Beyond `reach` it is 0 for every curve.
+//   linear:      1 - factor * (d - r) / (reach - r)            (d >= r; 1 below)
+//   inverse:     r / (r + factor * (d - r))
+//   exponential: (d / r) ^ -factor
+float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f, float factor = 1.0f);
+
 class Audio {
 public:
     Audio();
@@ -142,9 +150,12 @@ public:
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
     // A one-shot heard from a place, without an entity: params.volume and params.pan are replaced by what an AudioSource with
     // `spatial` computes for `position` and `range` (volume falls linearly to 0 at `range` times the listener's zoom, pan by the
-    // side of the AudioListener, else the primary camera). It does not follow anything after it starts. Without a listener it
-    // plays as play() does; beyond the range it returns 0 and takes no voice.
-    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f);
+    // side of the AudioListener, else the primary camera). The curve is `rolloff` (audio_spatial_gain, the same as an AudioSource's).
+    // It does not follow anything after it starts. Without a listener it plays as play() does; beyond the range it returns 0
+    // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
+    // Game thread only: it reads the World.
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f,
+                    AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f, float rolloffFactor = 1.0f);
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
     // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when

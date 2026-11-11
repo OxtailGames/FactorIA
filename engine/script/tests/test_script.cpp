@@ -1197,6 +1197,20 @@ test("position and range", () => {
   expect(log[1].volume).toBeCloseTo(0.5);
   expect(log[1].pan).toBeCloseTo(0);
 });
+test("rolloff, loop and captions", () => {
+  game.loadJson(scene);
+  game.step(1);
+  audio.play("assets/sfx/coin.wav", { position: [20, 0, 0], range: 100, rolloff: "inverse", refDistance: 10 });
+  audio.play("assets/sfx/coin.wav", { position: [20, 0, 0], range: 100, rolloff: "exponential", refDistance: 10, rolloffFactor: 2 });
+  const log = game.audioLog();
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[1].volume).toBeCloseTo(0.25);
+  expect(audio.play("assets/sfx/coin.wav", { position: [500, 0, 0], range: 100, caption: "far" })).toBe(0);
+  expect(game.captions()).toHaveLength(0);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], loop: true })).toThrow(/AudioSource/);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], rolloff: "inverze" })).toThrow(/did you mean "inverse"/);
+  expect(() => audio.play("assets/sfx/coin.wav", { rolloff: "inverse" })).toThrow(/needs a position/);
+});
 test("bad arguments explain", () => {
   expect(() => audio.play("assets/sfx/coin.wav", { position: [1] })).toThrow(/position is \[x, y, z\]/);
   expect(() => audio.play("assets/sfx/coin.wav", { range: 5 })).toThrow(/needs a position/);
@@ -1205,9 +1219,10 @@ test("bad arguments explain", () => {
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
     MESSAGE(rep.summary());
-    REQUIRE(rep.cases.size() == 2);
+    REQUIRE(rep.cases.size() == 3);
     CHECK_MESSAGE(rep.cases[0].passed, rep.cases[0].message);
     CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+    CHECK_MESSAGE(rep.cases[2].passed, rep.cases[2].message);
 }
 
 TEST_CASE("tests: game.audioLog and toContainPlayed assert which sounds played") {
