@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs (M100.9a):** performance gates no longer need baselines refreshed for noise. `perf.measure` and `run --json` report `cpuMsMedian` (next to `cpuMsAvg`, `cpuMsP95` and `cpuMsMax`) and `slowestFrames`, the five slowest frames as `[{frame, ms}]`, and `perf.check` names them in its message. `perf.check` enforces the counters (`drawCalls`, `entities`, `triangles`, `lights`) exactly, on every machine, and the median and p95 frame time and peak memory only past a wide band: inside it the status is `warn` and nothing fails, past it (`max(baseline * 6, baseline + 10 ms)` for times, `max(baseline * 1.5, baseline + 32 MB)` for memory) a time fails in CI and memory always. The average and the maximum are reported, not gated, because one slow frame decides them. Tolerance keys: `cpuMedian` (`cpuAvg` is still read as its old name), `cpuFail`, `cpuFailSlackMs`, `memoryFail`, `memoryFailSlackMB`; the defaults of `drawCalls`, `entities`, `triangles`, `lights` and `countSlack` are now 0. `rows` of the result have `warnLimit` and `warned`, and `limit` is where the metric fails. A baseline without `cpuMsMedian` (every file written before) uses its average. A baseline entry with `"provisional": true` enforces only the counters. docs/PERFORMANCE.md, "The band".
+- **For engine developers (M100.9a):** `PerfSample` has `cpuMsMedian`, `slowestFrames` and `provisional`, `PerfTolerance` the two-limit fields and `PerfCheckRow` `warnLimit` and `warned` (`fa/tooling/perf.h`); `Engine::run` fills `perf.cpuMsMedian` and `perf.slowestFrames` of its report. `scripts/perf-baselines.sh` measures every file of `tools/cli/tests/perf` on the machine it runs on, and running the CI workflow by hand with `perfBaselines` ticked (`workflow_dispatch`) does it on a Linux, a Windows and a macOS runner and uploads the entries as the artifacts `perf-baselines-<os>`. The `kindlewatch` Linux and macOS entries are `provisional` until that run measures them.
+
 ## 0.21.0
 
 FactorIA 0.21.0 (M91) makes the runtime independent of the renderer. Sprite animators and particles advance in the

@@ -673,6 +673,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         Json perf = Json::object();
         perf["frames"] = cpu.count;
         perf["cpuMsAvg"] = r3(cpu.avgMs);
+        {  // the median frame (what a time budget gates, with the p95) and the slowest frames (so a spike is named, not hidden)
+            std::vector<double> sorted = cpuMs;
+            std::sort(sorted.begin(), sorted.end());
+            perf["cpuMsMedian"] = r3(sorted.empty() ? 0.0 : sorted[sorted.size() / 2]);
+            std::vector<int> order(cpuMs.size());
+            for (std::size_t i = 0; i < order.size(); ++i) order[i] = int(i);
+            const std::size_t keep = std::min<std::size_t>(5, order.size());
+            std::partial_sort(order.begin(), order.begin() + std::ptrdiff_t(keep), order.end(),
+                              [&](int x, int y) { return cpuMs[std::size_t(x)] != cpuMs[std::size_t(y)] ? cpuMs[std::size_t(x)] > cpuMs[std::size_t(y)] : x < y; });
+            Json slowest = Json::array();
+            for (std::size_t i = 0; i < keep; ++i) slowest.push_back(Json::object({{"frame", order[i]}, {"ms", r3(cpuMs[std::size_t(order[i])])}}));
+            perf["slowestFrames"] = slowest;
+        }
         perf["cpuMsP95"] = r3(cpu.p95Ms);
         perf["cpuMsMax"] = r3(cpu.maxMs);
         perf["cpuClock"] = cpu_time_is_wall_clock() ? "wall" : "process";

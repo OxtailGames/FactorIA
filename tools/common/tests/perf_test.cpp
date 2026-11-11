@@ -21,6 +21,7 @@ PerfSample sample(double avg, double p95, double mem, int draws, int entities) {
     PerfSample s;
     s.frames = 300;
     s.cpuMsAvg = avg;
+    s.cpuMsMedian = avg;
     s.cpuMsP95 = p95;
     s.cpuMsMax = p95 * 2;
     s.peakMemoryMB = mem;
@@ -40,42 +41,126 @@ const PerfCheckRow* row(const PerfVerdict& v, const char* metric) {
 TEST_CASE("perf_compare: the baseline itself and small noise pass") {
     const PerfSample base = sample(5, 8, 100, 40, 200);
     CHECK(perf_compare(base, base, PerfTolerance{}, true).status == "pass");
-    CHECK(perf_compare(sample(6.5, 11, 104, 42, 205), base, PerfTolerance{}, true).status == "pass");
+    CHECK(perf_compare(sample(6.5, 11, 104, 40, 200), base, PerfTolerance{}, true).status == "pass");
 }
 
-TEST_CASE("perf_compare: memory, draw calls and entities fail always; time fails only when strict") {
+TEST_CASE("perf_compare: counters are exact, memory and time fail only past the wide band") {
     const PerfSample base = sample(5, 8, 100, 40, 200);
-    PerfVerdict v = perf_compare(sample(5, 8, 140, 40, 200), base, PerfTolerance{}, false);
-    CHECK(v.status == "fail");  // +40% memory, even outside CI
-    CHECK(row(v, "peakMemoryMB")->exceeded);
-    v = perf_compare(sample(5, 8, 100, 80, 200), base, PerfTolerance{}, false);
+    // A counter off by one fails, always (outside CI too); fewer is fine.
+    PerfVerdict v = perf_compare(sample(5, 8, 100, 41, 200), base, PerfTolerance{}, false);
     CHECK(v.status == "fail");
     CHECK(row(v, "drawCalls")->exceeded);
-    v = perf_compare(sample(5, 8, 100, 40, 400), base, PerfTolerance{}, false);
+    CHECK(row(v, "drawCalls")->limit == doctest::Approx(40));
+    v = perf_compare(sample(5, 8, 100, 40, 201), base, PerfTolerance{}, false);
+    CHECK(v.status == "fail");
     CHECK(row(v, "entities")->exceeded);
+    CHECK(perf_compare(sample(5, 8, 100, 39, 199), base, PerfTolerance{}, true).status == "pass");
 
-    const PerfSample slow = sample(20, 40, 100, 40, 200);  // 4x the time, same memory and draw calls
-    v = perf_compare(slow, base, PerfTolerance{}, false);
+    // Memory +40%: past the warn limit (+10%) but inside the band (+50%, at least 32 MB): a warning, not a failure.
+    v = perf_compare(sample(5, 8, 140, 40, 200), base, PerfTolerance{}, true);
     CHECK(v.status == "warn");
-    CHECK(row(v, "cpuMsAvg")->timing);
-    CHECK(row(v, "cpuMsAvg")->exceeded);
-    CHECK(perf_compare(slow, base, PerfTolerance{}, true).status == "fail");
+    CHECK(row(v, "peakMemoryMB")->warned);
+    CHECK_FALSE(row(v, "peakMemoryMB")->exceeded);
+    CHECK(row(v, "peakMemoryMB")->warnLimit == doctest::Approx(110));
+    CHECK(row(v, "peakMemoryMB")->limit == doctest::Approx(150));
+    // Past the band it fails, also outside CI.
+    v = perf_compare(sample(5, 8, 160, 40, 200), base, PerfTolerance{}, false);
+    CHECK(v.status == "fail");
+    CHECK(row(v, "peakMemoryMB")->exceeded);
+
+    // Time: 4x is inside the band (warn only, even in CI); 7x fails in CI and warns elsewhere.
+    PerfSample slow = sample(20, 32, 100, 40, 200);
+    v = perf_compare(slow, base, PerfTolerance{}, true);
+    CHECK(v.status == "warn");
+    CHECK(row(v, "cpuMsMedian")->timing);
+    CHECK(row(v, "cpuMsMedian")->warned);
+    CHECK(row(v, "cpuMsMedian")->warnLimit == doctest::Approx(10));
+    CHECK(row(v, "cpuMsMedian")->limit == doctest::Approx(30));
+    slow = sample(35, 56, 100, 40, 200);
+    v = perf_compare(slow, base, PerfTolerance{}, true);
+    CHECK(v.status == "fail");
+    CHECK(row(v, "cpuMsMedian")->exceeded);
+    CHECK(perf_compare(slow, base, PerfTolerance{}, false).status == "warn");
+}
+
+TEST_CASE("perf_compare: the average and the maximum are not gated; one slow frame is named, not failed") {
+    const PerfSample base = sample(5, 8, 100, 40, 200);
+    PerfSample spike = base;
+    spike.cpuMsAvg = 270;   // one frame of seconds drags the average ...
+    spike.cpuMsMax = 4579;  // ... and is the maximum
+    const PerfVerdict v = perf_compare(spike, base, PerfTolerance{}, true);
+    CHECK(v.status == "pass");
+    CHECK(row(v, "cpuMsAvg") == nullptr);
+    CHECK(row(v, "cpuMsMax") == nullptr);
+}
+
+TEST_CASE("perf_compare: a sub-millisecond p95 at 3.8x its baseline warns and passes, the absolute floor decides") {
+    // gem-roller on macOS-paravirtual: baseline p95 0.464 ms, measured 1.745 ms, after the same shared-runner slowness.
+    PerfSample base = sample(0.295, 0.464, 49.9, 30, 31);
+    PerfSample cur = sample(0.4, 1.745, 49.9, 30, 31);
+    PerfVerdict v = perf_compare(cur, base, PerfTolerance{}, true);
+    CHECK(v.status == "warn");
+    REQUIRE(row(v, "cpuMsP95") != nullptr);
+    CHECK(row(v, "cpuMsP95")->warned);
+    CHECK_FALSE(row(v, "cpuMsP95")->exceeded);
+    CHECK(row(v, "cpuMsP95")->limit >= 10.0);  // the floor: baseline + 10 ms
+    // Kindlewatch: a median that is fine while one frame of 1924 ms moved the average to 9.255.
+    base = sample(4.0, 2.0, 600, 75, 164);
+    cur = sample(9.255, 3.607, 600, 75, 164);
+    cur.cpuMsMedian = 0.8;
+    cur.cpuMsMax = 1924;
+    CHECK(perf_compare(cur, base, PerfTolerance{}, true).status == "pass");
+    // A game that really got 20x slower still fails.
+    cur = sample(80, 120, 600, 75, 164);
+    CHECK(perf_compare(cur, base, PerfTolerance{}, true).status == "fail");
+}
+
+TEST_CASE("perf_compare: a baseline without a median stands its average in; a provisional one enforces only the counters") {
+    PerfSample base = sample(5, 8, 100, 40, 200);
+    base.cpuMsMedian = -1;  // a baseline file from before the median
+    PerfSample cur = sample(5, 8, 100, 40, 200);
+    cur.cpuMsMedian = 2;
+    CHECK(perf_compare(cur, base, PerfTolerance{}, true).status == "pass");
+    CHECK(row(perf_compare(cur, base, PerfTolerance{}, true), "cpuMsMedian")->baseline == doctest::Approx(5));
+
+    base.provisional = true;
+    base.textureMB = 1;
+    cur.textureMB = 500;
+    cur.peakMemoryMB = 5000;  // an estimate was wrong: nothing but the counters is checked
+    cur.cpuMsMedian = 900;
+    cur.cpuMsP95 = 900;
+    cur.startupMs = 90000;
+    base.startupMs = 10;
+    PerfVerdict v = perf_compare(cur, base, PerfTolerance{}, true);
+    CHECK(v.status == "pass");
+    CHECK(row(v, "peakMemoryMB") == nullptr);
+    CHECK(row(v, "cpuMsMedian") == nullptr);
+    CHECK(row(v, "cpuMsP95") == nullptr);
+    CHECK(row(v, "textureMB") == nullptr);
+    CHECK(row(v, "startupMs") == nullptr);
+    CHECK(row(v, "drawCalls") != nullptr);
+    cur.drawCalls = 41;
+    CHECK(perf_compare(cur, base, PerfTolerance{}, false).status == "fail");  // a counter still fails, outside CI too
+    // The flag round-trips through the file.
+    CHECK(perf_sample_from_json(perf_sample_json(base)).provisional);
+    CHECK_FALSE(perf_sample_json(sample(1, 1, 1, 1, 1)).contains("provisional"));
 }
 
 TEST_CASE("perf_compare: a limit is the larger of the ratio and the slack, so tiny baselines do not flap") {
     const PerfSample base = sample(0.2, 0.3, 50, 1, 2);
-    const PerfVerdict v = perf_compare(sample(0.9, 1.1, 55, 3, 4), base, PerfTolerance{}, true);
-    CHECK(v.status == "pass");  // 0.9 ms is 4.5x the baseline but under 0.2 + 1 ms of slack; 3 calls <= 1 + 2
-    CHECK(row(v, "cpuMsAvg")->limit == doctest::Approx(1.2));
-    CHECK(row(v, "drawCalls")->limit == doctest::Approx(3.0));
-    CHECK(perf_compare(sample(1.3, 1.1, 55, 3, 4), base, PerfTolerance{}, true).status == "fail");
+    const PerfVerdict v = perf_compare(sample(0.9, 1.1, 55, 1, 2), base, PerfTolerance{}, true);
+    CHECK(v.status == "pass");  // 0.9 ms is 4.5x the baseline but under 0.2 + 1 ms of slack: not even a warning
+    CHECK(row(v, "cpuMsMedian")->warnLimit == doctest::Approx(1.2));
+    CHECK(row(v, "cpuMsMedian")->limit == doctest::Approx(10.2));
+    CHECK(row(v, "drawCalls")->limit == doctest::Approx(1.0));
+    CHECK(perf_compare(sample(1.3, 1.1, 55, 1, 2), base, PerfTolerance{}, true).status == "warn");
 }
 
 TEST_CASE("perf_compare: a baseline lowered below the measurement is a regression") {
     const PerfSample measured = sample(5, 8, 100, 40, 200);
     PerfSample lowered = measured;
     lowered.peakMemoryMB = 20;
-    lowered.drawCalls = 10;
+    lowered.drawCalls = 10;  // 100 MB against 20 MB is past the band (52 MB) and 40 draw calls against 10 is more than the counter
     CHECK(perf_compare(measured, lowered, PerfTolerance{}, false).status == "fail");
 }
 
@@ -102,7 +187,7 @@ TEST_CASE("perf_compare: render numbers are budgeted only when the baseline reco
     CHECK(v.status == "fail");
     REQUIRE(row(v, "triangles") != nullptr);
     CHECK(row(v, "triangles")->exceeded);
-    CHECK(row(v, "triangles")->limit == doctest::Approx(5500));
+    CHECK(row(v, "triangles")->limit == doctest::Approx(5000));  // a counter: the baseline itself
     // The file round-trips without inventing fields the baseline never had.
     CHECK_FALSE(perf_sample_json(old).contains("triangles"));
     CHECK(perf_sample_from_json(perf_sample_json(old)).triangles < 0);
@@ -133,8 +218,9 @@ TEST_CASE("perf tolerances: overrides, and problems teach") {
     const PerfTolerance t = perf_tolerance_from_json(Json::parse(R"({"memory":0.5,"cpuAvg":3})"), &problems);
     CHECK(problems.empty());
     CHECK(t.memory == doctest::Approx(0.5));
-    CHECK(t.cpuAvg == doctest::Approx(3));
-    CHECK(t.drawCalls == doctest::Approx(0.10));  // untouched
+    CHECK(t.cpuMedian == doctest::Approx(3));  // "cpuAvg" is the old name of "cpuMedian"
+    CHECK(t.drawCalls == doctest::Approx(0.0));  // untouched: a counter is exact
+    CHECK(perf_tolerance_from_json(Json::parse(R"({"cpuAvg":3,"cpuMedian":2})")).cpuMedian == doctest::Approx(2));  // the new name wins
     perf_tolerance_from_json(Json::parse(R"({"memry":0.5,"drawCalls":-1})"), &problems);
     REQUIRE(problems.size() == 2);
     CHECK(problems[0].find("memory") != std::string::npos);  // did you mean
@@ -146,6 +232,15 @@ TEST_CASE("perf samples round-trip through JSON") {
     const PerfSample r = perf_sample_from_json(perf_sample_json(s));
     CHECK(r.frames == 300);
     CHECK(r.cpuMsAvg == doctest::Approx(1.5));
+    CHECK(r.cpuMsMedian == doctest::Approx(1.5));
+    CHECK(perf_sample_from_json(Json::parse(R"({"cpuMsAvg":2})")).cpuMsMedian < 0);  // an old baseline file: not recorded
+    PerfSample withSlow = s;
+    withSlow.slowestFrames = {{12, 1924.5}, {3, 20.25}};
+    CHECK(perf_sample_json(withSlow)["slowestFrames"][0]["frame"] == 12);
+    CHECK_FALSE(perf_sample_json(withSlow, false).contains("slowestFrames"));  // a baseline entry never holds a spike
+    const PerfSample back = perf_sample_from_json(perf_sample_json(withSlow));
+    REQUIRE(back.slowestFrames.size() == 2);
+    CHECK(back.slowestFrames[0].ms == doctest::Approx(1924.5));
     CHECK(r.peakMemoryMB == doctest::Approx(64.5));
     CHECK(r.drawCalls == 7);
     CHECK(r.entities == 9);
@@ -264,6 +359,61 @@ TEST_CASE("perf.baseline then perf.check on a tiny project (no GPU needed)") {
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "perf_no_baseline");
     CHECK(r.error["message"].get<std::string>().find(runner) != std::string::npos);
+}
+
+TEST_CASE("perf.check: the report names the slowest frames, and a provisional entry enforces only the counters") {
+    TempDir t;
+    REQUIRE(create_project(t.str(), "2d-empty").ok());
+    const std::string budgetPath = (std::filesystem::path(t.str()) / "perf.json").generic_string();
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    CommandResult m = reg.call("perf.measure", Json::object({{"frames", 20}}));
+    REQUIRE_MESSAGE(m.ok, m.error.dump());
+    const Json& ms = m.result["sample"];
+    CHECK(ms["cpuMsMedian"].get<double>() >= 0.0);
+    REQUIRE(ms["slowestFrames"].is_array());
+    CHECK(ms["slowestFrames"].size() == 5);  // the slowest first
+    CHECK(ms["slowestFrames"][0]["ms"].get<double>() >= ms["slowestFrames"][1]["ms"].get<double>());
+    CHECK(ms["slowestFrames"][0]["ms"].get<double>() == doctest::Approx(ms["cpuMsMax"].get<double>()));
+
+    REQUIRE(reg.call("perf.baseline", Json::object({{"frames", 20}, {"repeats", 1}})).ok);
+    auto file = load_json_file(budgetPath);
+    REQUIRE(file.ok());
+    const std::string runner = m.result["runner"].get<std::string>();
+    Json entry = file.value()["runners"][runner];
+    CHECK(entry.contains("cpuMsMedian"));
+    CHECK_FALSE(entry.contains("slowestFrames"));  // a baseline holds what is the same on every run
+    CHECK_FALSE(entry.contains("provisional"));
+
+    CommandResult ok = reg.call("perf.check", Json::object({{"strictTime", true}}));
+    REQUIRE_MESSAGE(ok.ok, ok.error.dump());
+    CHECK(ok.result["message"].get<std::string>().find("Slowest frames: frame ") != std::string::npos);
+
+    // A provisional entry with absurd time and memory estimates: the counters still match, so it passes (in CI mode too).
+    Json provisional = file.value();
+    provisional["runners"][runner]["provisional"] = true;
+    provisional["runners"][runner]["peakMemoryMB"] = 0.1;
+    provisional["runners"][runner]["cpuMsMedian"] = 0.0001;
+    provisional["runners"][runner]["cpuMsP95"] = 0.0001;
+    REQUIRE(fs::write_text(budgetPath, dump_json(provisional)).ok());
+    CommandResult p = reg.call("perf.check", Json::object({{"strictTime", true}}));
+    REQUIRE_MESSAGE(p.ok, p.error.dump());
+    CHECK(p.result["status"] == "pass");
+    CHECK(p.result["provisional"] == true);
+    CHECK(p.result["message"].get<std::string>().find("provisional") != std::string::npos);
+    for (const Json& r : p.result["rows"]) {
+        const std::string metric = r["metric"].get<std::string>();
+        CHECK((metric == "drawCalls" || metric == "entities" || metric == "triangles" || metric == "lights" || metric == "maxStartupMs"));  // the template's absolute cap is not the baseline
+    }
+
+    // ...and a counter that is one off fails it, naming the entry as provisional.
+    provisional["runners"][runner]["entities"] = entry["entities"].get<int>() - 1;
+    REQUIRE(fs::write_text(budgetPath, dump_json(provisional)).ok());
+    CommandResult f = reg.call("perf.check", Json::object({{"strictTime", false}}));
+    REQUIRE_FALSE(f.ok);
+    CHECK(f.error["code"] == "perf_budget_exceeded");
+    CHECK(f.error["message"].get<std::string>().find("entities") != std::string::npos);
+    CHECK(f.error["message"].get<std::string>().find("Slowest frames") != std::string::npos);
 }
 
 TEST_CASE("perf.profile: where the time goes, on a small project with two behaviours") {
