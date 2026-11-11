@@ -656,7 +656,7 @@ Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
 
-Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` "" or null, are kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -674,7 +674,7 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 | `source` | string | no | Where an imported asset came from: a URL or the original file. |
 | `date` | string | no | YYYY-MM-DD. Default: today. |
 | `notes` | string | no | Anything else, such as edits made by hand. |
-| `role` | string ["ui","icon","effect"] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). docs.read ASSETS, "Scoping the style rules". |
+| `role` | any ["ui","icon","effect","",null] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. "" or null takes the role back. docs.read ASSETS, "Scoping the style rules". |
 
 ## `assets.slice_sheet` (modifies state)
 
@@ -1484,7 +1484,7 @@ Not released yet (on main after 0.22.0).
 
 Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
 
-Sets the document's canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays where it is (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down (the extra pixel goes to the right/bottom side). Every layer of the top level moves by the offset the anchor gives (groups take their children along); a layer that follows the canvas (a fill, gradient or procedural layer with no size, an empty indexed layer) just covers the new size. Pixels and picture layers keep their PNG and are cropped only by the canvas; the text rows of an indexed (pixel-art) layer, and of its cels, are cut or padded to the new canvas. Palette, ramps, frames, tags and the sheet settings are kept; the baked sheet takes the new cell size. `fill` (a colour, default transparent) paints the area a bigger canvas adds, as a masked fill layer named 'resize fill' at the bottom; with no fill the new area shows the document's background, or is transparent. Stored selections were made for the old size and must be made again (a warning says so). One edit: the editor undoes it with Ctrl+Z. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
+Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the same pixels and it no longer covers the added area. Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be made again (a warning). One undo step. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2761,7 +2761,7 @@ Not released yet (on main after 0.22.0).
 
 Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
 
-Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob. Example: {"path":"assets/ui/**","role":"ui"}
+Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back with assets.set_provenance `role` "". Example: {"path":"assets/ui/**","role":"ui"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
