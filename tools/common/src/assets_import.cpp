@@ -567,7 +567,11 @@ Json import_asset(const std::string& projectDir, const Json& a) {
         ProjectRootGuard root(projectDir);
         for (std::size_t i = 0; i < out.files.size(); ++i) {
             auto r = assets::update_entry(out.files[i].path, [&](Json& e) {
+                // Importing a file again keeps what it is for (the style role of its old record).
+                Json role;
+                if (e.contains("provenance") && e["provenance"].is_object() && e["provenance"].contains("role")) role = e["provenance"]["role"];
                 e["provenance"] = provenance;
+                if (!role.is_null()) e["provenance"]["role"] = role;
                 if (i == 0 && !out.sheet.is_null()) e["sheet"] = out.sheet;
             });
             if (!r.ok()) fail("failed", "The files were written, but assets.json was not updated: " + r.error().message, r.error().hint);

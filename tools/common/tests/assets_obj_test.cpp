@@ -83,6 +83,20 @@ TEST_CASE("assets.import: an OBJ quad becomes two triangles in a glTF the engine
     CHECK(st[1] == doctest::Approx(1.0f));
 }
 
+TEST_CASE("assets.import again over the same file keeps the style role of its provenance") {
+    AssetsProject p;
+    write_all(p.tmp.path / "art/quad.obj", kQuad);
+    const std::string source = (p.tmp.path / "art/quad.obj").string();
+    p.ok("assets.import", {{"source", source}});
+    Json m = p.manifest();
+    m["assets"]["assets/models/quad.gltf"]["provenance"]["role"] = "icon";
+    write_all(p.file("assets.json"), m.dump(2));
+    p.ok("assets.import", {{"source", source}, {"overwrite", true}, {"license", "CC0"}});
+    const Json prov = p.manifest()["assets"]["assets/models/quad.gltf"]["provenance"];
+    CHECK(prov["role"] == "icon");
+    CHECK(prov["license"] == "CC0");  // the rest of the record is the new one
+}
+
 TEST_CASE("assets.import: an OBJ without normals gets flat ones; negative indices and missing UVs are fine") {
     AssetsProject p;
     write_all(p.tmp.path / "art/flat.obj", "# no vt, no vn\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf -4 -3 -2 -1\n");
