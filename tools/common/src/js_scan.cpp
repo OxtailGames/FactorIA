@@ -12,6 +12,59 @@ namespace stdfs = std::filesystem;
 
 bool js_ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
 
+Masked mask_source(const std::string& t) {
+    Masked m{t, t};
+    enum class S { Code, Line, Block, Single, Double, Template } st = S::Code;
+    auto blank = [](std::string& s, std::size_t i) {
+        if (s[i] != '\n') s[i] = ' ';
+    };
+    for (std::size_t i = 0; i < t.size(); ++i) {
+        const char c = t[i];
+        const char n = i + 1 < t.size() ? t[i + 1] : '\0';
+        switch (st) {
+            case S::Code:
+                if (c == '/' && n == '/') { st = S::Line; blank(m.code, i); blank(m.bare, i); }
+                else if (c == '/' && n == '*') { st = S::Block; blank(m.code, i); blank(m.bare, i); }
+                else if (c == '\'') st = S::Single;
+                else if (c == '"') st = S::Double;
+                else if (c == '`') st = S::Template;
+                break;
+            case S::Line:
+                if (c == '\n') st = S::Code;
+                else { blank(m.code, i); blank(m.bare, i); }
+                break;
+            case S::Block:
+                blank(m.code, i);
+                blank(m.bare, i);
+                if (c == '*' && n == '/') {
+                    blank(m.code, i + 1);
+                    blank(m.bare, i + 1);
+                    ++i;
+                    st = S::Code;
+                }
+                break;
+            case S::Single:
+            case S::Double:
+            case S::Template: {
+                const char q = st == S::Single ? '\'' : st == S::Double ? '"' : '`';
+                if (c == '\\') {
+                    blank(m.bare, i);
+                    if (i + 1 < t.size()) blank(m.bare, i + 1);
+                    ++i;
+                } else if (c == q) {
+                    st = S::Code;
+                } else if (c == '\n' && st != S::Template) {
+                    st = S::Code;  // an unterminated string ends at the line
+                } else {
+                    blank(m.bare, i);
+                }
+                break;
+            }
+        }
+    }
+    return m;
+}
+
 void JsScan::blanks() {
     while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
 }
@@ -66,9 +119,13 @@ std::string tool_module_name(const std::string& text) {
 
 std::vector<ProjectCall> literal_project_calls(const std::string& text) {
     std::vector<ProjectCall> out;
-    for (std::size_t at = text.find("fa"); at != std::string::npos; at = text.find("fa", at + 2)) {
-        if (at > 0 && js_ident_char(text[at - 1])) continue;
-        JsScan sc{text, at + 2};
+    // `fa.call` inside a comment or a string is not a call: find it in the masked text (strings blanked) and read the
+    // argument from the text with only the comments blanked.
+    const Masked m = mask_source(text);
+    const std::string& bare = m.bare;
+    for (std::size_t at = bare.find("fa"); at != std::string::npos; at = bare.find("fa", at + 2)) {
+        if (at > 0 && js_ident_char(bare[at - 1])) continue;
+        JsScan sc{m.code, at + 2};
         sc.blanks();
         if (!sc.word(".")) continue;
         sc.blanks();

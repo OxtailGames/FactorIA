@@ -19,66 +19,6 @@ bool is_ident_name(const std::string& s) {
     return std::all_of(s.begin(), s.end(), js_ident_char);
 }
 
-// `code`: the source with comments blanked. `bare`: also with the inside of strings and templates blanked. Same length as the
-// source (newlines are kept), so an offset means the same in all three.
-struct Masked {
-    std::string code;
-    std::string bare;
-};
-
-Masked mask_source(const std::string& t) {
-    Masked m{t, t};
-    enum class S { Code, Line, Block, Single, Double, Template } st = S::Code;
-    auto blank = [](std::string& s, std::size_t i) {
-        if (s[i] != '\n') s[i] = ' ';
-    };
-    for (std::size_t i = 0; i < t.size(); ++i) {
-        const char c = t[i];
-        const char n = i + 1 < t.size() ? t[i + 1] : '\0';
-        switch (st) {
-            case S::Code:
-                if (c == '/' && n == '/') { st = S::Line; blank(m.code, i); blank(m.bare, i); }
-                else if (c == '/' && n == '*') { st = S::Block; blank(m.code, i); blank(m.bare, i); }
-                else if (c == '\'') st = S::Single;
-                else if (c == '"') st = S::Double;
-                else if (c == '`') st = S::Template;
-                break;
-            case S::Line:
-                if (c == '\n') st = S::Code;
-                else { blank(m.code, i); blank(m.bare, i); }
-                break;
-            case S::Block:
-                blank(m.code, i);
-                blank(m.bare, i);
-                if (c == '*' && n == '/') {
-                    blank(m.code, i + 1);
-                    blank(m.bare, i + 1);
-                    ++i;
-                    st = S::Code;
-                }
-                break;
-            case S::Single:
-            case S::Double:
-            case S::Template: {
-                const char q = st == S::Single ? '\'' : st == S::Double ? '"' : '`';
-                if (c == '\\') {
-                    blank(m.bare, i);
-                    if (i + 1 < t.size()) blank(m.bare, i + 1);
-                    ++i;
-                } else if (c == q) {
-                    st = S::Code;
-                } else if (c == '\n' && st != S::Template) {
-                    st = S::Code;  // an unterminated string ends at the line
-                } else {
-                    blank(m.bare, i);
-                }
-                break;
-            }
-        }
-    }
-    return m;
-}
-
 struct Cursor {
     const std::string& s;
     std::size_t i = 0;
@@ -218,6 +158,21 @@ std::set<std::string> declared_names(const std::string& b) {
             } else {
                 std::string name;
                 if (c.ident(name)) out.insert(name);
+                if (std::string_view(kw) == "const" || std::string_view(kw) == "let" || std::string_view(kw) == "var") {
+                    // More declarators of the same statement: `let a = 1, time = 2;` (commas at depth 0, up to the `;`).
+                    int depth = 0;
+                    for (std::size_t k = c.i; k < b.size() && k < c.i + 4000 && depth >= 0; ++k) {
+                        const char ch = b[k];
+                        if (ch == '(' || ch == '{' || ch == '[') ++depth;
+                        else if (ch == ')' || ch == '}' || ch == ']') --depth;
+                        else if (ch == ';' && depth == 0) break;
+                        else if (ch == ',' && depth == 0) {
+                            Cursor d{b, k + 1};
+                            std::string more;
+                            if (d.ident(more)) out.insert(more);
+                        }
+                    }
+                }
                 if (std::string_view(kw) == "function" || std::string_view(kw) == "class") {
                     c.blanks();
                     if (c.i < b.size() && b[c.i] == '(') collect_until(c.i + 1, ')');
@@ -447,9 +402,14 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
             const TypeInfo* ci = TypeRegistry::global().find_ci(name);
             const bool pascal = std::isupper(static_cast<unsigned char>(name[0])) != 0;
             if (!ci && !pascal) continue;
+            // `levels.get("Intro")`, `items.has("Gold")`: a plural name is a collection of things, not an entity. A name that is a
+            // component in another case (`ci`) still warns.
+            if (!ci && lastLower.size() > 2 && lastLower.back() == 's' && lastLower[lastLower.size() - 2] != 's')
+                continue;
             std::string msg = at_text(file, text, qat) + ": ." + method + "(\"" + name + "\"): ";
             if (ci) {
-                msg += "there is no component '" + name + "', and a component is found by its exact name; the one meant is '" + ci->name + "'";
+                msg += "there is no component '" + name + "', and a component is found by its exact name; the one meant is '" + ci->name +
+                       "' (if this is not an entity, ignore this warning)";
                 out.warnings.push_back({file, "", msg, "Write ." + std::string(method) + "(\"" + ci->name + "\")."});
             } else {
                 msg += "no component is called '" + name + "' (if this is not an entity, ignore this warning)";

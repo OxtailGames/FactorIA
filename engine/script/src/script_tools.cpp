@@ -474,17 +474,31 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         std::lock_guard<std::mutex> lk(captured->mu);
         captured->lines.push_back(e);
     });
+    // Every ERROR of the run, of any category, in an ERROR-only list: the log ring holds 4096 records of every level, and a chatty
+    // test could push an earlier test's error out of it before the runner read it (logErrors reads this list during the run).
+    auto errors = std::make_shared<TestErrors>();
+    int errorSinkId = add_log_sink([errors](const LogEntry& e) {
+        if (e.level < LogLevel::Error) return;
+        std::lock_guard<std::mutex> lk(errors->mu);
+        if (errors->list.size() < kMaxTestErrors) errors->list.push_back(e);
+        else ++errors->dropped;
+    });
+    testErrors = errors;
+    // The errors the game already knew (loggedKeys) come back after the run: an editor that runs tests on a live Play must not
+    // make its known errors log again.
+    std::set<std::string> savedLoggedKeys = loggedKeys;
     if (savedLevel > LogLevel::Info) set_log_level(LogLevel::Info);
     set_log_stderr_filter([savedLevel](const LogEntry& e) { return e.category != "script" && e.level >= savedLevel; });
     struct Restore {
-        int sink;
+        int sink, errorSink;
         LogLevel level;
         ~Restore() {
             remove_log_sink(sink);
+            remove_log_sink(errorSink);
             set_log_level(level);
             set_log_stderr_filter({});
         }
-    } restore{sinkId, savedLevel};
+    } restore{sinkId, errorSinkId, savedLevel};
     std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;  // per rep.cases entry; {0,0} = none
     // Tests never touch the real save file: in-memory storage, fresh for every test file.
     const StorageMode savedMode = storageMode;
@@ -588,6 +602,8 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     reset_for_test_file();
     set_scales_quietly(savedUiScale, savedTextScale);
     inTestRun = false;
+    testErrors.reset();
+    loggedKeys = std::move(savedLoggedKeys);
     storageMode = savedMode;
     storage = Json::object();
     storageLoaded = false;

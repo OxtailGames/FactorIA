@@ -136,13 +136,16 @@ Each issue starts with `file:line:column`:
 - **Literal component names** (warning): `entity.get("Transfrom")`, `add`, `has` and `remove` with a string that is not a
   component. A name that matches only ignoring case (`get("transform")`) is reported with the exact name. Without type
   inference the check cannot know the receiver is an entity: a PascalCase key of a `Map` or of your own object can be
-  reported by mistake (receivers whose name says map, cache, storage, state... are skipped).
+  reported by mistake (receivers whose name says map, cache, storage, state... or is a plural such as `levels` are skipped, and a
+  name that matches only ignoring case is still reported).
 - **`fa.call("project.<name>")` in a game script** (warning, `file:line`): `<name>` is a command a module under `tools/`
   defines, and `tools/` is left out of an export, so the call fails in the shipped game. `factoria export` warns the same.
 - **A module whose top level throws** (error): every script is imported in the validating engine, as the game loads it, so
   an exception at the top of the file (or of a module it imports) is reported with its own file and line. A top level that
-  reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded: keep that code in
-  `onStart`.
+  reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded (`factoria
+  validate` and `factoria test` load none; the running game has one): keep that code in `onStart`. When `project.validate`
+  runs inside a live engine (over MCP or in the editor) it imports the project's modules, `tools/` included, in that engine, so
+  their top-level code runs there too.
 
 A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
 mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
@@ -163,7 +166,8 @@ What passes: symbols, `then` (what `await` probes), `toJSON` (what `JSON.stringi
 (`hasOwnProperty`, `toString`...). Writes are never checked, and an entity can carry a field you gave it (`entity.hp = 3`
 and later `entity.hp` works; the members list then names `hp`), but reading a field nobody wrote throws: `entity.hp` before
 `entity.hp = 3` is the mistake it finds, so keep game state in the `Behaviour` (`this.hp`) or in a component's fields.
-`session` is the one namespace left open, because it holds the game's own keys. The check sits behind the object (its
+`session` and `plugins` are the namespaces left open: `session` holds the game's own keys, and `plugins` is frozen and read with
+`if (plugins.steam)`, so a plugin that is not there is `undefined`, not an error. The check sits behind the object (its
 prototype), so reading a member that exists costs nothing; the exported player has no check at all, and there a missing
 member is `undefined` again. `plugins` and `game` of `"factoria:test"` check their reads too.
 
@@ -1763,7 +1767,7 @@ test("player jumps", () => {
 ```
 
 - `test(name, fn, options?)`, `test.skip`, `describe(name, fn)`
-- **A test fails when the game fails.** Besides its assertions, a test fails when a game script threw while it ran (a callback such as `onUpdate`, an event handler, a promise, a module's top level) or the engine logged an `ERROR` (a missing sound or file, a refused command). The message is the first such error with its file and line, and the summary counts these failures (`2 passed, 1 failed (1 because the game logged an error ...)`, and `loggedError: true` on the case with `--json`); the exit code follows. A script error is reported to every test that causes it, not only the first. `console.error` and `console.assert` are not errors. A test that is about an error says so with `game.expectErrors(/pattern/, ...)` (a RegExp, or a string that is part of the text) or `test(name, fn, { expectErrors: [/pattern/] })`: those errors do not fail it, any other one still does, and an expected error that is never logged fails it too. The engine logs a missing audio file once per path and run, so only the first test that plays it sees the error. Fix the script rather than expecting its error.
+- **A test fails when the game fails.** Besides its assertions, a test fails when a game script threw while it ran (a callback such as `onUpdate`, an event handler, a promise, a module's top level) or the engine logged an `ERROR` (a missing sound or file, a refused command). The message is the first such error with its file and line, and the summary counts these failures (`2 passed, 1 failed (1 because the game logged an error ...)`, and `loggedError: true` on the case with `--json`); the exit code follows. A script error is reported to every test that causes it, not only the first. `console.error` and `console.assert` are not errors. A test that is about an error says so with `game.expectErrors(/pattern/, ...)` (a RegExp, or a string that is part of the text) or `test(name, fn, { expectErrors: [/pattern/] })`: those errors do not fail it, any other one still does, and an expected error that is never logged fails it too. Each test starts with the engine's once-per-run errors (a missing audio file) forgotten, so every test that causes one sees it, whatever ran before and whatever `--filter` selected. Errors count from just before the test's own reset (not from the test file's import: an import error is reported as a load error of the file). An `expectErrors` pattern is matched against the error's message, which for a script error includes its stack text. `test.skip` checks its arguments like `test`. Fix the script rather than expecting its error.
 - `robust(check, { runs = 5, nudge = 0.005 })`: runs `check(p)` `runs` times under small repeatable perturbations and fails naming the run that failed. Run 0 is not perturbed; `p.nudge(...entitiesOrIds)` moves entities by up to `nudge` metres per axis and `p.nudgeBodies()` does it for every RigidBody2D/3D (call it after `game.load`, before the first `game.step`; the check loads its own scene). Offsets are a hash of the run, the entity id and the axis, not the RNG, so a test nudges the same way everywhere. The engine's physics gives the same bits on Linux, Windows and macOS (AI_GUIDE.md, "Physics and platforms"), but a change to a level, to a script that feeds numbers into physics, or to the engine moves a chaotic setup anyway: use `robust` where a level test would otherwise assert an exact frame count or position of such a setup, and assert what holds for every run (reached, delivered, a range, "not slower than").
 - `expect(v)`: `toBe toEqual toBeCloseTo(n, digits) toBeGreaterThan toBeGreaterThanOrEqual toBeLessThan
   toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`;
