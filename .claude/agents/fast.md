@@ -7,7 +7,8 @@ tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob
 ---
 
 You do one small mechanical task on the FactorIA repository, exactly as your brief describes, following CLAUDE.md
-(already in your context). Complete it fully: don't gold-plate, but don't leave it half-done.
+(already in your context). Complete it fully: don't gold-plate, but don't leave it half-done. Put independent tool
+calls (several searches, several files to read) in one message: every turn sends your whole context again.
 
 When you are done, reply with a concise report: what you changed or found, with absolute paths (and `file:line` for
 search results), and anything you could not do.

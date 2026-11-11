@@ -12,8 +12,10 @@
 #   FA_TEST_DEBUG_DIR=build/agent-x FA_TEST_RELEASE_DIR=build/agent-x-rel FA_TEST_JOBS=8 scripts/test-all.sh
 #
 # FA_TEST_JOBS: build jobs (default: the CPU count). FA_TEST_CTEST_JOBS: parallel tests (default 3: some tests are timing
-# sensitive and the examples are heavy). Reuses ccache when it is installed. Prints the time of each step. Exit code 1 when
-# anything fails; both steps run even if the first one fails.
+# sensitive and the examples are heavy). ccache is used when it is installed: CMakeLists.txt finds it and gives it the
+# settings that let every checkout and worktree share one cache, so no compiler launcher is passed here (passing one
+# turns those settings off). Prints the time of each step. Exit code 1 when anything fails; both steps run even if the
+# first one fails.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,9 +30,6 @@ case "${1:-}" in
     "") ;;
     *) echo "usage: $0 [--debug-only | --examples-only]"; exit 2 ;;
 esac
-
-launcher=()
-command -v ccache >/dev/null 2>&1 && launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 
 # GPU tests need a display on Linux: Xvfb when there is none.
 with_display() {
@@ -50,13 +49,13 @@ step() {  # step <name> <command...>: runs it, records the result and the time
 }
 
 debug_suite() {
-    cmake -S . -B "$DEBUG_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug "${launcher[@]}" || return 1
+    cmake -S . -B "$DEBUG_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug || return 1
     step "Debug: build every target" cmake --build "$DEBUG_DIR" -j "$JOBS" || return 1
     step "Debug: ctest (examples disabled)" with_display ctest --test-dir "$DEBUG_DIR" -j "$CTEST_JOBS" --output-on-failure
 }
 
 example_suite() {
-    cmake -S . -B "$RELEASE_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release "${launcher[@]}" || return 1
+    cmake -S . -B "$RELEASE_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release || return 1
     step "Release: build factoria" cmake --build "$RELEASE_DIR" -j "$JOBS" --target factoria || return 1
     step "Release: ctest -L example" with_display ctest --test-dir "$RELEASE_DIR" -L example -j "$CTEST_JOBS" --output-on-failure
 }

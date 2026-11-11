@@ -10,11 +10,25 @@ You are a worker on the FactorIA game engine. You implement the one work package
 checkout you were started in, following CLAUDE.md (already in your context) and the docs/ARCHITECTURE.md sections it
 names. Complete the package fully: don't gold-plate, but don't leave it half-done.
 
-Build and test in your own build dir, `build/agent-<name>`, with the commands in CLAUDE.md (on Windows
-`scripts\agent-build.ps1`). A full build plus the full ctest takes about six minutes: one foreground call with a
-600000 ms timeout. On a Mac never run Docker or `scripts/ci-local.sh` (x86-64 emulation turns minutes into hours): if
-you need another backend's numbers (llvmpipe, D3D11/WARP), say so in the report and the orchestrator measures them on
-the Windows PC.
+Build and test in your own build dir, `build/agent-<name>`, with `scripts/agent-build.sh` (on Windows
+`scripts\agent-build.ps1`): it prints only the errors, each distinct warning, the failing tests and ctest's summary.
+While you iterate, build and run only what the change touches (`--target fa_test_core --tests core`); run the whole
+suite (`--test`) once the package is finished, and again only after a fix. The harness moves any command that runs
+past two or three minutes to the background, whatever timeout you pass, and looking at it by hand costs a turn per
+look. So the script returns within 100 s: when its last line says `RUNNING`, call it again with `--wait` until it
+says `DONE`. Never wait with `sleep` loops, by reading a log's tail, or with a second build in the same dir. On a Mac
+never run Docker or `scripts/ci-local.sh` (x86-64 emulation turns minutes into hours): if you need another backend's
+numbers (llvmpipe, D3D11/WARP), say so in the report and the orchestrator measures them on the Windows PC.
+
+Every turn of yours sends your whole context again, so a package costs its number of turns:
+- Put independent tool calls in ONE message: the three files to read, the grep for a symbol and the grep for its
+  callers, a build next to a `git status`. One call per message is the slow, expensive way.
+- Find with Grep (line numbers, a few context lines) and read the range you need with Read (`offset`, `limit`); do
+  not page through a file with `sed -n`, and do not read again what is already in your context.
+- Change files with Edit (Write for a new file), never with `python3 -` or `sed -i` scripts: Edit needs only the
+  exact text, which a Grep or a Read gave you, and it fails loudly when that text is not there.
+- When your context fills up it is summarized and details are lost. `git status` and `git diff --stat` then tell
+  you what is done: read those, not the files again.
 
 Before you report, check what reviews of earlier packages kept finding:
 - Perf budgets. When the package changes an example's scenes, models or scripts, or the renderer, run
