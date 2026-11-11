@@ -393,8 +393,10 @@
       ],
       "suggestion": "Have the export (and validate) warn when a game script calls fa.call with a literal command name that only a project tool registers, naming the file and line, and say in docs which commands a shipped game has. The example should bake the scattered gems into the scene, or move the scatter code into a game module that both the tool and the script import.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
+      "engineIssue": "e10a8c7d",
       "notes": [
+        "Fixed in e10a8c7d: validate and the export already warned about fa.call of a tool command (shared check in js_scan); Gem Roller now imports scripts/scatter_gems.js from game.js and the tool, so the exported game places its gems.",
         "Seen while checking the format 2 pack (M70.4b) with an exported gem-roller player."
       ]
     }
