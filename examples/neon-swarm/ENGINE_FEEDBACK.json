@@ -441,7 +441,11 @@
       "suggestion": "A tri-state loop override on SpriteAnimator (inherit / loop / once).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e10a8c7d",
+      "notes": [
+        "Fixed in e10a8c7d: SpriteAnimator.loopMode (inherit | loop | once) overrides the clip's loop flag; the bool loop stays as an alias (false = once)."
+      ]
     },
     {
       "id": "FB-0020",
@@ -461,10 +465,12 @@
       ],
       "suggestion": "Skip sounds that are only the source of an audio document (or mark them in assets.json), and judge loop_seam_slope across the crossfade the loop step made.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Moot for this example from M56.5: the loop became the adaptive song assets/music/score.song.json, so the baked loop.wav and its source are gone. The checker's behaviour on a crossfaded loop is unchanged."
-      ]
+        "Moot for this example from M56.5: the loop became the adaptive song assets/music/score.song.json, so the baked loop.wav and its source are gone. The checker's behaviour on a crossfaded loop is unchanged.",
+        "Fixed in dfd754a1: assets.check_mix skips document sources (skipped array) and judges loop seams across the loop points."
+      ],
+      "engineIssue": "dfd754a1"
     },
     {
       "id": "FB-0021",

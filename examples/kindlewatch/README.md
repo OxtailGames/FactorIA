@@ -66,8 +66,8 @@ without a recipe, because regenerating would drop the keys. The assets test chec
 - **Music** is one `MusicPlayer` with a director script: the intensity follows the danger (wolves alive, low fuel, the
   alpha), the song moves between its `calm` and `hunt` sections on the bar, the alpha's howl is a ducking stinger, and
   the game crossfades into the dawn song and the defeat song.
-- **Sounds**: one-shots are placed by `playAt` in `scripts/common.js` (attenuation and pan computed by hand, because
-  `audio.play` has no position).
+- **Sounds**: the wolves' one-shots are placed with `audio.play(path, { position, range })`, which
+  attenuates and pans them from the camera's `AudioListener`.
 - **Menus** are the engine's menu kit (`project.add_menu_kit`: title, options, credits, pause, loading) plus the end
   panel of the game; the text is in `locales/en.json`.
 

@@ -553,7 +553,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("firstFrame", &SpriteAnimator::firstFrame, "First frame of the clip (inclusive, row-major index).")
         .field("lastFrame", &SpriteAnimator::lastFrame, "Last frame of the clip (inclusive, row-major index).")
         .field("fps", &SpriteAnimator::fps, "Playback speed in frames per second.").range(0, 1000)
-        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.")
+        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.")
+        .enum_field("loopMode", &SpriteAnimator::loopMode, {"inherit", "loop", "once"},
+                    "Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop "
+                    "flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last "
+                    "frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. "
+                    "Anything but inherit wins over `loop`.")
         .field("playing", &SpriteAnimator::playing, "Set false to pause, true to play.")
         .field("clip", &SpriteAnimator::clip,
                "Name of a clip of the Sprite texture's `sheet` entry in assets.json (\"run\"); \"\" = none, the numeric fields alone. "
@@ -665,7 +670,27 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("solver", &IK2D::solver, {"twoBone", "ccd"},
                     "twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' "
                     "length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, "
-                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.");
+                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.")
+        .field("groundMask", &IK2D::groundMask,
+               "Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, "
+               "the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from "
+               "`groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + "
+               "`groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. "
+               "No hit = the target is used as it is. The colliders of the chain's character (the topmost ancestor of this entity and "
+               "everything under it) are ignored. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve "
+               "commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.")
+        .field("groundReach", &IK2D::groundReach,
+               "Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away "
+               "than this from the target is not found and the target is used as it is. 24 by default.").range(0, 10000)
+        .field("groundOffset", &IK2D::groundOffset,
+               "Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's "
+               "height above the sole). 0 by default.")
+        .field("groundRest", &IK2D::groundRest,
+               "Ground snapping: the height of the target above the ORIGIN of the character (the topmost ancestor of this entity) when the "
+               "foot is planted on flat ground, in world units (negative for a foot below the origin). A walk clip lifts the marker while "
+               "a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the "
+               "swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. "
+               "Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.");
 
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
@@ -1131,6 +1156,11 @@ void register_builtin_components(TypeRegistry& r) {
         .field("roughness", &MeshRenderer::roughness,
                "0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.").range(0, 1)
         .field("emissive", &MeshRenderer::emissive, "Light emitted by the surface regardless of lighting (glow). Black = none.")
+        .field("emissiveStrength", &MeshRenderer::emissiveStrength,
+               "HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; "
+               "above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read "
+               "as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. "
+               "Meshes that differ only here are not drawn in the same batch.").range(0, 100)
         .field("unlit", &MeshRenderer::unlit, "true = ignore lighting and draw the flat base color.")
         .field("castShadows", &MeshRenderer::castShadows, "Cast shadows from shadow-casting lights.")
         .field("receiveShadows", &MeshRenderer::receiveShadows, "Receive shadows from shadow-casting lights.")

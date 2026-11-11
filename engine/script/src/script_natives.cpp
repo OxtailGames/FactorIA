@@ -2938,7 +2938,14 @@ NATIVE(audioPlay) {
     pp.notifyEnd = arg_bool(ctx, argc, argv, 10, false);
     const double priority = arg_num(ctx, argc, argv, 11, 128);  // clamped before the narrowing (NaN: the default)
     pp.priority = std::isfinite(priority) ? static_cast<int>(std::clamp(priority, 0.0, 255.0)) : 128;
-    const VoiceId voice = I->host->audio().play(path, pp);
+    // (hasPosition, x, y, z, range): a sound heard from a place, as an AudioSource with `spatial` is (Audio::play_at).
+    const bool atPlace = arg_bool(ctx, argc, argv, 12, false);
+    const auto finite = [](double v) { return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f; };
+    const VoiceId voice = atPlace
+        ? I->host->audio().play_at(W, path, pp,
+                                   {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)), finite(arg_num(ctx, argc, argv, 15))},
+                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)))
+        : I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.
     const std::string captionText = arg_str(ctx, argc, argv, 6), captionKey = arg_str(ctx, argc, argv, 7);

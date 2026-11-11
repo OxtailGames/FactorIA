@@ -198,7 +198,7 @@ export default class Game extends Behaviour {
       components: {
         Transform: { position: [x, y, 0] },
         Sprite: { texture: "assets/art/shockwave.png", size: big ? [190, 190] : [120, 120], color: [c[0], c[1], c[2], 1], blend: "additive", layer: 19, pixelArt: false },
-        SpriteAnimator: { clip: big ? "boom" : "pop" },
+        SpriteAnimator: { clip: big ? "boom" : "pop", loopMode: "once" },
       },
     });
     fx.spriteAnimator.on("clipEnded", () => fx.destroy());

@@ -22,9 +22,10 @@ Controls: W/A/S/D or the arrows roll the ball relative to the camera, Space jump
 - `assets/models/gem.model.json`: the gem's model document (docs/MODELING.md). `gem.glb` next to it is what it bakes to;
   the test fails when the .glb is older than the document.
 - `assets/vfx/gem_burst.vfx.json`: the pickup effect a gem plays when it is picked up: sparks, a flash of light and the sound.
-- `tools/scatter_gems.js`: project tool `project.scatter_gems`. Places N gems on the platforms (entities tagged
-  `platform`), deterministically from a seed. The game manager calls it on start, so the layout is the same on
-  every run: `factoria call project.scatter_gems '{"count":8,"seed":7,"clear":true}'`.
+- `scripts/scatter_gems.js` places N gems on the platforms (entities tagged `platform`), deterministically from a
+  seed; `game.js` imports it on start, so the layout is the same on every run and the exported game needs no tool
+  (`tools/` is not shipped). `tools/scatter_gems.js` is the project tool `project.scatter_gems` over the same module:
+  `factoria call project.scatter_gems '{"count":8,"seed":7,"clear":true}'`.
 - `assets/models/scout.model.json`, `scout.rig.json`, `assets/anim/scout_walk.anim.json`, `scout_idle.anim.json`: the scout, a character
   made entirely with the engine, no imported file. The model is primitives (capsules, a sphere, rounded boxes; docs/MODELING.md); `rig.create`
   fitted a humanoid skeleton to it with automatic skin weights and baked `scout.rig.glb` (docs/RIGGING.md; `scout.glb` is the plain model);

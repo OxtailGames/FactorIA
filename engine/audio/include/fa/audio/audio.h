@@ -140,6 +140,11 @@ public:
     bool clip_loaded(std::string_view clipPath) const;
     // Starts a clip; 0 when it cannot be loaded, or when every voice is taken by sounds that win over it (PlayParams::priority).
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
+    // A one-shot heard from a place, without an entity: params.volume and params.pan are replaced by what an AudioSource with
+    // `spatial` computes for `position` and `range` (volume falls linearly to 0 at `range` times the listener's zoom, pan by the
+    // side of the AudioListener, else the primary camera). It does not follow anything after it starts. Without a listener it
+    // plays as play() does; beyond the range it returns 0 and takes no voice.
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f);
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
     // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when

@@ -85,7 +85,9 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
                                 "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, "
                                 "a name imported from \"factoria\" that does not exist, a member the engine's objects lack "
                                 "(physics.raycats), a literal component name that is wrong, a module whose top level throws, and a "
-                                "colour array that mixes 0..1 and 0..255 (docs/SCRIPTING.md, \"What factoria validate checks in a script\").";
+                                "colour array that mixes 0..1 and 0..255, or that has channels over 1 (none over 8) and none in 0..1, so it reads as "
+                                "almost black (for MeshRenderer.emissive the warning points to emissiveStrength) (docs/SCRIPTING.md, \"What factoria "
+                                "validate checks in a script\").";
             Engine* e = &engine;
             registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
         }

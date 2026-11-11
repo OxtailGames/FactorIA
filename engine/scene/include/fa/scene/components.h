@@ -168,6 +168,7 @@ struct Sprite {
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
 enum class SpriteAnimMode : std::int32_t { Forward, Reverse, PingPong };
+enum class SpriteLoopMode : std::int32_t { Inherit, Loop, Once };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
 // it overwrites Sprite.region every frame. `clip` takes the grid and the clip from the sheet entry of the texture in
@@ -178,7 +179,8 @@ struct SpriteAnimator {
     std::int32_t firstFrame = 0;      // inclusive, row-major index into the grid
     std::int32_t lastFrame = 0;       // inclusive
     float fps = 10.0f;
-    bool loop = true;
+    bool loop = true;                 // alias kept for old scenes: false = once; true (default) = no opinion (see loopMode)
+    SpriteLoopMode loopMode = SpriteLoopMode::Inherit;  // inherit: the clip's own loop flag (or `loop`); loop; once
     bool playing = true;
     float time = 0.0f;                // runtime: elapsed time in the current clip (seconds)
     std::int32_t frame = 0;           // runtime: current frame index
@@ -223,6 +225,10 @@ struct IK2D {
     IKBend bend = IKBend::Positive;   // twoBone: which way the middle joint bends
     float weight = 1.0f;              // 0 = keep the animated pose, 1 = the solved pose; in between blends the angles
     IKSolver solver = IKSolver::TwoBone;
+    std::int32_t groundMask = 0;      // physics layers the foot ray hits (bitmask); 0 = ground snapping off (the target is reached as it is)
+    float groundReach = 24.0f;        // the ray looks this far above and below the target (world units)
+    float groundOffset = 0.0f;        // distance from the hit point up to where the tip rests (world units)
+    float groundRest = 0.0f;          // height of the target over the character root's origin when the foot is planted on flat ground
     bool warned = false;              // runtime, not reflected: a problem was already logged for this component
 };
 
@@ -865,6 +871,7 @@ struct MeshRenderer {
     float metallic = 0.0f;
     float roughness = 0.6f;
     Color emissive{0, 0, 0, 1};
+    float emissiveStrength = 1.0f;    // HDR multiplier of the emissive light (glTF KHR_materials_emissive_strength): above 1 passes white and feeds bloom
     bool unlit = false;               // ignore lighting
     bool castShadows = true;
     bool receiveShadows = true;

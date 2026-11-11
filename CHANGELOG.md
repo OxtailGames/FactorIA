@@ -19,11 +19,40 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   (also inside `underruns`) and `streamedSongs`, and `audio.music_state`'s `cache` says which stems are `streamed` and their
   `underruns`. `musicBytes` / `musicMB` count a streamed stem's window and encoded bytes. docs/MUSIC.md has the MB per minute
   per mode.
+- **IK2D plants feet on the ground (M101.10b, FB-0025):** `IK2D.groundMask` / `groundReach` / `groundOffset` / `groundRest` make
+  the engine aim the chain at the floor under the target (a ray into the 2D physics world, the character's own colliders
+  ignored), keeping the swing lift of a walk clip above the rest height, so a foot marker animated by a clip can be the target
+  and the game needs no ray script. `groundMask` 0 (the default) changes nothing. `update_ik2d` / `solve_ik2d` take an optional
+  `GroundRaycast2D` like `update_ik3d`; one-off solves pass none. Sky Hopper's `feet()` shrinks to switching the mask in the air.
+- **audio.play at a place (M101.3, KW/FB-0006):** `audio.play(path, { position: [x, y, z], range })` plays a one-shot from a
+  point with no entity, attenuated and panned by the `AudioListener` as an `AudioSource` with `spatial: true` is (linear
+  fall-off to 0 at `range`, default 800; `[x, y]` in 2D). Out of range it plays nothing and returns 0. It does not follow
+  anything after it starts. Kindlewatch drops its hand-made `playAt`.
+- **Emissive above white for meshes (M101.11, CC/FB-0057):** `MeshRenderer.emissiveStrength` (0..100, default 1) multiplies
+  `emissive`, so a lamp can be brighter than white and `Camera.bloom` glows more for it. The game target is now RGBA16F
+  (HDR) wherever the GPU renders to it with blending, filtering and the requested MSAA, else RGBA8 as before
+  (`FA_SCENE_FORMAT=rgba8` forces it, `Renderer::hdr_scene()` says which); the screen, screenshots and video stay 8-bit,
+  and a float target costs more memory bandwidth than an 8-bit one. The colour filter clamps its input, so its output is
+  unchanged. Meshes that differ only in `emissiveStrength` are not batched together, like a different `emissive`.
+  `validate` warns about a colour such as `[3, 2, 1]` that reads as 0..255 and is almost black, and for `emissive` it points
+  to `emissiveStrength`. Clockwork Courier's market lamps glow again with it.
 - **Music memory is counted (M101.1a):** `Audio::stats()` (and `game.state`'s `audio`) reports `musicBytes`, the decoded
   stems the music cache holds, and `decodedBytes` now includes them, so `audioDecodedMB` explains the process size.
   `audio.music_state` lists the cached songs with their bytes per stem (`cache`, `cacheBytes`); `perf.profile` memory has
   `musicMB`; the `perf.measure` sample reports `audioDecodedMB` and `musicMB` (never gated, not in baselines).
   docs/MUSIC.md has the MB per minute per layer.
+- **Validate (M101.9b, SH/FB-0024):** `validate` warns about a scene entity that repeats the components of a prefab inline
+  (same name or component set, at most two differences) instead of being an instance, and about an instance that also saves
+  two or more components with the prefab's own values. The warning names the file and JSON pointer, the prefab, and the
+  `{id, prefab, differences}` entry that replaces the copy (what `scene.save` writes since M101.9a).
+- **Small fixes from the examples (M101.10a):** `SpriteAnimator.loopMode` (`inherit`, `loop`, `once`) decides whether a
+  clip restarts after its last frame whatever the sheet's own loop flag says, so one baked clip can loop on one entity and
+  play once on another; `inherit` is the default and the old `loop` bool stays (false = once). A level that
+  `tilemap.generate` refuses because cut-off areas refused more than half of the attempts now says that the sample's shape
+  is the cause (rooms joined by one-cell passages, closed pockets) and how to fix the sample. Gem Roller no longer calls
+  its project tool at runtime (the scatter code moved to `scripts/scatter_gems.js`, which the game and the tool both
+  import), so its gems appear in an exported build; `factoria validate` and the export already warn about such a call.
+
 - **Music (M101.2, pending state):** the music of a scene that reloads no longer fires what the scene before had queued:
   the new `MusicPlayer` adopts the music that is playing and drops a crossfade or section change that waited for a bar line
   (or takes the target song when the crossfade had started). `entity.music.status` and `audio.music_state` show the queue
@@ -55,6 +84,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 - `style.ignore {path, rules}` skips only the named style rules for a file, folder or glob; `style.set_role` and a `role`
   (`ui`, `icon`, `effect`) in an asset's provenance turn off the rules that do not apply to that kind of picture.
   `assets.check_art` reports what it skipped and why (`styleSkipped`). Kindlewatch drops its ignore list for roles.
+- Sound patch variants can share one level: `master.normalize.shared: true` finds one gain on the loudest variant and applies it to all of them, so they keep their relative loudness (per-variant stays the default).
+- `sfx.bake` takes `path` (one patch or a list) to bake only those patches.
+- `assets.regenerate {stale}` lists the inputs it compared (`compared`: path and hash, and the style-guide values) when it answers "up to date".
+- `assets.check_mix` skips a recording that is only an input of an audio document's recipe (listed in `skipped` with the reason, unless `paths` names it) and judges `loop_seam_jump` and `loop_seam_slope` of a baked loop across its loop points (the crossfade a `loop` step made), not across the file's ends.
 
 ## 0.22.0
 

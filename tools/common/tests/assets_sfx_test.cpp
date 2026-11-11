@@ -418,3 +418,43 @@ TEST_CASE("sfx.edit: set, add, move and remove by JSON pointer, written only whe
     const Json op = failed_call(p, "sfx.edit", {{"path", file}, {"op", "swap"}, {"pointer", "/length"}});
     CHECK(op["error"]["code"] == "invalid_arguments");
 }
+
+TEST_CASE("sfx.bake: `path` bakes only those patches, and assets.regenerate says what it compared when it skips an up-to-date sound") {
+    AssetsProject p;
+    auto call = [&](const std::string& name, const Json& args) { return p.registry.call(name, args); };
+    auto ok = [&](const std::string& name, const Json& args) { return p.ok(name, args); };
+    const auto file = [&](const std::string& rel) { return p.file(rel); };
+    write_all(file("assets/audio/a.sfx.json"), kBlip);
+    write_all(file("assets/audio/b.sfx.json"), kBlip);
+    write_all(file("assets/audio/c.sfx.json"), kBlip);
+
+    const Json one = ok("sfx.bake", {{"path", "assets/audio/a.sfx.json"}});
+    REQUIRE(one["count"] == 1);
+    CHECK(one["baked"][0]["patch"] == "assets/audio/a.sfx.json");
+    CHECK(std::filesystem::exists(file("assets/audio/a.wav")));
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/b.wav")));
+
+    const Json two = ok("sfx.bake", {{"path", Json::array({"assets/audio/b.sfx.json", "assets/audio/a.sfx.json"})}});
+    CHECK(two["count"] == 1);  // a is up to date
+    CHECK(two["unchanged"].size() == 1);
+    CHECK(std::filesystem::exists(file("assets/audio/b.wav")));
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/c.wav")));
+
+    CommandResult missing = call("sfx.bake", {{"path", "assets/audio/nope.sfx.json"}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error["code"] == "not_found");
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/c.wav")));
+    CHECK_FALSE(call("sfx.bake", {{"path", "assets/audio/a.wav"}}).ok);
+    CHECK_FALSE(call("sfx.bake", {{"path", Json::array()}}).ok);
+
+    // regenerate: the answer for an up-to-date sound lists the inputs it hashed
+    const Json again = ok("assets.regenerate", {{"stale", true}});
+    CHECK(again["count"] == 0);
+    REQUIRE(again["skipped"].size() >= 1);
+    const Json& s = again["skipped"][0];
+    CHECK(s["reason"].get<std::string>().find("up to date") == 0);
+    REQUIRE(s["compared"].is_array());
+    REQUIRE(s["compared"].size() >= 1);
+    CHECK(s["compared"][0]["path"].get<std::string>().find(".sfx.json") != std::string::npos);
+    CHECK(s["compared"][0]["sha256"].get<std::string>().size() == 64);
+}

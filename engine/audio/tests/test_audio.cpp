@@ -295,6 +295,39 @@ TEST_CASE("audio: spatial sources pan and attenuate relative to the listener") {
     CHECK(far.peak() < 0.001f);
 }
 
+TEST_CASE("audio: play_at is heard from a place like a spatial AudioSource") {
+    Fixture fx;
+    World world;
+    Entity listener = world.create("ear", "ear");
+    world.add<AudioListener>(listener);
+    PlayParams pp;
+    pp.volume = 0.8f;
+    auto last = [&]() { return fx.audio.play_log().back(); };
+
+    VoiceId near = fx.audio.play_at(world, "sounds/sine.wav", pp, {0, 0, 0}, 100.0f);
+    CHECK(near != 0);
+    CHECK(last().volume == doctest::Approx(0.8f));
+    CHECK(last().pan == doctest::Approx(0.0f));
+    VoiceId half = fx.audio.play_at(world, "sounds/sine.wav", pp, {50, 0, 0}, 100.0f);  // half the range, to the right
+    CHECK(half != 0);
+    CHECK(last().volume == doctest::Approx(0.4f));
+    CHECK(last().pan == doctest::Approx(1.0f));
+    fx.audio.play_at(world, "sounds/sine.wav", pp, {-25, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.6f));
+    CHECK(last().pan == doctest::Approx(-0.5f));
+    const std::size_t logged = fx.audio.play_log().size();
+    CHECK(fx.audio.play_at(world, "sounds/sine.wav", pp, {100, 0, 0}, 100.0f) == 0);  // at the range: silent, no voice
+    CHECK(fx.audio.play_log().size() == logged);
+    // the listener's zoom stretches the reach
+    world.get<AudioListener>(listener)->zoom = 2.0f;
+    fx.audio.play_at(world, "sounds/sine.wav", pp, {100, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.4f));
+    // no listener: plays as play() does
+    World empty;
+    fx.audio.play_at(empty, "sounds/sine.wav", pp, {900, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.8f));
+}
+
 TEST_CASE("audio: scene music starts when SceneSettings.music changes") {
     Fixture fx;
     World world;

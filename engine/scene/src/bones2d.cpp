@@ -679,7 +679,7 @@ void solve_ccd(World& w, const std::vector<Entity>& chain, Vec2 target) {
 
 }  // namespace
 
-Result<float> solve_ik2d(World& w, Entity e) {
+Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
     const IK2D* ikp = w.get<IK2D>(e);
     if (!ikp) return make_error("Entity '" + label_of(w, e) + "' has no IK2D.", "Add an IK2D component to the last bone of the chain.");
     const IK2D ik = *ikp;
@@ -704,7 +704,17 @@ Result<float> solve_ik2d(World& w, Entity e) {
         return make_error("IK2D on '" + label_of(w, e) + "' has chainLength " + std::to_string(wanted) + " but only " + std::to_string(chain.size()) +
                               " bone(s) up its parents have a Bone2D.",
                           "Lower chainLength to " + std::to_string(chain.size()) + ", or add the Bone2D components the chain is missing.");
-    const Vec2 target = w.world_position(ik.target).xy();
+    Vec2 target = w.world_position(ik.target).xy();
+    if (ground && ik.groundMask != 0) {
+        // Planted feet: aim at the floor under the target, keeping the swing lift above the rest height.
+        Entity root = e;
+        while (w.alive(w.parent(root))) root = w.parent(root);
+        const float reach = std::max(0.0f, ik.groundReach);
+        if (auto hit = ground({target.x, target.y + reach}, {target.x, target.y - reach}, ik.groundMask, root)) {
+            const float rest = w.world_position(root).y + ik.groundRest;
+            target.y = hit->y + ik.groundOffset + std::max(0.0f, target.y - rest);
+        }
+    }
 
     std::vector<float> before(chain.size());
     for (std::size_t i = 0; i < chain.size(); ++i) before[i] = rotation_z(w, chain[i]);
@@ -718,12 +728,12 @@ Result<float> solve_ik2d(World& w, Entity e) {
     return length(target - bone_tip(w, e));
 }
 
-void update_ik2d(World& w) {
+void update_ik2d(World& w, const GroundRaycast2D& ground) {
     for (Entity e : w.entities_with(&World::type_of<IK2D>())) {
         if (!w.alive(e) || !w.active_in_hierarchy(e)) continue;
         IK2D* ik = w.get<IK2D>(e);
         if (!ik || ik->weight <= 0.0f || ik->target.is_null()) continue;
-        Result<float> r = solve_ik2d(w, e);
+        Result<float> r = solve_ik2d(w, e, ground);
         if (!r.ok() && !ik->warned) {
             ik->warned = true;
             FA_WARN("animation", "{}", r.error().to_string());
