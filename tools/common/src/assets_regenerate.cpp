@@ -15,6 +15,18 @@ namespace fa::assets_detail {
 namespace {
 
 constexpr const char* kCommand = "assets.regenerate";
+// The anim commands that make a file from a recipe; the other writing anim3d.* commands (set_keys, restore, ik3d.key...) are hand edits.
+constexpr const char* kAnimRecipeCommands[] = {"anim3d.generate", "anim3d.retarget"};
+
+// True for a command regenerate may run again from a recipe: a writing assets.* maker (not regenerate itself) or one of kAnimRecipeCommands.
+bool is_recipe_command(const CommandInfo& info) {
+    if (info.name == kCommand || info.readOnly) return false;
+    if (info.category == "assets") return true;
+    for (const char* name : kAnimRecipeCommands)
+        if (info.name == name) return true;
+    return false;
+}
+
 constexpr std::size_t kComparedShown = 8;  // inputs listed per skipped or failed asset in the reply
 
 // One command call that makes one or more assets (assets.draw_icon makes the icon and its Android foreground; a texture its
@@ -265,11 +277,11 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
             skipped.push_back(s);
             continue;
         }
-        if (const CommandInfo* info = registry.info(g.command); !info || (info->category != "assets" && info->category != "anim") || g.command == kCommand || info->readOnly) {
+        if (const CommandInfo* info = registry.info(g.command); !info || !is_recipe_command(*info)) {
             std::vector<std::string> names;
-            for (const CommandInfo* c : registry.list("assets"))
-                if (!c->readOnly && c->name != kCommand) names.push_back(c->name);
-            const std::string message = info ? "'" + g.command + "' is not an asset maker, and regenerate only runs those (assets.* and anim3d.* commands that write files)."
+            for (const CommandInfo* c : registry.list())
+                if (is_recipe_command(*c)) names.push_back(c->name);
+            const std::string message = info ? "'" + g.command + "' is not an asset maker, and regenerate only runs those (the assets.* makers, anim3d.generate and anim3d.retarget)."
                                              : "the recipe names the command '" + g.command + "', which does not exist.";
             const std::string hint = info ? "Edit provenance.recipe in assets.json, or make the asset again with its own command."
                                           : (names.empty() ? std::string() : did_you_mean(g.command, names));
