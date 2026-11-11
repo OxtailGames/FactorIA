@@ -181,6 +181,7 @@ void ProfileSummary::add_memory(const ProfMemory& m) {
     memPeak_.jsHeapBytes = std::max(memPeak_.jsHeapBytes, m.jsHeapBytes);
     memPeak_.textureBytes = std::max(memPeak_.textureBytes, m.textureBytes);
     memPeak_.audioDecodedBytes = std::max(memPeak_.audioDecodedBytes, m.audioDecodedBytes);
+    memPeak_.musicBytes = std::max(memPeak_.musicBytes, m.musicBytes);
     memPeak_.entities = std::max(memPeak_.entities, m.entities);
 }
 
@@ -190,7 +191,7 @@ double r1(double v) { return std::round(v * 10.0) / 10.0; }
 double mb(std::uint64_t b) { return std::round(double(b) / (1024.0 * 1024.0) * 100.0) / 100.0; }
 Json mem_json(const ProfMemory& m) {
     return Json::object({{"processMB", mb(m.processBytes)}, {"jsHeapMB", mb(m.jsHeapBytes)}, {"textureMB", mb(m.textureBytes)},
-                         {"audioDecodedMB", mb(m.audioDecodedBytes)}, {"entities", m.entities}});
+                         {"audioDecodedMB", mb(m.audioDecodedBytes)}, {"musicMB", mb(m.musicBytes)}, {"entities", m.entities}});
 }
 }  // namespace
 

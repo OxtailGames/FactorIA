@@ -1548,7 +1548,9 @@ ProfMemory Engine::profile_memory() {
     m.entities = int(I.world.entity_count());
     m.jsHeapBytes = std::uint64_t(I.scripts.stats().value("memoryBytes", 0LL));
     if (I.renderer) m.textureBytes = I.renderer->texture_bytes();
-    m.audioDecodedBytes = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+    const Json audio = I.audio.stats();
+    m.audioDecodedBytes = std::uint64_t(audio.value("decodedBytes", 0LL));
+    m.musicBytes = std::uint64_t(audio.value("musicBytes", 0LL));
     return m;
 }
 
