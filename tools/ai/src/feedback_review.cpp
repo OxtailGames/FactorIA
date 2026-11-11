@@ -75,8 +75,13 @@ std::string engine_reference(CommandRegistry& registry, const Json& entry, const
         // a command can be the answer to a gap its name does not hint at: a word there counts too, less.
         for (const std::string& w : words_of(c->name + " " + c->summary))
             if (words.count(w)) score += 2;
+        // Only words of six letters or more, at most three: "that" and "with" are in every long description.
+        int detailHits = 0;
         for (const std::string& w : words_of(c->details))
-            if (words.count(w)) ++score;
+            if (w.size() >= 6 && words.count(w) && detailHits < 3) {
+                ++score;
+                ++detailHits;
+            }
         if (score > 0) scored.emplace_back(score, c);
     }
     out << "## Commands of this engine, by area (name after the dot)\n";

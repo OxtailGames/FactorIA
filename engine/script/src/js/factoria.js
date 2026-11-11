@@ -4159,7 +4159,8 @@
   // Checks the arguments of test() and test.skip() (a mistake in a skipped test shows before the test is switched on) and returns the
   // test's expected errors.
   function testArgs(who, name, fn, options) {
-    if (typeof fn !== "function") throw new Error(`${who}('${name}', fn): the second argument must be a function`);
+    // A skipped test may be only a name ("pending"): there is nothing to run, so a missing body is fine there.
+    if (typeof fn !== "function" && !(who === "test.skip" && fn === undefined && options === undefined)) throw new Error(`${who}('${name}', fn): the second argument must be a function`);
     let expected = [];
     if (options !== undefined) {
       if (!isObj(options)) throw new Error(`${who}('${name}', fn, options): options must be an object like { expectErrors: [/pattern/] }, but got ${inspect(options)}`);

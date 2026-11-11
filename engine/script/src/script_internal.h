@@ -121,6 +121,7 @@ struct ScriptSystem::Impl {
         std::mutex mu;
         std::vector<LogEntry> list;  // oldest first, capped at kMaxTestErrors
         std::size_t dropped = 0;
+        std::uint64_t lastDroppedSeq = 0;  // seq of the latest record dropped: logErrors reports the drop only to the test that saw it
     };
     static constexpr std::size_t kMaxTestErrors = 20000;
     std::shared_ptr<TestErrors> testErrors;

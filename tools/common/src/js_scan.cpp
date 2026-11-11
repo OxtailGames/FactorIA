@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <system_error>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -12,8 +13,12 @@ namespace stdfs = std::filesystem;
 
 bool js_ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
 
+// Strings, templates and comments are told apart; the inside of a template's substitution is code again (so a call to
+// fa.call there is found), with nesting. Regex literals are NOT recognised (telling the `/` of a division from a regex needs a
+// parser): a quote inside one can start a string that ends at the line (a backtick: later), which can only hide calls.
 Masked mask_source(const std::string& t) {
     Masked m{t, t};
+    std::vector<int> subst;  // open substitutions of templates: the brace depth inside each
     enum class S { Code, Line, Block, Single, Double, Template } st = S::Code;
     auto blank = [](std::string& s, std::size_t i) {
         if (s[i] != '\n') s[i] = ' ';
@@ -23,7 +28,15 @@ Masked mask_source(const std::string& t) {
         const char n = i + 1 < t.size() ? t[i + 1] : '\0';
         switch (st) {
             case S::Code:
-                if (c == '/' && n == '/') { st = S::Line; blank(m.code, i); blank(m.bare, i); }
+                if (!subst.empty() && c == '{') ++subst.back();
+                else if (!subst.empty() && c == '}') {
+                    if (--subst.back() == 0) {
+                        blank(m.bare, i);  // the closing brace is not code either: an orphan `}` would unbalance declared_names
+                        subst.pop_back();
+                        st = S::Template;
+                    }
+                }
+                else if (c == '/' && n == '/') { st = S::Line; blank(m.code, i); blank(m.bare, i); }
                 else if (c == '/' && n == '*') { st = S::Block; blank(m.code, i); blank(m.bare, i); }
                 else if (c == '\'') st = S::Single;
                 else if (c == '"') st = S::Double;
@@ -51,6 +64,12 @@ Masked mask_source(const std::string& t) {
                     blank(m.bare, i);
                     if (i + 1 < t.size()) blank(m.bare, i + 1);
                     ++i;
+                } else if (st == S::Template && c == '$' && n == '{') {
+                    blank(m.bare, i);  // the `${` itself is not code; what follows it is
+                    blank(m.bare, i + 1);
+                    ++i;
+                    subst.push_back(1);
+                    st = S::Code;
                 } else if (c == q) {
                     st = S::Code;
                 } else if (c == '\n' && st != S::Template) {

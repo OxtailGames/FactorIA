@@ -496,9 +496,9 @@ What the result (`factoria.agent-cost/1`) says:
   `ended` of `play.auto` is trusted only as far as the AI's own autoplay is (a note says so). `finalGame` carries `levelPhases`
   and `endedWhy` too. `reached: false` means no `play.auto` of the run met it (`playAutoCalls` says how many it
   ran). `finalGame` is the same check on the finished game, run by the script (`phases`, `ended`, `scriptErrors`).
-- `engineErrors`: failed `factoria` calls, by error code (`none` when the failure gave no code, e.g. a `factoria run` that
-  exited 1), with the first ones; a failed `factoria test` counts only with a code (its failures are the game's tests, not the
-  engine). `notCaught`: outputs of `factoria run`, `play.auto`, `factoria test` and the game logs that show a script error
+- `engineErrors`: failed `factoria` calls, by error code (`none` when the failure gave no code, e.g. a `factoria info` that
+  crashed), with the first ones; a failed `factoria test`, `factoria validate` or `factoria run` counts only with a code (their
+  failures are the game's tests, files and scripts, not the engine). `notCaught`: outputs of `factoria run`, `play.auto`, `factoria test` and the game logs that show a script error
   (`script error`, `Uncaught`, `TypeError`...) while a `factoria test` had passed; a doc or a file the AI read that quotes one
   does not count. The result also has `cliVersion` (`claude --version`).
 
