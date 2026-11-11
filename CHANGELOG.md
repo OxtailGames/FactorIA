@@ -32,7 +32,7 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   `assets.set_provenance` takes `role: ""` (or null) to remove a role; `assets.regenerate`, importing a file again and
   `assets.generate_image` with `overwrite` keep the role; `style.ignore` and `style.set_role` refuse only `..` path segments.
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
-  keeps a window of 6 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
+  keeps a window of 6 s of decoded audio (about 2.5 to 3.5 MiB per stem with its decoder and ogg) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls
   does not dry the music (a jump to a section decodes its first chunks before it plays, waiting for the service for one chunk at
   most); section jumps, loops, crossfades and layer fades land on the same frames as before and the audio callback still takes

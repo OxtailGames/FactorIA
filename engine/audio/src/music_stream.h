@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "audio_decoder.h"
+#include "fa/core/types.h"
 
 namespace fa::audio_detail {
 
@@ -75,7 +76,10 @@ public:
         }
     }
     // Before the stem reaches the mixer (the game thread, when the song enters the cache): where else its underruns are added.
-    void set_tally(std::shared_ptr<MusicTally> tally) { tally_ = std::move(tally); }
+    void set_tally(std::shared_ptr<MusicTally> tally) {
+        FA_ASSERT(!tally_, "set_tally is called once, before the mixer sees the stem");
+        tally_ = std::move(tally);
+    }
     std::uint64_t underrun_events() const { return underrunEvents_.load(std::memory_order_relaxed); }
     std::uint64_t underrun_frames() const { return underrunFrames_.load(std::memory_order_relaxed); }
 
@@ -95,7 +99,8 @@ public:
     bool claim_wait();
     void set_claim_wait_limit(int milliseconds) { claimWaitMs_.store(milliseconds, std::memory_order_relaxed); }
     int waiters() const { return waiters_.load(std::memory_order_relaxed); }
-    // The service thread's pass number, bumped for every pass on every stem: chunks of prime() stay protected for kPrimedPasses of them.
+    // The mixer's publish counter (Mixer::musicSeq, one per audio block) as the service thread read it: chunks of prime() stay protected
+    // for kPrimedBlocks of them, whatever the pace of the service thread.
     void tick(std::uint64_t pass) { pass_.store(pass, std::memory_order_relaxed); }
     // One pass of the service thread: when the mixer published this stem lately (`mixSeq` is the mixer's current Mixer::musicSeq), takes the
     // claim (skips the stem when someone else has it), turns the published heads into the wanted chunks and decodes the missing ones. With
@@ -112,7 +117,7 @@ public:
     // Decodes up to `most` of the first `upTo` wanted chunks that are not decoded, in order, and stops early when a claim_wait() is waiting.
     // Returns how many it made.
     std::size_t fill_wanted(std::size_t most, std::size_t upTo = kMusicWantedMax);
-    // Decodes chunks [first, first + count) now and keeps them out of the way of eviction for the next kPrimedPasses passes. The game uses it
+    // Decodes chunks [first, first + count) now and keeps them out of the way of eviction for the next kPrimedBlocks audio blocks. The game uses it
     // before it sends a command that jumps somewhere, so the target is there whatever the jobs are doing.
     void prime(std::int64_t first, std::int64_t count);
     // Decodes `chunk` into any slot nobody reads (the null device and the web, on the thread that mixes). False if it could not.
@@ -131,7 +136,7 @@ private:
     static constexpr std::uint64_t kReaders = 0x7fff, kLoading = 0x8000;
     static std::uint64_t ready_word(std::int64_t chunk) { return std::uint64_t(chunk + 1) << 16; }
 
-    static constexpr std::uint64_t kPrimedPasses = 500;  // service passes (10 ms to 2 ms apart): 1 s at the least
+    static constexpr std::uint64_t kPrimedBlocks = 200;  // audio blocks the mixer publishes: 2.3 s at 512 frames and 44100 Hz
     static constexpr std::size_t kMaxHeads = 16;
 
     bool wanted_or_primed(std::int64_t chunk) const;

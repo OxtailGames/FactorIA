@@ -1151,6 +1151,8 @@ namespace {
 struct LoadingFx : PlayerFx {
     audio_test::JobPool pool{jobs::Settings::threads(0)};
     LoadingFx() { AudioTestAccess::use_manual_device(audio, 44100); }
+    // The pool goes before the fixture's base: shut the audio down first, so the jobs in flight are waited for with the pool alive.
+    ~LoadingFx() { audio.shutdown(); }
     void frame(bool runJobs) {
         audio.update(world, 1.0f / 60.0f);
         (void)render_device(audio, 2);
