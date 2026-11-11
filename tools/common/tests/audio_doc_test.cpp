@@ -8,6 +8,7 @@
 #include "fa/audio/analysis.h"
 #include "fa/audio/audio_doc.h"
 #include "fa/core/json_schema.h"
+#include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/audio_doc.h"
 #include "fa/tooling/validate.h"
 #include "fa_test_paths.h"
@@ -280,4 +281,48 @@ TEST_CASE("audio schema: lists every step and field of the code, and valid docum
     Json broken = *sample;
     broken["steps"][1]["outt"] = 0.1;
     CHECK_FALSE(validate_json(*schema, broken).empty());
+}
+
+TEST_CASE("assets.check_mix: a recording that only feeds an audio document is skipped, and a looped bake is judged across its crossfade") {
+    AssetsProject p;
+    register_audio_commands(p.registry, p.dir);
+    write_door(p);
+    write_all(p.file("assets/audio/door.audio.json"),
+              R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [{"type": "loop", "start": 0.2, "end": 0.9, "crossfade": 0.1}]})");
+    p.ok("audio.bake", {{"path", "assets/audio/door.audio.json"}});
+    write_all(p.file("scenes/main.scene.json"),
+              R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/audio/door.wav","loop":true}}}]})");
+    auto call = [&](const Json& args) {
+        CommandResult r = p.registry.call("assets.check_mix", args);
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        return r.result;
+    };
+    const Json all = call({{"includeOk", true}});
+    REQUIRE(all["skipped"].size() == 1);
+    CHECK(all["skipped"][0]["path"] == "assets/raw/door.wav");
+    CHECK(all["skipped"][0]["reason"].get<std::string>().find("audio document") != std::string::npos);
+    CHECK(all["summary"]["skipped"] == 1);
+    bool judgedBaked = false, judgedSource = false;
+    for (const Json& s : all["sounds"]) {
+        judgedBaked = judgedBaked || s["path"] == "assets/audio/door.wav";
+        judgedSource = judgedSource || s["path"] == "assets/raw/door.wav";
+    }
+    CHECK(judgedBaked);
+    CHECK_FALSE(judgedSource);
+    // The loop starts at 0.2 s: the join that is heard is the crossfaded one, so neither seam rule complains.
+    bool sawSeam = false;
+    for (const Json& f : all["findings"])
+        if (f["sound"] == "assets/audio/door.wav" && (f["rule"] == "loop_seam_jump" || f["rule"] == "loop_seam_slope")) {
+            sawSeam = true;
+            CHECK_MESSAGE(f["verdict"] == "ok", f.dump());
+        }
+    CHECK(sawSeam);
+    // Naming the recording in `paths` judges it anyway.
+    const Json asked = call({{"paths", Json::array({"assets/raw/door.wav"})}});
+    CHECK_FALSE(asked.contains("skipped"));
+    CHECK(asked["sounds"].size() == 1);
+    // A recording that a scene plays is judged too.
+    write_all(p.file("scenes/main.scene.json"),
+              R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/raw/door.wav"}}}]})");
+    CHECK_FALSE(call({}).contains("skipped"));
 }

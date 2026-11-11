@@ -23,17 +23,14 @@ export default class Player extends Behaviour {
   invulnTime = 1.5;
   /** Falling below this y costs a life (set by scenes/level.js). */
   killY = -200;
-  /** Height of an ankle above the sole, and where the ankle sits (from the hero's centre) with the sole on the floor. */
-  static ankle = 2.5;
-  static ankleRest = -20.5;
 
   onStart() {
     this.body = this.entity.get("RigidBody2D");
     this.tint = this.entity.get("Tint");  // blinks the whole character while it is invulnerable
     this.anim = this.entity.animator;
     this.rig = this.part("rig");
-    // Each leg: `goal` is a marker the clips move (where the foot would go), `target` is what the IK2D of the leg reaches.
-    this.legs = ["f", "b"].map((s) => ({ goal: this.part("gait_" + s), target: this.part("ik_" + s) }));
+    // Each leg's IK2D (on the shin) reaches a marker (`gait_*`) the clips move; the engine puts it on the floor (see feet()).
+    this.legs = ["f", "b"].map((s) => this.part("shin_" + s).get("IK2D"));
     this.footsteps = 0;
     this.anim.on("footstep", () => { this.footsteps += 1; });
     this.coyote = 0;
@@ -70,22 +67,12 @@ export default class Player extends Behaviour {
   }
 
   /**
-   * Puts each IK target on the ground under its marker. The walk clip moves the markers (a stride along x, a lift while
-   * the foot swings); a ray from the hero's centre finds the floor under the marker, so on a step or a ledge the planted
-   * foot rests on the floor instead of floating or sinking. In the air the marker alone decides (the legs tuck).
+   * Planted feet are data: each leg's IK2D has groundMask / groundReach / groundOffset / groundRest (prefabs/player.prefab.json), so
+   * the engine aims the foot at the floor under the clip's marker (`gait_*`) and keeps the swing lift. In the air the marker alone
+   * decides (the legs tuck): the ground snapping is switched off there.
    */
   feet(grounded) {
-    const at = this.entity.position;
-    for (const leg of this.legs) {
-      const m = leg.goal.worldPosition;
-      let y = m.y;
-      if (grounded) {
-        const hit = physics.raycast(vec2(m.x, at.y), vec2(m.x, at.y - 60), { ignore: this.entity });
-        // ankleRest: where the marker sits with the sole on the floor; anything above it is the lift of a step
-        if (hit) y = hit.point.y + Player.ankle + Math.max(0, m.y - (at.y + Player.ankleRest));
-      }
-      leg.target.worldPosition = vec2(m.x, y);
-    }
+    for (const ik of this.legs) ik.groundMask = grounded ? 1 : 0;
   }
 
   onUpdate(dt) {

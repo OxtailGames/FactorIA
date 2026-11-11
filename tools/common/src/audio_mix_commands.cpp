@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <map>
 #include <set>
@@ -232,6 +233,43 @@ std::string normalize_fix(const Sound& s, double target) {
                        "\"import\":", target, target, kImportHint);
 }
 
+// The loop points a WAV carries in its `smpl` chunk (what a `loop` step of an audio document writes), end exclusive; none for another
+// file or a chunk that does not hold a usable loop.
+std::optional<am::LoopPoints> wav_loop_points(const std::vector<std::uint8_t>& b) {
+    auto u32 = [&](std::size_t at) { return std::uint32_t(b[at]) | std::uint32_t(b[at + 1]) << 8 | std::uint32_t(b[at + 2]) << 16 | std::uint32_t(b[at + 3]) << 24; };
+    if (b.size() < 12 || std::memcmp(b.data(), "RIFF", 4) != 0 || std::memcmp(b.data() + 8, "WAVE", 4) != 0) return std::nullopt;
+    std::size_t at = 12;
+    while (at + 8 <= b.size()) {
+        const std::size_t size = u32(at + 4), body = at + 8;
+        if (std::memcmp(b.data() + at, "smpl", 4) == 0) {
+            if (size < 36 + 24 || body + 36 + 24 > b.size() || u32(body + 28) < 1) return std::nullopt;
+            const std::size_t start = u32(body + 44), last = u32(body + 48);
+            if (last < start) return std::nullopt;
+            return am::LoopPoints{start, last + 1};
+        }
+        at = body + size + (size & 1);
+    }
+    return std::nullopt;
+}
+
+// Every sound that an audio document's recipe lists as an input (the recordings a loop or a mix is made from): assets.json recipes of
+// command audio.bake.
+std::set<std::string> audio_document_sources(const std::string& projectDir) {
+    std::set<std::string> out;
+    const std::string text = tooling_detail::read_file(std::filesystem::path(projectDir) / assets::kManifestFile).value_or(std::string());
+    if (text.empty()) return out;
+    auto parsed = parse_json(text, assets::kManifestFile);
+    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object()) return out;
+    for (const auto& [path, entry] : (*parsed)["assets"].items()) {
+        const Json recipe = assets_detail::recipe_of(entry);
+        if (!recipe.is_object() || recipe.value("command", std::string()) != "audio.bake" || !recipe.contains("inputs") || !recipe["inputs"].is_array()) continue;
+        for (const Json& in : recipe["inputs"])
+            if (in.is_object() && in.contains("path") && in["path"].is_string() && tooling_detail::is_audio_file(in["path"].get<std::string>()))
+                out.insert(fs::normalize(in["path"].get<std::string>()));
+    }
+    return out;
+}
+
 Result<Sound> measure_sound(const std::string& projectDir, const std::string& path, const PlayMap& plays, const std::map<std::string, std::string>& roots) {
     auto analysis = analyze_audio_file(projectDir, path);
     if (!analysis) return analysis.error();
@@ -244,7 +282,14 @@ Result<Sound> measure_sound(const std::string& projectDir, const std::string& pa
         if (!file) return file.error();
         auto decoded = decode_audio(file->bytes, fs::extension(file->path));
         if (!decoded) return make_error(s.path + ": " + decoded.error().message, decoded.error().hint);
-        s.metrics = am::measure(*decoded);
+        // A WAV with loop points (a `loop` step of an audio document) is judged across the join it plays, not across its ends.
+        std::optional<am::LoopPoints> loop = fs::extension(file->path) == ".wav" ? wav_loop_points(file->bytes) : std::nullopt;
+        if (!loop) {  // the import settings an audio document's bake wrote (seconds), for an .ogg
+            const double a = tooling_detail::number_setting(s.analysis.settings, "loopStart", 0.0), b = tooling_detail::number_setting(s.analysis.settings, "loopEnd", 0.0);
+            if (b > a && a >= 0.0 && decoded->rate > 0)
+                loop = am::LoopPoints{std::size_t(std::llround(a * decoded->rate)), std::size_t(std::llround(b * decoded->rate))};
+        }
+        s.metrics = am::measure(*decoded, loop);
     }
     const Loudness& l = s.analysis.loudness;
     s.normalize = tooling_detail::bool_setting(s.analysis.settings, "normalize");
@@ -476,7 +521,14 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     std::vector<Sound> sounds;
     sounds.reserve(paths.size());
     Json unreadable = Json::array();
+    // A recording that only feeds an audio document is not played by the game: the baked sound is. Asking for it by `paths` still judges it.
+    Json skippedSources = Json::array();
+    const std::set<std::string> docSources = asked ? std::set<std::string>() : audio_document_sources(projectDir);
     for (const std::string& p : paths) {
+        if (docSources.contains(p) && !plays.contains(p)) {
+            skippedSources.push_back(Json::object({{"path", p}, {"reason", "only the source of an audio document's recipe (assets.json): the game plays the baked sound, which is judged. Pass it in `paths` to judge it anyway."}}));
+            continue;
+        }
         auto s = measure_sound(projectDir, p, plays, roots);
         if (!s) {
             if (asked && paths.size() == 1) throw CommandError("failed", s.error().message, s.error().hint);
@@ -538,6 +590,10 @@ Json check_mix(const std::string& projectDir, const Json& args) {
                                 {"targets", targetJson},
                                 {"targetSource", targetSource}});
     if (!unreadable.empty()) result["unreadable"] = unreadable;
+    if (!skippedSources.empty()) {
+        result["skipped"] = skippedSources;
+        result["summary"]["skipped"] = int(skippedSources.size());
+    }
     if (sounds.empty()) result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/, or pass `paths`.";
     Json steps = Json::array();
     if (fail || warn) steps.push_back("Fix the findings from the top (each has a `hint`), then run assets.check_mix again; assets.spectrogram shows a single sound.");
@@ -906,12 +962,16 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
             "the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last "
             "sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump "
             "and loop_seam_slope (for sounds played looping: the step and the change of slope from the last "
-            "sample to the first, as multiples of the sound's usual step and curvature); clipping (samples "
+            "sample to the first, as multiples of the sound's usual step and curvature; a .wav with loop points, "
+            "as an audio document's `loop` step writes it, is judged across the join it plays, the crossfade, "
+            "not across the file's ends); clipping (samples "
             "flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, "
             "fail above 0). Loudness targets: the `targets` argument ({\"music\": -16, \"sfx\": {\"lufs\": "
             "-14, \"toleranceLu\": 2}, \"default\": -16}), else style.audio.loudnessLufs and toleranceLu in "
-            "assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of "
-            "numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run "
+            "assets.json, else the spread rule. A sound that is only an input of an audio "
+            "document's recipe (a recording the document is baked from) and that no scene or script plays is not "
+            "judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, findings, sounds (one row of "
+            "numbers per sound), skipped, targets, nextSteps}. Deterministic and read-only: it writes nothing (run "
             "assets.analyze_audio first to keep the loudness records, so later runs do not measure again).";
         info.inputSchema = Json::object(
             {{"type", "object"},

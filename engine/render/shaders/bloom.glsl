@@ -1,6 +1,6 @@
 // FactorIA camera bloom (Camera.bloom): bright-pass + downsample, separable gaussian blur, additive composite.
-// Every program draws one full-screen triangle; all intermediate targets are RGBA8 so the chain runs on every
-// sokol_gfx backend (GL 4.3 core, GLES3, D3D11, Metal) without float-render-target extensions.
+// Every program draws one full-screen triangle; all intermediate targets have the format of the game target (RGBA16F where the
+// GPU renders to it with blending and filtering, so a colour above white keeps its strength through the blur; else RGBA8).
 //
 //   bright     game target (full res)  -> 1/2 or 1/4 res: per-source-pixel threshold, then a 2x2 or 4x4 average
 //   down       1/2^n res               -> 1/2^(n+1) res: 2x2 box average (one bilinear tap at the texel corner)

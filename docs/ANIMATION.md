@@ -513,6 +513,10 @@ bone (its origin plus `length` along its X axis) reaches `target`, the entity wh
 | `chainLength` | Bones turned by `ccd`, counting this one. |
 | `bend` | `twoBone` only: which way the joint folds. `positive`: this bone ends up turned counter-clockwise from its parent (its `rotation.z` greater), `negative`: clockwise. Under a mirrored parent the result is the mirror image, so a flipped character keeps its knees. |
 | `weight` | 0 to 1: how much of the solution replaces the pose the bones had before the solver ran (0 leaves it alone, 1 is the full solution, a blend turns each bone the short way). |
+| `groundMask` | Planted feet (below): bitmask of the physics layers the foot ray hits. 0 (default) = off, the target is reached as it is. |
+| `groundReach` | The ray looks this far above and below the target, in world units (24 by default). |
+| `groundOffset` | Distance from the hit point up to where the tip rests (the ankle above the sole). 0 by default. |
+| `groundRest` | Height of the target over the character's origin (its topmost ancestor) when the foot is planted on flat ground. 0 by default. |
 
 The solver runs once per fixed step, **after the animators have posed the bones and before the frame is drawn**, in the
 order the `IK2D` components were added (when two chains share a bone the later one has the last word). It writes
@@ -520,6 +524,16 @@ order the `IK2D` components were added (when two chains share a bone the later o
 replaced by the solution (use `weight` to keep part of it); the other bones keep their pose. It does not run while
 `time.scale` is 0.
 
+- **Planted feet** (`groundMask` not 0): every solve casts a ray straight down at the target's x, from `groundReach` above the
+  target to `groundReach` below it, and the chain aims at the floor it finds instead of at the target. The rule:
+  `aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest))`, with `root` the topmost ancestor of the IK2D entity
+  (the character). A walk clip that moves a foot marker therefore still works as the target: while the marker is at or below its
+  rest height (`groundRest` over the root) the foot stands on the floor wherever it is (a step up, a ledge, a slope), and the part
+  of the marker's height above the rest height is kept as the swing lift on top of it. The target entity is never moved, only
+  the point the solver aims at. No hit within the reach = the target is used as it is. The character's own colliders (the root
+  entity and everything under it) are ignored by the ray. Switch `groundMask` to 0 where the legs should follow the marker alone
+  (a jump: a script sets `ik.groundMask`). Only the engine's fixed step has the physics world: `ik2d` one-off solves and the
+  editor's bone tools leave `groundMask` alone and reach the plain target. Sky Hopper's hero uses it (`prefabs/player.prefab.json`).
 - **Out of reach** the chain stretches straight toward the target and stops there; `twoBone` also stops at the nearest the two
   bones can fold (the difference of their lengths) when the target is too close.
 - **Angle limits** (`minAngle`, `maxAngle` of each bone) are kept: when a limit forbids the way to the target the tip falls short

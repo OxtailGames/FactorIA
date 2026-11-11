@@ -569,7 +569,14 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             // pose after them: IK2D turns its chains so the tip reaches the target, and what it moves is what gets drawn.
             // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
             // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
-            update_ik2d(world);
+            update_ik2d(world, [this](Vec2 from, Vec2 to, std::int32_t mask, Entity ignore) -> std::optional<Vec2> {
+                RaycastOptions ro;
+                ro.mask = mask;
+                ro.ignore = ignore;
+                auto hit = physics.raycast2d(world, from, to, ro);
+                if (!hit) return std::nullopt;
+                return Vec2{hit->point.x, hit->point.y};
+            });
             // IK3D rewrites the palettes of the skinned models after their clips (docs/ANIMATION.md, "3D IK"); its foot rays
             // ask the physics world, which has just stepped.
             update_ik3d(world, float(fixedDt * scale),

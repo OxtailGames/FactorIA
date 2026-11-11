@@ -26,4 +26,16 @@ void main() {
 }
 @end
 
+// The same copy with the source's alpha: the readback of a float game target into RGBA8 (alpha matters for a CameraView).
+@fs fs_keep
+layout(binding=0) uniform texture2D tex;
+layout(binding=0) uniform sampler smp;
+in vec2 uv;
+out vec4 frag_color;
+void main() {
+    frag_color = texture(sampler2D(tex, smp), uv);
+}
+@end
+
 @program blit vs fs
+@program blit_keep vs fs_keep

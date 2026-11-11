@@ -3261,6 +3261,59 @@ Json Audio::music_players() const {
 
 // ============================================================ world driving ==
 
+// The listener spatial sounds are heard from: the first active AudioListener entity, else the primary (or first) camera.
+struct Listener {
+    bool have = false;
+    Vec3 pos{}, right{1, 0, 0};
+    float volume = 1.0f, zoom = 1.0f;
+};
+
+static Listener find_listener(World& world) {
+    Listener l;
+    auto take = [&](Entity e, float vol, float zoom) {
+        Mat4 m = world.world_matrix(e);
+        l.pos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
+        Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
+        l.right = length_sq(r) > 1e-8f ? normalize(r) : Vec3{1, 0, 0};
+        l.volume = vol;
+        l.zoom = zoom > 1e-3f ? zoom : 1e-3f;
+        l.have = true;
+    };
+    world.each<AudioListener>([&](Entity e, AudioListener& al) {
+        if (!l.have && world.active_in_hierarchy(e)) take(e, al.volume, al.zoom);
+    });
+    if (!l.have) {
+        // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
+        Entity first = kNullEntity, primary = kNullEntity;
+        int primaryDepth = 0;
+        world.each<Camera>([&](Entity e, Camera& c) {
+            if (!world.active_in_hierarchy(e) || !c.renderTarget.empty()) return;  // a render-target camera is no listener
+            if (c.primary) {
+                if (primary.is_null() || c.depth < primaryDepth) { primary = e; primaryDepth = c.depth; }
+            } else if (first.is_null()) {
+                first = e;
+            }
+        });
+        if (!primary.is_null()) take(primary, 1.0f, 1.0f);
+        else if (!first.is_null()) take(first, 1.0f, 1.0f);
+    }
+    return l;
+}
+
+VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range) {
+    const Listener l = find_listener(world);
+    PlayParams p = params;
+    if (l.have) {
+        // The same model as an AudioSource with spatial = true (update() below).
+        const Vec3 d = position - l.pos;
+        const float reach = std::max(range, 1e-3f) * l.zoom;
+        p.volume = params.volume * saturate(1.0f - length(d) / reach) * l.volume;
+        p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
+    }
+    if (p.volume <= 0.0f) return 0;  // out of range: silent, no voice taken
+    return play(clipPath, p);
+}
+
 void Audio::update(World& world, float dt) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
@@ -3291,36 +3344,10 @@ void Audio::update(World& world, float dt) {
             feel.failedSounds.insert(fs.options.path);
     }
     // ---- listener: AudioListener entity, else the primary (or first) camera
-    bool haveListener = false;
-    Vec3 lpos{}, lright{1, 0, 0};
-    float lvol = 1.0f, lzoom = 1.0f;
-    auto take = [&](Entity e, float vol, float zoom) {
-        Mat4 m = world.world_matrix(e);
-        lpos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
-        Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
-        lright = length_sq(r) > 1e-8f ? normalize(r) : Vec3{1, 0, 0};
-        lvol = vol;
-        lzoom = zoom > 1e-3f ? zoom : 1e-3f;
-        haveListener = true;
-    };
-    world.each<AudioListener>([&](Entity e, AudioListener& l) {
-        if (!haveListener && world.active_in_hierarchy(e)) take(e, l.volume, l.zoom);
-    });
-    if (!haveListener) {
-        // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
-        Entity first = kNullEntity, primary = kNullEntity;
-        int primaryDepth = 0;
-        world.each<Camera>([&](Entity e, Camera& c) {
-            if (!world.active_in_hierarchy(e) || !c.renderTarget.empty()) return;  // a render-target camera is no listener
-            if (c.primary) {
-                if (primary.is_null() || c.depth < primaryDepth) { primary = e; primaryDepth = c.depth; }
-            } else if (first.is_null()) {
-                first = e;
-            }
-        });
-        if (!primary.is_null()) take(primary, 1.0f, 1.0f);
-        else if (!first.is_null()) take(first, 1.0f, 1.0f);
-    }
+    const Listener listener = find_listener(world);
+    const bool haveListener = listener.have;
+    const Vec3 lpos = listener.pos, lright = listener.right;
+    const float lvol = listener.volume, lzoom = listener.zoom;
 
     // ---- AudioSource components
     for (Entity e : world.entities_with(&World::type_of<AudioSource>())) {

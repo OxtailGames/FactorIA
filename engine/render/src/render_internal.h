@@ -659,7 +659,13 @@ public:
     // Destroys a custom material program together with the pipelines made from it.
     void destroy_shader(sg_shader shader);
     sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount);
-    // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
+    // The same copy into an RGBA8 target without depth, keeping the source's alpha: how a frame in a float scene_format() is
+    // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
+    sg_pipeline blit_keep_pipeline();
+    // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes: RGBA16F where
+    // the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white (MeshRenderer.
+    // emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). FA_SCENE_FORMAT=rgba8 forces RGBA8.
+    sg_pixel_format scene_format() const { return sceneFormat_; }    // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
@@ -707,7 +713,7 @@ public:
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{}, blitKeepShader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
@@ -722,6 +728,7 @@ private:
     int colorfilterState_ = 0;  // same meaning as bloomState_
     int lightState_ = 0;        // same meaning as bloomState_
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
+    sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;

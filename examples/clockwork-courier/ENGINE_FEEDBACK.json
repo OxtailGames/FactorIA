@@ -1493,7 +1493,11 @@
       "suggestion": "A glow intensity (or an HDR glow colour) on MeshRenderer, useful with bloom, so a glow can pass 1 without the 0..255 reading.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "d5066f72",
+      "notes": [
+        "Fixed in d5066f72: MeshRenderer.emissiveStrength (0..100, default 1) multiplies emissive and the game target is HDR (RGBA16F) where the GPU allows it, so Camera.bloom glows more above white; validate warns about an emissive colour read as 0..255 and points to the field. The 184 colours of market_1..3 and the lantern prefab are restored with it."
+      ]
     }
   ]
 }

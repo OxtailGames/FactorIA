@@ -149,7 +149,10 @@ Each issue starts with `file:line:column`:
 
 A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
 mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
-readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
+readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255. A colour with a channel over 1, no
+channel between 0 and 1 and none over 8 (`[3, 2, 2, 3]`, an attempt at "brighter than white") is read as 0..255 too, which is
+almost black: validate warns about that as well. For `MeshRenderer.emissive` both warnings point to `emissiveStrength` (the
+HDR multiplier) as the way to glow above white.
 
 ### Reading a member that does not exist
 
@@ -609,7 +612,10 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority, position, range })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `position: [x, y, z]` (`[x, y]` in a 2D game, or `{x, y, z}`) plays the sound from a place without an entity, heard from the
+  `AudioListener` like an `AudioSource` with `spatial: true`; `range` is the distance where it reaches 0 (default 800). It
+  does not follow anything (docs/SOUND.md, "A sound at a place").
 - `priority` (0..255, default 128) decides who keeps a voice when all 64 play: a new sound replaces the lowest priority voice,
   the quietest of those, when its priority is higher, or the same and it is louder; otherwise it does not play and `play`
   returns 0. Age never decides; music is never replaced (docs/SOUND.md, "Voice stealing").
