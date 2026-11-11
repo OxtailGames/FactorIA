@@ -4,11 +4,19 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
+
+#include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
 #include "fa/ai/project_settings.h"
@@ -1123,4 +1131,104 @@ TEST_CASE("ai doctor and ai run use the AI settings of the project they run in")
         CHECK((*rep)["projectSettings"]["pendingTrust"] == true);
         CHECK((*rep)["projectSettings"]["applied"] == false);
     }
+}
+
+// M100.5: `factoria test` prints one trace for the same failure in many tests; `factoria validate` says each load
+// problem once, in its report, and with --json stderr stays empty.
+namespace {
+// Runs `f` with the process's stderr (fd 2, where the log writes) going to a file; returns what was written.
+template <class F>
+std::string with_process_stderr(const stdfs::path& tmp, F f) {
+    std::fflush(stderr);
+#ifdef _WIN32
+    const int saved = _dup(2);
+    int fd = _wopen(tmp.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0600);
+    if (fd >= 0) {
+        _dup2(fd, 2);
+        _close(fd);
+    }
+#else
+    const int saved = dup(2);
+    int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        dup2(fd, 2);
+        close(fd);
+    }
+#endif
+    f();
+    std::fflush(stderr);
+#ifdef _WIN32
+    _dup2(saved, 2);
+    _close(saved);
+#else
+    dup2(saved, 2);
+    close(saved);
+#endif
+    std::ifstream in(tmp, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+size_t count_of(const std::string& hay, const std::string& needle) {
+    size_t n = 0;
+    for (size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + needle.size())) ++n;
+    return n;
+}
+}  // namespace
+
+TEST_CASE("test: ten tests failing with the same error print the trace once") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_fold");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    stdfs::create_directories(root / "game" / "tests");
+    {
+        std::ofstream f(root / "game" / "tests" / "many.test.js");
+        f << "import { test } from \"factoria:test\";\nfunction boom() { throw new Error(\"same boom\"); }\n";
+        for (int i = 0; i < 10; ++i) f << "test(\"case" << i << "\", () => { boom(); });\n";
+    }
+    auto r = run({"test", dir, "tests/many.test.js"});
+    CHECK(r.code == 1);
+    CHECK(count_of(r.out, "Error: same boom") == 1);
+    CHECK(count_of(r.out, "an exception was thrown inside the test") == 1);
+    CHECK(count_of(r.out, "FAIL  ") == 10);
+    const size_t more = r.out.find("in 9 more tests (");
+    REQUIRE(more != std::string::npos);
+    for (int i = 1; i < 10; ++i) CHECK(r.out.find("case" + std::to_string(i), more) != std::string::npos);
+    CHECK(r.out.size() < 4000);
+    // --json stays complete: every case keeps its own message.
+    auto j = run({"test", dir, "tests/many.test.js", "--json"});
+    CHECK(count_of(j.out, "same boom") >= 10);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_validate_once");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    {
+        std::ofstream f(root / "game" / "scenes" / "main.scene.json", std::ios::trunc);
+        f << R"({"format":"factoria.scene/1","entities":[
+          {"id":"camera","name":"Main Camera","components":{"Camera":{"projection":"orthographic","primary":true}}},
+          {"id":"a","name":"A","components":{"Sprit":{}}}]})";
+    }
+    Result text, json;
+    const std::string errText = with_process_stderr(root / "err1.txt", [&] { text = run({"validate", dir}); });
+    CHECK(errText.empty());
+    CHECK(text.code == 1);
+    CHECK(count_of(text.out, "Unknown component 'Sprit'") == 1);
+    const std::string errJson = with_process_stderr(root / "err2.txt", [&] { json = run({"validate", dir, "--json"}); });
+    CHECK(errJson.empty());
+    CHECK(json.err.empty());
+    auto parsed = fa::parse_json(json.out, "validate");
+    REQUIRE(parsed);
+    CHECK(count_of(json.out, "Unknown component 'Sprit'") == 1);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
 }
