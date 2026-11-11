@@ -1,14 +1,17 @@
-# ember-descent — guide for AI agents
+# Ember Descent — guide for AI agents
 
-This is a **FactorIA** game project (engine 0.16.1, created 2026-11-05). You build the
+This is a **FactorIA** game project (engine 0.21.0, created 2026-11-11). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
-is text; you never need a GUI. The full guide is `factoria docs read ai-guide` (MCP: `docs_read {"name":"ai-guide"}`).
+is text; you never need a GUI. The guide (`ai-guide`) is long: run
+`factoria docs read ai-guide --contents` for its headings, then read only the sections you need with `--heading`.
 
 ## The loop (follow it for every change)
 
-1. **Read** what exists: `factoria docs read ai-guide` (once per task), then `scripting` and
-   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
-   `contents`: read a section with `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
+1. **Read** what exists: the sections of `ai-guide` your task needs: `factoria docs read ai-guide --contents`
+   first, then `factoria docs read ai-guide --heading "..."`, never the bare command (it prints the whole 280 KB page).
+   Do the same for `scripting` and `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long
+   page comes in parts with its `contents`: read a section with
+   `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
    gives one component in full.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
@@ -26,6 +29,17 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 When the user says they played the game (in the editor) and found problems (slow, ugly UI, bugs),
 call `play.report` (MCP: `play_report`) first: it has the frame times, errors, the user's notes and
 screenshots, and an input replay of their session (`factoria run --headless --input <replay>`).
+
+After a feature or a fix, and BEFORE you ask the user to play, run `play.auto`. To play the game yourself with nobody at the keyboard, call `play.auto` (MCP: `play_auto`): a bot presses the input actions
+headless and fast, for `seconds` of game time, and writes a session (`play.report` reads it: perf, errors, `phases`, the score,
+how it ended, a picture per phase, and a mark with a screenshot for every place it got stuck, fell out of the world or hit a
+script error loop). The bot is `scripts/autoplay.js`, a `game.autoplay((bot) => [...actions to hold])` hook that finishes the
+sample level; keep it in step with your game (`end: "won"` when the level is done). Without that file the bot explores the
+declared actions with the given `seed`. The session's `input.json` replays the problem: `factoria run --headless --input`.
+Read the answer in this order: `ended` (`won`, `lost`, `timeout` = played the whole time, `stuck` / `broken` = it found a problem;
+a mark of kind `hook` = `scripts/autoplay.js` did not load), then `problems` (one mark each with a note and a screenshot:
+`play.report {"mark":2}` for the next), then `phases` (a stage it never reached is worth a look) and the errors the game
+logged. A green run means a script can finish the game, not that a person finds it clear or fun.
 
 ## Where things live
 
@@ -64,8 +78,8 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - Game logic belongs in `scripts/` classes extending `Behaviour` (`onStart`, `onEnable`/`onDisable`, `onUpdate(dt)`,
   `onFixedUpdate`, `onCollisionEnter`, `onTriggerEnter`...). Tunable numbers are class fields
   that scenes can override via `"Script": {"path": ..., "props": {...}}`.
-- Determinism: use `rng` from `"factoria"` (never `Math.random`) and `time.dt` / the `dt`
-  argument (never `Date.now`). Tests and replays depend on it. A tool or generator that must repeat from a seed uses
+- Determinism: use `rng` from `"factoria"` (`Math.random` works, it draws from the same world
+  stream, but write `rng`) and `time.dt` / the `dt` argument (never `Date.now`). Tests and replays depend on it. A tool or generator that must repeat from a seed uses
   its own `rng.create(seed)` (same methods as `rng`, never touches the game's RNG), not `rng.seed`. Guide section 9.16.
 - Paths are project-relative with forward slashes (`assets/hero.png`).
 - Never put API keys or secrets in this project. Keys live in `~/.factoria/ai.json` or env vars.
