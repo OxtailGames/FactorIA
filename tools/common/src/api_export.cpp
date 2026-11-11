@@ -84,6 +84,7 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
     if (!since.empty()) o << since << "\n\n";
     o << c->summary << "\n\n";
     if (!c->description.empty()) o << c->description << "\n\n";
+    if (!c->details.empty()) o << c->details << "\n\n";
     const Json& props = c->inputSchema.contains("properties") ? c->inputSchema["properties"] : Json::object();
     if (props.is_object() && !props.empty()) {
         std::vector<std::string> required;
@@ -104,6 +105,12 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
 }
 
 }  // namespace
+
+std::string command_details_pointer(const CommandInfo& info) {
+    if (info.details.empty()) return {};
+    return "More (the rest of this description): docs_commands {\"name\":\"" + info.name +
+           "\"}, the section `" + info.name + "` of the docs reference.";
+}
 
 std::string api_since(std::string_view section, std::string_view key) {
     const Json& d = since_data();

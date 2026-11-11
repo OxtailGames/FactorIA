@@ -283,18 +283,27 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
     info.readOnly = false;
     info.summary = "Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.";
     info.description =
-        "Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; "
-        "`contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), "
-        "polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened "
-        "picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{\"grow\":2},{\"shrink\":1},{\"feather\":1.5},{\"invert\":true}] "
-        "(pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection "
-        "of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. "
-        "PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or "
-        "cleared; later calls use it by name (the name \"all\" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). "
-        "The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. "
-        "IN AN ANIMATION (frames, docs.read IMAGES \"Frames and tags\") color, alpha and layer selections read the picture of `frame` (default 0: the layer's cel for that frame, or the whole picture "
-        "of that frame); the stored selection is one mask of the canvas per document and name, the same for every frame, so select on the frame you are working on. "
-        "Example: {\"path\":\"assets/art/hero.image.json\",\"name\":\"cape\",\"by\":\"color\",\"at\":[20,30],\"contiguous\":true,\"tolerance\":20,\"then\":[{\"grow\":1}]}";
+        "Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within "
+        "`tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area "
+        "around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, "
+        "height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after "
+        "its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only "
+        "`layer` when it is given. `then` reshapes the new selection with steps in order: "
+        "[{\"grow\":2},{\"shrink\":1},{\"feather\":1.5},{\"invert\":true}] (pixels; grow and shrink use a "
+        "round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result "
+        "with the stored selection of the same `name`: replace (default), add, subtract or intersect. "
+        "Without `by`, `then` reshapes the stored selection; `clear: true` deletes it."
+        FA_COMMAND_DETAILS
+        "PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document "
+        "path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name "
+        "(the name \"all\" is the whole canvas without a file). Changing the canvas size makes old "
+        "selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box "
+        "as `region` {x,y,width,height} and the picture with the selection marked as `$image`. IN AN "
+        "ANIMATION (frames, docs.read IMAGES \"Frames and tags\") color, alpha and layer selections read the "
+        "picture of `frame` (default 0: the layer's cel for that frame, or the whole picture of that frame); "
+        "the stored selection is one mask of the canvas per document and name, the same for every frame, so "
+        "select on the frame you are working on. Example: "
+        "{\"path\":\"assets/art/hero.image.json\",\"name\":\"cape\",\"by\":\"color\",\"at\":[20,30],\"contiguous\":true,\"tolerance\":20,\"then\":[{\"grow\":1}]}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["path"],"properties":{
       "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
       "name":{"type":"string","default":"selection","description":"The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace."},

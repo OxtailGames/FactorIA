@@ -173,7 +173,7 @@ TEST_CASE("platform.add_backend: one command lists every store backend with the 
         bool listed = false;
         for (const Json& n : backend["enum"]) listed = listed || n == name;
         CHECK_MESSAGE(listed, name);
-        CHECK(info->description.find(std::string(name) + ":") != std::string::npos);  // each backend's summary
+        CHECK(info->full_description().find(std::string(name) + ":") != std::string::npos);  // each backend's summary
     }
 
     // The schema refuses a backend that does not exist, before anything is written.

@@ -294,15 +294,29 @@ void register_model_uv_command(CommandRegistry& registry, const std::string& pro
     info.readOnly = false;
     info.summary = "Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.";
     info.description =
-        "The `uv` section of a model document replaces the primitives' own uvs: `layout` \"atlas\" (default) packs every piece into one texture painted for this model, \"tile\" gives world-scale uvs that continue across the model and repeat. "
-        "`method` is \"unwrap\" (xatlas cuts the surface into pieces and flattens each with little stretch; atlas default), or a projection: \"box\" (each face on the axis plane it looks at; tile default), \"cylinder\" and \"sphere\" (around `axis`), "
-        "\"planar\" (along `axis`); `parts` overrides method, axis and texelsPerUnit per part name, so a wheel can be a cylinder and a body unwrapped. `texelsPerUnit` is texels per metre (default the project's assets.json style.texelsPerUnit, else 128); "
-        "`textureSize` 0 picks the smallest power of two the pieces fit in, a fixed size the pieces do not fit lowers the density (a warning says so); `padding` empties texels around each piece; `seams` few, balanced or many; "
-        "`rotate` lets the packer turn pieces. The same spec works on sdf organic shapes, whose default box uvs it replaces. With `set` the fields are merged into the section (a null value removes a field; `parts` merges part by part), `replace: true` "
-        "puts `set` in place of the section, `clear: true` removes it; the document is checked as a whole and a mistake returns every issue with its JSON pointer and writes nothing. Then the .glb is baked again (unless bake is false). "
-        "The result measures the uvs: texels per metre (mean, min, max, per part), stretch (1 = none, 2 = a texture drawn twice as long one way as the other), seams, mirrored triangles, how full the texture is, overlap and uvs outside 0..1, with warnings that say what to change; "
-        "with no `set` or `clear` it only measures (a document with no uv section is measured on its primitives' own uvs). Unless picture is false it returns the layout (`$image`): the texture square with every triangle at its uvs, a colour per part, mirrored triangles red. "
-        "Example: {\"path\":\"assets/models/crate.model.json\",\"set\":{\"method\":\"unwrap\",\"texelsPerUnit\":256,\"parts\":{\"wheel\":{\"method\":\"cylinder\",\"axis\":\"x\"}}}}";
+        "The `uv` section of a model document replaces the primitives' own uvs: `layout` \"atlas\" (default) "
+        "packs every piece into one texture painted for this model, \"tile\" gives world-scale uvs that "
+        "continue across the model and repeat. `method` is \"unwrap\" (xatlas cuts the surface into pieces "
+        "and flattens each with little stretch; atlas default), or a projection: \"box\" (each face on the "
+        "axis plane it looks at; tile default), \"cylinder\" and \"sphere\" (around `axis`), \"planar\" "
+        "(along `axis`); `parts` overrides method, axis and texelsPerUnit per part name, so a wheel can be a "
+        "cylinder and a body unwrapped. `texelsPerUnit` is texels per metre (default the project's "
+        "assets.json style.texelsPerUnit, else 128); `textureSize` 0 picks the smallest power of two the "
+        "pieces fit in, a fixed size the pieces do not fit lowers the density (a warning says so); `padding` "
+        "empties texels around each piece; `seams` few, balanced or many; `rotate` lets the packer turn "
+        "pieces. Example: "
+        "{\"path\":\"assets/models/crate.model.json\",\"set\":{\"method\":\"unwrap\",\"texelsPerUnit\":256,\"parts\":{\"wheel\":{\"method\":\"cylinder\",\"axis\":\"x\"}}}}"
+        FA_COMMAND_DETAILS
+        "The same spec works on sdf organic shapes, whose default box uvs it replaces. With `set` the fields "
+        "are merged into the section (a null value removes a field; `parts` merges part by part), `replace: "
+        "true` puts `set` in place of the section, `clear: true` removes it; the document is checked as a "
+        "whole and a mistake returns every issue with its JSON pointer and writes nothing. Then the .glb is "
+        "baked again (unless bake is false). The result measures the uvs: texels per metre (mean, min, max, "
+        "per part), stretch (1 = none, 2 = a texture drawn twice as long one way as the other), seams, "
+        "mirrored triangles, how full the texture is, overlap and uvs outside 0..1, with warnings that say "
+        "what to change; with no `set` or `clear` it only measures (a document with no uv section is "
+        "measured on its primitives' own uvs). Unless picture is false it returns the layout (`$image`): the "
+        "texture square with every triangle at its uvs, a colour per part, mirrored triangles red.";
     info.inputSchema = Json::object(
         {{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
          {"properties",

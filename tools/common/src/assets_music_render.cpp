@@ -262,18 +262,34 @@ void register_music_render_commands(CommandRegistry& registry, const std::string
     info.readOnly = false;
     info.summary = "Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer.";
     info.description =
-        "Renders the song at `path` as music.preview does (same voices, mixer, loudness normalization and limiter) but as an ASSET: the whole song, with the loop points of its `loop` sections. "
-        "The loop is seamless: the tail of the loop's last bar (reverb, release) is folded onto its first bar, so a looping AudioSource plays `loopStart`..`loopEnd` with no click. The points are the bar boundaries of "
-        "the loop sections, exact frames, written as `import.loopStart` / `loopEnd` (seconds) in assets.json, which the engine honours, and, for a WAV, in the standard `smpl` chunk; an OGG keeps them in assets.json only. "
-        "`out` (default: the song's path with .wav) or `format` \"wav\" / \"ogg\" choose the file. `stems`: \"layers\" renders one file per layer of the song's `layers` (the tracks left out form the layer `other`), "
-        "\"tracks\" one per track, \"buses\" the dry tracks and each bus's return; true means \"layers\". A stem is named <out without extension>.stem.<name>.<ext>, has the same length, sample rate and loop points as the mix, "
-        "and passes through the same buses and master: the stems carry the mix's loudness gain and limiter gain, so their SUM is the mix to within float rounding (below -80 dBFS) when the buses and the master hold only linear effects; "
-        "a compressor, distortion or bitcrush there acts on the sum and the result's stemSum says by how much the sum differs. Add them with gain 1 and clip nothing: a stem can pass 0 dBFS when the others cancel it. "
-        "Every written file gets provenance and the same recipe in assets.json (inputs: the song, every .sfx.json patch and SoundFont it reads; context: the style guide's music loudness when the song's master loudness is \"style\"), "
-        "so project.validate warns when any of them changed and assets.regenerate makes the files again; running music.render again updates them in place (a stem of a layer you removed is deleted). "
-        "`import.music` of each entry says what it is: {role: \"mix\", song, stemGrouping, stems: [{name, path, kind, intensity, tracks, buses}]} or {role: \"stem\", song, mix, name, kind, intensity, tracks, buses}; intensity (0..1) is when a layered player brings the stem in. "
-        "`sampleRate` 22050, 32000, 44100 (default, exact loop frames in the engine) or 48000; `seed` another take of the instruments' noise; `loop` false renders the song once with no loop points. "
-        "An existing file that music.render did not make is an `exists` error unless overwrite is true. Example: {\"path\":\"assets/music/theme.song.json\",\"stems\":\"layers\"}";
+        "Renders the song at `path` as music.preview does (same voices, mixer, loudness normalization and "
+        "limiter) but as an ASSET: the whole song, with the loop points of its `loop` sections. The loop is "
+        "seamless: the tail of the loop's last bar (reverb, release) is folded onto its first bar, so a "
+        "looping AudioSource plays `loopStart`..`loopEnd` with no click. The points are the bar boundaries "
+        "of the loop sections, exact frames, written as `import.loopStart` / `loopEnd` (seconds) in "
+        "assets.json, which the engine honours, and, for a WAV, in the standard `smpl` chunk; an OGG keeps "
+        "them in assets.json only. `out` (default: the song's path with .wav) or `format` \"wav\" / \"ogg\" "
+        "choose the file. `stems`: \"layers\" renders one file per layer of the song's `layers` (the tracks "
+        "left out form the layer `other`), \"tracks\" one per track, \"buses\" the dry tracks and each bus's "
+        "return; true means \"layers\". Example: "
+        "{\"path\":\"assets/music/theme.song.json\",\"stems\":\"layers\"}"
+        FA_COMMAND_DETAILS
+        "A stem is named <out without extension>.stem.<name>.<ext>, has the same length, sample rate and "
+        "loop points as the mix, and passes through the same buses and master: the stems carry the mix's "
+        "loudness gain and limiter gain, so their SUM is the mix to within float rounding (below -80 dBFS) "
+        "when the buses and the master hold only linear effects; a compressor, distortion or bitcrush there "
+        "acts on the sum and the result's stemSum says by how much the sum differs. Add them with gain 1 and "
+        "clip nothing: a stem can pass 0 dBFS when the others cancel it. Every written file gets provenance "
+        "and the same recipe in assets.json (inputs: the song, every .sfx.json patch and SoundFont it reads; "
+        "context: the style guide's music loudness when the song's master loudness is \"style\"), so "
+        "project.validate warns when any of them changed and assets.regenerate makes the files again; "
+        "running music.render again updates them in place (a stem of a layer you removed is deleted). "
+        "`import.music` of each entry says what it is: {role: \"mix\", song, stemGrouping, stems: [{name, "
+        "path, kind, intensity, tracks, buses}]} or {role: \"stem\", song, mix, name, kind, intensity, "
+        "tracks, buses}; intensity (0..1) is when a layered player brings the stem in. `sampleRate` 22050, "
+        "32000, 44100 (default, exact loop frames in the engine) or 48000; `seed` another take of the "
+        "instruments' noise; `loop` false renders the song once with no loop points. An existing file that "
+        "music.render did not make is an `exists` error unless overwrite is true.";
     info.inputSchema = Json::object({{"type", "object"},
                                      {"required", Json::array({"path"})},
                                      {"additionalProperties", false},

@@ -146,6 +146,16 @@ listed). The one key the registry removes before validating is `_meta`, the MCP 
 declares a property of that name. Defaults are applied first, then the check. When you add a command, declare every key
 the handler reads, with a `description`; the same rule applies to `project.<name>` tools (their `input`).
 
+**A description stays under 1.5 KB.** MCP's `tools/list` sends every command's summary and description with every
+request, so `tools/list` costs the sum of them. `tools/cli/tests/mcp_description_budget_test.cpp` walks the real registry and
+fails, naming the command and its size, when the description as MCP sends it passes 1536 bytes. What does not fit goes in
+`CommandInfo::details` (the last member, or after `FA_COMMAND_DETAILS` inside the description, for commands a helper builds
+from a summary and a description): the first part is a complete statement of what the command does and its essentials, the
+rest is what a reader needs only once working with it. `details` is printed after the description in the docs reference
+(`docs/reference/commands/<category>.md`, `docs_commands {"name": ...}`, `factoria commands <name>`, `commands.describe`), and
+the description MCP and the built-in agent send ends with a sentence that names that section (`command_details_pointer`).
+So nothing is lost: the arguments table of the reference has always carried each argument's own description.
+
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through
 `fa::fs` (`core/fs.h`), by project-relative path (forward slashes, no `..`). The paths are answered from one of three

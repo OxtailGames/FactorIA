@@ -515,3 +515,17 @@ TEST_CASE("command: a CommandCancelScope cancels the calls of its thread once it
     CHECK_FALSE(command_cancelled());  // the scope ended
     CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);
 }
+
+TEST_CASE("command: a description splits at FA_COMMAND_DETAILS into description and details") {
+    CommandRegistry reg;
+    CommandInfo info;
+    info.name = "test.long";
+    info.summary = "Does a thing.";
+    info.description = "Short part. " FA_COMMAND_DETAILS "The rest.";
+    reg.add(info, [](const Json&) { return Json::object(); });
+    const CommandInfo* got = reg.info("test.long");
+    REQUIRE(got != nullptr);
+    CHECK(got->description == "Short part.");
+    CHECK(got->details == "The rest.");
+    CHECK(reg.describe()[0]["details"] == "The rest.");
+}

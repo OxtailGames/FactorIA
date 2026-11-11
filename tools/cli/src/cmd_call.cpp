@@ -327,7 +327,7 @@ Command make_commands_command() {
                 return 0;
             }
             ctx.out << info->name << " - " << info->summary << (info->readOnly ? "" : "  [modifies state]") << "\n\n"
-                    << info->description << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
+                    << info->description << (info->details.empty() ? "" : "\n\n" + info->details) << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
             return 0;
         }
         Json all = Json::array();

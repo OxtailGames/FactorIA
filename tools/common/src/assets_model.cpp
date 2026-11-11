@@ -814,13 +814,25 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.";
         info.description =
-            "Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, \"Game-ready models\"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material "
-            "(fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; "
-            "automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), "
-            "maxHulls, maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; "
-            "`clear` removes them all). The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` "
-            "and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings. "
-            "Example: {\"path\":\"assets/models/tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],\"collider\":{\"shape\":\"convex\"}}";
+            "Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, \"Game-ready "
+            "models\"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's "
+            "origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds "
+            "identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), "
+            "triangles (at most that many), error (largest surface movement in metres), distance (metres "
+            "from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; "
+            "made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. "
+            "`collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, "
+            "maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 "
+            "draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a "
+            "whole (null removes it back to its default; `clear` removes them all). Example: "
+            "{\"path\":\"assets/models/tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],\"collider\":{\"shape\":\"convex\"}}"
+            FA_COMMAND_DETAILS
+            "The result is checked before anything is written, then the bake writes <name>.glb, "
+            "<name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and "
+            "<name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one "
+            "static child collider per piece), all recorded in assets.json. With no setting given nothing is "
+            "written and the result reports the triangles of every LOD against each platform, the collider's "
+            "fit and the warnings.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()},
                                                              {"origin", Json::object({{"type", "string"}, {"enum", Json::array({"keep", "center", "bottom", "bottom_center"})}, {"description", "Where the model's origin sits."}})},

@@ -915,17 +915,28 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
         info.readOnly = false;
         info.summary = "Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.";
         info.description =
-            "Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1: layers of oscillators with envelopes, pitch sweeps and arpeggios, filters, FM and ring modulation, "
-            "distortion, bitcrush, delay and reverb; docs/SOUND.md and schemas/sfx.schema.json) and renders it to mono 16-bit WAV at `out` (default: the patch's path with .wav; a path ending in .ogg "
-            "encodes Ogg Vorbis). No provider, no key, no other program: the same patch, `seed` and options give the same bytes on every platform. The sound is levelled to the patch's normalization "
-            "(default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json whose input is the patch, so project.validate warns when the patch changed after the sound "
-            "was made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` and every problem in data.issues (JSON pointer, what is wrong, how to fix it). "
-            "The result has measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. "
-            "Options that change one render without editing the patch: `seed` (another take of the noise), `freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`, and `macros` "
-            "(meaning knobs from -1 to 1: attack, brightness, weight, tail, pitch, grit, plus the patch's own; they replace the values the patch declares). A patch that declares `variations` renders one take with "
-            "`variant` (1-based; the file is name_NN.wav) or all of them with `variants: true`, which returns the measurements of each and one picture with a row per variant. "
-            "The measurements also have centroidHz (the brightness) and riseSeconds (the attack). "
-            "An existing file that sfx.render did not make is an `exists` error unless overwrite is true. Example: {\"path\":\"assets/audio/coin.sfx.json\"}";
+            "Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1: layers of "
+            "oscillators with envelopes, pitch sweeps and arpeggios, filters, FM and ring modulation, "
+            "distortion, bitcrush, delay and reverb; docs/SOUND.md and schemas/sfx.schema.json) and renders "
+            "it to mono 16-bit WAV at `out` (default: the patch's path with .wav; a path ending in .ogg "
+            "encodes Ogg Vorbis). No provider, no key, no other program: the same patch, `seed` and options "
+            "give the same bytes on every platform. The sound is levelled to the patch's normalization "
+            "(default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json "
+            "whose input is the patch, so project.validate warns when the patch changed after the sound was "
+            "made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` "
+            "and every problem in data.issues (JSON pointer, what is wrong, how to fix it). The result has "
+            "measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from "
+            "assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. "
+            "Example: {\"path\":\"assets/audio/coin.sfx.json\"}"
+            FA_COMMAND_DETAILS
+            "Options that change one render without editing the patch: `seed` (another take of the noise), "
+            "`freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`, and "
+            "`macros` (meaning knobs from -1 to 1: attack, brightness, weight, tail, pitch, grit, plus the "
+            "patch's own; they replace the values the patch declares). A patch that declares `variations` "
+            "renders one take with `variant` (1-based; the file is name_NN.wav) or all of them with "
+            "`variants: true`, which returns the measurements of each and one picture with a row per "
+            "variant. The measurements also have centroidHz (the brightness) and riseSeconds (the attack). "
+            "An existing file that sfx.render did not make is an `exists` error unless overwrite is true.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"required", Json::array({"path"})},
                                          {"additionalProperties", false},

@@ -315,21 +315,28 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
     info.readOnly = false;
     info.summary = "Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads.";
     info.description =
-        "Every image under `folder` (png, jpg, tga, bmp; subfolders too) is a frame named by its path without the extension "
-        "(\"ship/0.png\" is \"ship/0\"). They are packed into the smallest square page up to maxSize (tallest first), each with `padding` "
-        "pixels of its own edge repeated around it so bilinear filtering and mipmaps never bleed a neighbour (the same padding as the "
-        "export's atlas groups). The page is written to `out`, and the table to `table` (default `out` with .json): "
-        "{\"texture\":\"assets/atlas.png\",\"size\":[w,h],\"frames\":{\"ship/0\":{\"rect\":[x,y,w,h],\"pivot\":[px,py]}}}. rect is in "
-        "texture pixels from the top-left, exactly Sprite.region; pivot is Sprite.pivot (+Y up). Pivots come from "
-        "`<folder>/pivots.json` ({\"ship/0\":[0.5,0.2]}); a frame without one is [0.5, 0.5]. Keys of an existing table other than "
-        "texture, size and frames are kept, so your own data can live in the same file.\n"
-        "Packing again is stable: a frame whose size did not change keeps its rectangle (the page grows, never reshuffles), so a new "
-        "picture changes the table by one line and a scene that copied a rect keeps drawing the same picture. Frames removed from the folder "
-        "leave holes that new frames fill. Nothing is written when the result would be the same bytes. The result lists what was added, "
-        "moved (changed size) and removed. Use this while developing, when many sprites must share one texture (a map of "
-        "thousands of tiles, characters of one screen) and you want to pick frames by name; `factoria export` packs `atlas` groups "
-        "by itself and Sprites keep naming the source PNGs (docs/ASSETS.md, \"Atlases\"). Example: "
-        "{\"folder\":\"assets/src/frames\",\"out\":\"assets/atlas.png\",\"table\":\"data/atlas.json\"}.";
+        "Every image under `folder` (png, jpg, tga, bmp; subfolders too) is a frame named by its path "
+        "without the extension (\"ship/0.png\" is \"ship/0\"). They are packed into the smallest square page "
+        "up to maxSize (tallest first), each with `padding` pixels of its own edge repeated around it so "
+        "bilinear filtering and mipmaps never bleed a neighbour (the same padding as the export's atlas "
+        "groups). The page is written to `out`, and the table to `table` (default `out` with .json): "
+        "{\"texture\":\"assets/atlas.png\",\"size\":[w,h],\"frames\":{\"ship/0\":{\"rect\":[x,y,w,h],\"pivot\":[px,py]}}}. "
+        "rect is in texture pixels from the top-left, exactly Sprite.region; pivot is Sprite.pivot (+Y up). "
+        "Pivots come from `<folder>/pivots.json` ({\"ship/0\":[0.5,0.2]}); a frame without one is [0.5, "
+        "0.5]. Keys of an existing table other than texture, size and frames are kept, so your own data can "
+        "live in the same file.\n"
+        "\n"
+        "Example: "
+        "{\"folder\":\"assets/src/frames\",\"out\":\"assets/atlas.png\",\"table\":\"data/atlas.json\"}."
+        FA_COMMAND_DETAILS
+        "Packing again is stable: a frame whose size did not change keeps its rectangle (the page grows, "
+        "never reshuffles), so a new picture changes the table by one line and a scene that copied a rect "
+        "keeps drawing the same picture. Frames removed from the folder leave holes that new frames fill. "
+        "Nothing is written when the result would be the same bytes. The result lists what was added, moved "
+        "(changed size) and removed. Use this while developing, when many sprites must share one texture (a "
+        "map of thousands of tiles, characters of one screen) and you want to pick frames by name; `factoria "
+        "export` packs `atlas` groups by itself and Sprites keep naming the source PNGs (docs/ASSETS.md, "
+        "\"Atlases\").";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["folder","out"],
       "properties":{

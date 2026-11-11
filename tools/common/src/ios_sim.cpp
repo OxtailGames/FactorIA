@@ -257,19 +257,24 @@ void register_ios_sim_commands(CommandRegistry& registry, const std::string& pro
     info.readOnly = false;
     info.summary = "Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot.";
     info.description =
-        "Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player takes both itself: this command boots a "
-        "simulator, installs `app` (the Simulator build of the player, ./build_ios.sh --simulator in the iOS export folder), launches "
-        "it with the environment variables FA_INPUT_REPLAY (the replay `input.record` writes, the one `factoria run --input` plays) "
-        "and FA_ORIENTATION (portrait or landscape; iOS refuses an orientation the Info.plist does not allow), waits for the player's "
-        "\"player: replay done after N frames\" line (without `input`: for its 60-frame run marker), waits `settleMilliseconds` more, "
-        "writes a PNG of the simulator's screen when `screenshot` is given and terminates the app. The replay is applied by frame "
-        "number to the window's frames at their real duration (not the fixed step of a headless run): presses and releases play as "
-        "recorded, but a game that moves by dt may end up elsewhere than in the recording, so check what it leaves with the screenshot "
-        "and the `console`. Returns {device, deviceName, bundleId, replayFrames, "
-        "finished, orientationRequested, screenshot, errors[], console[] (the last 80 lines), nextSteps[], ok}; it is an error (with the end of the console in its message) when "
-        "the replay does not end in `seconds` or the player logged an error. dryRun returns the simctl commands and runs nothing "
-        "(any host). Example: {\"app\":\"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app\","
-        "\"input\":\"replays/play.json\",\"device\":\"iPad Pro 13-inch\",\"orientation\":\"landscape\",\"screenshot\":\"build/ipad.png\"}.";
+        "Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player takes both itself: "
+        "this command boots a simulator, installs `app` (the Simulator build of the player, ./build_ios.sh "
+        "--simulator in the iOS export folder), launches it with the environment variables FA_INPUT_REPLAY "
+        "(the replay `input.record` writes, the one `factoria run --input` plays) and FA_ORIENTATION "
+        "(portrait or landscape; iOS refuses an orientation the Info.plist does not allow), waits for the "
+        "player's \"player: replay done after N frames\" line (without `input`: for its 60-frame run "
+        "marker), waits `settleMilliseconds` more, writes a PNG of the simulator's screen when `screenshot` "
+        "is given and terminates the app. Example: "
+        "{\"app\":\"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app\",\"input\":\"replays/play.json\",\"device\":\"iPad "
+        "Pro 13-inch\",\"orientation\":\"landscape\",\"screenshot\":\"build/ipad.png\"}."
+        FA_COMMAND_DETAILS
+        "The replay is applied by frame number to the window's frames at their real duration (not the fixed "
+        "step of a headless run): presses and releases play as recorded, but a game that moves by dt may end "
+        "up elsewhere than in the recording, so check what it leaves with the screenshot and the `console`. "
+        "Returns {device, deviceName, bundleId, replayFrames, finished, orientationRequested, screenshot, "
+        "errors[], console[] (the last 80 lines), nextSteps[], ok}; it is an error (with the end of the "
+        "console in its message) when the replay does not end in `seconds` or the player logged an error. "
+        "dryRun returns the simctl commands and runs nothing (any host).";
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["app"],
       "properties":{

@@ -1275,14 +1275,32 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
         music_create_command);
 
     add("music.edit", false, "Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.",
-        "Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: "
-        "set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; "
-        "set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md \"Layers\"); remove_track {track} (and every mention in the sections); "
-        "set_pattern {track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; "
-        "set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} "
-        "(\"a a b*2 rest\", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} "
-        "(no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did. "
-        "Example: {\"path\":\"assets/music/theme.song.json\",\"ops\":[{\"op\":\"set_pattern\",\"track\":\"bass\",\"pattern\":\"line\",\"notes\":\"A2:8 A2 E3 A2 | G2:8 G2 D3 G2\"},{\"op\":\"mute\",\"section\":\"intro\",\"tracks\":[\"drums\"]}]}",
+        "Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song "
+        "(otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). "
+        "Example: "
+        "{\"path\":\"assets/music/theme.song.json\",\"ops\":[{\"op\":\"set_pattern\",\"track\":\"bass\",\"pattern\":\"line\",\"notes\":\"A2:8 "
+        "A2 E3 A2 | G2:8 G2 D3 G2\"},{\"op\":\"mute\",\"section\":\"intro\",\"tracks\":[\"drums\"]}]}"
+        FA_COMMAND_DETAILS
+        "Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, "
+        "seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, "
+        "voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track "
+        "{track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" "
+        "or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, "
+        "range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | "
+        "null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, "
+        "null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | "
+        "null}} (the groups of tracks music.render writes as stems and a layered player brings in; "
+        "docs/MUSIC.md \"Layers\"); remove_track {track} (and every mention in the sections); set_pattern "
+        "{track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} "
+        "that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its "
+        "uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, "
+        "mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only "
+        "the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange "
+        "{section, track, entries} (\"a a b*2 rest\", a list, or null to stop the track in that section); "
+        "mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, "
+        "filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points "
+        "removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern "
+        "at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did.",
         schema(with_picture(obj({{"path", pathArg},
                                  {"ops", Json::object({{"type", "array"}, {"minItems", 1}, {"items", Json::object({{"type", "object"}, {"additionalProperties", true}, {"description", "One operation: `op` and its fields (see the command's description)."}, {"required", Json::array({"op"})},
                                                                                                                       {"properties", obj({{"op", Json::object({{"type", "string"}, {"enum", Json::array({"set_song", "add_track", "set_track", "set_mixer", "set_layers", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"})}, {"description", "What to do."}})}})}})},

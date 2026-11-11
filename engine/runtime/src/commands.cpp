@@ -606,24 +606,29 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"game.input", "Inject input: press/release actions or keys, or set an action state, mouse position/buttons, "
            "gamepad buttons/sticks, touches.",
-           "Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. "
-           "Forms: {\"action\":\"jump\",\"down\":true}, {\"key\":\"Space\",\"down\":false}, "
-           "{\"press\":[\"jump\"],\"release\":[\"fire\"]}, {\"mouse\":{\"position\":[640,360]}}, "
+           "Names may be input actions from factoria.json, key names (Space, A, Left...) or "
+           "MouseLeft/MouseRight/MouseMiddle. Forms: {\"action\":\"jump\",\"down\":true}, "
+           "{\"key\":\"Space\",\"down\":false}, {\"press\":[\"jump\"],\"release\":[\"fire\"]}, "
+           "{\"mouse\":{\"position\":[640,360]}}, "
            "{\"gamepad\":{\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}}, "
-           "{\"touch\":{\"id\":1,\"position\":[200,300],\"down\":true}}. "
-           "gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, "
-           "LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; "
-           "LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). "
-           "touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); "
-           "the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. "
-           "{\"back\":true} presses the system Back button of Android: the input.onBack handlers of the game run at the next "
-           "frame, and when none consumes it the game asks to quit (game.state shows quitRequested). "
-           "The input is applied now and seen by the next frame: a button that goes up to down is `pressed` (and one that goes down to up "
-           "`released`) exactly once there, whether that frame comes from game.step, the running game or the editor's Step button, and "
-           "however many editor frames are drawn while the game is paused in between. `frames` (default 0, max 100000) steps that many "
-           "frames right after applying the input, exactly like game.step (also while paused); the result then has `frames` and "
-           "`frame` (the frame counter afterwards). A press stays held afterwards: release it with a later call. "
-           "Example: game.input {\"press\":[\"jump\"],\"frames\":1}",
+           "{\"touch\":{\"id\":1,\"position\":[200,300],\"down\":true}}. gamepad: index 0..3 (default 0), "
+           "connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, LeftShoulder, "
+           "RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y "
+           "up; LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release "
+           "the stick). touch: id (default 1), position in design pixels, down (default true: a new id "
+           "begins, a known id moves; false lifts); the first finger also drives the mouse like a device. "
+           "gamepad and touch also take an array for several pads/fingers. Example: game.input "
+           "{\"press\":[\"jump\"],\"frames\":1}"
+           FA_COMMAND_DETAILS
+           "{\"back\":true} presses the system Back button of Android: the input.onBack handlers of the game "
+           "run at the next frame, and when none consumes it the game asks to quit (game.state shows "
+           "quitRequested). The input is applied now and seen by the next frame: a button that goes up to "
+           "down is `pressed` (and one that goes down to up `released`) exactly once there, whether that "
+           "frame comes from game.step, the running game or the editor's Step button, and however many "
+           "editor frames are drawn while the game is paused in between. `frames` (default 0, max 100000) "
+           "steps that many frames right after applying the input, exactly like game.step (also while "
+           "paused); the result then has `frames` and `frame` (the frame counter afterwards). A press stays "
+           "held afterwards: release it with a later call.",
            parse_schema(R"({"type":"object","properties":{
                "action":{"type":"string","description":"Action name (with `down`)."},
                "key":{"type":"string","description":"Key or mouse button name (with `down`)."},
@@ -679,28 +684,35 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",
-           "Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, "
-           "top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). "
-           "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
-           "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
-           "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
-           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable that no camera "
-           "shows where a player can reach it) is an error that says why and how to fix it; a click at a position or world point reaches only what "
-           "the camera there draws. "
-           "A page shown on a mesh: a camera with Camera.renderTarget draws world-space Interactables into a texture and a MeshRenderer shows it "
-           "(texture \"target:<name>\"). A `position` over that mesh reaches the widget under it through the mesh's UVs, exactly like the real mouse, "
-           "and `widget` is that widget. `id` of a widget that only such a page shows (the main camera hides it with hideTags, or it is far off screen) "
-           "is aimed backwards: a point of its hit area in the target camera's view, the matching point of the mesh, its place on the screen; the "
-           "command uses the first point where the pointer really reaches this widget (a mesh or widget in front is skipped) and, when there is none, "
-           "says why (no mesh shows the target, the widget is outside the camera's view, the mesh is off screen or covered, a target shown inside "
-           "another target is not reachable). "
-           "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
-           "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
-           "{position, button, frames, widget, via?, frame}: `widget` is the id of the topmost UI widget or Interactable the pointer reached when the "
-           "button went down (null over the world; the widget a click removes or changes in that frame is still named); `via` is {mesh, target} - the "
-           "entity of the MeshRenderer and of the Camera.renderTarget camera whose page the click went through - present only when it went through "
-           "a page and no screen widget was on top. Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
-           "game.click {\"world\":[3,-2],\"button\":\"right\"}",
+           "Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is "
+           "clicked), `position` ([x, y] in design pixels, top-left origin, +Y down) or `world` ([x, y] or "
+           "[x, y, z] in world units, projected through the main camera). It moves the mouse, presses "
+           "`button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, a Button "
+           "gets its press), keeps the button down for `hold` frames in all (default 1), then releases and "
+           "steps 1 more frame (input.mouse.released, the ui \"click\" event). The same sequence as "
+           "game.click in a test, so it runs hold + 1 frames. A widget that cannot be clicked (inactive, no "
+           "area, scrolled out of its ScrollList, a world-space Interactable that no camera shows where a "
+           "player can reach it) is an error that says why and how to fix it; a click at a position or world "
+           "point reaches only what the camera there draws. A page shown on a mesh: a camera with "
+           "Camera.renderTarget draws world-space Interactables into a texture and a MeshRenderer shows it "
+           "(texture \"target:<name>\"). Examples: game.click {\"id\":\"play\"}, game.click "
+           "{\"position\":[640,360]}, game.click {\"world\":[3,-2],\"button\":\"right\"}"
+           FA_COMMAND_DETAILS
+           "A `position` over that mesh reaches the widget under it through the mesh's UVs, exactly like the "
+           "real mouse, and `widget` is that widget. `id` of a widget that only such a page shows (the main "
+           "camera hides it with hideTags, or it is far off screen) is aimed backwards: a point of its hit "
+           "area in the target camera's view, the matching point of the mesh, its place on the screen; the "
+           "command uses the first point where the pointer really reaches this widget (a mesh or widget in "
+           "front is skipped) and, when there is none, says why (no mesh shows the target, the widget is "
+           "outside the camera's view, the mesh is off screen or covered, a target shown inside another "
+           "target is not reachable). game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets "
+           "the state for the next frame and leaves the button held; a click is move + press + frame + "
+           "release + frame, which this command does in one call. Returns {position, button, frames, widget, "
+           "via?, frame}: `widget` is the id of the topmost UI widget or Interactable the pointer reached "
+           "when the button went down (null over the world; the widget a click removes or changes in that "
+           "frame is still named); `via` is {mesh, target} - the entity of the MeshRenderer and of the "
+           "Camera.renderTarget camera whose page the click went through - present only when it went through "
+           "a page and no screen widget was on top.",
            parse_schema(R"({"type":"object","properties":{
                "id":{"type":"string","description":"Entity id (or name) of a UI widget, an Interactable (also in world space, also one that only a render-target page shows: it is clicked through the mesh) or a screen-space Text; its centre is clicked."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"Screen position [x, y] in design pixels (top-left origin, +Y down)."},
@@ -908,16 +920,23 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.",
-           "Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
-           "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
-           "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
-           "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
-           "ui_submit actions (game.input {\"press\": [\"ui_down\"]}). `visible` is false when a ScrollList clips the widget away "
-           "entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). "
-           "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
-           "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
-           "Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the widgets as "
-           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now ({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, \"Tooltips\"). Example: ui.state {}",
+           "Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, "
+           "pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to "
+           "right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, "
+           "top-left origin, +Y down: click a widget with game.input {\"mouse\": {\"position\": [x, y], "
+           "\"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit "
+           "actions (game.input {\"press\": [\"ui_down\"]}). `visible` is false when a ScrollList clips the "
+           "widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the "
+           "player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's "
+           "[x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with "
+           "game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's "
+           "label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the "
+           "widgets as {id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check "
+           "where HUD text is). Example: ui.state {}"
+           FA_COMMAND_DETAILS
+           "`textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale "
+           "(ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now "
+           "({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, \"Tooltips\").",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
               Json state = I.ui.state(I.world, I.design_size(), I.measure());

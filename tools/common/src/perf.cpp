@@ -393,16 +393,26 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     pr.readOnly = true;
     pr.summary = "Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.";
     pr.description =
-        "Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the "
-        "profiler on and returns {runner, graphics, profile}. profile = {frames, clock:\"wall\", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, "
-        "scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), "
-        "maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, "
-        "world.on handlers and promise jobs are the bucket \"(timers, events and promises)\"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` "
-        "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. "
-        "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds "
-        "every onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames load assets. Use `input` (an input replay) to reach the heavy part of the game. "
-        "The profiler only measures: game.state, replays and saves are identical with it on. The editor's play sessions record the same section in play.report, and View > Profiler shows it live. "
-        "Example: {\"frames\":300,\"input\":\"replays/play.json\"}.";
+        "Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the "
+        "project like perf.measure (drawing every frame with the GPU renderer when there is one) with the "
+        "profiler on and returns {runner, graphics, profile}. profile = {frames, clock:\"wall\", "
+        "frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, "
+        "animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, "
+        "endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the "
+        "frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: "
+        "onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, "
+        "world.on handlers and promise jobs are the bucket \"(timers, events and promises)\"), gpu: {avgMs, "
+        "p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` "
+        "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, "
+        "end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. Example: "
+        "{\"frames\":300,\"input\":\"replays/play.json\"}."
+        FA_COMMAND_DETAILS
+        "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big "
+        "gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds every "
+        "onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames "
+        "load assets. Use `input` (an input replay) to reach the heavy part of the game. The profiler only "
+        "measures: game.state, replays and saves are identical with it on. The editor's play sessions record "
+        "the same section in play.report, and View > Profiler shows it live.";
     pr.inputSchema = Json::parse(R"({"type":"object","properties":{
         "frames":{"type":"integer","default":300,"minimum":1,"description":"How many frames to profile (fixed step), after the warm-up."},
         "warmup":{"type":"integer","default":30,"minimum":0,"description":"Frames to run first and leave out of the numbers (assets load, caches fill)."},
@@ -428,13 +438,26 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     b.readOnly = false;
     b.summary = "Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).";
     b.description =
-        "Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any \"tolerance\" "
-        "already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again "
-        "when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in "
-        "CI it fails past the tolerance) checks it. File: {format:\"factoria.perf/1\", frames, scene?, input?, tolerance?: {cpuMedian:1.0 (warn ratio over the baseline; cpuAvg is its old name), cpuP95:1.5, cpuFail:5.0 (fail ratio of both), cpuFailSlackMs:10, memory:0.1, memoryFail:0.5, memoryFailSlackMB:32, "
-        "drawCalls:0, entities:0, triangles:0, lights:0 (counters: exact), textureMB:0.1, startup:2.0, cpuSlackMs:1, memorySlackMB:8, textureSlackMB:1, startupSlackMs:500, countSlack:0}, budgets?: {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs} (absolute caps, see perf.check; maxStartupMs is the `perf.startup` budget), runners: {<id>: sample}}. "
-        "A sample may hold \"provisional\": true (an estimate: only the counters are enforced; the entry perf.baseline writes never has it). A warn limit is max(baseline*(1+ratio), baseline+slack), a fail limit max(baseline*(1+failRatio), baseline+failSlack). `tolerance` here sets the "
-        "file's tolerances. Returns {file, runner, sample, created}. Example: {\"frames\":300,\"input\":\"replays/play.json\"}.";
+        "Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the "
+        "budget file, keeping the other runners' entries, the run settings and any \"tolerance\" already "
+        "there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, "
+        "e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds "
+        "-debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: "
+        "`factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` "
+        "(in CI it fails past the tolerance) checks it. Example: "
+        "{\"frames\":300,\"input\":\"replays/play.json\"}."
+        FA_COMMAND_DETAILS
+        "File: {format:\"factoria.perf/1\", frames, scene?, input?, tolerance?: {cpuMedian:1.0 (warn ratio "
+        "over the baseline; cpuAvg is its old name), cpuP95:1.5, cpuFail:5.0 (fail ratio of both), "
+        "cpuFailSlackMs:10, memory:0.1, memoryFail:0.5, memoryFailSlackMB:32, drawCalls:0, entities:0, "
+        "triangles:0, lights:0 (counters: exact), textureMB:0.1, startup:2.0, cpuSlackMs:1, memorySlackMB:8, "
+        "textureSlackMB:1, startupSlackMs:500, countSlack:0}, budgets?: {maxTriangles, maxLights, "
+        "maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs} (absolute caps, see perf.check; maxStartupMs "
+        "is the `perf.startup` budget), runners: {<id>: sample}}. A sample may hold \"provisional\": true "
+        "(an estimate: only the counters are enforced; the entry perf.baseline writes never has it). A warn "
+        "limit is max(baseline*(1+ratio), baseline+slack), a fail limit max(baseline*(1+failRatio), "
+        "baseline+failSlack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, "
+        "created}.";
     b.inputSchema = Json::parse(R"({"type":"object","properties":{
         "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
         "frames":{"type":"integer","description":"Frames per run; stored in the file (default: the file's value, else 300)."},
@@ -478,12 +501,31 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     c.readOnly = true;
     c.summary = "Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.";
     c.description =
-        "Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). The "
-        "counters (draw calls, entities; triangles and lights when the baseline has them) are exact: one more than the baseline FAILS always (fewer passes). The median and p95 frame time and the peak memory have a wide band: past a warn limit "
-        "the status is \"warn\" and the message says so, and only past the fail limit (about 6x for a time, +50% for memory, each with an absolute floor) does it FAIL, so a baseline is never refreshed to pass (docs/PERFORMANCE.md, \"The band\"). The average and the maximum are not gated; the message names the slowest frames. An entry with \"provisional\": true enforces only the counters. Texture memory fails past +10% and 1 MB. The file's \"budgets\" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU milliseconds the game may take from reading its files to its first frame (startupMs of the sample); the templates ship one with a wide margin, and the message tells how to bring start-up down. A time (cpuMsMedian, cpuMsP95, startupMs, maxStartupMs) past its fail limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status \"warn\"), "
-        "because a developer machine can be busy. A time past its fail limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status \"no_baseline\" and returns "
-        "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit (where it fails), warnLimit?, warned?, "
-        "exceeded}], message, provisional?, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {\"file\":\"perf.json\"}.";
+        "Measures with the settings of the budget file (frames, scene, input) and compares with "
+        "runners.<this runner> of the file (see perf.baseline for the format and the tolerances). The "
+        "counters (draw calls, entities; triangles and lights when the baseline has them) are exact: one "
+        "more than the baseline FAILS always (fewer passes). The median and p95 frame time and the peak "
+        "memory have a wide band: past a warn limit the status is \"warn\" and the message says so, and only "
+        "past the fail limit (about 6x for a time, +50% for memory, each with an absolute floor) does it "
+        "FAIL, so a baseline is never refreshed to pass (docs/PERFORMANCE.md, \"The band\"). The average and "
+        "the maximum are not gated; the message names the slowest frames. An entry with \"provisional\": "
+        "true enforces only the counters. Texture memory fails past +10% and 1 MB. Example: {} or "
+        "{\"file\":\"perf.json\"}."
+        FA_COMMAND_DETAILS
+        "The file's \"budgets\" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, "
+        "maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, "
+        "also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU "
+        "milliseconds the game may take from reading its files to its first frame (startupMs of the sample); "
+        "the templates ship one with a wide margin, and the message tells how to bring start-up down. A time "
+        "(cpuMsMedian, cpuMsP95, startupMs, maxStartupMs) past its fail limit FAILS when the CI environment "
+        "variable is set; elsewhere it only WARNS (status \"warn\"), because a developer machine can be "
+        "busy. A time past its fail limit is measured up to twice more (the best time of each metric counts) "
+        "before it fails. A runner with no entry passes with status \"no_baseline\" and returns "
+        "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here); with "
+        "requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: "
+        "pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit (where it fails), "
+        "warnLimit?, warned?, exceeded}], message, provisional?, baselineEntry?}; a failure is an error "
+        "`perf_budget_exceeded` with the same data.";
     c.inputSchema = Json::parse(R"({"type":"object","properties":{
         "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
         "strictTime":{"type":"boolean","description":"Make a time over its limit fail even outside CI (default: only in CI)."},
