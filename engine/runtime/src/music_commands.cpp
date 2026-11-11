@@ -56,7 +56,9 @@ void register_music_commands(Engine&, Engine::Impl& I) {
            "(it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). `stemGains` is the "
            "gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their "
            "beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the "
-           "frames the mixer has mixed). Example: audio.music_state {\"entity\":\"music\"}",
+           "frames the mixer has mixed). `cache` lists the decoded songs the music cache holds, {song, mode, bytes, stems: [{name, "
+           "bytes}]}, and `cacheBytes` adds them up: this is the memory of the music (also `musicBytes` in game.state's audio and "
+           "`musicMB` in perf.profile / perf.measure). Example: audio.music_state {\"entity\":\"music\"}",
            parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Only this entity (id or name); it needs a MusicPlayer."}}})"),
            true, "audio"},
@@ -70,6 +72,8 @@ void register_music_commands(Engine&, Engine::Impl& I) {
               } else {
                   out["players"] = I.audio.music_players();
               }
+              out["cache"] = I.audio.music_cache_json();
+              out["cacheBytes"] = I.audio.music_bytes();
               return out;
           });
 

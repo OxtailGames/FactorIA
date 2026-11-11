@@ -1089,8 +1089,7 @@ same track holds about 40 KB of decoded audio however long it is. `auto` streams
 `always` and `never` decide by hand (`never` for a sound that must start with no decoding at all, `always` for a long
 ambience). Looping restarts the decoder, pitch and fades work as for any other sound, and a streamed sound plays exactly
 like the same sound decoded whole. It applies to `audio.play`, `audio.music`, `SceneSettings.music` and `AudioSource`.
-`game.state` reports both under `audio`: `decodedBytes` (PCM held by loaded sounds plus the buffers of the voices that
-stream) and `streamedClips` (the loaded sounds that stream), so a test can check that a long track really streams.
+`game.state` reports both under `audio`: `decodedBytes` (PCM held by loaded sounds, the buffers of the voices that stream and the decoded music; `musicBytes` is the music alone, docs/MUSIC.md) and `streamedClips` (the loaded sounds that stream), so a test can check that a long track really streams.
 
 **Loudness.** FactorIA measures integrated loudness the way broadcasters do (ITU-R BS.1770-4 / EBU R128: K-weighted, in
 400 ms blocks, gated at -70 LUFS and 10 LU below the average) and the sample peak in dBFS. A mono sound counts on both

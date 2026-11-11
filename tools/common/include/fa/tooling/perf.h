@@ -37,6 +37,10 @@ struct PerfSample {
     double triangles = -1;                            // triangles of the main pass
     double lights = -1;                               // lights sent to the shader
     double textureMB = -1;                            // GPU texture memory
+    // Reported, never gated and never written to a baseline: the decoded audio (clips, streaming buffers, music) and the music
+    // alone, max over the run. -1 = not recorded.
+    double audioDecodedMB = -1;
+    double musicMB = -1;
     // CPU milliseconds from the start of reading the game to its first frame (Engine::init up to the end of frame 1: files read,
     // scenes, scripts, textures, shaders; fa/core/startup.h). -1 = not recorded. Process CPU time, so a busy machine moves it less
     // than the wall clock; still the noisiest number here, so its limits are wide and a budget on it is a "timing" row.

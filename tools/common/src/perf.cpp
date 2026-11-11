@@ -45,6 +45,10 @@ Json perf_sample_json(const PerfSample& s, bool withSlowest) {
     if (s.lights >= 0) j["lights"] = std::llround(s.lights);
     if (s.textureMB >= 0) j["textureMB"] = round3(s.textureMB);
     if (s.startupMs >= 0) j["startupMs"] = std::round(s.startupMs * 10.0) / 10.0;
+    if (withSlowest) {  // a measurement only: a baseline entry keeps the fields it gates
+        if (s.audioDecodedMB >= 0) j["audioDecodedMB"] = std::round(s.audioDecodedMB * 100.0) / 100.0;
+        if (s.musicMB >= 0) j["musicMB"] = std::round(s.musicMB * 100.0) / 100.0;
+    }
     return j;
 }
 
@@ -64,7 +68,8 @@ PerfSample perf_sample_from_json(const Json& j) {
     s.peakMemoryMB = num(j, "peakMemoryMB");
     s.drawCalls = int(num(j, "drawCalls"));
     s.entities = int(num(j, "entities"));
-    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights}, {"textureMB", &s.textureMB}, {"startupMs", &s.startupMs}})
+    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights}, {"textureMB", &s.textureMB}, {"startupMs", &s.startupMs},
+                                                                           {"audioDecodedMB", &s.audioDecodedMB}, {"musicMB", &s.musicMB}})
         if (auto it = j.find(f.first); it != j.end() && it->is_number()) *f.second = it->get<double>();
     if (auto it = j.find("graphics"); it != j.end() && it->is_string()) s.graphics = it->get<std::string>();
     return s;
@@ -325,6 +330,8 @@ PerfSample measure(const std::string& projectDir, const RunSpec& spec, int repea
         out.triangles = std::max(out.triangles, s.triangles);
         out.lights = std::max(out.lights, s.lights);
         out.textureMB = std::max(out.textureMB, s.textureMB);
+        out.audioDecodedMB = std::max(out.audioDecodedMB, s.audioDecodedMB);
+        out.musicMB = std::max(out.musicMB, s.musicMB);
     }
     out.cpuMsAvg = median(avg);
     out.cpuMsMedian = median(med);
@@ -371,8 +378,8 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.summary = "Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.";
     m.description =
         "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
-        "{runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less; perf.check gates on the median and the p95, the average and the maximum are only reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "{runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory "
+        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB and musicMB (decoded audio, music alone; not gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
         "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -404,7 +411,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "world.on handlers and promise jobs are the bucket \"(timers, events and promises)\"), gpu: {avgMs, "
         "p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` "
         "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, "
-        "end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. Example: "
+        "end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: "
         "{\"frames\":300,\"input\":\"replays/play.json\"}."
         FA_COMMAND_DETAILS
         "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big "
