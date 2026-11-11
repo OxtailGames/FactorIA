@@ -8,6 +8,17 @@ Older versions, one file per minor version with its patch releases: [0.20](chang
 
 ### Changes
 
+- **For engine developers (M100 polish):** CI and the cost measure. A `_perf` test that only warns (inside the band, or over
+  the time budget but under the fail slack) is now listed in the job summary and as an annotation by
+  `scripts/ci-perf-warnings.sh`; the fail slacks are unchanged and docs/PERFORMANCE.md says what the band does not fail (a
+  sustained 3x, a leak of about 30 MB). The ci.yml concurrency group includes the event and the `perfBaselines` tick, the
+  baselines build is parallel, and PERFORMANCE.md says the dispatch job runs only from a workflow file on the default branch.
+  `scripts/agent-cost.sh`: the CLI gets a throw-away HOME with a token or `--isolated-home` (else a warning and a note in the
+  result), `claude --version` is recorded, `factoria` commands with absolute, `~` or `..` paths are denied and audited, Ctrl-C and
+  the wall-clock cap end the CLI's whole process group, the final `play.auto` has its own cap (`--final-seconds`), and
+  `scripts/agent-cost-selftest.sh` (ctest `agent_cost_script`, plus `agent_cost_policy`) proves it with a fake CLI. `agent.cost`:
+  tokens come from the CLI's result line (`stepTokens` keeps the step sum), menu and win screens are not levels, `notCaught`
+  looks only at game output, and a failure without an error code counts under `none`.
 - **For engine developers (M100.10):** bookkeeping of the review. docs/ANIMATION.md has a dawn recipe, a `tween` of
   `world.settings` (sky, ambient light, fog), kept true by a script test (KW/FB-0019 closed). `feedback/ROADMAP.md`
   keeps only open work and decisions; finished milestones are one file each in `feedback/done/` (index in

@@ -97,6 +97,16 @@ several times over its baseline, not 3.8: the check still finds it, and a baseli
 check pass. The re-measures (a time past its fail limit is measured twice more and the best value of each metric counts)
 stay as a second net, but it is the band that absorbs the noise, not the retry.
 
+What the band does not fail, on purpose: a time that is **3 times its baseline for good** (a median of 5 ms that
+becomes 15 ms) or a memory leak of **about 30 MB** (the fail limit of a time is 6 times the baseline or 10 ms more; that
+of memory 1.5 times or 32 MB more) only give `warn`: the check passes and exits 0. We do not narrow the fail limits because
+CI already has false reds from noise (the p95 of PR 210 is described in feedback/ROADMAP.md, near M100.10), and a check
+that cries wolf is switched off. So a `warn` is read, not ignored: CI lists every `_perf` test that passed inside the
+warning band, with the metric, the measured value and the limit, as a `::warning::` annotation and in the job summary
+(step "Performance warnings" of the Linux, Windows and macOS jobs, `scripts/ci-perf-warnings.sh`, which reads ctest's
+`Testing/Temporary/LastTest.log`; locally `ctest -R perf -V` or `factoria call perf.check` show it). A metric that warns on
+every run is a game that got slower: find why, or refresh its baseline on purpose.
+
 A baseline written before `cpuMsMedian` existed has no median: its average stands in for it, which is never lower than
 the median, so the comparison is only more lenient. Texture memory keeps a small band (`max(baseline * 1.1, baseline + 1
 MB)`, a failing limit, because it is computed from the sizes of the textures); `startupMs` keeps its single wide limit.
@@ -152,7 +162,9 @@ window) fails with the error `gpu_busy` and says so, instead of crashing: run it
 ### Baselines from CI
 
 The engine's baselines come from the runners themselves. Run the "CI" workflow by hand (GitHub, Actions, Run workflow,
-tick `perfBaselines`): only the "Perf baselines" job runs, on a Linux, a Windows and a macOS runner. Each one builds a
+tick `perfBaselines`). GitHub offers "Run workflow" (and the `perfBaselines` tick) only for a workflow file that is on the
+default branch, so the job cannot be run from a branch that adds or changes it until that branch has merged; after the
+merge it runs on any branch you pick, with that branch's `ci.yml`. Only the "Perf baselines" job runs, on a Linux, a Windows and a macOS runner. Each one builds a
 release `factoria`, runs `scripts/perf-baselines.sh` (`perf.baseline` for every file of `tools/cli/tests/perf`, 3 runs
 each) and uploads the files as the artifact `perf-baselines-<os>`. Copy `runners.<runner id>` of each file into the file of
 the same name in `tools/cli/tests/perf/`, which makes the entry final (not `provisional`). The script runs on any
