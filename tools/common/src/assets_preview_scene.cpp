@@ -380,13 +380,30 @@ void register_preview_scene_command(CommandRegistry& registry, const std::string
     info.readOnly = true;
     info.summary = "See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.";
     info.description =
-        "Starts the scene `scene` in a second, headless engine, steps `steps` frames (default 2) so its scripts start, puts a temporary entity with the asset in the world and captures the view once per resolution. The result is ONE image with the screens side by side, each labelled with its name and size, plus `screens` (each with its position in the picture and, for a 2D camera, whether the asset is in view). "
-        "The scene file is never changed and the temporary entity exists only in that engine, so nothing needs cleaning up. "
-        "Where: `at` [x, y(, z)] in world units; or `entity` (an id or name in the scene) with `placement` \"beside\" (default: to the right of it, using the size of its Sprite or Shape2D, 64 when it has none) or \"replace\" (at its position, the entity hidden for the picture); `offset` [x, y] moves it from there. Without either, the middle of the view: the camera's position for a 2D scene, a few meters in front of the camera for a 3D one. `center: true` also moves a 2D camera onto the asset (a script that moves the camera can undo it). "
-        "How big: `size` is in world units like Sprite.size: a number is the longest side (the proportions of the picture are kept), [w, h] sets both; without it the sprite is drawn at its size in pixels. A .glb takes one number, its largest dimension in meters, or its own size. A sprite sheet is placed as its first frame (from its `sheet` entry). "
-        "`resolutions` are \"phone\" (540x1170, upright), \"tablet\" (1024x768), \"desktop\" (1280x720) or \"WxH\"; default phone and desktop. The run uses the resolution as the design resolution of the game, so the world a camera shows follows the shape of the screen the way the game's scale mode does on a device: a camera with a fixed orthoSize shows the same height on both. "
-        "Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's EGL); without one it fails with no_gpu. A process has one graphics device: when this one already uses it (the editor, an MCP session with graphics) the work runs in a child `factoria call` process. The same inputs give the same pixels on the same GPU. "
-        "Example: {\"path\":\"assets/slime.png\",\"scene\":\"scenes/main.scene.json\",\"entity\":\"player\",\"size\":48}.";
+        "Starts the scene `scene` in a second, headless engine, steps `steps` frames (default 2) so its "
+        "scripts start, puts a temporary entity with the asset in the world and captures the view once per "
+        "resolution. The result is ONE image with the screens side by side, each labelled with its name and "
+        "size, plus `screens` (each with its position in the picture and, for a 2D camera, whether the asset "
+        "is in view). The scene file is never changed and the temporary entity exists only in that engine, "
+        "so nothing needs cleaning up. Where: `at` [x, y(, z)] in world units; or `entity` (an id or name in "
+        "the scene) with `placement` \"beside\" (default: to the right of it, using the size of its Sprite "
+        "or Shape2D, 64 when it has none) or \"replace\" (at its position, the entity hidden for the "
+        "picture); `offset` [x, y] moves it from there. Without either, the middle of the view: the camera's "
+        "position for a 2D scene, a few meters in front of the camera for a 3D one. Example: "
+        "{\"path\":\"assets/slime.png\",\"scene\":\"scenes/main.scene.json\",\"entity\":\"player\",\"size\":48}."
+        FA_COMMAND_DETAILS
+        "`center: true` also moves a 2D camera onto the asset (a script that moves the camera can undo it). "
+        "How big: `size` is in world units like Sprite.size: a number is the longest side (the proportions "
+        "of the picture are kept), [w, h] sets both; without it the sprite is drawn at its size in pixels. A "
+        ".glb takes one number, its largest dimension in meters, or its own size. A sprite sheet is placed "
+        "as its first frame (from its `sheet` entry). `resolutions` are \"phone\" (540x1170, upright), "
+        "\"tablet\" (1024x768), \"desktop\" (1280x720) or \"WxH\"; default phone and desktop. The run uses "
+        "the resolution as the design resolution of the game, so the world a camera shows follows the shape "
+        "of the screen the way the game's scale mode does on a device: a camera with a fixed orthoSize shows "
+        "the same height on both. Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's "
+        "EGL); without one it fails with no_gpu. A process has one graphics device: when this one already "
+        "uses it (the editor, an MCP session with graphics) the work runs in a child `factoria call` "
+        "process. The same inputs give the same pixels on the same GPU.";
     auto prop = [](const char* type, const char* text) { return Json::object({{"type", type}, {"description", text}}); };
     info.inputSchema = Json::object(
         {{"type", "object"},

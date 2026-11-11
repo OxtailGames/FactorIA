@@ -392,15 +392,24 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
     info.readOnly = false;
     info.summary = "Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.";
     info.description =
-        "The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game "
-        "(scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of "
-        "factoria.json \"localization\" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts "
-        "that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop, ageGate and analyticsConsent parts are optional for the main menu: its Shop button, shop panel, age gate call and analytics question call are written only when those parts are added (all parts by default). A kit file the game already "
-        "has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so "
-        "running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing "
-        "ones are added. A language the kit has no texts for gets the English ones. The \"pause\" part also adds the input action \"pause\" to "
-        "factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], "
-        "locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}. Examples: {} (all parts), {\"parts\":[\"pause\"]}, {\"parts\":[\"main-menu\",\"loading\"],\"overwrite\":true}.";
+        "The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to "
+        "copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, "
+        "tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every "
+        "language of factoria.json \"localization\" (added when the game has none). Scenes and prefabs are "
+        "written in the canonical layout of scene.format. Parts that others need come along (the main menu "
+        "needs core, options and credits) and are listed in `requiredBy`. The shop, ageGate and "
+        "analyticsConsent parts are optional for the main menu: its Shop button, shop panel, age gate call "
+        "and analytics question call are written only when those parts are added (all parts by default). A "
+        "kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is "
+        "listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice "
+        "changes nothing. String keys the game already has are never replaced, with or without `overwrite`; "
+        "only missing ones are added. Examples: {} (all parts), {\"parts\":[\"pause\"]}, "
+        "{\"parts\":[\"main-menu\",\"loading\"],\"overwrite\":true}."
+        FA_COMMAND_DETAILS
+        "A language the kit has no texts for gets the English ones. The \"pause\" part also adds the input "
+        "action \"pause\" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], "
+        "unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], "
+        "settings[], nextSteps[]}.";
     std::string partList;
     if (auto parts = load_parts(); parts.ok())
         for (const Part& p : *parts) partList += (partList.empty() ? "" : "; ") + p.name + ": " + p.description;

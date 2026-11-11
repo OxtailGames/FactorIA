@@ -172,9 +172,9 @@ TEST_CASE("prefab.save: documented like every built-in") {
     CHECK_FALSE(info->readOnly);
     CHECK(info->category == "scene");
     CHECK_FALSE(info->summary.empty());
-    CHECK(contains(info->description, "Example"));
-    CHECK(contains(info->description, "does NOT carry"));
-    CHECK(contains(info->description, "Transform.position"));
+    CHECK(contains(info->full_description(), "Example"));
+    CHECK(contains(info->full_description(), "does NOT carry"));
+    CHECK(contains(info->full_description(), "Transform.position"));
     for (const char* prop : {"id", "path", "overwrite"})
         CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
 }
@@ -359,8 +359,8 @@ TEST_CASE("scene.format: documented like every built-in") {
     CHECK_FALSE(info->readOnly);
     CHECK(info->category == "scene");
     CHECK_FALSE(info->summary.empty());
-    CHECK(contains(info->description, "Example"));
-    CHECK(contains(info->description, "notCanonical"));
+    CHECK(contains(info->full_description(), "Example"));
+    CHECK(contains(info->full_description(), "notCanonical"));
     for (const char* prop : {"paths", "check"}) CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
 }
 
@@ -463,7 +463,7 @@ TEST_CASE("scene.format: check + strict fails with the files listed, and passes 
     const CommandInfo* info = s.engine.commands().info("scene.format");
     REQUIRE(info != nullptr);
     CHECK(info->inputSchema["properties"].contains("strict"));
-    CHECK(contains(info->description, "not_canonical"));
+    CHECK(contains(info->full_description(), "not_canonical"));
 }
 
 TEST_CASE("scene.format: invalid JSON is reported with file, line and column and skipped") {

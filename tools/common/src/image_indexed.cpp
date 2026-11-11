@@ -882,13 +882,22 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
     };
 
     add("image.pixel", "Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.",
-        "Draws on an INDEXED layer (kind \"indexed\": the pixels are palette indices; docs.read IMAGES, \"Pixel art\"). `layer` is its name or index path; an unknown name with `create: true` makes a new blank "
-        "indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. "
-        "Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], ...] (horizontal, to the right); `stamp` {x, y, rows: [\"..11..\", \".1221.\"], clear?} "
-        "(text rows in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is true). A colour is a palette index, name or colour; a colour not in the palette is an error with the nearest "
-        "one. {\"step\": -1} shades the pixel one step along its colour ramp (see image.palette). When the document has no `palette` yet, the style palette is copied into it. "
-        "Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, `changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large as fits 512 pixels). "
-        "Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"create\":true,\"pixels\":[[3,4,\"skin\"],[4,4,2]],\"runs\":[[2,6,5,\"outline\"]]}",
+        "Draws on an INDEXED layer (kind \"indexed\": the pixels are palette indices; docs.read IMAGES, "
+        "\"Pixel art\"). `layer` is its name or index path; an unknown name with `create: true` makes a new "
+        "blank indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset "
+        "and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. "
+        "Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], "
+        "...] (horizontal, to the right); `stamp` {x, y, rows: [\"..11..\", \".1221.\"], clear?} (text rows "
+        "in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is "
+        "true). A colour is a palette index, name or colour; a colour not in the palette is an error with "
+        "the nearest one. {\"step\": -1} shades the pixel one step along its colour ramp (see "
+        "image.palette). When the document has no `palette` yet, the style palette is copied into it. "
+        "Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, "
+        "`changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large "
+        "as fits 512 pixels)."
+        FA_COMMAND_DETAILS
+        "Example: "
+        "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"create\":true,\"pixels\":[[3,4,\"skin\"],[4,4,2]],\"runs\":[[2,6,5,\"outline\"]]}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\"],\"properties\":{"
         "\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"
         "\"layer\":{\"description\":\"The indexed layer to draw on: its name or an index path like \\\"1/0\\\".\"},"
@@ -905,14 +914,20 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
         image_pixel);
 
     add("image.draw", "Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.",
-        "Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, `create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: "
-        "line {points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the L-corners of a bending line so it is one pixel thick everywhere); "
-        "rect {x, y, width, height, color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; "
-        "fill {at [x,y], color, connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or transparency; 4 does not leak through diagonal gaps). "
-        "For rect, ellipse and polygon `color` is the outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is drawn first, so the outline stays). "
-        "Result as image.pixel (`region`, `pixelsSet`, `$image` magnified with hard pixels). "
-        "Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"create\":true,\"shapes\":[{\"type\":\"ellipse\",\"x\":2,\"y\":2,\"width\":12,\"height\":12,\"fill\":\"skin\",\"color\":\"outline\"},"
-        "{\"type\":\"line\",\"points\":[[2,14],[8,10],[14,14]],\"color\":\"outline\",\"perfect\":true},{\"type\":\"fill\",\"at\":[8,8],\"color\":\"skin-light\"}]}",
+        "Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, "
+        "`create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: line "
+        "{points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the "
+        "L-corners of a bending line so it is one pixel thick everywhere); rect {x, y, width, height, "
+        "color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint "
+        "algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; fill {at [x,y], color, "
+        "connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or "
+        "transparency; 4 does not leak through diagonal gaps). For rect, ellipse and polygon `color` is the "
+        "outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is "
+        "drawn first, so the outline stays). Result as image.pixel (`region`, `pixelsSet`, `$image` "
+        "magnified with hard pixels)."
+        FA_COMMAND_DETAILS
+        "Example: "
+        "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"sprite\",\"create\":true,\"shapes\":[{\"type\":\"ellipse\",\"x\":2,\"y\":2,\"width\":12,\"height\":12,\"fill\":\"skin\",\"color\":\"outline\"},{\"type\":\"line\",\"points\":[[2,14],[8,10],[14,14]],\"color\":\"outline\",\"perfect\":true},{\"type\":\"fill\",\"at\":[8,8],\"color\":\"skin-light\"}]}",
         "{\"type\":\"object\",\"required\":[\"path\",\"layer\",\"shapes\"],\"properties\":{"
         "\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"
         "\"layer\":{\"description\":\"The indexed layer to draw on: its name or an index path like \\\"1/0\\\".\"},"

@@ -890,16 +890,29 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
         info.readOnly = true;
         info.summary = "Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.";
         info.description =
-            "Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, "
-            "as they play (with the gain import \"normalize\" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are "
-            "left out unless `includeOk` is true. Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn "
-            "beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play(\"path\", {bus}) in scripts, with the parents of factoria.json audio.buses; "
-            "a sound no scene or script plays with a literal path is on the \"unknown bus\"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music "
-            "is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds "
-            "played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak "
-            "(4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({\"music\": -16, \"sfx\": {\"lufs\": -14, \"toleranceLu\": 2}, \"default\": -16}), else style.audio.loudnessLufs and "
-            "toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run "
-            "assets.analyze_audio first to keep the loudness records, so later runs do not measure again). Example: {\"targets\":{\"music\":-16,\"sfx\":-14}}";
+            "Listens for what a game's mix gets wrong. Measures the sounds of the project (the set "
+            "assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or "
+            "prefab names), or `paths`, as they play (with the gain import \"normalize\" applies). Each "
+            "finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a "
+            "`message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. "
+            "Example: {\"targets\":{\"music\":-16,\"sfx\":-14}}"
+            FA_COMMAND_DETAILS
+            "Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, "
+            "or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond "
+            "12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and "
+            "audio.play(\"path\", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound "
+            "no scene or script plays with a literal path is on the \"unknown bus\"); music_masking (the "
+            "octave bands where an effect has its main energy, against the loudest music there: warn when "
+            "the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last "
+            "sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump "
+            "and loop_seam_slope (for sounds played looping: the step and the change of slope from the last "
+            "sample to the first, as multiples of the sound's usual step and curvature); clipping (samples "
+            "flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, "
+            "fail above 0). Loudness targets: the `targets` argument ({\"music\": -16, \"sfx\": {\"lufs\": "
+            "-14, \"toleranceLu\": 2}, \"default\": -16}), else style.audio.loudnessLufs and toleranceLu in "
+            "assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of "
+            "numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run "
+            "assets.analyze_audio first to keep the loudness records, so later runs do not measure again).";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"additionalProperties", false},

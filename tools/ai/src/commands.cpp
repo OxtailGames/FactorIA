@@ -276,19 +276,24 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.";
         info.description =
-            "The user's \"extensions\" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). "
-            "Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, "
-            "source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for "
-            "a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], "
-            "skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, "
-            "claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: "
-            "hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, "
-            "message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the "
-            "project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Claude Code uses plugins, "
-            "skills and hooks; Codex uses skills only; a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}; "
-            "the API providers (anthropic, openai-compatible) use skills and hooks in FactorIA's own loop, not plugins. A plugin or hook that comes from a project loads only after the USER "
-            "trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: "
-            "{\"role\":\"worker\"}";
+            "The user's \"extensions\" in ai.json plus the project's .factoria/extensions.json "
+            "(docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, "
+            "hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, "
+            "roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a "
+            "project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, "
+            "source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, "
+            "projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the "
+            "file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, "
+            "permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix "
+            "when a file needs trust and the project is not trusted: Claude Code then runs without them}, "
+            "denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove "
+            "FactorIA's own tools from Claude Code), scope}. Example: {\"role\":\"worker\"}"
+            FA_COMMAND_DETAILS
+            "Claude Code uses plugins, skills and hooks; Codex uses skills only; a generic CLI uses plugins "
+            "and hooks when its argv has {plugin_dirs} / {settings}; the API providers (anthropic, "
+            "openai-compatible) use skills and hooks in FactorIA's own loop, not plugins. A plugin or hook "
+            "that comes from a project loads only after the USER trusts the project in the editor (AI "
+            "settings > Extensions); no command can grant that. Read-only.";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "role":{"type":"string","description":"Only this role (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all."}},
             "additionalProperties":false})");
@@ -728,19 +733,23 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.";
         info.description =
-            "Run this after feedback.report when you wrote a `share` text (the editor's Send feedback window runs it on every text it is "
-            "about to send). A cheap model checks the entry against the engine's command list and documentation: (1) the gap is real, "
-            "(2) it is about the engine and not about the game, (3) the engine cannot already do it. The text also goes through the "
-            "automatic sanitizer, which refuses anything with names, paths or quotes from the game. On a PASS the entry is marked "
-            "reviewed: true and, if the text needed it, `share` is rewritten in engine terms (components, fields, commands and API "
-            "names only; nothing about the game). On a FAIL nothing is changed: you get `reasons` (which check failed and why) and `fix`, "
-            "what to change (rewrite the share text, use what the engine already has, or drop `share`). The model is the \"fast\" "
-            "role of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The result is "
-            "{id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, rewritten, reviewed, share, role}. "
-            "This command never changes the sharing mode and never sends anything: only a person decides whether entries leave the "
-            "machine. With `share` it reviews that text instead of the saved one and writes nothing (the answer's `share` is the text to "
-            "use, `stored` is false): the editor's Send feedback window does this before it stores what it sends. "
-            "Example: {\"id\":\"FB-0003\"}";
+            "Run this after feedback.report when you wrote a `share` text (the editor's Send feedback window "
+            "runs it on every text it is about to send). A cheap model checks the entry against the engine's "
+            "command list and documentation: (1) the gap is real, (2) it is about the engine and not about "
+            "the game, (3) the engine cannot already do it. The text also goes through the automatic "
+            "sanitizer, which refuses anything with names, paths or quotes from the game. On a PASS the "
+            "entry is marked reviewed: true and, if the text needed it, `share` is rewritten in engine terms "
+            "(components, fields, commands and API names only; nothing about the game). On a FAIL nothing is "
+            "changed: you get `reasons` (which check failed and why) and `fix`, what to change (rewrite the "
+            "share text, use what the engine already has, or drop `share`). The model is the \"fast\" role "
+            "of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The "
+            "result is {id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, "
+            "rewritten, reviewed, share, role}. Example: {\"id\":\"FB-0003\"}"
+            FA_COMMAND_DETAILS
+            "This command never changes the sharing mode and never sends anything: only a person decides "
+            "whether entries leave the machine. With `share` it reviews that text instead of the saved one "
+            "and writes nothing (the answer's `share` is the text to use, `stored` is false): the editor's "
+            "Send feedback window does this before it stores what it sends.";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "id":{"type":"string","description":"The entry to review, e.g. FB-0003 (feedback.list shows the ids). It needs a `share` text, saved or given in `share`."},
             "share":{"type":"object","description":"A share text to review instead of the saved one: {title, missing, suggestion?, workaround?}. Nothing is written to the file.",
@@ -815,25 +824,39 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.";
         info.description =
-            "Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\"; docs/AI_PROVIDERS.md, "
-            "\"Retrospective\"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste "
-            "(the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in "
-            "a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same "
-            "transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in "
-            "the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind \"efficiency\" "
-            "(threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is "
-            "true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: "
-            "entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). "
-            "It also checks the fixes of earlier entries: an efficiency entry the engine fixed (fixed-in-engine, with the version, the day and what "
-            "one occurrence cost before) is compared with the same pattern in the transcripts since that day, when the engine of this build is at "
-            "least the fixing version; the answer (waiting, gone, worked, partial, no_change) is returned in `fixChecks` and recorded on the entry "
-            "(`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not remove is filed again with `afterFix` set to that version. "
-            "Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, "
-            "maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], "
-            "filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
-            "(no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json "
-            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends tokens of the fast role. "
-            "Example: {\"since\":\"2026-11-01\"}";
+            "Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, \"Efficiency "
+            "feedback\"; docs/AI_PROVIDERS.md, \"Retrospective\"). Step 1 is mechanical, no model: it reads "
+            "the transcripts of <project>/.factoria/ai/sessions and measures the usual waste (the same "
+            "command failing with the same code, the same doc or file read again and again, tool results "
+            "over 40 KB, five or more screenshots in a row, calls that waited a minute or more, long "
+            "edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same "
+            "transcripts always give the same candidates and numbers. Step 2 is one short call of the fast "
+            "role that picks at most three candidates a fix in the ENGINE would remove and writes each as an "
+            "entry; every entry goes through the same gate as feedback.report with kind \"efficiency\" "
+            "(threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back "
+            "in `dropped` with the reason. A lesson that is true only of this game becomes a project-fact "
+            "proposal instead (ai.savers shows it; ai.saver_fact accepts it). Example: "
+            "{\"since\":\"2026-11-01\"}"
+            FA_COMMAND_DETAILS
+            "Nothing is shared or sent: entries stay in ENGINE_FEEDBACK.json like any other. Evidence "
+            "already counted by an open efficiency entry is skipped (`alreadyFiled`). It also checks the "
+            "fixes of earlier entries: an efficiency entry the engine fixed (fixed-in-engine, with the "
+            "version, the day and what one occurrence cost before) is compared with the same pattern in the "
+            "transcripts since that day, when the engine of this build is at least the fixing version; the "
+            "answer (waiting, gone, worked, partial, no_change) is returned in `fixChecks` and recorded on "
+            "the entry (`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not "
+            "remove is filed again with `afterFix` set to that version. Returns {sessions:[{id, agent, "
+            "steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, "
+            "measured, maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, "
+            "fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, "
+            "after?, text}], filed:[{candidate, id, merged, title, fixType, saving, measured}], "
+            "dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, "
+            "or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what "
+            "the model call cost), note}. Without a model (no key, fast role off and no orchestrator) the "
+            "candidates come back and `note` says why. It runs by itself after a long run when ai.json "
+            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second "
+            "call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends "
+            "tokens of the fast role.";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "sessions":{"type":"array","items":{"type":"string"},"maxItems":40,"description":"Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40."},
             "since":{"type":"string","description":"Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all."},

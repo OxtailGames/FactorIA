@@ -396,17 +396,26 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.";
         info.description =
-            "Applies `action` to the pixels of `layer` inside the stored `selection` (made with image.select; \"all\" is the whole canvas). Actions: "
-            "fill {color, opacity?}; recolor {hueShift degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; "
-            "move {dx, dy, copy?} (whole pixels; the selection moves along unless moveSelection is false); "
-            "transform {scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, pivot [x,y]} (the selected pixels are lifted, transformed around the pivot "
-            "- default their middle - and put back; the default filter is nearest when the project's style guide says pixelArt, else bilinear); "
-            "delete (the selected pixels become transparent); copy and cut {name?} (the selected pixels become a new pixels layer above `layer`; cut also clears them). "
-            "POLICY FOR OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that mark, the edit is added to its provenance). A shape, gradient, text or "
-            "other non-pixel layer is first rasterized: it becomes a pixels layer (its masks, adjustments and effects are baked into the pixels, its blend, opacity and visibility stay) with a new PNG "
-            "in <document>.layers/ and a warning says so. Groups and adjustment layers cannot be edited this way. A layer with masks keeps its box (the masks are in its own pixels), so pixels moved outside it are dropped "
-            "(a warning counts them); other layers grow to hold what you move into the canvas. Result: the baked document plus `region` {x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. "
-            "Example: {\"path\":\"assets/art/hero.image.json\",\"selection\":\"cape\",\"layer\":\"hero\",\"action\":{\"type\":\"recolor\",\"hueShift\":120}}";
+            "Applies `action` to the pixels of `layer` inside the stored `selection` (made with "
+            "image.select; \"all\" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift "
+            "degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; move {dx, dy, "
+            "copy?} (whole pixels; the selection moves along unless moveSelection is false); transform "
+            "{scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, "
+            "pivot [x,y]} (the selected pixels are lifted, transformed around the pivot - default their "
+            "middle - and put back; the default filter is nearest when the project's style guide says "
+            "pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} "
+            "(the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR "
+            "OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that "
+            "mark, the edit is added to its provenance)."
+            FA_COMMAND_DETAILS
+            "A shape, gradient, text or other non-pixel layer is first rasterized: it becomes a pixels layer "
+            "(its masks, adjustments and effects are baked into the pixels, its blend, opacity and "
+            "visibility stay) with a new PNG in <document>.layers/ and a warning says so. Groups and "
+            "adjustment layers cannot be edited this way. A layer with masks keeps its box (the masks are in "
+            "its own pixels), so pixels moved outside it are dropped (a warning counts them); other layers "
+            "grow to hold what you move into the canvas. Result: the baked document plus `region` "
+            "{x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. Example: "
+            "{\"path\":\"assets/art/hero.image.json\",\"selection\":\"cape\",\"layer\":\"hero\",\"action\":{\"type\":\"recolor\",\"hueShift\":120}}";
         info.inputSchema = Json::parse(R"({"type":"object","required":["path","selection","layer","action"],"properties":{
           "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
           "selection":{"type":"string","description":"The stored selection to act on (image.select), or \"all\"."},
@@ -444,14 +453,22 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.";
         info.description =
-            "Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` "
-            "pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken "
-            "where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. "
-            "`erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). "
-            "`layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit "
-            "(a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). "
-            "Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`. "
-            "Example: {\"path\":\"assets/art/hero.image.json\",\"layer\":\"paint\",\"create\":true,\"strokes\":[{\"points\":[[4,4],[40,20]],\"size\":3,\"color\":\"#ff0000\"}]}";
+            "Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a "
+            "round brush of diameter `size` along the polyline: one stamp at the first point, then one every "
+            "`spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last "
+            "point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not "
+            "darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard "
+            "edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. "
+            "`erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input "
+            "always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; "
+            "an unknown name with `create: true` makes a new empty pixels layer at the top of the document. "
+            "A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits "
+            "the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what "
+            "is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, "
+            "`stamps` and the picture as `$image`."
+            FA_COMMAND_DETAILS
+            "Example: "
+            "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"paint\",\"create\":true,\"strokes\":[{\"points\":[[4,4],[40,20]],\"size\":3,\"color\":\"#ff0000\"}]}";
         info.inputSchema = Json::parse(R"({"type":"object","required":["path","layer","strokes"],"properties":{
           "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
           "layer":{"description":"The layer to paint on: its name or an index path like \"1/0\"."},

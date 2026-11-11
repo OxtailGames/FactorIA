@@ -1003,15 +1003,19 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
     info.readOnly = false;
     info.summary = "Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key.";
     info.description =
-        "Paints a procedural texture at `path` (under assets/, ending in .png) with no AI provider and no key: free, offline and seeded "
-        "(the same arguments give the same picture with the same build of factoria; another `seed` is another take of the material). Use it for backgrounds, "
-        "desks, book covers and pages, floors, walls and surfaces when no image provider is configured (assets.generate_image would fail with "
-        "no_provider), or when you want a flat material you can tune: `color` and `accent` recolour it, `scale` makes the features bigger or "
-        "smaller, `roughness` goes from smooth and even (0) to worn and uneven (1), `tileable` makes the picture repeat with no seam, "
-        "`normalMap` also writes a tangent-space normal map next to it (`<name>_n.png`, +Y up) for lit sprites and 3D materials. "
-        "Textures are lit from the upper left, so grooves and bumps read. It makes surfaces, not drawings: for a picture of a subject (a "
-        "portrait, an icon, an ornament) write an SVG and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, "
-        "license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets:" + presets +
+        "Paints a procedural texture at `path` (under assets/, ending in .png) with no AI provider and no "
+        "key: free, offline and seeded (the same arguments give the same picture with the same build of "
+        "factoria; another `seed` is another take of the material). Use it for backgrounds, desks, book "
+        "covers and pages, floors, walls and surfaces when no image provider is configured "
+        "(assets.generate_image would fail with no_provider), or when you want a flat material you can tune: "
+        "`color` and `accent` recolour it, `scale` makes the features bigger or smaller, `roughness` goes "
+        "from smooth and even (0) to worn and uneven (1), `tileable` makes the picture repeat with no seam, "
+        "`normalMap` also writes a tangent-space normal map next to it (`<name>_n.png`, +Y up) for lit "
+        "sprites and 3D materials. Textures are lit from the upper left, so grooves and bumps read. It makes "
+        "surfaces, not drawings: for a picture of a subject (a portrait, an icon, an ornament) write an SVG "
+        "and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, "
+        "license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets: "
+        FA_COMMAND_DETAILS + presets +
         "\nExamples: {\"path\":\"assets/textures/desk.png\",\"preset\":\"planks\",\"width\":1280,\"height\":720,\"seed\":4} / "
         "{\"path\":\"assets/textures/long_planks.png\",\"preset\":\"planks\",\"plankCount\":7,\"plankLength\":0,\"gapWidth\":0.01} / "
         "{\"path\":\"assets/textures/cover.png\",\"preset\":\"leather\",\"color\":\"#5b2a1a\",\"accent\":\"#1d0d07\",\"normalMap\":true} / "

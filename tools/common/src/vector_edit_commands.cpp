@@ -774,13 +774,25 @@ void register_vector_edit_commands(CommandRegistry& registry, const std::string&
                                   {"from", point_prop("line: the start [x, y].")}, {"to", point_prop("line: the end [x, y].")}})),
         {"kind"}, cmd_add});
     defs.push_back({"vector.nodes", "Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append.",
-        "Applies a list of node operations, in order, to ONE shape (a rect or circle becomes a <path> with the same outline; the id, style and transform stay). Nodes are numbered from 0 in the order of the path data, per subpath (`subpath`, default 0). "
-        "Points are in the drawing space by default (space \"local\" for the path's own numbers). Ops: {\"op\": \"move\", \"node\": n, \"to\": [x, y]} or \"by\": [dx, dy] (the handles go with it unless handles: false); "
-        "{\"op\": \"handle\", \"node\": n, \"which\": \"in\"|\"out\", \"to\": [x, y], \"link\": \"auto\"|\"none\"|\"angle\"|\"mirror\"} (auto: a smooth node keeps its handles on one line, a symmetric one mirrors them; a handle moved onto its node is removed); "
-        "{\"op\": \"insert\", \"segment\": s, \"t\": 0.5} or \"at\": [x, y] near the path (the curve keeps its shape); {\"op\": \"delete\", \"node\": n, \"keepShape\": true}; {\"op\": \"convert\", \"node\": n, \"to\": \"corner\"|\"smooth\"|\"symmetric\"}; "
-        "{\"op\": \"break\", \"node\": n} (open a closed subpath there, or split an open one); {\"op\": \"join\", \"node\": a, \"otherNode\": b, \"other\": subpath, \"connect\": \"merge\"|\"line\"} (two ends); {\"op\": \"close\"}; {\"op\": \"reverse\"}; "
-        "{\"op\": \"append\", \"at\": [x, y], \"out\": [x, y], \"end\": \"end\"|\"start\"} (continue an open path; subpath = the number of subpaths starts a new one). A shape drawn by vector.shape with parametric: true stops being parametric. Returns the new node count and bounds and a preview as `$image`. "
-        "Example: {\"source\": \"assets/art/leaf.svg\", \"element\": \"leaf\", \"ops\": [{\"op\": \"move\", \"node\": 1, \"to\": [40, 50]}, {\"op\": \"convert\", \"node\": 2, \"to\": \"smooth\"}]}. Docs: docs.read VECTOR.",
+        "Applies a list of node operations, in order, to ONE shape (a rect or circle becomes a <path> with "
+        "the same outline; the id, style and transform stay). Nodes are numbered from 0 in the order of the "
+        "path data, per subpath (`subpath`, default 0). Points are in the drawing space by default (space "
+        "\"local\" for the path's own numbers). Example: {\"source\": \"assets/art/leaf.svg\", \"element\": "
+        "\"leaf\", \"ops\": [{\"op\": \"move\", \"node\": 1, \"to\": [40, 50]}, {\"op\": \"convert\", "
+        "\"node\": 2, \"to\": \"smooth\"}]}. Docs: docs.read VECTOR."
+        FA_COMMAND_DETAILS
+        "Ops: {\"op\": \"move\", \"node\": n, \"to\": [x, y]} or \"by\": [dx, dy] (the handles go with it "
+        "unless handles: false); {\"op\": \"handle\", \"node\": n, \"which\": \"in\"|\"out\", \"to\": [x, "
+        "y], \"link\": \"auto\"|\"none\"|\"angle\"|\"mirror\"} (auto: a smooth node keeps its handles on one "
+        "line, a symmetric one mirrors them; a handle moved onto its node is removed); {\"op\": \"insert\", "
+        "\"segment\": s, \"t\": 0.5} or \"at\": [x, y] near the path (the curve keeps its shape); {\"op\": "
+        "\"delete\", \"node\": n, \"keepShape\": true}; {\"op\": \"convert\", \"node\": n, \"to\": "
+        "\"corner\"|\"smooth\"|\"symmetric\"}; {\"op\": \"break\", \"node\": n} (open a closed subpath "
+        "there, or split an open one); {\"op\": \"join\", \"node\": a, \"otherNode\": b, \"other\": subpath, "
+        "\"connect\": \"merge\"|\"line\"} (two ends); {\"op\": \"close\"}; {\"op\": \"reverse\"}; {\"op\": "
+        "\"append\", \"at\": [x, y], \"out\": [x, y], \"end\": \"end\"|\"start\"} (continue an open path; "
+        "subpath = the number of subpaths starts a new one). A shape drawn by vector.shape with parametric: "
+        "true stops being parametric. Returns the new node count and bounds and a preview as `$image`.",
         merge_props(merge_props(common, geometry_props()),
                     Json::object({{"element", str_prop("The shape to edit: an SVG id or a selector that matches exactly one element.")},
                                   {"ops", Json::object({{"type", "array"}, {"items", Json::object({{"type", "object"}})}, {"description", "The node operations, applied in order. Each is an object with an `op` (move, handle, insert, delete, convert, break, join, close, reverse, append) and its arguments."}})},
