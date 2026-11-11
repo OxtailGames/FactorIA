@@ -1289,7 +1289,8 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
             "in the item order), its label and one line of facts: an image its size, colors and how much is "
             "clear; a scene its entity count; a prefab its entities and size; a level its size, seed and "
             "tries; vector art its size, shapes and colors (counted from the file's text); an effect its "
-            "peak particles and length."
+            "peak particles and length. Only files marked `candidate: true` are ever moved by review.pick; "
+            "a file not marked is never touched."
             FA_COMMAND_DETAILS
             "How each is drawn: images and vector art on the CPU as they are; a level on the CPU, one square "
             "per cell (letters on the squares when they are big enough); a scene is started and captured by "

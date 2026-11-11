@@ -1202,7 +1202,8 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         "unless style is false: its `prompt` is appended to yours, its `references` are sent along with "
         "`references`, and its `palette` reduces the result to those colours. Returns the path, size, "
         "provenance and the image itself. Generation costs money with paid providers: check the first result "
-        "before generating more. "
+        "before generating more. With `count` 2 to 4 it makes candidates and ONE review sheet: show it, ask "
+        "for one number, call assets.pick; never pick for the person. "
         FA_COMMAND_DETAILS
         "With `count` 2 to 4 it makes that many candidates for the slot `path` "
         "instead (files next to it named <name>.candidate-<n>.png, each with its own seed and provenance; "
