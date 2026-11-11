@@ -981,6 +981,16 @@ declare module "factoria" {
      */
     priority?: number;
     /**
+     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls linearly to 0 at `range` from the AudioListener (else the primary camera) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing and play() returns 0. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
+     * @since unreleased
+     */
+    position?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
+     * @since unreleased
+     */
+    range?: number;
+    /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
      */
