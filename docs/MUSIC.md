@@ -495,6 +495,21 @@ reads the same target (`audio.loudnessLufs.music` of the project's style guide i
 such target, `loudness: "off"` and a number behave the same in both. Everything else is the same bytes: the live render is the one `music.render` writes (the loop's tail folded onto its start, so the wrap is seamless; a song that ends with an
 outro plays its tail out, or a 20 ms fade when more music follows the outro).
 
+### What the music costs in memory
+
+The cache holds every stem of a song as 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**, in both modes today (decoded whole; streaming
+the stems is not done yet). A song costs `stems x minutes x 10.1 MiB`, and every song played stays cached until the 128 MB budget drops the ones nothing plays.
+
+| Song | Stems | One minute | Three minutes |
+| --- | --- | --- | --- |
+| one flat mix | 1 | 10.1 MB | 30.3 MB |
+| 4 layers (live or stems) | 4 | 40.4 MB | 121 MB |
+| 4 layers + mix stem | 5 | 50.5 MB | 152 MB |
+
+(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song, per stem, in bytes) and `cacheBytes`; `game.state` has
+`audio.musicBytes`; `perf.profile` has `memory.*.musicMB` and `perf.measure` the sample's `musicMB`, which are also part of `audioDecodedMB`. The process size includes them: a game
+that plays three 3-minute 4-layer songs holds about 360 MB of music.
+
 ### Hot reload
 
 While a game runs from the editor (or with `factoria run`), saving a `*.song.json` or a stem file of a song that plays from stems drops the renders of that song. Every
