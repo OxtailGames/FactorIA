@@ -111,6 +111,31 @@ TEST_CASE("tween: a destroyed target ends its tween quietly; mistakes teach") {
     CHECK(h.scripts.errors()[0].message.find("posx") != std::string::npos);
 }
 
+// KW/FB-0019: the scene's environment is animated with tween(world.settings, {...}); docs/ANIMATION.md's dawn recipe.
+TEST_CASE("tween: world.settings moves the sky, ambient light and fog together (the dawn recipe)") {
+    TestHost h("tween_settings");
+    REQUIRE(h.start());
+    ev(h, "world.settings.skyColor = '#05060f'; world.settings.ambientLight = [0.05, 0.05, 0.1, 1]; world.settings.fogDensity = 0.08;");
+    CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.08).epsilon(0.001));
+    ev(h, "globalThis.dawn = tween(world.settings, { skyColor: '#ffb070', ambientLight: [0.6, 0.45, 0.4, 1], fogDensity: 0.01 },"
+          " { duration: 1, ease: 'sineInOut' });");
+    h.step_frames(30);                                          // halfway: sineInOut(0.5) = 0.5
+    const double r05 = num(h, "world.settings.skyColor.r");
+    CHECK(r05 > 0.1);
+    CHECK(r05 < 0.95);
+    CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.325).epsilon(0.03));
+    CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.045).epsilon(0.03));
+    h.step_frames(10);
+    CHECK(num(h, "world.settings.skyColor.r") > r05);           // still moving
+    h.step_frames(40);
+    CHECK_FALSE(ev(h, "dawn.active").get<bool>());
+    CHECK(num(h, "world.settings.skyColor.r") == doctest::Approx(1.0).epsilon(0.001));
+    CHECK(num(h, "world.settings.skyColor.b") == doctest::Approx(0x70 / 255.0).epsilon(0.001));
+    CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.6).epsilon(0.001));
+    CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.01).epsilon(0.001));
+    CHECK(num(h, "world.settings.horizonColor.a") == 1.0);      // fields the tween does not name stay as they were
+}
+
 TEST_CASE("ease: every easing starts at 0, ends at 1 and keeps its known shape") {
     TestHost h("ease");
     REQUIRE(h.start());
