@@ -657,9 +657,9 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
     }
 }
 
-void note_unlisted_inline_copies(Ctx& c, const std::string& file, const InlineCopyCount& count) {
+void note_unlisted_inline_copies(Ctx& c, const std::string& file, const std::string& pointer, const InlineCopyCount& count) {
     if (count.unlisted == 0) return;
-    c.warn(file, "", std::to_string(count.unlisted) + " more entities of this file repeat the components of a prefab inline (the first " +
+    c.warn(file, pointer, std::to_string(count.unlisted) + " more entities of this file repeat the components of a prefab inline (the first " +
                          std::to_string(kInlineCopyListed) + " are listed above).",
            "Replace the copies with prefab instances, or create them with scene.spawn {\"prefab\": ...}.");
 }
@@ -1209,6 +1209,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             ++c.report.scenesChecked;
             World world;  // registers built-in components
             LoadReport lr = load_scene_file(world, rel);
+            prefabCache.forget_world();  // the cache serves one World at a time
             for (const auto& m : lr.messages) {
                 ValidationIssue issue{m.source.empty() ? rel : m.source, m.pointer, m.message, m.hint};
                 // Normalize absolute sources to project-relative.
@@ -1230,7 +1231,12 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             validate_detail::check_ik3d(rel, world, j, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
-            if (j.is_object() && j.contains("entities") && j["entities"].is_array() && !prefabShapes.empty()) {
+            // Entries and roots are matched by position: a scene where an entry is not an object, or whose entries and roots
+            // differ in number (the loader dropped one), is not compared.
+            const bool alignedRoots = j.is_object() && j.contains("entities") && j["entities"].is_array() &&
+                                      std::all_of(j["entities"].begin(), j["entities"].end(), [](const Json& x) { return x.is_object(); }) &&
+                                      world.roots().size() == j["entities"].size();
+            if (alignedRoots && !prefabShapes.empty()) {
                 const std::vector<Entity> roots = world.roots();
                 InlineCopyCount copies;
                 std::size_t i = 0;
@@ -1239,7 +1245,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                                              prefabShapes, prefabCache, copies);
                     ++i;
                 }
-                note_unlisted_inline_copies(c, rel, copies);
+                note_unlisted_inline_copies(c, rel, "/entities", copies);
             }
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
                 int i = 0;
@@ -1255,6 +1261,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             {
                 World prefabWorld;
                 LoadReport ignored;
+                prefabCache.forget_world();
                 const Entity prefabRoot = instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
                 prefabWorld.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
                 if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
@@ -1275,7 +1282,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                             ++i;
                         }
                     }
-                    note_unlisted_inline_copies(c, rel, copies);
+                    note_unlisted_inline_copies(c, rel, "/entity/children", copies);
                 }
             }
             if (parsed.value().is_object() && parsed.value().contains("entity"))

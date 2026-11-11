@@ -26,12 +26,16 @@ struct PrefabBaseCache::Impl {
     std::map<std::string, std::unique_ptr<detail::PrefabBase>> bases;
     // Every string value of every component of `stringsWorld`, counted: built the first time an instance has a descendant
     // whose id differs from the prefab's, to find out whether anything else names that id.
-    const World* stringsWorld = nullptr;
+    bool stringsBuilt = false;
     std::unordered_map<std::string, int> strings;
 };
 
 PrefabBaseCache::PrefabBaseCache() : impl_(std::make_unique<Impl>()) {}
 PrefabBaseCache::~PrefabBaseCache() = default;
+void PrefabBaseCache::forget_world() {
+    impl_->stringsBuilt = false;
+    impl_->strings.clear();
+}
 
 namespace {
 
@@ -166,7 +170,8 @@ private:
         // different id would dangle for a string elsewhere in the scene that names it.
         if (!isRoot && bi.id != ci.id && id_referenced(ci.id))
             return fail("the id '" + ci.id + "' of a part of the prefab ('" + bi.id + "') differs from the prefab's and is named by a string "
-                        "elsewhere in the scene, which would no longer find it once the instance is loaded again");
+                        "elsewhere in the scene (a value equal to the id; an id inside a longer text or a script's find_by_id is not "
+                        "looked for), which would no longer find it once the instance is loaded again");
         pairs_.push_back({b, c, node, chain});
         map_[b.bits()] = c;
 
@@ -205,10 +210,10 @@ private:
 
     // True when a string value of a component outside this instance equals `id`.
     bool id_referenced(const std::string& id) {
-        if (cache_.stringsWorld != &cw_) {
+        if (!cache_.stringsBuilt) {
             cache_.strings.clear();
             for (Entity e : cw_.entities()) count_entity_strings(cw_, e, cache_.strings);
-            cache_.stringsWorld = &cw_;
+            cache_.stringsBuilt = true;
         }
         const auto total = cache_.strings.find(id);
         if (total == cache_.strings.end()) return false;
