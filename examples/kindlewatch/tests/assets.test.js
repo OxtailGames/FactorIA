@@ -19,6 +19,8 @@ test("every asset has a recipe of an engine command, none is imported or made by
     expect(p.ai, `${a.path} is marked as made with AI`).toBe(false);
     expect(p.origin, `${a.path} is not original`).toBe("original");
     const command = p.recipe && p.recipe.command;
+    // A record that says it has no recipe (a clip edited by hand) must not carry one: regenerate would overwrite the keys.
+    if (/no recipe/i.test(String(p.notes))) expect(p.recipe, `${a.path} says it has no recipe but carries one`).toBeUndefined();
     // A clip keyed by hand (anim3d.create + anim3d.set_keys) has a record but no recipe: regenerating it would drop the keys.
     if (p.kind === "anim3d" && !command) {
       expect(String(p.provider), `${a.path} names no engine command as its provider`).toMatch(/^factoria anim3d\./);

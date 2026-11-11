@@ -74,39 +74,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/alpha_wolf.rig.glb",
-            "kind": "gallop",
-            "params": {
-              "strideLength": 1.6384,
-              "cadence": 2.0,
-              "duty": 0.3,
-              "bounce": 0.0768,
-              "crouch": 0.03072,
-              "footLift": 0.11264,
-              "armSwing": 0.0,
-              "elbowBend": 0.0,
-              "lean": 0.0,
-              "twist": 0.0,
-              "hipSway": 0.0,
-              "spineFlex": 14.0,
-              "tailSwing": 16.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/alpha_wolf_gallop.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/alpha_wolf.rig.glb",
-              "sha256": "d85f915fb44369bd84e354509778bf5099eab77911c116fd18cadceb93fcd1bf"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/alpha_wolf_hit.anim.json": {
@@ -119,30 +87,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/alpha_wolf.rig.glb",
-            "kind": "hit",
-            "params": {
-              "duration": 0.6,
-              "strength": 18.0,
-              "fromAngle": 0.0,
-              "attack": 0.18,
-              "fps": 30.0,
-              "event": "",
-              "doc": ""
-            },
-            "out": "anim/alpha_wolf_hit.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/alpha_wolf.rig.glb",
-              "sha256": "d85f915fb44369bd84e354509778bf5099eab77911c116fd18cadceb93fcd1bf"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/alpha_wolf_idle.anim.json": {
@@ -155,30 +100,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/alpha_wolf.rig.glb",
-            "kind": "idle",
-            "params": {
-              "duration": 4.0,
-              "breaths": 1.0,
-              "breathAmount": 2.0,
-              "weightShift": 1.0,
-              "tailSwing": 8.0,
-              "fps": 30.0,
-              "doc": ""
-            },
-            "out": "anim/alpha_wolf_idle.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/alpha_wolf.rig.glb",
-              "sha256": "d85f915fb44369bd84e354509778bf5099eab77911c116fd18cadceb93fcd1bf"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/alpha_wolf_trot.anim.json": {
@@ -191,39 +113,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/alpha_wolf.rig.glb",
-            "kind": "trot",
-            "params": {
-              "strideLength": 1.024,
-              "cadence": 1.3,
-              "duty": 0.5,
-              "bounce": 0.04096,
-              "crouch": 0.0256,
-              "footLift": 0.07167999,
-              "armSwing": 0.0,
-              "elbowBend": 0.0,
-              "lean": 0.0,
-              "twist": 4.0,
-              "hipSway": 0.00256,
-              "spineFlex": 4.0,
-              "tailSwing": 14.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/alpha_wolf_trot.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/alpha_wolf.rig.glb",
-              "sha256": "d85f915fb44369bd84e354509778bf5099eab77911c116fd18cadceb93fcd1bf"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/warden_attack.anim.json": {
@@ -319,39 +209,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/warden.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/warden.rig.glb",
-            "kind": "run",
-            "params": {
-              "strideLength": 2.768308,
-              "cadence": 1.45,
-              "duty": 0.35,
-              "bounce": 0.07382154,
-              "crouch": 0.07382154,
-              "footLift": 0.1845539,
-              "armSwing": 45.0,
-              "elbowBend": 85.0,
-              "lean": 10.0,
-              "twist": 10.0,
-              "hipSway": 0.01384154,
-              "spineFlex": 0.0,
-              "tailSwing": 10.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/warden_run.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/warden.rig.glb",
-              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/warden_walk.anim.json": {
@@ -364,39 +222,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/warden.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/warden.rig.glb",
-            "kind": "walk",
-            "params": {
-              "strideLength": 1.291877,
-              "cadence": 0.9,
-              "duty": 0.6,
-              "bounce": 0.03691077,
-              "crouch": 0.02768308,
-              "footLift": 0.07382154,
-              "armSwing": 25.0,
-              "elbowBend": 12.0,
-              "lean": 3.0,
-              "twist": 5.0,
-              "hipSway": 0.01845539,
-              "spineFlex": 0.0,
-              "tailSwing": 10.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/warden_walk.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/warden.rig.glb",
-              "sha256": "555fe09d68b618bcf28cfe03f7d70c6567491eadb08e7652e7a6f7856e478192"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/wolf_bite.anim.json": {
@@ -422,39 +248,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/wolf.rig.glb",
-            "kind": "gallop",
-            "params": {
-              "strideLength": 1.6384,
-              "cadence": 2.0,
-              "duty": 0.3,
-              "bounce": 0.0768,
-              "crouch": 0.03072,
-              "footLift": 0.11264,
-              "armSwing": 0.0,
-              "elbowBend": 0.0,
-              "lean": 0.0,
-              "twist": 0.0,
-              "hipSway": 0.0,
-              "spineFlex": 14.0,
-              "tailSwing": 16.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/wolf_gallop.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/wolf.rig.glb",
-              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "anim/wolf_hit.anim.json": {
@@ -537,39 +331,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "source": "assets/models/wolf.rig.glb",
-        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits).",
-        "recipe": {
-          "command": "anim3d.generate",
-          "args": {
-            "rig": "assets/models/wolf.rig.glb",
-            "kind": "trot",
-            "params": {
-              "strideLength": 1.024,
-              "cadence": 1.3,
-              "duty": 0.5,
-              "bounce": 0.04096,
-              "crouch": 0.0256,
-              "footLift": 0.07167999,
-              "armSwing": 0.0,
-              "elbowBend": 0.0,
-              "lean": 0.0,
-              "twist": 4.0,
-              "hipSway": 0.00256,
-              "spineFlex": 4.0,
-              "tailSwing": 14.0,
-              "fps": 30.0,
-              "footstepEvent": "footstep",
-              "doc": ""
-            },
-            "out": "anim/wolf_trot.anim.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/models/wolf.rig.glb",
-              "sha256": "cfb57a77ff439240d991f6acacf106276d831cfb43f1f8e04d02b82709e81265"
-            }
-          ]
-        }
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
       }
     },
     "assets/art/bar_back.png": {
