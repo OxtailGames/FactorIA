@@ -116,7 +116,7 @@ int band_of(double hz) {
     return b;
 }
 
-Metrics measure(const DecodedAudio& audio) {
+Metrics measure(const DecodedAudio& audio, const std::optional<LoopPoints>& loopPoints) {
     Metrics m;
     const std::size_t frames = audio.frames(), ch = std::size_t(audio.channels);
     m.rate = audio.rate;
@@ -124,6 +124,12 @@ Metrics measure(const DecodedAudio& audio) {
     m.seconds = audio.rate > 0 ? double(frames) / audio.rate : 0.0;
     m.bandDb.fill(kBandAbsent);
     if (frames == 0) return m;
+    // The frames the loop wraps between: the whole sound unless loop points say otherwise.
+    std::size_t seamFirst = 0, seamEnd = frames;
+    if (loopPoints && loopPoints->end <= frames && loopPoints->start + 4 <= loopPoints->end) {
+        seamFirst = loopPoints->start;
+        seamEnd = loopPoints->end;
+    }
 
     double samplePeak = 0, truePeakLinear = 0;
     double bestStepRatio = -1;
@@ -171,8 +177,8 @@ Metrics measure(const DecodedAudio& audio) {
                 m.firstStep = fs;
                 m.lastStep = ls;
             }
-            const double jump = std::fabs(double(x[0]) - double(x[frames - 1]));
-            const double slope = std::fabs((double(x[1]) - double(x[0])) - (double(x[frames - 1]) - double(x[frames - 2])));
+            const double jump = std::fabs(double(x[seamFirst]) - double(x[seamEnd - 1]));
+            const double slope = std::fabs((double(x[seamFirst + 1]) - double(x[seamFirst])) - (double(x[seamEnd - 1]) - double(x[seamEnd - 2])));
             if (jump / stepFloor > m.seamJumpRatio) {
                 m.seamJumpRatio = jump / stepFloor;
                 m.seamJump = jump;

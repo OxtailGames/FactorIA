@@ -111,6 +111,11 @@
               "minimum": -24,
               "maximum": 0,
               "default": -1
+            },
+            "shared": {
+              "type": "boolean",
+              "description": "With variations: one gain, found on the loudest variant, for all of them, so they keep their relative loudness. Default false (each variant is levelled alone).",
+              "default": false
             }
           }
         }

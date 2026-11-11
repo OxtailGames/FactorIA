@@ -884,6 +884,9 @@ of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
   `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
   size, and for sheets the layout before and after. `{"all": true}` does every asset with a recipe, `{"stale": true}` only
   those whose `inputs` no longer match (you edited the SVG), and `dryRun: true` lists what would run and changes nothing.
+  An asset that `{"stale": true}` leaves alone is listed in `skipped` with `reason: "up to date..."` and `compared`: the
+  inputs it hashed now (`{path, sha256}`, the same hash the recipe recorded) and the style-guide values it compared, so
+  an "up to date" answer shows what it looked at: only the files in the recipe's `inputs`, not any file the command could read.
   There is no list of commands: any `assets.*` command that records a recipe works.
 - An asset that reads another (a sheet sliced from a picture made from an SVG) is made after it, and `stale` looks again at
   its inputs when its turn comes, so the whole chain follows one edit. Several files made by one call (an icon and its
