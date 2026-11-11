@@ -2234,6 +2234,8 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
   Use `rng`, `dt` and `game.today()`.
 - Mixing colour scales. `[255, 128, 0, 255]` is read as 0..255 because a channel is over 1, so `[255, 255, 255, 1]` has an alpha of 1/255 and `[1, 1, 1, 255]` is black; use 0..1 for every channel, or `"#rrggbb"`. `factoria validate` warns about a mixed array (JSON pointer, both readings).
 - Misspelling what a script imports or calls: a wrong name in `import { Behaviour } from "factoria"`, `physics.raycats`, `entity.get("Transfrom")`, a `fa.call("project.<tool>")` in a game script (tools are not exported), or a top level that throws. `factoria validate` reports each with `file:line:column` and a "did you mean" (docs/SCRIPTING.md, "What `factoria validate` checks in a script"); run it after every script edit.
+- Keeping your own data on an entity (`entity.hp = 3`) and reading it before it is written. In `test`, `run` and the editor reading a member an `Entity`, `input`, `world`, `expect(...)` or another namespace does not have throws (`'input' has no 'axs'. Did you mean 'axis'?`); the exported player gives `undefined` instead, so fix it where it throws. Keep state in the Behaviour (`this.hp`) or in a component's fields (docs/SCRIPTING.md, "Reading a member that does not exist").
+- Writing a component name in the wrong case (`entity.get("transform")`). It works and logs one warning with the exact name; write `"Transform"`.
 - Expecting +Y to point down in the world. In the world +Y is up. Only screen-space UI has +Y down.
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.
 - Forgetting the primary `Camera`.

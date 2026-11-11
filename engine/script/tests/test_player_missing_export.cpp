@@ -13,6 +13,7 @@ TEST_CASE("an import the player lacks names the module and the export") {
            "export default class Needs extends Behaviour {}\n");
     h.file("scenes/main.scene.json",
            R"({"format":"factoria.scene/1","entities":[{"id":"p","components":{"Script":{"path":"scripts/needs.js"}}}]})");
+    h.scripts.set_exported_player(true);  // only a player can be older than the game's engine
     REQUIRE(h.start());
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(2);
@@ -30,6 +31,7 @@ TEST_CASE("a call the player lacks names the object and the method") {
            "export default class Calls extends Behaviour { onStart() { scene.method_from_the_future(); } }\n");
     h.file("scenes/main.scene.json",
            R"({"format":"factoria.scene/1","entities":[{"id":"p","components":{"Script":{"path":"scripts/calls.js"}}}]})");
+    h.scripts.set_exported_player(true);  // in a development run `scene.<typo>` stops at the read check (test_script_errors.cpp)
     REQUIRE(h.start());
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(2);

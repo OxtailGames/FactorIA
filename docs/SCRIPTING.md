@@ -148,6 +148,33 @@ A colour written as numbers is read as 0..255 when any of its channels is over 1
 mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
 readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
 
+### Reading a member that does not exist
+
+In every run that is not an exported player (`factoria test`, `run`, `mcp`, the editor's Play) the engine's objects check
+reads: an `Entity`, the namespaces of `"factoria"` (`input`, `world`, `audio`, `ui`, `physics`, `scene`, ...) and the
+`expect` matchers. Reading a member they do not have throws instead of giving `undefined`:
+
+```
+'input' has no 'axs'. Did you mean 'axis'? Its members: pressed, released, down, value, axis, vector, ...
+```
+
+so a typo fails where it is written, with the line of your script, and not as `x is not a function` or a `NaN` later.
+What passes: symbols, `then` (what `await` probes), `toJSON` (what `JSON.stringify` probes) and the members every object has
+(`hasOwnProperty`, `toString`...). Writes are never checked, and an entity can carry a field you gave it (`entity.hp = 3`
+and later `entity.hp` works; the members list then names `hp`), but reading a field nobody wrote throws: `entity.hp` before
+`entity.hp = 3` is the mistake it finds, so keep game state in the `Behaviour` (`this.hp`) or in a component's fields.
+`session` is the one namespace left open, because it holds the game's own keys. The check sits behind the object (its
+prototype), so reading a member that exists costs nothing; the exported player has no check at all, and there a missing
+member is `undefined` again. `plugins` and `game` of `"factoria:test"` check their reads too.
+
+In an exported player only, an error that says the player lacks a member of the engine (an import of `"factoria"` that is
+not there, a call of a method the engine object has not) adds that the player may be older than the game's engine; in the
+other runs engine and player are one binary and the sentence would be wrong.
+
+A component name that is right except for its case (`entity.get("transform")`) works and logs one warning per name with
+the exact spelling; use the exact one, it is what scene files, commands and the typings use. An unknown name
+(`entity.get("NoSuch")`) lists the closest names and how many components there are.
+
 ### Which callback sees what (input)
 
 A frame runs 0 to 5 fixed steps (a slow frame runs several, a fast one none), so a press must not be tied to the frame
