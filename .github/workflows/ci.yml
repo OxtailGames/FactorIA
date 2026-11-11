@@ -23,9 +23,10 @@ on:
         type: boolean
         default: false
 
-# Keep only the newest run per branch or pull request.
+# Keep only the newest run per branch or pull request. The event and the perfBaselines tick are part of the group, so a
+# manual "Perf baselines" run and a push or pull request run on the same ref do not cancel each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}-${{ inputs.perfBaselines || false }}
   cancel-in-progress: true
 
 permissions:
@@ -131,6 +132,12 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
+
+      # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary
+      # (scripts/ci-perf-warnings.sh reads Testing/Temporary/LastTest.log, so it runs before any other ctest in the tree).
+      - name: Performance warnings (linux)
+        if: ${{ !cancelled() }}
+        run: ./scripts/ci-perf-warnings.sh build/linux-release
 
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
@@ -272,6 +279,12 @@ jobs:
         # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
+      # Each shard's own LastTest.log: the `_perf` tests that passed inside the warning band (see the linux job).
+      - name: Performance warnings (windows, shard ${{ matrix.shard }}/3)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: ./scripts/ci-perf-warnings.sh build/windows-release
+
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
       # engine/scene/tests/test_det_replay.cpp) and of the scripts' Math, 2D and 3D physics and nav (tools/cli/tests/determinism_expected.txt,
@@ -345,6 +358,10 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
         run: ctest --preset macos-release --parallel 3  # the runner's 3 vCPUs
+
+      - name: Performance warnings (macos)
+        if: ${{ !cancelled() }}
+        run: ./scripts/ci-perf-warnings.sh build/macos-release
 
       # The hashes of the replays, in the log of every job: FA_PHYSICS_REPLAY_HASH (committed in
       # engine/physics/tests/test_determinism.cpp) and the FA_DET_HASH lines of the particles, the feel effects (committed in
@@ -426,7 +443,7 @@ jobs:
         shell: bash
         run: |
           cmake --preset ${{ matrix.preset }}
-          cmake --build --preset ${{ matrix.preset }} --target factoria
+          cmake --build --preset ${{ matrix.preset }} --target factoria --parallel
 
       - name: Measure the baselines
         shell: bash
