@@ -161,6 +161,10 @@ void walk(Json& list, bool top, long long px, long long py, Ctx& c) {
             if (follows && has_masks(layer) && (c.dx != 0 || c.dy != 0)) {
                 make_box_of_old_canvas(layer, c);
                 follows = false;
+                c.warnings.push_back(std::format(
+                    "The {} layer '{}' has masks, which are in its own pixels, so it is now a {}x{} box (the old canvas) that moves with the anchor. "
+                    "It no longer covers the area a bigger canvas adds: set its width and height (or remove its masks) if it should.",
+                    kind, layer.value("name", std::string("?")), c.oldW, c.oldH));
             }
             if (!follows) move_layer(layer, c);
         }
@@ -277,7 +281,7 @@ void register_resize_command(CommandRegistry& registry, const std::string& proje
         "right, bottom-left, bottom, bottom-right; default center): with \"top-left\" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd "
         "difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size "
         "just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the "
-        "same pixels and it no longer covers the added area. Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and "
+        "same pixels and it no longer covers the added area (a warning names it). Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and "
         "cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake "
         "takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be "
         "made again (a warning). One undo step. Example: {\"path\":\"assets/art/heart.image.json\",\"width\":12,\"height\":12,\"anchor\":\"top-left\"}";
