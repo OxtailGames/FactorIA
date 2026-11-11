@@ -299,7 +299,7 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 | `doc` | string | no | What the clip shows and when it is used. |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
-## `anim3d.generate`
+## `anim3d.generate` (modifies state)
 
 Since 0.16.0.
 
@@ -443,7 +443,7 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 
-## `anim3d.retarget`
+## `anim3d.retarget` (modifies state)
 
 Since 0.16.0.
 

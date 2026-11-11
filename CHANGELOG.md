@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 Older versions, one file per minor version with its patch releases: [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
 
+## Unreleased
+
+- `anim3d.generate` and `anim3d.retarget` record a provenance recipe (inputs: the rig, and for a retarget the source clip),
+  so `assets.regenerate {"stale": true}` makes a clip again after its rig is fitted again; editing a clip by hand removes the
+  recipe. `assets.set_provenance` and `schemas/assets.schema.json` take the kind `anim3d`, also for clips outside `assets/`.
+- `image.create` takes `output`, the PNG the document bakes to.
+- A test runs every recipe command in a scratch project and validates the `assets.json` it writes against the schema.
+
 ## 0.22.0
 
 FactorIA 0.22.0 (M100) makes errors and tests something a game AI can trust. A test fails when the game fails: a

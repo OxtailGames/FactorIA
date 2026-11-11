@@ -894,6 +894,26 @@ TEST_CASE("validate: a broken image document is an error with its pointer; an un
     CHECK(staleWarning);
 }
 
+TEST_CASE("image.create: `output` names the PNG the document bakes to, and is checked like the other paths") {
+    AssetsProject p;
+    const Json r = p.ok("image.create", {{"path", "assets/src/enemy.image.json"}, {"width", 8}, {"height", 8}, {"background", "#203040"}, {"output", "./assets/art/enemy.png"}});
+    CHECK(r["path"] == "assets/art/enemy.png");
+    CHECK(p.exists("assets/art/enemy.png"));
+    CHECK_FALSE(p.exists("assets/src/enemy.png"));
+    CHECK(parse_json(read_all(p.file("assets/src/enemy.image.json")), "doc").value()["output"] == "assets/art/enemy.png");
+    CHECK(p.ok("image.info", {{"path", "assets/src/enemy.image.json"}})["bake"]["state"] == "fresh");
+    CHECK(p.manifest()["assets"]["assets/art/enemy.png"]["provenance"]["recipe"]["command"] == "image.bake");
+
+    for (const char* bad : {"../escape.png", "assets/art/enemy.jpg", "/tmp/x.png", ""}) {
+        const CommandResult e = p.call("image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", bad}});
+        INFO("output " << bad);
+        REQUIRE_FALSE(e.ok);
+        CHECK(e.error.dump().find("/output") != std::string::npos);
+        CHECK_FALSE(p.exists("assets/src/bad.image.json"));
+    }
+    CHECK_FALSE(p.call("image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", 5}}).ok);
+}
+
 TEST_CASE("export: image documents are baked before the game is packed") {
     testing::TempDir tmp;
     const std::string proj = tmp.sub("proj");

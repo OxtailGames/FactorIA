@@ -708,6 +708,10 @@ stride. The arms swing against the legs (`armSwing`, `elbowBend`), the torso lea
 Example: `factoria call anim3d.generate '{"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLength":1.6}}'`
 writes `anim/hero_walk.anim.json` (the default `out` is `anim/<rig file name without .rig.glb>_<kind>.anim.json`).
 
+The clip gets a provenance record in `assets.json` with a recipe whose input is the rig, so `assets.regenerate {"stale": true}`
+makes it again after the rig is fitted again. `anim3d.retarget` does the same (inputs: the source clip and both rigs). Editing
+a clip by hand (`anim3d.set_keys`...) removes the recipe.
+
 ## Retargeting
 
 `anim3d.retarget {path, to, out, from?}` carries a clip from one rig to another: a walk made for one humanoid plays on another
