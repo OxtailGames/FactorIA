@@ -56,13 +56,22 @@
     }
   }
   const fmt = (args) => args.map((a) => inspect(a)).join(" ");
+  // console.error and console.assert are not errors of the game for a test (testRun): they log at ERROR level like a script error, so
+  // their texts are counted here, only while a test runs (the Map is emptied when it ends: a running game keeps nothing), and
+  // subtracted from the ERROR records the test saw.
+  const consoleErrorTexts = new Map();
+  let consoleErrorsOn = false;
+  const noteConsoleError = (text) => {
+    if (consoleErrorsOn) consoleErrorTexts.set(text, (consoleErrorTexts.get(text) || 0) + 1);
+    return text;
+  };
   const consoleObj = {
     log: (...a) => N.log(2, fmt(a)),
     info: (...a) => N.log(2, fmt(a)),
     debug: (...a) => N.log(1, fmt(a)),
     warn: (...a) => N.log(3, fmt(a)),
-    error: (...a) => N.log(4, fmt(a)),
-    assert: (c, ...a) => { if (!c) N.log(4, "Assertion failed: " + fmt(a)); },
+    error: (...a) => N.log(4, noteConsoleError(fmt(a))),
+    assert: (c, ...a) => { if (!c) N.log(4, noteConsoleError("Assertion failed: " + fmt(a))); },
     trace: (...a) => N.log(1, fmt(a) + "\n" + new Error().stack),
   };
   globalThis.console = consoleObj;
@@ -4097,15 +4106,40 @@
     suiteStack.push(suite);
     try { fn(); } finally { suiteStack.pop(); }
   };
-  function test(name, fn) {
+  // The errors a test says it expects: RegExp or string (a part of the logged error's text). From test(name, fn, { expectErrors: [...] })
+  // and game.expectErrors(...); testRun fails a test whose game logged an error that none of them matches, and one with a pattern
+  // that matched nothing.
+  function errorPatterns(list, where) {
+    const out = [];
+    for (const p of list.flat()) {
+      if (!(p instanceof RegExp) && !(typeof p === "string" && p !== "")) {
+        throw new Error(`${where} expects regular expressions or non-empty strings (a part of the error's text), e.g. /missing file/, but got ${inspect(p)}`);
+      }
+      out.push({ pattern: p, hit: false });
+    }
+    return out;
+  }
+  const errorMatches = (e, message) => (e.pattern instanceof RegExp ? new RegExp(e.pattern.source, e.pattern.flags.replace(/[gy]/g, "")).test(message) : message.includes(e.pattern));
+  function test(name, fn, options) {
     if (typeof fn !== "function") throw new Error(`test('${name}', fn): the second argument must be a function`);
+    let expected = [];
+    if (options !== undefined) {
+      if (!isObj(options)) throw new Error(`test('${name}', fn, options): options must be an object like { expectErrors: [/pattern/] }, but got ${inspect(options)}`);
+      for (const k of Object.keys(options)) {
+        if (k !== "expectErrors") throw new Error(`test('${name}', fn, options): unknown option '${k}'; the only option is expectErrors`);
+      }
+      if (options.expectErrors !== undefined) {
+        if (!Array.isArray(options.expectErrors)) throw new Error(`test('${name}', fn, options): expectErrors must be an array of RegExp or strings, but got ${inspect(options.expectErrors)}`);
+        expected = errorPatterns(options.expectErrors, `test('${name}', fn, { expectErrors })`);
+      }
+    }
     tests.push({
       name: [...suiteStack.map((s) => s.name), name].join(" > "),
-      fn, skip: suiteStack.some((s) => s.skip),
+      fn, skip: suiteStack.some((s) => s.skip), expected,
       before: suiteStack.flatMap((s) => s.beforeEach), after: suiteStack.flatMap((s) => s.afterEach),
     });
   }
-  test.skip = (name, fn) => { tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, before: [], after: [] }); };
+  test.skip = (name, fn) => { tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, expected: [], before: [], after: [] }); };
   const beforeEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].beforeEach.push(fn); else throw new Error("beforeEach must be called inside describe()"); };
   const afterEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].afterEach.push(fn); else throw new Error("afterEach must be called inside describe()"); };
 
@@ -4390,6 +4424,13 @@
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
     fileReads() { return N.testDiskReads(); },
+    // Says that this test expects the game to log an error that matches (a RegExp, or a string that is part of the text): it does not
+    // fail the test, and the test fails when no error matches. Any other error the game logs during a test fails it.
+    expectErrors(...patterns) {
+      if (testCurrentName === "") throw new Error("game.expectErrors() can only be called inside a test (or use test(name, fn, { expectErrors: [...] }))");
+      if (patterns.length === 0) throw new Error("game.expectErrors(/pattern/) needs at least one RegExp or string");
+      testExpected.push(...errorPatterns(patterns, "game.expectErrors()"));
+    },
     loadJson(scene, props) {
       const err = N.testLoadJson(plain(scene), props === undefined ? undefined : plain(props));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
@@ -4512,9 +4553,38 @@
   });
   const testApi = { test, describe, expect, robust, game: gameApi, beforeEach, afterEach };
 
+  let testExpected = [];  // the {pattern, hit} list of the running test (its option plus game.expectErrors calls)
   function testBegin(file) { currentFile = file; tests = []; suiteStack = []; testCurrentName = ""; }
   function testCurrent() { return testCurrentName; }
-  function testRun(filter) {
+  // The text that fails a test for the errors logged since `seq0`, or "". `expected` is the test's list of {pattern, hit}. An expected
+  // pattern that matched nothing fails only a test that passed otherwise (one that threw may not have got as far as the error).
+  function errorsOfTest(seq0, expected, testPassed) {
+    const consoleLeft = new Map(consoleErrorTexts);
+    const unexpected = [];
+    for (const r of N.logErrors(seq0)) {
+      const left = r.category === "script" ? consoleLeft.get(r.message) : 0;
+      if (left > 0) { consoleLeft.set(r.message, left - 1); continue; }
+      let matched = false;
+      for (const e of expected) if (errorMatches(e, r.message)) { e.hit = true; matched = true; }
+      if (!matched) unexpected.push(r);
+    }
+    const missing = testPassed ? expected.filter((e) => !e.hit) : [];
+    const clip = (s) => (s.length > 1500 ? s.slice(0, 1500) + "..." : s);
+    let out = "";
+    if (unexpected.length > 0) {
+      const first = unexpected[0];
+      out = `the game logged an error while this test ran (${first.category}), so the test fails whatever it asserted:\n${clip(first.message)}`;
+      if (unexpected.length > 1) out += `\n(and ${unexpected.length - 1} more error${unexpected.length > 2 ? "s" : ""})`;
+      out += "\nFix the script or the file it names. If the test is about that error, say so with game.expectErrors(/part of the text/) or test(name, fn, { expectErrors: [/part of the text/] }). console.error is not an error.";
+    }
+    if (missing.length > 0) {
+      out += (out ? "\n" : "") + `the test expected ${missing.length === 1 ? "an error" : "errors"} that the game never logged: ` +
+        missing.map((e) => (e.pattern instanceof RegExp ? String(e.pattern) : JSON.stringify(e.pattern))).join(", ") +
+        ". Remove the expectation or fix the test (the error is only logged when the code that causes it runs)";
+    }
+    return out;
+  }
+  function testRunBody(filter) {
     const f = (filter || "").toLowerCase();
     const results = [];
     for (const t of tests) {
@@ -4538,9 +4608,13 @@
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
       const start = N.nowMs();
+      N.forgetLoggedErrors();  // a script error is logged once per place and text: this test must see again the ones it causes
+      consoleErrorTexts.clear();
+      consoleErrorsOn = true;
+      testExpected = t.expected.map((e) => ({ pattern: e.pattern, hit: false }));
       const seq0 = N.logSeq();
       const cuts0 = N.watchdogCuts();
-      let passed = true, message = "";
+      let passed = true, message = "", loggedError = false;
       N.guardBegin(`test '${t.name}'`, 60.0);
       try {
         for (const h of t.before) h();
@@ -4553,6 +4627,9 @@
           if (state === 0) throw new Error("the test returned a promise that never resolved. game.step() is synchronous: do not await timers or frames");
         }
         for (const h of t.after) h();
+        // A promise the test left rejected (an async game function, an async world.on listener) is logged when the jobs run: do it
+        // here, inside this test, so its error fails this test and not the next one (or none, at the end of the file).
+        N.pumpJobs();
       } catch (e) {
         passed = false;
         const loc = locate(e);
@@ -4571,14 +4648,30 @@
         const cutText = N.watchdogCuts(cuts0);
         passed = false;
         message = (message ? message + "\n" : "") + `${cutText}. The test ran while a script callback was cut short, so its result cannot be trusted: fix the loop (a script that spins)`;
+      } else {
+        // A game script threw (a callback, an event, a module's top level) or the engine logged an ERROR while the test ran: whatever
+        // the test asserted, the game failed. console.error is the game's own message, not an error. An error the test expects
+        // (game.expectErrors, the expectErrors option) is not one; an expected error that never came is.
+        const problem = errorsOfTest(seq0, testExpected, passed);
+        if (problem) {
+          loggedError = true;
+          message = problem + (message ? "\n(the test also failed:)\n" + message : "");
+          passed = false;
+        }
       }
-      results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
+      testExpected = [];
+      consoleErrorsOn = false;
+      consoleErrorTexts.clear();
+      results.push({ name: t.name, passed, message, loggedError, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
     N.setTimeScale(1); pausedScale = null; tweens.reset();
     N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);
     testCurrentName = "";
     return results;
+  }
+  function testRun(filter) {
+    try { return testRunBody(filter); } finally { consoleErrorsOn = false; consoleErrorTexts.clear(); testExpected = []; }  // also when the watchdog ended the run
   }
 
   // ---- the bot (game.autoplay): state kept between steps, and the call the play.auto driver makes every step
