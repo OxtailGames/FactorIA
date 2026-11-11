@@ -448,12 +448,16 @@ struct Parser {
     void normalize(const Json& j, const std::string& pointer, SfxNormalize& n) {
         static const std::vector<std::string> modes = {"lufs", "peak", "none"};
         if (!object(j, pointer, "normalize", "{\"mode\": \"lufs\", \"target\": -18}")) return;
-        unknown_keys(j, pointer, {"mode", "target", "ceilingDb"}, "normalize");
+        unknown_keys(j, pointer, {"mode", "target", "ceilingDb", "shared"}, "normalize");
         if (int m = choice(j, pointer, "mode", modes, " lufs levels by loudness (right for effects), peak by the loudest sample, none keeps the level the layers add up to (right for instruments)."); m >= 0)
             n.mode = SfxNormalizeMode(m);
         if (n.mode == SfxNormalizeMode::Peak) n.target = -3.0;
         number(j, pointer, "target", n.target, -60.0, 0.0, n.mode == SfxNormalizeMode::Peak ? " (dBFS)" : " (LUFS)", "The level to reach: -18 LUFS is a quiet sound effect, -14 is loud music. In mode peak it is the loudest sample in dBFS.");
         number(j, pointer, "ceilingDb", n.ceilingDb, -24.0, 0.0, " (dBFS)", "The loudest sample is kept under this when the gain would push it higher, e.g. -1.");
+        if (auto it = j.find("shared"); it != j.end()) {
+            if (!it->is_boolean()) err(pointer + "/shared", "`shared` must be true or false", "Write \"shared\": true so all the variants get the one gain found on the loudest, or leave it out to level each variant alone.");
+            else n.shared = it->get<bool>();
+        }
     }
 };
 

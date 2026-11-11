@@ -665,6 +665,49 @@ TEST_CASE("sfx macros: binds set numbers of the patch by pointer, linear or on a
     CHECK_FALSE(parse_sfx(*bad, "t").ok());
 }
 
+TEST_CASE("sfx variations: master.normalize.shared levels every variant with one gain, so they keep their ratios") {
+    // A noise through a lowpass whose cutoff moves by up to 2 octaves per variant: the takes differ a lot in loudness.
+    auto text = [](bool shared) {
+        return std::string(R"({"format": "factoria.sfx/1", "length": 0.4, "tail": 0.05, "seed": 3,
+        "variations": {"count": 4, "seed": 9, "spread": {"filter": 2.0}},
+        "layers": [{"oscillators": [{"wave": "noise", "color": "white"}], "amp": {"attack": 0.002, "decay": 0.1, "sustain": 0.8, "release": 0.05},
+                    "filter": {"mode": "lowpass", "cutoff": 1200}}],
+        "master": {"normalize": {"mode": "lufs", "target": -20, "ceilingDb": -3, "shared": )") + (shared ? "true" : "false") + "}}}";
+    };
+    const SfxPatch alone = patch_of(text(false).c_str()), shared = patch_of(text(true).c_str());
+    CHECK_FALSE(alone.normalize.shared);
+    REQUIRE(shared.normalize.shared);
+    std::vector<double> raw, one, together;
+    for (int i = 0; i < 4; ++i) {
+        SfxRenderOptions o;
+        o.variant = i;
+        auto a = render_sfx(alone, o), s = render_sfx(shared, o);
+        o.normalize = SfxNormalize{SfxNormalizeMode::None, 0.0, 0.0, false};
+        auto r = render_sfx(shared, o);
+        REQUIRE((a.ok() && s.ok() && r.ok()));
+        one.push_back(a->lufs);
+        together.push_back(s->lufs);
+        raw.push_back(r->lufs);
+    }
+    const auto spread = [](const std::vector<double>& v) { return *std::max_element(v.begin(), v.end()) - *std::min_element(v.begin(), v.end()); };
+    REQUIRE(spread(raw) > 3.0);  // the takes really differ
+    for (int i = 1; i < 4; ++i) CHECK(together[std::size_t(i)] - together[0] == doctest::Approx(raw[std::size_t(i)] - raw[0]).epsilon(0.01).scale(1.0));
+    CHECK(spread(one) < spread(raw));  // alone, each one is pulled toward the target
+    // the loudest variant is the one that reached the target (or its ceiling) and none is louder than that
+    CHECK(*std::max_element(together.begin(), together.end()) <= -20.0 + 0.05);
+    SfxRenderOptions o;
+    auto g = sfx_shared_gain_db(shared, o);
+    REQUIRE(g.ok());
+    CHECK(*g == doctest::Approx(*std::max_element(together.begin(), together.end()) - *std::max_element(raw.begin(), raw.end())).epsilon(0.01).scale(1.0));
+    // unknown / wrong-typed `shared` is reported with its pointer
+    std::vector<SfxIssue> issues;
+    auto bad = parse_json(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "sine"}]}], "master": {"normalize": {"shared": "yes"}}})");
+    REQUIRE(bad.ok());
+    CHECK_FALSE(parse_sfx(*bad, "t", &issues).ok());
+    REQUIRE_FALSE(issues.empty());
+    CHECK(issues[0].pointer == "/master/normalize/shared");
+}
+
 TEST_CASE("sfx variations: N distinct, deterministic takes inside the declared spread") {
     const char* text = R"({"format": "factoria.sfx/1", "length": 0.3, "tail": 0.1, "seed": 2,
         "variations": {"count": 8, "seed": 5, "spread": {"pitch": 60, "length": 0.2, "gain": 2, "filter": 0.5}},

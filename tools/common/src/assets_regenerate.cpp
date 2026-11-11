@@ -249,7 +249,8 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
         }
         if (staleOnly && !check.stale()) {
             Json s = brief;
-            s["reason"] = "up to date";
+            s["reason"] = check.compared.empty() ? "up to date: the recipe records no inputs, so nothing can make it stale" : "up to date: every input below still has the hash the recipe recorded";
+            s["compared"] = check.compared;  // [{path, sha256}]: the inputs the check hashed now, and the style values it compared
             skipped.push_back(s);
             continue;
         }

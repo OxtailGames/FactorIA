@@ -266,7 +266,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dfd754a1",
+      "notes": [
+        "Fixed in dfd754a1: sfx.bake takes path (one patch or a list)."
+      ]
     },
     {
       "id": "FB-0011",
@@ -292,7 +296,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dfd754a1",
+      "notes": [
+        "Fixed in dfd754a1: master.normalize.shared levels all variants with one gain; assets.regenerate lists the inputs it compared. footstep.sfx.json uses it and the import.normalize workaround is gone."
+      ]
     },
     {
       "id": "FB-0012",
