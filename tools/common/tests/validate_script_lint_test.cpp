@@ -173,3 +173,17 @@ TEST_CASE("validate scripts: a colour that mixes 0..1 and 0..255 warns with the 
     CHECK_FALSE(json_to(Json::parse("[1, 2]"), c, &err));
     CHECK(err.find("0..255 when any channel is over 1") != std::string::npos);
 }
+
+TEST_CASE("validate scripts: a default import of factoria is the whole module and its members are checked") {
+    testing::TempDir tmp;
+    const std::string dir = make_game(tmp);
+    write_script(dir, "scripts/dflt.js",
+                 "import F from \"factoria\";\nimport { default as G } from \"factoria\";\n"
+                 "export default class D extends F.Behaviour {\n  onStart() {\n    F.world.find(\"x\");\n    G.wrold;\n  }\n}\n");
+    const ValidationReport r = validate_with_engine(dir);
+    for (const ValidationIssue& i : r.errors) MESSAGE("error: " << i.to_string());
+    CHECK(find_issue(r.errors, "no default export") == nullptr);
+    CHECK(find_issue(r.errors, "scripts/dflt.js:3") == nullptr);
+    CHECK(find_issue(r.errors, "scripts/dflt.js:5") == nullptr);
+    CHECK(find_issue(r.errors, "scripts/dflt.js:6:7") != nullptr);  // G.wrold
+}
