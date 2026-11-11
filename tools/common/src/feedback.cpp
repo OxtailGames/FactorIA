@@ -1507,7 +1507,8 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             "field, a command, a scripting member). Search first: docs.search for the thing, docs.components "
             "for the fields of the component you mean, or call feedback.check with your "
             "title/missing/suggestion. This command runs the same check and REFUSES a report whose missing "
-            "thing exists, naming what exists and the page that documents it."
+            "thing exists, naming what exists and the page that documents it. An entry without `share` is "
+            "never sent; whether anything is sent is the USER's choice and no command changes it, so do not try."
             FA_COMMAND_DETAILS
             "If it exists but does not work as documented, file a BUG instead: say what you set, what you "
             "expected and what happened. A request for an extra option on an existing component is fine. The "

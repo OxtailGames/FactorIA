@@ -245,7 +245,7 @@ Json describe_commands(const CommandRegistry& registry, const std::vector<std::s
                                          {"tool", tool_name_for_command(info->name)},
                                          {"category", info->category},
                                          {"summary", info->summary},
-                                         {"description", info->description},
+                                         {"description", info->full_description()},
                                          {"readOnly", is_read_only_tool(*info)},
                                          {"inputSchema", info->inputSchema}}));
     }

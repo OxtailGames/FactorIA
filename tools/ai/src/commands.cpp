@@ -744,7 +744,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "share text, use what the engine already has, or drop `share`). The model is the \"fast\" role "
             "of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The "
             "result is {id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, "
-            "rewritten, reviewed, share, role}. Example: {\"id\":\"FB-0003\"}"
+            "rewritten, reviewed, share, role}. Example: {\"id\":\"FB-0003\"} "
+            "It never changes the sharing mode and never sends anything."
             FA_COMMAND_DETAILS
             "This command never changes the sharing mode and never sends anything: only a person decides "
             "whether entries leave the machine. With `share` it reviews that text instead of the saved one "

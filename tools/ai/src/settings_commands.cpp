@@ -169,7 +169,9 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             "user changes them in the editor's AI settings window (Your defaults). `value` null removes the "
             "setting: from the project file (it goes back to your default) or from ai.json (it goes back to "
             "the engine's). Example: "
-            "{\"scope\":\"project\",\"pointer\":\"/roles/artist/enabled\",\"value\":false}"
+            "{\"scope\":\"project\",\"pointer\":\"/roles/artist/enabled\",\"value\":false} "
+            "Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's "
+            "decision."
             FA_COMMAND_DETAILS
             "A new provider for a role or asset route drops its model, effort and voice. A project can only "
             "NAME providers, tool servers and extensions that your ai.json defines, and never holds a "
