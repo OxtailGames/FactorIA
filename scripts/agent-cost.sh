@@ -135,7 +135,15 @@ stop_group() {
     cleanup_wd=""
 }
 # The throw-away homes hold nothing worth keeping (the transcript and the game are in the work folder): removed at the end.
-remove_homes() { [ -n "${workdir:-}" ] && rm -rf "$workdir/home" "$workdir/cli-home" 2>/dev/null; return 0; }
+# Only the ones this script made: a --workdir that already had its own home/ keeps it.
+made_home=""
+made_cli_home=""
+remove_homes() {
+    [ -n "${workdir:-}" ] || return 0
+    [ -n "$made_home" ] && rm -rf "$workdir/home" 2>/dev/null
+    [ -n "$made_cli_home" ] && rm -rf "$workdir/cli-home" 2>/dev/null
+    return 0
+}
 trap 'echo "agent-cost: interrupted: stopping the CLI" >&2; stop_group; remove_homes; exit 130' INT
 trap 'echo "agent-cost: terminated: stopping the CLI" >&2; stop_group; remove_homes; exit 143' TERM
 trap 'stop_group; remove_homes' EXIT
@@ -192,7 +200,8 @@ if [ -z "$report_only" ]; then
 
     # The AI never touches the installed engine nor the real home: it gets a COPY of the engine and a `factoria` wrapper that
     # runs the copy with a throw-away HOME (so `setup`, `feedback share`, the updater... have nothing of yours to change).
-    mkdir -p "$workdir/bin" "$workdir/home"
+    mkdir -p "$workdir/bin"
+    if [ ! -e "$workdir/home" ]; then mkdir -p "$workdir/home"; made_home=1; fi
     cp -R "$fdir" "$workdir/engine"
     printf '#!/bin/sh\nHOME=%s exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN %s "$@"\n' "$(sh_quote "$workdir/home")" "$(sh_quote "$workdir/engine/factoria")" > "$workdir/bin/factoria"
     chmod +x "$workdir/bin/factoria"
@@ -206,6 +215,7 @@ if [ -z "$report_only" ]; then
     [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && cli_env+=(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN")
     if [ -n "$force_isolated" ] || [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
         home_isolated=1
+        if [ ! -e "$workdir/cli-home" ]; then made_cli_home=1; fi
         mkdir -p "$workdir/cli-home/.claude"
         cli_env+=(HOME="$workdir/cli-home" CLAUDE_CONFIG_DIR="$workdir/cli-home/.claude")
     else

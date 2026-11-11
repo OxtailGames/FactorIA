@@ -31,6 +31,7 @@ Masked mask_source(const std::string& t) {
                 if (!subst.empty() && c == '{') ++subst.back();
                 else if (!subst.empty() && c == '}') {
                     if (--subst.back() == 0) {
+                        blank(m.bare, i);  // the closing brace is not code either: an orphan `}` would unbalance declared_names
                         subst.pop_back();
                         st = S::Template;
                     }

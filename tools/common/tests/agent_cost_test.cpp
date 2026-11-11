@@ -82,6 +82,15 @@ TEST_CASE("agent cost: level names that only contain a menu word are levels") {
     CHECK(r["levelPhases"] == 5);  // main_menu is a menu; the folder "menu/" does not make level1 one
 }
 
+TEST_CASE("agent cost: PascalCase menu and end screens are not levels, a mark is read whole") {
+    const Json r = agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/MainMenu.scene.json","kind":"scene"},
+        {"name":"scenes/LevelWin.scene.json","kind":"scene"},{"name":"scenes/TitleScreen.scene.json","kind":"scene"},
+        {"name":"scenes/GameOver.scene.json","kind":"scene"},{"name":"scenes/Subtitle.scene.json","kind":"scene"},
+        {"name":"menu/open","kind":"mark"}]})");
+    CHECK(r["phases"] == 6);
+    CHECK(r["levelPhases"] == 1);  // Subtitle; the mark "menu/open" is a menu mark (read whole)
+}
+
 TEST_CASE("agent cost: a menu, a level and a win screen are one level, not three") {
     const Json menu = agent_cost_read_play_auto(R"({"ended":"won","endedWhy":"scripts/autoplay.js ended the run with \"won\"\nsecond line","phases":[
         {"n":1,"name":"scenes/menu.scene.json","kind":"scene"},{"n":2,"name":"scenes/main.scene.json","kind":"scene"},

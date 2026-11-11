@@ -111,6 +111,12 @@ grep -q '"homeIsolated":true' "$wd/agent-cost-args.json" && ! grep -q 'real HOME
 [ ! -e "$wd/cli-home" ] && [ ! -e "$wd/home" ]; check "the throw-away home/ and cli-home/ are removed at the end" $?
 grep -q 'env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN' "$wd/bin/factoria"; check "the factoria wrapper drops the credentials" $?
 [ "$(grep -c 'exec env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN' "$script")" -ge 2 ]; check "the final play.auto drops the credentials too" $?
+wd="$tmp/keep"
+mkdir -p "$wd/home" "$wd/cli-home"
+echo mine > "$wd/home/mine.txt"
+echo mine > "$wd/cli-home/mine.txt"
+run ok "$wd" --isolated-home
+[ -f "$wd/home/mine.txt" ] && [ -f "$wd/cli-home/mine.txt" ]; check "a home/ and cli-home/ that were there before the run are not deleted" $?
 wd="$tmp/iso2"
 run ok "$wd" --isolated-home
 grep -q "^HOME=$wd/cli-home\$" "$wd/fake-env.txt" && ! grep -q '^ANTHROPIC_API_KEY=' "$wd/fake-env.txt"; check "--isolated-home isolates HOME without a token" $?
