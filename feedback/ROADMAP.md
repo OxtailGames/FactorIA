@@ -2942,6 +2942,13 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
   p95 was 263.1 and one frame took 4579 ms. `perf.measure` reports `cpuMsMedian` too (and keeps the average and the
   maximum in the report, not in the gate); `perf.check` names the slowest frames, so a spike is seen, not hidden.
   `editor_autotest_5` timed out in the same run and joins the autotest sections above.
+  The p95 needs the wide band too, and so do the re-measures: PR 210's first run (2026-11-11, a branch with no engine
+  change) failed three example budgets on macos-clang-metal-paravirtual within 40 s, each with the best of its three
+  measurements. `example_kindlewatch_perf` (`cpuMsAvg` 9.255 > 8, p95 3.607, one frame of 1924 ms) and
+  `example_tidewater-market_perf` (`cpuMsAvg` 13.686 > 13.602, p95 35.2 against a limit of 54.4, one frame of 293 ms)
+  are the average again. `example_gem-roller_perf` failed on the p95 itself: 1.745 > 1.464 with a baseline of 0.464,
+  3.8 times it. Under a millisecond the 1 ms slack is most of the limit, and the two re-measures follow the first at
+  once, inside the seconds the shared runner is slow.
 - M100.10 (S) Bookkeeping of the review: KW/FB-0019 gets its dawn example in ANIMATION.md (a `tween` of
   `world.settings`) with a test, ED/FB-0002's docs part is noted, and this file keeps only what is open and the
   decisions: the DONE milestone sections move out, and ROADMAP_DONE.md becomes one file per milestone under
