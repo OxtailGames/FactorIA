@@ -775,8 +775,8 @@ TEST_CASE("model.game_ready: collider.part fits the collider to one part, a shor
     write_all(p.file("assets/models/tree.model.json"),
               R"({"format": "factoria.model/1", "nodes": [{"op": "cylinder", "radius": 0.2, "height": 2, "position": [0, 1, 0], "part": "trunk"},
                                                           {"op": "sphere", "radius": 1.5, "position": [0, 3.5, 0], "part": "canopy"}]})");
-    const Json whole = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}}}});
-    const Json trunk = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunk"}}}});
+    p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}}}});
+    p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunk"}}}});
     const Json doc = parse_json(read_all(p.file("assets/models/tree.model.json")), "doc").value();
     CHECK(doc["gameReady"]["collider"]["part"] == "trunk");
     const Json prefab = parse_json(read_all(p.file("assets/models/tree.prefab.json")), "prefab").value();
@@ -784,8 +784,6 @@ TEST_CASE("model.game_ready: collider.part fits the collider to one part, a shor
     REQUIRE(size.is_array());
     CHECK(size[0].get<double>() < 0.5);  // the trunk is 0.4 wide; the canopy is 3 wide
     CHECK(size[1].get<double>() < 2.5);
-    (void)whole;
-    (void)trunk;
     // a part that does not exist teaches
     const CommandResult missing = p.call("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunc"}}}});
     const std::string missingText = missing.ok ? missing.result.dump() : missing.error.dump();
