@@ -85,11 +85,12 @@
         "author": "factoria",
         "source": "assets/models/scout.rig.json",
         "notes": "A humanoid skeleton of 22 bones fitted to the model 'assets/models/scout.model.json' by rig document 'assets/models/scout.rig.json': 27 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/scout.rig.json"
+            "path": "assets/models/scout.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {

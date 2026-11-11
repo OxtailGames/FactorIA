@@ -1816,11 +1816,12 @@
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.json",
         "notes": "A quadruped skeleton of 28 bones fitted to the model 'assets/models/alpha_wolf.model.json' by rig document 'assets/models/alpha_wolf.rig.json': 34 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/alpha_wolf.rig.json"
+            "path": "assets/models/alpha_wolf.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {
@@ -2002,7 +2003,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Built from the model document 'assets/models/pine.model.json': 212 triangles, 2 submeshes; parts: trunk, leaves.",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2011,7 +2012,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         },
@@ -2032,7 +2033,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2041,7 +2042,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2057,7 +2058,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2066,7 +2067,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2082,7 +2083,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2091,7 +2092,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2237,11 +2238,12 @@
         "author": "factoria",
         "source": "assets/models/warden.rig.json",
         "notes": "A humanoid skeleton of 19 bones fitted to the model 'assets/models/warden.model.json' by rig document 'assets/models/warden.rig.json': 24 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/warden.rig.json"
+            "path": "assets/models/warden.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {
@@ -2291,11 +2293,12 @@
         "author": "factoria",
         "source": "assets/models/wolf.rig.json",
         "notes": "A quadruped skeleton of 27 bones fitted to the model 'assets/models/wolf.model.json' by rig document 'assets/models/wolf.rig.json': 33 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/wolf.rig.json"
+            "path": "assets/models/wolf.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {

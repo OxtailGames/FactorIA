@@ -461,3 +461,41 @@ TEST_CASE("lod: MeshRenderer.lods picks the mesh by camera distance") {
     mr.lods = J(R"({"not":"a list"})");
     CHECK(lod_mesh(mr, 40.0f) == "assets/lamp.glb");
 }
+
+TEST_CASE("game ready: a collider fitted to one part, with a radius and height of its own") {
+    const ModelBuild b = build(kLamp);
+    ModelColliderSpec spec;
+    spec.shape = "capsule";
+    auto all = model_fit_collider(b.data, spec);
+    REQUIRE(all.ok());
+    spec.part = "stem";
+    auto stem = model_fit_collider(b.data, spec);
+    REQUIRE(stem.ok());
+    CHECK(stem->radius == doctest::Approx(0.2f).epsilon(0.05));
+    CHECK(stem->radius < all->radius);
+    CHECK(stem->center.y == doctest::Approx(2.0f).epsilon(0.01));
+    // make_game_ready fits the part before a merge joins the part names
+    ModelGameReady g = settings(R"({"merge":true,"collider":{"shape":"capsule","part":"stem","radius":0.3,"height":1.5}})");
+    CHECK(g.collider.part == "stem");
+    auto made = make_game_ready(b.data, g);
+    REQUIRE(made.ok());
+    CHECK(made->collider.radius == doctest::Approx(0.3f));
+    CHECK(made->collider.height == doctest::Approx(1.5f));
+    CHECK(game_ready_to_json(g)["collider"]["part"] == "stem");
+    // a merged mesh lists "base+stem+bulb" as one part: the bulb still matches inside it
+    auto mergedMesh = model_merge_by_material(b.data);
+    REQUIRE(mergedMesh.ok());
+    ModelColliderSpec bulb;
+    bulb.shape = "box";
+    bulb.part = "bulb";
+    CHECK(model_fit_collider(*mergedMesh, bulb).ok());
+    // an unknown part names the parts
+    spec.part = "stemm";
+    auto bad = model_fit_collider(b.data, spec);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().hint.find("stem") != std::string::npos);
+    CHECK(bad.error().hint.find("shade") != std::string::npos);
+    // radius and height only fit the shapes that have them
+    CHECK_FALSE(parse_game_ready(J(R"({"collider":{"shape":"box","radius":1}})"), "/gameReady").ok());
+    CHECK_FALSE(parse_game_ready(J(R"({"collider":{"shape":"sphere","height":1}})"), "/gameReady").ok());
+}

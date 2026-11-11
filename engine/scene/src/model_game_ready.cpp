@@ -164,7 +164,7 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
             const std::string cat = at + "/collider";
             if (!it->is_object()) r.err(cat, "collider must be an object, got " + describe_json_value(*it), "Example: {\"shape\": \"convex\", \"maxVertices\": 32}.");
             else {
-                unknown_keys(r, *it, cat, {"shape", "maxHulls", "maxVertices", "resolution"});
+                unknown_keys(r, *it, cat, {"shape", "maxHulls", "maxVertices", "resolution", "part", "radius", "height"});
                 if (auto s = it->find("shape"); s != it->end()) {
                     if (!s->is_string() || std::find(shape_names().begin(), shape_names().end(), s->get<std::string>()) == shape_names().end())
                         r.err(cat + "/shape", "shape must be one of " + join(shape_names(), ", ") + ", got " + describe_json_value(*s),
@@ -175,6 +175,17 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
                 if (read_number(r, *it, cat, "maxHulls", 1, 64, true, v, "How many convex pieces a decomposition may use, 1..64.")) g.collider.maxHulls = int(v);
                 if (read_number(r, *it, cat, "maxVertices", 4, kGameReadyMaxHullVertices, true, v, "Points per hull, 4..256 (the physics takes at most 256).")) g.collider.maxVertices = int(v);
                 if (read_number(r, *it, cat, "resolution", 10000, 4000000, true, v, "Voxels the decomposition splits the volume into, 10000..4000000.")) g.collider.resolution = int(v);
+                if (auto p = it->find("part"); p != it->end()) {
+                    if (!p->is_string() || p->get<std::string>().empty())
+                        r.err(cat + "/part", "part must be the name of a part of the model, got " + describe_json_value(*p), "Example: \"trunk\". model.info lists the parts.");
+                    else g.collider.part = p->get<std::string>();
+                }
+                if (read_number(r, *it, cat, "radius", 0.001, 10000, false, v, "The radius in metres, e.g. 0.35.")) g.collider.radius = v;
+                if (read_number(r, *it, cat, "height", 0.001, 10000, false, v, "The total height in metres (caps included), e.g. 4.")) g.collider.height = v;
+                if (g.collider.radius > 0 && g.collider.shape != "sphere" && g.collider.shape != "capsule")
+                    r.err(cat + "/radius", "radius only applies to a sphere or capsule collider, not '" + g.collider.shape + "'", "Set shape to \"sphere\" or \"capsule\", or remove radius.");
+                if (g.collider.height > 0 && g.collider.shape != "capsule")
+                    r.err(cat + "/height", "height only applies to a capsule collider, not '" + g.collider.shape + "'", "Set shape to \"capsule\", or remove height.");
             }
         }
         if (auto it = json.find("platforms"); it != json.end()) {
@@ -210,10 +221,14 @@ Json game_ready_to_json(const ModelGameReady& g) {
         if (l.distance > 0) o["distance"] = l.distance;
         lods.push_back(o);
     }
+    Json collider = Json::object({{"shape", g.collider.shape}, {"maxHulls", g.collider.maxHulls}, {"maxVertices", g.collider.maxVertices}, {"resolution", g.collider.resolution}});
+    if (!g.collider.part.empty()) collider["part"] = g.collider.part;
+    if (g.collider.radius > 0) collider["radius"] = g.collider.radius;
+    if (g.collider.height > 0) collider["height"] = g.collider.height;
     return Json::object({{"origin", g.origin},
                          {"merge", g.merge},
                          {"lods", lods},
-                         {"collider", Json::object({{"shape", g.collider.shape}, {"maxHulls", g.collider.maxHulls}, {"maxVertices", g.collider.maxVertices}, {"resolution", g.collider.resolution}})},
+                         {"collider", collider},
                          {"platforms", g.platforms}});
 }
 
@@ -247,7 +262,10 @@ Json game_ready_schema() {
                                Json::object({{"shape", Json::object({{"enum", shape_names()}, {"default", "none"}, {"description", "none, box, sphere, capsule, convex or decomposed."}})},
                                              {"maxHulls", num("integer", 1, 64, "decomposed: at most this many convex pieces. Default 8.")},
                                              {"maxVertices", num("integer", 4, kGameReadyMaxHullVertices, "convex, decomposed: at most this many points per hull. Default 32.")},
-                                             {"resolution", num("integer", 10000, 4000000, "decomposed: voxels the volume is split into. Default 100000.")}})}})},
+                                             {"resolution", num("integer", 10000, 4000000, "decomposed: voxels the volume is split into. Default 100000.")},
+                                             {"part", Json::object({{"type", "string"}, {"description", "Fit the collider to this part of the model only (the `part` of a node, e.g. a pine's \"trunk\" so the canopy does not block). Default: the whole model."}})},
+                                             {"radius", num("number", 0.001, 10000, "sphere, capsule: this radius in metres instead of the fitted one.")},
+                                             {"height", num("number", 0.001, 10000, "capsule: this total height in metres (caps included) instead of the fitted one.")}})}})},
                {"platforms", Json::object({{"type", "array"}, {"items", Json::object({{"enum", Json::array({"desktop", "mobile", "web"})}})}, {"description", "The platforms whose triangle and draw-call budget the report checks. Default all."}})}})}});
 }
 
@@ -461,6 +479,9 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
     ModelGameReadyResult out;
     out.offset = model_origin_offset(input, s.origin);
     MeshData mesh = (out.offset.x == 0 && out.offset.y == 0 && out.offset.z == 0) ? input : model_translated(input, out.offset);
+    MeshData unmerged;  // merging joins part names, so a collider fitted to one part reads the mesh as it was before
+    const bool keepUnmerged = s.merge && !s.collider.part.empty() && s.collider.shape != "none";
+    if (keepUnmerged) unmerged = mesh;
     out.merge.submeshesBefore = out.merge.submeshesAfter = mesh.submeshes.size();
     out.merge.verticesBefore = out.merge.verticesAfter = mesh.vertex_count();
     if (s.merge) {
@@ -491,7 +512,7 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
         out.lods.push_back(std::move(*lod));
     }
     if (s.collider.shape != "none") {
-        auto c = model_fit_collider(out.mesh, s.collider);
+        auto c = model_fit_collider(keepUnmerged ? unmerged : out.mesh, s.collider);
         if (!c.ok()) return make_error("collider: " + c.error().message, c.error().hint);
         for (const std::string& w : c->warnings) out.warnings.push_back("collider: " + w);
         out.collider = std::move(*c);

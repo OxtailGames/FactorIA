@@ -101,7 +101,9 @@
       }
     ],
     "collider": {
-      "shape": "capsule"
+      "shape": "capsule",
+      "part": "trunk",
+      "radius": 0.32
     }
   }
 }
