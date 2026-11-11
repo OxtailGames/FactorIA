@@ -713,10 +713,16 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
                      (std::string("Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormalises. max 1 makes the selection rigid per vertex. Example: {\"path\":\"assets/models/hero.rig.json\",\"max\":2,\"part\":\"hand_l\"}.") + kScope).c_str(),
                      obj({{"max", integer("Influences kept per vertex, 1 to 4 (default 4).", 1, 4)}}), {});
     add_edit_command(registry, projectDir, "skin3d.mirror", "mirror", "Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.",
-                     (std::string("Copies the weights from the side `from` (\"l\" = the character's left, +X; \"r\" = right) to the opposite side: each vertex is paired with the vertex nearest to its mirror image across the symmetry plane "
-                                  "(`symmetryX` of the rig document, else the centre of the model's bounds), preferring one of the mirrored part, and takes its weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; bones on the "
-                                  "centre line keep themselves). Vertices with no partner within a tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it after hand-editing one arm. "
-                                  "Example: {\"path\":\"assets/models/hero.rig.json\",\"from\":\"l\"}.") + kScope).c_str(),
+                     (std::string("Copies the weights from the side `from` (\"l\" = the character's left, +X; \"r\" = "
+                         "right) to the opposite side: each vertex is paired with the vertex nearest to its "
+                         "mirror image across the symmetry plane (`symmetryX` of the rig document, else the "
+                         "centre of the model's bounds), preferring one of the mirrored part, and takes its "
+                         "weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; "
+                         "bones on the centre line keep themselves). Vertices with no partner within a "
+                         "tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it "
+                         "after hand-editing one arm. Example: "
+                         "{\"path\":\"assets/models/hero.rig.json\",\"from\":\"l\"}. "
+                         FA_COMMAND_DETAILS) + kScope).c_str(),
                      obj({{"from", Json::object({{"type", "string"}, {"enum", Json::array({"l", "r"})}, {"description", "The side whose weights are copied to the other: l (+X) or r (-X)."}})}}), {"from"});
     {
         CommandInfo info;

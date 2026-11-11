@@ -41,6 +41,12 @@ struct CommandError : std::runtime_error {
         : std::runtime_error(message), code(std::move(code_)), hint(std::move(hint_)), data(std::move(data_)) {}
 };
 
+// A description may carry its details itself, for commands that a helper builds from a summary and a description:
+// CommandRegistry::add moves everything after this one character (a literal of its own: "short text" FA_COMMAND_DETAILS "the rest")
+// into CommandInfo::details.
+inline constexpr char kCommandDetailsMark = '\x1e';
+#define FA_COMMAND_DETAILS "\x1e"
+
 struct CommandInfo {
     std::string name;         // "scene.spawn"
     std::string summary;      // one line, imperative ("Create an entity from JSON.")
@@ -48,6 +54,14 @@ struct CommandInfo {
     Json inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
     bool readOnly = true;     // false if it mutates game/project state
     std::string category;     // "scene", "game", "project", "assets", "feedback", "docs", "fs"...
+    // What does not fit in `description`. MCP's tools/list sends summary + description with every request, so a description
+    // stays under 1.5 KB (a test holds every command to it) and the rest goes here. It is in the docs reference
+    // (docs/reference/commands, docs.commands {"name": ...}, `factoria commands <name>`); the description MCP sends ends by
+    // saying where to read it (command_details_pointer).
+    std::string details;
+
+    // description + details: what a doc-facts test looks in, and what the docs reference prints.
+    std::string full_description() const { return details.empty() ? description : description + "\n\n" + details; }
 };
 
 using CommandHandler = std::function<Json(const Json& args)>;

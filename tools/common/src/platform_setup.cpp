@@ -140,9 +140,10 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
     info.readOnly = false;
     info.summary = "Set up a store backend for this game: its plugin, its build and what the store needs.";
     info.description =
-        "One call instead of the manual steps of docs/PLATFORM.md (\"Store backends\"): writes the backend's plugin from "
-        "its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for "
-        "this computer with CMake, and adds what that store needs." + perBackend +
+        "One call instead of the manual steps of docs/PLATFORM.md (\"Store backends\"): writes the backend's "
+        "plugin from its template (project.new_plugin with template = backend) unless factoria.json already "
+        "declares it, builds it for this computer with CMake, and adds what that store needs. "
+        FA_COMMAND_DETAILS + perBackend +
         " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps "
         "lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the "
         "plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true "

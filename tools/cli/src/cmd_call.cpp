@@ -322,12 +322,12 @@ Command make_commands_command() {
         if (!filter.empty() && reg.has(filter)) {
             const CommandInfo* info = reg.info(filter);
             if (ctx.args.has("json")) {
-                print_json(ctx.out, Json::object({{"name", info->name}, {"summary", info->summary}, {"description", info->description},
+                print_json(ctx.out, Json::object({{"name", info->name}, {"summary", info->summary}, {"description", info->description}, {"details", info->details},
                                                   {"inputSchema", info->inputSchema}, {"readOnly", info->readOnly}, {"category", info->category}}));
                 return 0;
             }
             ctx.out << info->name << " - " << info->summary << (info->readOnly ? "" : "  [modifies state]") << "\n\n"
-                    << info->description << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
+                    << info->description << (info->details.empty() ? "" : "\n\n" + info->details) << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
             return 0;
         }
         Json all = Json::array();
@@ -337,7 +337,7 @@ Command make_commands_command() {
             names.push_back(i->name);
             if (!filter.empty() && !starts_with(i->name, filter) && !starts_with(i->name, filter + ".")) continue;
             byCat[i->category.empty() ? "other" : i->category].push_back(i);
-            all.push_back(Json::object({{"name", i->name}, {"summary", i->summary}, {"description", i->description},
+            all.push_back(Json::object({{"name", i->name}, {"summary", i->summary}, {"description", i->description}, {"details", i->details},
                                         {"inputSchema", i->inputSchema}, {"readOnly", i->readOnly}, {"category", i->category}}));
         }
         if (all.empty()) return report_failure(ctx, "No command matches '" + filter + "'.", fa::did_you_mean(filter, names));

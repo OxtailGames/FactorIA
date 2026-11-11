@@ -38,6 +38,7 @@ struct BigRegistry {
             info.readOnly = readOnly;
             info.summary = summary;
             info.description = std::string(500, 'd') + " Details of " + name + ".";
+            info.details = "Fine print of " + name + ".";
             Json props = Json::object();
             for (int i = 0; i < 8; ++i) props["field" + std::to_string(i)] = Json::object({{"type", "string"}, {"description", std::string(60, 'x')}});
             info.inputSchema = Json::object({{"type", "object"}, {"properties", props}});
@@ -227,6 +228,8 @@ TEST_CASE("catalog: describe then call; the tool list and the system prompt stay
     CHECK(described["commands"][0]["name"] == "assets.slice_sheet");
     CHECK(described["commands"][0]["inputSchema"]["properties"].contains("field3"));
     CHECK(described["commands"][0]["description"].get<std::string>().find("Details of assets.slice_sheet") != std::string::npos);
+    // tool_describe promises the FULL definition: the part the MCP description cut off (CommandInfo::details) is in it
+    CHECK(described["commands"][0]["description"].get<std::string>().find("Fine print of assets.slice_sheet.") != std::string::npos);
     CHECK(described["commands"][1]["name"] == "assets.pack_atlas");
     REQUIRE(described["unknown"].size() == 1);
     CHECK(described["unknown"][0]["name"] == "nope.cmd");

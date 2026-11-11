@@ -350,6 +350,7 @@ Json McpServer::tools_json() const {
         t["title"] = humanize(c->name);
         std::string desc = c->summary;
         if (!c->description.empty()) desc += "\n\n" + c->description;
+        if (!c->details.empty()) desc += "\n\n" + command_details_pointer(*c);
         const std::string since = api_since("commands", c->name);
         if (!since.empty() && since != "0.1.0") desc += "\n\n" + api_since_label(since) + ".";
         t["description"] = desc;

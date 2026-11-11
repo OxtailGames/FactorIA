@@ -70,7 +70,17 @@ void add_command(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx, con
     info.summary = summary;
     info.description = description;
     info.inputSchema = std::move(inputSchema);
-    if (info.inputSchema["properties"].contains("approved")) info.description += asset_cost_doc();
+    if (info.inputSchema["properties"].contains("approved")) {
+        // The approval rule stays in the short description; the full COST paragraph joins the details.
+        std::string rest;
+        if (const std::size_t cut = info.description.find(kCommandDetailsMark); cut != std::string::npos) {
+            rest = info.description.substr(cut + 1);
+            info.description.resize(cut);
+            while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n')) info.description.pop_back();
+        }
+        info.description += asset_cost_short();
+        info.details = rest + asset_cost_doc();
+    }
     info.readOnly = readOnly;
     info.category = "assets";
     registry.add(std::move(info), [ctx, handler = std::move(handler)](const Json& args) -> Json {
@@ -1185,16 +1195,22 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
 
     add_command(
         registry, ctx, "assets.generate_image", "Generate a PNG image with the image asset provider and record where it came from.",
-        "Calls the provider that ai.json assigns to \"image\" (assets.image; there is no default, so add one, or pass `provider` "
-        "such as \"fake\" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance "
-        "(origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house "
-        "style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent "
-        "along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and "
-        "the image itself. Generation costs money with paid providers: check the first result before generating more. "
-        "With `count` 2 to 4 it makes that many candidates for the slot `path` instead (files next to it named <name>.candidate-<n>.png, "
-        "each with its own seed and provenance; the cost estimate and the approval cover all of them at once) and ONE review sheet "
-        "that shows them numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never pick for "
-        "them. Example: {\"prompt\":\"a red potion bottle, side view\",\"path\":\"assets/items/potion.png\",\"width\":64,\"height\":64,\"transparent\":true}",
+        "Calls the provider that ai.json assigns to \"image\" (assets.image; there is no default, so add "
+        "one, or pass `provider` such as \"fake\" for an offline placeholder), writes a PNG of exactly width "
+        "x height at `path` and records provenance (origin generated, ai true, provider, model, the full "
+        "prompt, references, date, license note) in assets.json. The house style of assets.json is applied "
+        "unless style is false: its `prompt` is appended to yours, its `references` are sent along with "
+        "`references`, and its `palette` reduces the result to those colours. Returns the path, size, "
+        "provenance and the image itself. Generation costs money with paid providers: check the first result "
+        "before generating more. With `count` 2 to 4 it makes candidates and ONE review sheet: show it, ask "
+        "for one number, call assets.pick; never pick for the person. "
+        FA_COMMAND_DETAILS
+        "With `count` 2 to 4 it makes that many candidates for the slot `path` "
+        "instead (files next to it named <name>.candidate-<n>.png, each with its own seed and provenance; "
+        "the cost estimate and the approval cover all of them at once) and ONE review sheet that shows them "
+        "numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never "
+        "pick for them. Example: {\"prompt\":\"a red potion bottle, side "
+        "view\",\"path\":\"assets/items/potion.png\",\"width\":64,\"height\":64,\"transparent\":true}",
         schema(pathProperty +
                    R"J("prompt":{"type":"string","description":"What to draw. Describe the subject and the view; the house style is added for you."},
     "width":{"type":"integer","minimum":8,"maximum":4096,"default":512,"description":"Width of the PNG in pixels. The provider's picture is resized to it."},
@@ -1228,12 +1244,14 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
     add_command(
         registry, ctx, "assets.generate_sprite_sheet",
         "Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.",
-        "Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, "
-        "normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written "
-        "to assets.json as the `sheet` of the file with one clip \"default\" (all frames, at `fps`), and the result shows the Sprite "
-        "and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames "
-        "wander. Example: {\"prompt\":\"a knight walking right\",\"path\":\"assets/knight_walk.png\",\"frames\":6,\"columns\":3,"
-        "\"frameWidth\":64,\"frameHeight\":64,\"fps\":10}",
+        "Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x "
+        "frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at "
+        "most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "
+        "\"default\" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components "
+        "to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. "
+        "Example: {\"prompt\":\"a knight walking "
+        "right\",\"path\":\"assets/knight_walk.png\",\"frames\":6,\"columns\":3,\"frameWidth\":64,\"frameHeight\":64,\"fps\":10} "
+        FA_COMMAND_DETAILS,
         schema(pathProperty +
                    R"J("prompt":{"type":"string","description":"What the animation shows: the subject and what it does over the frames."},
     "frames":{"type":"integer","minimum":1,"maximum":256,"description":"Number of animation frames."},
@@ -1272,12 +1290,15 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         false, file_handler(MediaKind::Music));
     add_command(
         registry, ctx, "assets.generate_voice", "Generate spoken audio from text with the voice asset provider and record where it came from.",
-        "Calls the provider that ai.json assigns to \"voice\" (assets.voice) to speak `text` with `voice` (default: the voice in "
-        "ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). "
-        "Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says "
-        "what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a "
-        "silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. "
-        "Example: {\"text\":\"Welcome, traveller.\",\"path\":\"assets/voice/welcome.mp3\"}",
+        "Calls the provider that ai.json assigns to \"voice\" (assets.voice) to speak `text` with `voice` "
+        "(default: the voice in ai.json) and writes the audio file at `path`. Records provenance in "
+        "assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY "
+        "(elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. "
+        "To test code that depends on voice lines without a provider or a key, pass `silent: true`: it "
+        "writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it "
+        "as a placeholder, not AI. Example: {\"text\":\"Welcome, "
+        "traveller.\",\"path\":\"assets/voice/welcome.mp3\"} "
+        FA_COMMAND_DETAILS,
         file_schema(R"J("text":{"type":"string","description":"The words to speak."},
     "silent":{"type":"boolean","default":false,"description":"Write a silent WAV of the line's length instead of calling a provider (no key needed). For tests of code that plays voice lines; `path` must end in .wav."},
     "seconds":{"type":"number","minimum":0.1,"maximum":60,"description":"With silent: the length of the clip. Default: about 0.06 s per character of `text`, from 0.4 to 20 s. Ignored by providers."},

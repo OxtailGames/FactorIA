@@ -118,7 +118,7 @@ TEST_CASE("platform.add_backend googleplay: is listed with the arguments it read
     REQUIRE(props.contains("googleplayBuild"));
     CHECK(props["googleplayBuild"]["default"] == true);
     CHECK_FALSE(props["playGamesId"].value("description", std::string()).empty());
-    CHECK(info->description.find("googleplay: the Google Play Billing") != std::string::npos);
+    CHECK(info->full_description().find("googleplay: the Google Play Billing") != std::string::npos);
 }
 
 TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps and sets the Play Games id, lists the Play Console steps") {

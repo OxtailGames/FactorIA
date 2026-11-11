@@ -92,6 +92,11 @@ bool report_command_progress(std::string_view message) {
 
 void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     std::string name = info.name;
+    if (const std::size_t cut = info.description.find(kCommandDetailsMark); cut != std::string::npos && info.details.empty()) {
+        info.details = info.description.substr(cut + 1);
+        info.description.resize(cut);
+        while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n')) info.description.pop_back();
+    }
     // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
     // describe() and MCP show is the normalised schema, so clients see exactly what call() enforces.
     info.inputSchema = close_object_schemas(std::move(info.inputSchema));
@@ -223,6 +228,7 @@ Json CommandRegistry::describe() const {
         arr.push_back(Json::object({{"name", i.name},
                                     {"summary", i.summary},
                                     {"description", i.description},
+                                    {"details", i.details},
                                     {"inputSchema", i.inputSchema},
                                     {"readOnly", i.readOnly},
                                     {"category", i.category}}));

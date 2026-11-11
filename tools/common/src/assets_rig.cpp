@@ -453,12 +453,23 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
         info.readOnly = false;
         info.summary = "Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.";
         info.description =
-            "Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a `template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone counts, toes, pose, segments, axis), optional `parts` "
-            "({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], \"<bone>.tail\": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model "
-            "before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not "
-            "be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF skin "
-            "(joints named like the bones, rest pose = the model's pose); its vertices are bound to the bones with automatic skin weights (heat diffusion by default, rigid per part for a generic rig; the document's `skin` section and the skin3d.* commands change them, docs/RIGGING.md). The model must be a model document (*.model.json). "
-            "Example: {\"path\":\"assets/models/hero.rig.json\",\"model\":\"assets/models/hero.model.json\",\"template\":\"humanoid\",\"options\":{\"spine\":4}}";
+            "Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a "
+            "`template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone "
+            "counts, toes, pose, segments, axis), optional `parts` ({bone: [model parts]}: which parts "
+            "decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], "
+            "\"<bone>.tail\": [x,y,z]}: explicit joint positions in the model's space). The template is "
+            "fitted to the model before anything is written (a fit that cannot be made fails and writes "
+            "nothing): the answer lists every bone with its head and tail, whether each came from a part, "
+            "the geometry or an estimate, which parts each bone follows, the parts nobody used and the "
+            "warnings (a landmark that could not be found says what to name or give). A `generic` rig gets "
+            "one bone per part of the model under `root`; edit the bones in the file. Example: "
+            "{\"path\":\"assets/models/hero.rig.json\",\"model\":\"assets/models/hero.model.json\",\"template\":\"humanoid\",\"options\":{\"spine\":4}}"
+            FA_COMMAND_DETAILS
+            "Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF "
+            "skin (joints named like the bones, rest pose = the model's pose); its vertices are bound to the "
+            "bones with automatic skin weights (heat diffusion by default, rigid per part for a generic rig; "
+            "the document's `skin` section and the skin3d.* commands change them, docs/RIGGING.md). The "
+            "model must be a model document (*.model.json).";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path", "model", "template"})}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()},
                                                              {"model", str("The model document to fit, project-relative, ending in .model.json.")},
