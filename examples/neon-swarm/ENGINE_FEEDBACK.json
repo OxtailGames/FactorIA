@@ -485,7 +485,11 @@
       "suggestion": "Name the applied value (for example appliedIntensity) or say in docs/MUSIC.md which one status.intensity is.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): `entity.music.appliedIntensity` (what the layers follow, also `status.appliedIntensity`) and `requestedIntensity` (the last value set) sit beside `intensity`, and docs/MUSIC.md says which is which."
+      ]
     },
     {
       "id": "FB-0022",
@@ -506,7 +510,11 @@
       "suggestion": "goToSection and setIntensity could return the audio frame the change lands on, or take an onDone callback.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`, the audio frame the change lands on, and `status.pendingSection` / `pendingAt` show it until then; the test reads them instead of stepping a bar blind."
+      ]
     }
   ]
 }
