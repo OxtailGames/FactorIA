@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 
@@ -212,6 +213,9 @@ struct Renderer::Impl {
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
     sg_image readImg{};  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
+    void free_read_image();
+    // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
+    bool game_targets_valid() const;
     sg_view readAtt{};
     int readW = 0, readH = 0;
     sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
@@ -342,6 +346,36 @@ void Renderer::Impl::create_targets(int w, int h) {
     sg_view_desc dv{};
     dv.depth_stencil_attachment.image = depthImg;
     depthAtt = sg_make_view(&dv);
+    // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
+    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view FAILED).
+    // Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at all. The same
+    // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
+    // check fail on a GPU that never would, to run the fall-back there.
+    if (gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
+        const char* hook = std::getenv("FA_SCENE_FORMAT");
+        if (!game_targets_valid() || (hook && std::string(hook) == "rgba16f_invalid")) {
+            FA_WARN("render", "The GPU cannot make the {}x{} game target in RGBA16F{}; the game is drawn in RGBA8 (colours above white "
+                              "are clamped, Camera.bloom is weaker)", physW, physH, samples > 1 ? " with multisampling" : "");
+            gpu.fall_back_to_rgba8_scene();
+            create_targets(w, h);
+        }
+    }
+}
+
+bool Renderer::Impl::game_targets_valid() const {
+    for (sg_image i : {colorImg, resolveImg, depthImg})
+        if (i.id && sg_query_image_state(i) != SG_RESOURCESTATE_VALID) return false;
+    for (sg_view v : {colorAtt, resolveAtt, resolveColorAtt, depthAtt, texView})
+        if (v.id && sg_query_view_state(v) != SG_RESOURCESTATE_VALID) return false;
+    return colorImg.id != 0 && texView.id != 0;
+}
+
+void Renderer::Impl::free_read_image() {
+    if (readAtt.id) sg_destroy_view(readAtt);
+    readAtt = {};
+    if (readImg.id) sg_destroy_image(readImg);
+    readImg = {};
+    readW = readH = 0;
 }
 
 void Renderer::Impl::destroy_targets() {
@@ -362,11 +396,7 @@ void Renderer::Impl::destroy_targets() {
     }
     if (filterImg.id) sg_destroy_image(filterImg);
     filterImg = {};
-    if (readAtt.id) sg_destroy_view(readAtt);
-    readAtt = {};
-    if (readImg.id) sg_destroy_image(readImg);
-    readImg = {};
-    readW = readH = 0;
+    free_read_image();
     for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
         if (v->id) sg_destroy_view(*v);
         *v = {};
@@ -725,11 +755,7 @@ int Renderer::Impl::apply_color_filter(int mode) {
 bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
     if (gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return readback_rgba8(image, w, h, out, error);
     if (!readImg.id || readW != w || readH != h) {
-        if (readAtt.id) sg_destroy_view(readAtt);
-        readAtt = {};
-        if (readImg.id) sg_destroy_image(readImg);
-        readImg = {};
-        readW = readH = 0;
+        free_read_image();
         sg_image_desc d{};
         d.usage.color_attachment = true;
         d.width = w;
@@ -744,10 +770,7 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
         readAtt = sg_make_view(&av);
         if (sg_query_image_state(readImg) != SG_RESOURCESTATE_VALID || sg_query_view_state(readAtt) != SG_RESOURCESTATE_VALID) {
             if (error) *error = std::format("the {}x{} image for reading the frame back as 8-bit colour could not be created (out of GPU memory?)", w, h);
-            if (readAtt.id) sg_destroy_view(readAtt);
-            readAtt = {};
-            sg_destroy_image(readImg);
-            readImg = {};
+            free_read_image();
             return false;
         }
         readW = w;
@@ -925,6 +948,11 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
             gpu->quad_pipeline(false, false, BlendMode::Additive);
             gpu->quad_pipeline(false, false, BlendMode::Multiply);
             gpu->quad_pipeline(false, true, BlendMode::Alpha);
+        });
+        // The first screenshot (a float scene is read back through blit_keep) must not build its pipeline on the main thread.
+        // The format is read when the group runs: the targets may still fall back to RGBA8, which needs no such copy.
+        im.warmGroups.push_back([gpu] {
+            if (gpu->scene_format() != SG_PIXELFORMAT_RGBA8) gpu->blit_keep_pipeline();
         });
         bool meshes = false;
         world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
@@ -2503,6 +2531,8 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError);
     im.release_view(*im.viewTargets[kKey]);
     im.viewTargets.erase(kKey);
+    // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
+    if (im.readW != im.physW || im.readH != im.physH) im.free_read_image();
     im.stats = savedStats;
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
     // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.

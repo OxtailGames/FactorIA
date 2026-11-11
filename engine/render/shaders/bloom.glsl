@@ -40,9 +40,15 @@ layout(binding=1) uniform bloom_bright_params {
 in vec2 uv;
 out vec4 frag_color;
 
+// One channel of the float game target made safe: NaN, Inf and anything beyond 1e30 become 0 (the comparison is false for a NaN, so
+// no isnan() that a driver may fold away), a negative becomes 0 and a huge finite value stops at 65000 (RGBA16F tops out at 65504).
+// Without it one NaN pixel (a pow() of a negative in a custom material, a 0/0) would spread through the blur over the whole glow.
+float sane(float x) { return abs(x) < 1e30 ? clamp(x, 0.0, 65000.0) : 0.0; }
+
 // Keeps the hue; scales the color from 0 (at the threshold) to 1 (at full brightness). "Brightness" is the largest
 // channel so saturated neon colors (pure magenta, cyan...) glow as much as white does.
 vec3 bright(vec3 c) {
+    c = vec3(sane(c.r), sane(c.g), sane(c.b));
     float v = max(c.r, max(c.g, c.b));
     float f = clamp((v - p.z) * p.w, 0.0, 1.0);
     return c * f;

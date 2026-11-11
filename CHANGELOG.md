@@ -35,7 +35,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   `emissive`, so a lamp can be brighter than white and `Camera.bloom` glows more for it. The game target is now RGBA16F
   (HDR) wherever the GPU renders to it with blending, filtering and the requested MSAA, else RGBA8 as before
   (`FA_SCENE_FORMAT=rgba8` forces it, `Renderer::hdr_scene()` says which); the screen, screenshots and video stay 8-bit,
-  and a float target costs more memory bandwidth than an 8-bit one. The colour filter clamps its input, so its output is
+  and a float target costs more memory bandwidth than an 8-bit one. If the GPU lists RGBA16F but cannot make the target in
+  it (GLES3/WebGL2 with MSAA and no `EXT_color_buffer_float`), the targets are rebuilt in RGBA8 and `hdr_scene()` says false.
+  Look change for games that already use `Camera.bloom`: a specular above 1 and additive sums now reach the bloom unclamped,
+  so the glow can be bigger than before, and it differs between GPUs with and without RGBA16F (the latter keep the old look);
+  bloom ignores NaN and infinite pixels. The colour filter clamps its input, so its output is
   unchanged. Meshes that differ only in `emissiveStrength` are not batched together, like a different `emissive`.
   `validate` warns about a colour such as `[3, 2, 1]` that reads as 0..255 and is almost black, and for `emissive` it points
   to `emissiveStrength`. Clockwork Courier's market lamps glow again with it.

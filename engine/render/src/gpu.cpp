@@ -167,6 +167,15 @@ void Gpu::shutdown() {
     lightState_ = 0;
 }
 
+void Gpu::fall_back_to_rgba8_scene() {
+    if (sceneFormat_ == SG_PIXELFORMAT_RGBA8) return;
+    sceneFormat_ = SG_PIXELFORMAT_RGBA8;
+    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so the whole cache goes: the ones that draw into the
+    // scene (quads, meshes, sky, bloom, colour filter) carry the old format, and making the others again is cheap.
+    for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
+    pipelines_.clear();
+}
+
 void Gpu::destroy_shader(sg_shader shader) {
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
         if (it->first.shader == shader.id) {
@@ -357,7 +366,7 @@ bool Gpu::bloom_ready() {
 }
 
 sg_pipeline Gpu::blit_keep_pipeline() {
-    PipelineKey key{0x800u};
+    PipelineKey key{0x900u};  // 0x800 | format << 12 is the light pipeline's (lightFormat_ NONE = 0 would be this key)
     sg_pipeline_desc d{};
     d.shader = blitKeepShader_;
     d.layout.attrs[ATTR_blit_blit_keep_pos].format = SG_VERTEXFORMAT_FLOAT2;
