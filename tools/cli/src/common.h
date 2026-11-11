@@ -11,6 +11,7 @@
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/runtime/engine.h"
+#include "fa/tooling/validate.h"
 
 namespace fa::cli {
 
@@ -43,6 +44,13 @@ int report_failure(std::ostream& err, const std::string& message, const std::str
 // whoever parses stdout always gets an object (docs/CLI.md). Commands use this one.
 int report_failure(const Context& ctx, const std::string& message, const std::string& hint = {});
 void print_json_error(std::ostream& out, const std::string& code, const std::string& message, const std::string& hint);
+// `factoria test`: takes the fixed "(an exception was thrown inside the test; ...)" line out of a failed test's message and
+// returns it ("" when the message has none). Only that line goes: what follows it (a watchdog explanation, an "also
+// failed" text) stays in `message`.
+std::string take_exception_hint(std::string& message);
+// `factoria validate`: true when a message of the report (an issue at least 24 characters long, '\' and '/' alike) is
+// inside the log line `logMessage`, so folding the line into the report would say it twice.
+bool report_already_says(const ValidationReport& report, const std::string& logMessage);
 
 // ---- paths ----
 // Rule for every file path given to a CLI option (documented in docs/CLI.md, "Paths"):

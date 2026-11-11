@@ -248,10 +248,11 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         "total {steps, toolCalls, minutes, tokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, "
         "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, ended, scriptErrors}, "
         "engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message and its tokens are input + cache + output. "
+        "Example: {\"transcript\":\"/tmp/agent-cost.x/transcript.jsonl\",\"finalPlay\":\"/tmp/agent-cost.x/final-play.json\",\"cli\":\"claude\",\"model\":\"sonnet\"}."
+        FA_COMMAND_DETAILS
         "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed); "
         "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls that gave an error code; notCaught are "
-        "outputs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed. "
-        "Example: {\"transcript\":\"/tmp/agent-cost.x/transcript.jsonl\",\"finalPlay\":\"/tmp/agent-cost.x/final-play.json\",\"cli\":\"claude\",\"model\":\"sonnet\"}.";
+        "outputs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed.";
     info.inputSchema = Json::parse(R"({"type":"object","additionalProperties":false,"required":["transcript"],"properties":{
         "transcript":{"type":"string","description":"Absolute path of the stream-json transcript (at most 64 MB)."},
         "finalPlay":{"type":"string","description":"Absolute path of a file with the answer of play.auto on the final game."},
