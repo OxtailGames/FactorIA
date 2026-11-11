@@ -1,6 +1,6 @@
 // @ts-check
 // Game manager: countdown timer, gem counter, HUD, win / lose screens, restart.
-import { Behaviour, input, audio, scene, fa, game } from "factoria";
+import { Behaviour, input, audio, scene, game } from "factoria";
 import { scatterGems } from "./scatter_gems.js";
 
 export default class Game extends Behaviour {

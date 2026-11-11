@@ -497,6 +497,9 @@ TEST_CASE("tilemap.generate reachability: an unreachable grid is retried with th
     REQUIRE_MESSAGE(!found.is_null(), "no seed in 0..59 needed a retry: the sample or the generator changed");
     const Json& res = found["result"];
     CHECK(res["stats"]["attempts"].get<int>() > 1);
+    // Every refusal here came from the real allConnected rule, so the generator counted them as cut-off refusals.
+    CHECK(res["stats"]["cutOff"].get<int>() > 0);
+    CHECK(res["stats"]["cutOff"].get<int>() == res["stats"]["rejected"].get<int>());
     std::vector<std::string> rows;
     for (const Json& row : res["rows"]) rows.push_back(row.get<std::string>());
     CHECK(open_areas(rows) == 1);

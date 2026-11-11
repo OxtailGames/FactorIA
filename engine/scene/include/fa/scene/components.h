@@ -230,6 +230,9 @@ struct IK2D {
     float groundOffset = 0.0f;        // distance from the hit point up to where the tip rests (world units)
     float groundRest = 0.0f;          // height of the target over the character root's origin when the foot is planted on flat ground
     bool warned = false;              // runtime, not reflected: a problem was already logged for this component
+    bool groundHit = false;           // runtime, not reflected: a ground ray has hit something at least once
+    bool warnedGround = false;        // runtime, not reflected: the "ray never hits" warning was logged
+    std::int32_t groundMisses = 0;    // runtime, not reflected: ground rays that hit nothing, counted until the first hit
 };
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };

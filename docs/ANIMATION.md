@@ -514,9 +514,9 @@ bone (its origin plus `length` along its X axis) reaches `target`, the entity wh
 | `bend` | `twoBone` only: which way the joint folds. `positive`: this bone ends up turned counter-clockwise from its parent (its `rotation.z` greater), `negative`: clockwise. Under a mirrored parent the result is the mirror image, so a flipped character keeps its knees. |
 | `weight` | 0 to 1: how much of the solution replaces the pose the bones had before the solver ran (0 leaves it alone, 1 is the full solution, a blend turns each bone the short way). |
 | `groundMask` | Planted feet (below): bitmask of the physics layers the foot ray hits. 0 (default) = off, the target is reached as it is. |
-| `groundReach` | The ray looks this far above and below the target, in world units (24 by default). |
-| `groundOffset` | Distance from the hit point up to where the tip rests (the ankle above the sole). 0 by default. |
-| `groundRest` | Height of the target over the character's origin (its topmost ancestor) when the foot is planted on flat ground. 0 by default. |
+| `groundReach` | The ray looks this far above and below the target, in world units (24 by default). Keep it smaller than the gap to a ceiling above the head: the ray starts at `target.y + groundReach`, so a thin ceiling in reach can be the first hit. |
+| `groundOffset` | Distance from the hit point up to where the tip rests (the ankle above the sole), in world units. 0 by default. |
+| `groundRest` | Height of the target over the character's origin (its root, see Planted feet) when the foot is planted on flat ground, in world units. 0 by default. |
 
 The solver runs once per fixed step, **after the animators have posed the bones and before the frame is drawn**, in the
 order the `IK2D` components were added (when two chains share a bone the later one has the last word). It writes
@@ -526,12 +526,16 @@ replaced by the solution (use `weight` to keep part of it); the other bones keep
 
 - **Planted feet** (`groundMask` not 0): every solve casts a ray straight down at the target's x, from `groundReach` above the
   target to `groundReach` below it, and the chain aims at the floor it finds instead of at the target. The rule:
-  `aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest))`, with `root` the topmost ancestor of the IK2D entity
-  (the character). A walk clip that moves a foot marker therefore still works as the target: while the marker is at or below its
+  `aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest))`, with `root` the character: the nearest ancestor of the IK2D entity
+  that has a `RigidBody2D` (else the topmost ancestor). A scene container that holds both the character and the terrain is
+  therefore not the character as long as the character has a `RigidBody2D`. A walk clip that moves a foot marker therefore still works as the target: while the marker is at or below its
   rest height (`groundRest` over the root) the foot stands on the floor wherever it is (a step up, a ledge, a slope), and the part
   of the marker's height above the rest height is kept as the swing lift on top of it. The target entity is never moved, only
-  the point the solver aims at. No hit within the reach = the target is used as it is. The character's own colliders (the root
-  entity and everything under it) are ignored by the ray. Switch `groundMask` to 0 where the legs should follow the marker alone
+  the point the solver aims at. No hit within the reach = the target is used as it is. The engine warns once when a ray has never hit anything after 300 solves (a wrong layer, a floor out of reach).
+  The character's own colliders (the root
+  entity and everything under it) are ignored by the ray. `groundReach`, `groundOffset` and `groundRest` are world units, not scaled
+  with the root's scale, and the ray is always vertical (world down), even for a rotated character. The distance that
+  `solve_ik2d` returns and `anim.check`'s `ik_out_of_reach` judges is to the grounded aim, not to the target entity. Switch `groundMask` to 0 where the legs should follow the marker alone
   (a jump: a script sets `ik.groundMask`). Only the engine's fixed step has the physics world: `ik2d` one-off solves and the
   editor's bone tools leave `groundMask` alone and reach the plain target. Sky Hopper's hero uses it (`prefabs/player.prefab.json`).
 - **Out of reach** the chain stretches straight toward the target and stops there; `twoBone` also stops at the nearest the two
@@ -876,7 +880,9 @@ the art is SVG parts, the motion is data.
 5. **State machine.** The Animator of the prefab has `params` `speed` and `grounded`, states `idle`, `walk` and `jump`
    (`loop: false`) and transitions with a `fade`: `idle` to `walk` when `speed > 0.1`, any state to `jump` when `!grounded`,
    `jump` back to `walk` or `idle` when it lands.
-6. **Script.** `scripts/player.js` only feeds it, once per fixed step, and puts the feet on the ground:
+6. **Script.** `scripts/player.js` only feeds it, once per fixed step. The feet are data: each shin's `IK2D` has
+   `groundMask: 1`, `groundReach`, `groundOffset` and `groundRest`, so the engine aims the foot at the floor under the marker
+   the walk clip moves and keeps the swing lift. The script switches the snapping off in the air:
 
 ```js
 onFixedUpdate(dt) {
@@ -885,21 +891,13 @@ onFixedUpdate(dt) {
   this.anim.set("speed", speed);
   this.anim.set("grounded", grounded);
   this.anim.speed = this.anim.state === "walk" ? Math.min(1.5, Math.max(0.6, speed / 200)) : 1;  // stride follows speed
-  for (const leg of this.legs) {            // leg.goal: the marker the walk clip moves, leg.target: the IK target
-    const m = leg.goal.worldPosition;
-    let y = m.y;
-    if (grounded) {
-      const hit = physics.raycast(vec2(m.x, at.y), vec2(m.x, at.y - 60), { ignore: this.entity });
-      if (hit) y = hit.point.y + ankle + Math.max(0, m.y - (at.y + ankleRest));  // sole on the floor, plus the swing lift
-    }
-    leg.target.worldPosition = vec2(m.x, y);
-  }
+  for (const ik of this.legs) ik.groundMask = grounded ? 1 : 0;  // this.legs: the IK2D of each shin
 }
 ```
 
-   A script's `onFixedUpdate` sees the pose of the previous step (see "Frame order and where IK goes"), so it reads the
-   markers one fixed step old, and the IK, which runs right after the Animator, reaches
-   the target the script placed. In the air the marker alone decides and the legs tuck.
+   A script's `onFixedUpdate` sees the pose of the previous step (see "Frame order and where IK goes"), and the IK, which
+   runs right after the Animator, reaches the target of the same step. In the air (`groundMask = 0`) the marker alone decides
+   and the legs tuck. The character has a `RigidBody2D`: that entity is the `root` of the rule below.
 7. **Bake what does not need to be alive.** The crawler is built in parts too (`prefabs/crawler_rig.prefab.json`, clips
    `crawl` and `alert`), but there can be many of them, so it is baked: `assets.bake_sheet` with
    `clips: [{"name":"crawl","clip":"crawl"},{"name":"alert","clip":"alert"}]` and `scale: 2` writes

@@ -1147,6 +1147,7 @@ private:
         }
         if (spec_.allConnected && cutCount_ > 0) {
             const Area& ar = areas_[top_.front()];
+            refusedCutOff = true;
             why = std::to_string(cutCount_) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells_) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
             return Verdict::Refused;
         }
@@ -1865,7 +1866,7 @@ Json finish_generation(Engine::Impl& I, GenRun& r) {
     if (sample.present)
         out["sample"] = Json::object({{"source", sample.source}, {"width", sample.width}, {"height", sample.height}});
     const wfc::GenStats& st = g.stats();
-    out["stats"] = Json::object({{"attempts", st.attempts}, {"contradictions", st.contradictions}, {"rejected", st.rejected}, {"patterns", st.patterns},
+    out["stats"] = Json::object({{"attempts", st.attempts}, {"contradictions", st.contradictions}, {"rejected", st.rejected}, {"cutOff", st.cutOff}, {"patterns", st.patterns},
                                  {"cells", st.cells}, {"observations", st.observations}, {"propagations", st.propagations}, {"work", st.work},
                                  {"pinned", st.pinned}, {"ms", std::round(st.ms * 10.0) / 10.0}, {"memoryBytes", st.memoryBytes},
                                  {"peakBytes", st.peakBytes}});
@@ -1999,7 +2000,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, "
          "forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells, placed?: [{tile, where, count, "
          "at:[[x,y]...], distances?, from?}]}, reachability?, stats: {attempts, contradictions, rejected, "
-         "patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level "
+         "cutOff (of the rejected, those refused for areas cut off by allConnected), patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level "
          "and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), "
          "memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part "
          "of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 "
