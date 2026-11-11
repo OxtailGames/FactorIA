@@ -1128,3 +1128,52 @@ TEST_CASE("music player: a crossfade that had started when the scene changed is 
     CHECK(st.positionSeconds > 0.5);                       // still the same playhead: not restarted
     CHECK(fx.audio.music_go_to_section(fx.world, again, "main", MusicQuantize::Bar).ok());
 }
+
+TEST_CASE("music cache: stats count the decoded stems of every cached song, exactly, and a song let go stops counting") {
+    PlayerFx fx;
+    fx.mp().quantize = MusicQuantize::None;
+    fx.mp().crossfadeBars = 0.25f;
+    fx.step(0.5);
+    REQUIRE(fx.mp().ready);
+    // What the cache must hold: every stem of the render, 16-bit stereo, counted by hand from frames x channels x sample size.
+    auto expected = [&](const Json& doc) {
+        SongDoc song = parsed(doc);
+        auto src = music_render_source(song, timeline_of(song), "x.song.json");
+        REQUIRE(bool(src));
+        std::size_t n = 0;
+        for (const MusicStem& s : (*src)->stems) n += s.frames() * 2 /*channels*/ * sizeof(std::int16_t);
+        return n;
+    };
+    Json other = demo_json();
+    other["tempo"] = 90;
+    const std::size_t a = expected(demo_json());
+    const std::size_t b = expected(other);
+    REQUIRE(a > 0);
+    REQUIRE(b != a);
+
+    const Json st = fx.audio.stats();
+    CHECK(st["musicBytes"].get<std::size_t>() == a);
+    CHECK(st["decodedBytes"].get<std::size_t>() == a);  // no clip is loaded: the music is all the decoded audio there is
+    CHECK(fx.audio.music_bytes() == a);
+    const Json cache = fx.audio.music_cache_json();
+    REQUIRE(cache.size() == 1);
+    CHECK(cache[0]["song"] == "music/test.song.json");
+    CHECK(cache[0]["mode"] == "live");
+    CHECK(cache[0]["bytes"].get<std::size_t>() == a);
+    std::size_t stemSum = 0;
+    for (const Json& s : cache[0]["stems"]) stemSum += s["bytes"].get<std::size_t>();
+    CHECK(stemSum == a);
+
+    // The other song joins the cache (the first one still counts: the cache keeps what was played), then the first is let
+    // go (a reload drops it) and its bytes stop counting.
+    fx.mp().song = "music/other.song.json";
+    fx.step(1.0);
+    REQUIRE(fx.mp().ready);
+    CHECK(fx.audio.music_bytes() == a + b);
+    CHECK(fx.audio.music_cache_json().size() == 2);
+    fx.audio.reload_song("music/test.song.json");
+    CHECK(fx.audio.music_bytes() == b);
+    CHECK(fx.audio.stats()["musicBytes"].get<std::size_t>() == b);
+    CHECK(fx.audio.music_cache_json().size() == 1);
+}
+

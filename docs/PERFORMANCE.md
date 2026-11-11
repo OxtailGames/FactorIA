@@ -20,7 +20,8 @@ commands.
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
-`sample` together with the `runner` id.
+`sample` together with the `runner` id. The sample also reports `audioDecodedMB` (decoded sounds, streaming buffers and music)
+and `musicMB` (the decoded music alone), the max over the run; they are never gated and never written to a baseline.
 
 ## Runners and baselines
 
@@ -443,7 +444,7 @@ profile: {
   threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
              jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
-  memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}
+  memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}
 }
 ```
 
@@ -464,7 +465,7 @@ Reading it:
   Direct3D 11 (Windows) and desktop OpenGL (Linux). Everywhere else the numbers are `null` and `reason` says why: Metal
   (macOS, iOS) exposes no GPU times through the graphics layer the engine uses, and OpenGL ES 3 and WebGL2 (Android, web)
   would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
-- `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio
+- `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio (`audioDecodedMB`: sounds, streaming buffers and the music cache; `musicMB` is the music part of it: a song costs about 10 MB per minute per stem, docs/MUSIC.md)
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
 - `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a
   thread outside the pool ran jobs): the time it spent in jobs per frame and as a share of the frame (`busyPct`), and its

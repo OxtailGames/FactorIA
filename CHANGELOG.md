@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **Music memory is counted (M101.1a):** `Audio::stats()` (and `game.state`'s `audio`) reports `musicBytes`, the decoded
+  stems the music cache holds, and `decodedBytes` now includes them, so `audioDecodedMB` explains the process size.
+  `audio.music_state` lists the cached songs with their bytes per stem (`cache`, `cacheBytes`); `perf.profile` memory has
+  `musicMB`; the `perf.measure` sample reports `audioDecodedMB` and `musicMB` (never gated, not in baselines).
+  docs/MUSIC.md has the MB per minute per layer.
 - **Music (M101.2, pending state):** the music of a scene that reloads no longer fires what the scene before had queued:
   the new `MusicPlayer` adopts the music that is playing and drops a crossfade or section change that waited for a bar line
   (or takes the target song when the crossfade had started). `entity.music.status` and `audio.music_state` show the queue
