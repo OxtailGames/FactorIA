@@ -1685,7 +1685,21 @@ void register_builtin_components(TypeRegistry& r) {
         .field("playOnStart", &AudioSource::playOnStart, "Start playing when the entity spawns / the scene loads.")
         .field("playing", &AudioSource::playing, "Runtime state: true while a voice is playing. Set true to play, false to stop.").runtime_only()
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
-        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000)
+        .field("range", &AudioSource::range,
+               "Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). "
+               "The AudioListener's zoom multiplies it.").range(0, 1000000)
+        .enum_field("rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential"},
+                    "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, "
+                    "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is "
+                    "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). "
+                    "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set "
+                    "`range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).")
+        .field("refDistance", &AudioSource::refDistance,
+               "Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear "
+               "starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20.").range(0, 1000000)
+        .field("rolloffFactor", &AudioSource::rolloffFactor,
+               "Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, "
+               "less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.").range(0, 100)
         .field("priority", &AudioSource::priority,
                "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest "
                "priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise "

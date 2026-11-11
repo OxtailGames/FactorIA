@@ -1553,12 +1553,23 @@
           throw new Error(`audio.play(path, { position }): position is [x, y, z] (or [x, y] in a 2D game, or an object { x, y, z }), numbers in world units, but got ${inspect(q)}`);
         if (o.range !== undefined && !(typeof o.range === "number" && o.range > 0))
           throw new Error(`audio.play(path, { range }): range is the distance in world units where the sound reaches 0 (default 800, as AudioSource.range), a number above 0, but got ${inspect(o.range)}`);
-        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800];
-      } else if (o.range !== undefined) {
-        throw new Error(`audio.play(path, { range }) needs a position: add position: [x, y, z], or drop range`);
+        if (o.loop)
+          throw new Error(`audio.play(path, { position, loop: true }): a sound from a place is attenuated once, when it starts, so a loop would keep that volume (and never start if the place is out of range then). Put an AudioSource with spatial: true, loop: true on an entity at that place instead (docs/SOUND.md, "A sound at a place")`);
+        const rolloffs = ["linear", "inverse", "exponential"];
+        if (o.rolloff !== undefined && !rolloffs.includes(o.rolloff))
+          throw new Error(`audio.play(path, { rolloff }): rolloff is "linear" (default), "inverse" or "exponential", but got ${inspect(o.rolloff)}${typeof o.rolloff === "string" && didYouMean(o.rolloff, rolloffs) ? ` (did you mean "${didYouMean(o.rolloff, rolloffs)}"?)` : ""}`);
+        if (o.refDistance !== undefined && !(typeof o.refDistance === "number" && o.refDistance >= 0))
+          throw new Error(`audio.play(path, { refDistance }): refDistance is the distance in world units up to which the sound is at full volume (0 = the default of the rolloff), a number from 0, but got ${inspect(o.refDistance)}`);
+        if (o.rolloffFactor !== undefined && !(typeof o.rolloffFactor === "number" && o.rolloffFactor >= 0 && o.rolloffFactor <= 100))
+          throw new Error(`audio.play(path, { rolloffFactor }): rolloffFactor is how fast the volume falls (default 1), a number from 0 to 100, but got ${inspect(o.rolloffFactor)}`);
+        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800, Math.max(0, rolloffs.indexOf(o.rolloff ?? "linear")), o.refDistance ?? 0, o.rolloffFactor ?? 1];
+      } else {
+        for (const k of ["range", "rolloff", "refDistance", "rolloffFactor"])
+          if (o[k] !== undefined) throw new Error(`audio.play(path, { ${k} }) needs a position: add position: [x, y, z], or drop ${k}`);
       }
       const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128,
-        !!at, at ? at[0] : 0, at ? at[1] : 0, at ? at[2] : 0, at ? at[3] : 800);
+        !!at, at ? at[0] : 0, at ? at[1] : 0, at ? at[2] : 0, at ? at[3] : 800,
+        at ? at[4] : 0, at ? at[5] : 0, at ? at[6] : 1);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },
