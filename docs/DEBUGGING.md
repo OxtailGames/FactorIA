@@ -238,7 +238,7 @@ Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
 - It records keys, actions pressed by name with `game.input` (`"actions"`, played back as forced actions), mouse position and buttons, gamepads (connections, buttons, axes), touches, the Back press, the
   clipboard text the game read, the answers of `http.fetch` (docs/NETWORKING.md, "Replays"), the frame times (`timing`) and
   the calendar date, so the replay plays to the same state.
-  What was held when the recording started (a key, a pad button) is part of frame 0.
+  What was held when the recording started (a key, a pad button, an action forced with `game.input`) is part of frame 0.
 - Frame numbers count from the start of the recording; an entry applies before its frame runs.
 - Not recorded: the mouse wheel, the locked-mouse movement and typed text (`TextField`s); a key pressed and released inside
   one frame becomes a single entry. A game that depends on those does not replay exactly.

@@ -52,7 +52,10 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 - **Validate (M101.9b, SH/FB-0024):** `validate` warns about a scene entity that repeats the components of a prefab inline
   (same name or component set, at most two differences) instead of being an instance, and about an instance that also saves
   two or more components with the prefab's own values. The warning names the file and JSON pointer, the prefab, and the
-  `{id, prefab, differences}` entry that replaces the copy (what `scene.save` writes since M101.9a).
+  `{id, prefab, differences}` entry that replaces the copy (what `scene.save` writes since M101.9a). Entries are matched
+  with the loaded world by position (an entity without `id` or with a duplicate one is checked too), prefabs with the
+  same name are compared first, the parts of `.prefab.json` files are checked, and a file with many copies lists the
+  first 5 and counts the rest.
 - **Small fixes from the examples (M101.10a):** `SpriteAnimator.loopMode` (`inherit`, `loop`, `once`) decides whether a
   clip restarts after its last frame whatever the sheet's own loop flag says, so one baked clip can loop on one entity and
   play once on another; `inherit` is the default and the old `loop` bool stays (false = once). A level that
@@ -74,9 +77,24 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   test has and a test keeps the list true.
 - `game.findByTag` and `game.findAll` in `factoria:test`, like `world`'s.
 - Touch interface on a desktop: `factoria run --touch`, `ui.force_touch` and `game.screenshot {forceTouch}` show the
-  touch-only controls (`TouchStick`, `TouchButton`) without editing the scene.
-- **For game authors and AIs (M101.9a):** `scene.save` and the editor's Save keep prefab instances. An entity made from a prefab is written as `{"id", "prefab", only the differences}` (`name`, `tags`, `active`, changed component fields, `overrides` for the prefab's children, added `children`) instead of being expanded into inline entities, so later changes of the prefab file still reach the scene; editing a field saves only that override and editing it back drops it, and loading and saving a scene in the saver's layout gives the same text. An instance the form cannot express (a part of the prefab removed) is written inline and listed under `expandedPrefabs` in the `scene.save` result (and in an editor notification) with the reason. An instance added as a child of an instance stays an instance. Undo, redo, Play/Stop and the AI revert keep the origin of the entities too, and `scene.import_ascii` / `edits` with `path` writes an entity that `edits` touches as its prefab plus the edit, no longer expanded. Closes KW/FB-0008.
-- **For engine developers (M101.9a):** `EntityInfo::prefab` and `EntityInfo::fromPrefab` (not reflected) remember the instance root and the entities its prefab made; `save_scene(world, SaveSceneOptions)`, `snapshot_scene(world)` and `PrefabSave` (`fa/scene/serialize.h`); `diff_entity_with_prefab(world, entity, prefabPath)` returns the `{prefab, differences}` entry of an entity against a prefab, or why it is not expressible, for the `validate` warning on inline copies (M101.9b).
+  touch-only controls (`TouchStick`, `TouchButton`) without editing the scene. `game.screenshot {forceTouch}` changes it only
+  for that picture; button prompts (`Input::button_name`) follow the forced touch too.
+- **For game authors and AIs (M101.9a):** `scene.save` and the editor's Save keep prefab instances. An entity made
+  from a prefab is written as `{"id", "prefab", only the differences}` (`name`, `tags`, `active`, changed component
+  fields, `overrides` for the prefab's children, added `children`) instead of being expanded into inline entities, so
+  later changes of the prefab file still reach the scene; editing a field saves only that override and editing it back
+  drops it, and loading and saving a scene in the saver's layout gives the same text. An instance the form cannot
+  express (a part of the prefab removed) is written inline and listed under `expandedPrefabs` in the `scene.save`
+  result (and in an editor notification) with the reason. A part of the prefab whose id differs from the prefab's (the
+  suffix of a second instance) is written inline when a string elsewhere in the scene names that id. An instance added
+  as a child of an instance stays an instance. Undo, redo, Play/Stop and the AI revert keep the origin of the entities
+  too, and `scene.import_ascii` / `edits` with `path` writes an entity that `edits` touches as its prefab plus the
+  edit, no longer expanded. Closes KW/FB-0008.
+- **For engine developers (M101.9a):** `EntityInfo::prefab` and `EntityInfo::fromPrefab` (not reflected) remember the
+  instance root and the entities its prefab made; `save_scene(world, SaveSceneOptions)`, `snapshot_scene(world)` and
+  `PrefabSave` (`fa/scene/serialize.h`); `diff_entity_with_prefab(world, entity, prefabPath)` returns the `{prefab,
+  differences}` entry of an entity against a prefab, or why it is not expressible, for the `validate` warning on
+  inline copies (M101.9b).
 - **Models and rigs for mobile (M101.8):** `model.game_ready`'s collider takes `part` (fit it to one named part, e.g. a pine's
   trunk instead of its canopy, also with `merge`), `radius` and `height` (override the fitted values). `rig.bake` takes
   `mergeParts`: the skinned parts that share a material become one submesh (same vertices, weights and bind pose, so the

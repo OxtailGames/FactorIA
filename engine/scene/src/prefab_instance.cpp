@@ -3,6 +3,7 @@
 // together with the entity; whatever differs becomes an override the loader (serialize.cpp, expand_prefab) applies back.
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <unordered_map>
 
 #include "fa/core/fs.h"
@@ -23,10 +24,18 @@ struct PrefabBase {
 
 struct PrefabBaseCache::Impl {
     std::map<std::string, std::unique_ptr<detail::PrefabBase>> bases;
+    // Every string value of every component of `stringsWorld`, counted: built the first time an instance has a descendant
+    // whose id differs from the prefab's, to find out whether anything else names that id.
+    bool stringsBuilt = false;
+    std::unordered_map<std::string, int> strings;
 };
 
 PrefabBaseCache::PrefabBaseCache() : impl_(std::make_unique<Impl>()) {}
 PrefabBaseCache::~PrefabBaseCache() = default;
+void PrefabBaseCache::forget_world() {
+    impl_->stringsBuilt = false;
+    impl_->strings.clear();
+}
 
 namespace {
 
@@ -70,6 +79,20 @@ bool id_compatible(const std::string& prefabId, const std::string& id) {
            all_digits(id, prefabId.size() + 1);
 }
 
+void count_strings(const Json& j, std::unordered_map<std::string, int>& out) {
+    if (j.is_string()) ++out[j.get<std::string>()];
+    else if (j.is_object() || j.is_array())
+        for (const Json& v : j) count_strings(v, out);
+}
+void count_entity_strings(const World& w, Entity e, std::unordered_map<std::string, int>& out) {
+    for (const TypeInfo* t : w.components_of(e))
+        if (t->name != "EntityInfo") count_strings(component_to_json(w, e, *t, false, false), out);
+}
+void count_subtree_strings(const World& w, Entity e, std::unordered_map<std::string, int>& out) {
+    count_entity_strings(w, e, out);
+    for (Entity c : w.children(e)) count_subtree_strings(w, c, out);
+}
+
 Json tags_json(const std::vector<std::string>& tags) {
     Json a = Json::array();
     for (const std::string& t : tags) a.push_back(t);
@@ -84,12 +107,14 @@ struct Pair {
 
 class Differ {
 public:
-    Differ(const World& cur, PrefabBase& base, const PrefabDiffOptions& opt, const EntityJsonOptions& childOpts, std::string path)
-        : cw_(cur), base_(base), bw_(base.world), opt_(opt), childOpts_(childOpts), path_(std::move(path)) {}
+    Differ(const World& cur, PrefabBaseCache::Impl& cache, PrefabBase& base, const PrefabDiffOptions& opt,
+           const EntityJsonOptions& childOpts, std::string path)
+        : cw_(cur), cache_(cache), base_(base), bw_(base.world), opt_(opt), childOpts_(childOpts), path_(std::move(path)) {}
 
     PrefabDiff run(Entity root) {
         PrefabDiff out;
         std::vector<Json*> chain;
+        root_ = root;
         if (!pair_tree(base_.root, root, &base_.authored, chain, true)) return inexpressible();
         Json rootNode = Json::object();
         Json overrides = Json::object();
@@ -141,6 +166,12 @@ private:
         const EntityInfo& ci = cw_.info(c);
         if (!isRoot && !id_compatible(bi.id, ci.id))
             return fail("the id of '" + bi.id + "', a part of the prefab, was changed to '" + ci.id + "'");
+        // The saved instance does not keep a descendant's id: loading it gives the prefab's id (or the next free one), so a
+        // different id would dangle for a string elsewhere in the scene that names it.
+        if (!isRoot && bi.id != ci.id && id_referenced(ci.id))
+            return fail("the id '" + ci.id + "' of a part of the prefab ('" + bi.id + "') differs from the prefab's and is named by a string "
+                        "elsewhere in the scene (a value equal to the id; an id inside a longer text or a script's find_by_id is not "
+                        "looked for), which would no longer find it once the instance is loaded again");
         pairs_.push_back({b, c, node, chain});
         map_[b.bits()] = c;
 
@@ -175,6 +206,23 @@ private:
             if (!ok) return false;
         }
         return true;
+    }
+
+    // True when a string value of a component outside this instance equals `id`.
+    bool id_referenced(const std::string& id) {
+        if (!cache_.stringsBuilt) {
+            cache_.strings.clear();
+            for (Entity e : cw_.entities()) count_entity_strings(cw_, e, cache_.strings);
+            cache_.stringsBuilt = true;
+        }
+        const auto total = cache_.strings.find(id);
+        if (total == cache_.strings.end()) return false;
+        if (!inside_) {
+            inside_ = std::unordered_map<std::string, int>();
+            count_subtree_strings(cw_, root_, *inside_);
+        }
+        const auto own = inside_->find(id);
+        return total->second > (own == inside_->end() ? 0 : own->second);
     }
 
     bool same_ref(Entity bt, Entity ct) const {
@@ -265,6 +313,9 @@ private:
     }
 
     const World& cw_;
+    PrefabBaseCache::Impl& cache_;
+    Entity root_;
+    std::optional<std::unordered_map<std::string, int>> inside_;
     PrefabBase& base_;
     const World& bw_;
     const PrefabDiffOptions& opt_;
@@ -290,7 +341,7 @@ PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::strin
     if (!base.error.empty()) { none.reason = base.error; return none; }
     EntityJsonOptions fallback;
     fallback.poseRest = opts.poseRest;
-    Differ differ(world, base, opts, opts.childOptions ? *opts.childOptions : fallback, std::string(prefabPath));
+    Differ differ(world, cache, base, opts, opts.childOptions ? *opts.childOptions : fallback, std::string(prefabPath));
     return differ.run(entity);
 }
 
