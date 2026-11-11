@@ -282,13 +282,15 @@ Result<Sound> measure_sound(const std::string& projectDir, const std::string& pa
         if (!file) return file.error();
         auto decoded = decode_audio(file->bytes, fs::extension(file->path));
         if (!decoded) return make_error(s.path + ": " + decoded.error().message, decoded.error().hint);
-        // A WAV with loop points (a `loop` step of an audio document) is judged across the join it plays, not across its ends.
-        std::optional<am::LoopPoints> loop = fs::extension(file->path) == ".wav" ? wav_loop_points(file->bytes) : std::nullopt;
-        if (!loop) {  // the import settings an audio document's bake wrote (seconds), for an .ogg
+        // The engine plays the loop points of assets.json (import.loopStart / loopEnd, seconds), so those are judged first; a WAV
+        // without them falls back to the `smpl` chunk a `loop` step of an audio document writes.
+        std::optional<am::LoopPoints> loop;
+        {
             const double a = tooling_detail::number_setting(s.analysis.settings, "loopStart", 0.0), b = tooling_detail::number_setting(s.analysis.settings, "loopEnd", 0.0);
             if (b > a && a >= 0.0 && decoded->rate > 0)
                 loop = am::LoopPoints{std::size_t(std::llround(a * decoded->rate)), std::size_t(std::llround(b * decoded->rate))};
         }
+        if (!loop && fs::extension(file->path) == ".wav") loop = wav_loop_points(file->bytes);
         s.metrics = am::measure(*decoded, loop);
     }
     const Loudness& l = s.analysis.loudness;
@@ -526,7 +528,7 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     const std::set<std::string> docSources = asked ? std::set<std::string>() : audio_document_sources(projectDir);
     for (const std::string& p : paths) {
         if (docSources.contains(p) && !plays.contains(p)) {
-            skippedSources.push_back(Json::object({{"path", p}, {"reason", "only the source of an audio document's recipe (assets.json): the game plays the baked sound, which is judged. Pass it in `paths` to judge it anyway."}}));
+            skippedSources.push_back(Json::object({{"path", p}, {"reason", "only the source of an audio document's recipe (assets.json): the game plays the baked sound, which is judged. If a script plays it with a path it builds, or you want it judged anyway, pass it in `paths`."}}));
             continue;
         }
         auto s = measure_sound(projectDir, p, plays, roots);
@@ -594,7 +596,14 @@ Json check_mix(const std::string& projectDir, const Json& args) {
         result["skipped"] = skippedSources;
         result["summary"]["skipped"] = int(skippedSources.size());
     }
-    if (sounds.empty()) result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/, or pass `paths`.";
+    if (sounds.empty()) {
+        if (!skippedSources.empty() && unreadable.empty())
+            result["note"] = std::format("Every sound ({}) was skipped: each one is only the source of an audio document's recipe. Pass `paths` to judge them, or check the baked sounds.", skippedSources.size());
+        else if (!unreadable.empty())
+            result["note"] = "No sound could be read: see `unreadable` for each file's error.";
+        else
+            result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/, or pass `paths`.";
+    }
     Json steps = Json::array();
     if (fail || warn) steps.push_back("Fix the findings from the top (each has a `hint`), then run assets.check_mix again; assets.spectrogram shows a single sound.");
     if (std::any_of(sounds.begin(), sounds.end(), [](const Sound& s) { return s.buses.empty(); }))

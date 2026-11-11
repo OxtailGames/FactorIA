@@ -6,6 +6,7 @@
 #include <numbers>
 #include <vector>
 
+#include "fa/audio/convert.h"
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/tooling/tooling.h"
@@ -240,4 +241,77 @@ TEST_CASE("assets.spectrogram: a picture with the numbers, kept with out") {
     CHECK_FALSE(r.ok);
     r = p.registry.call("assets.spectrogram", {{"path", "assets/tone.wav"}, {"out", "x.jpg"}});
     CHECK_FALSE(r.ok);
+}
+
+namespace {
+
+// `wav` with a `smpl` chunk after its data: one loop over frames [start, last] (both inclusive); `cut` bytes of the body at most.
+std::string with_smpl(std::string wav, std::uint32_t start, std::uint32_t last, std::size_t cut = 60) {
+    std::string body;
+    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) body.push_back(char(v >> (8 * i))); };
+    for (int i = 0; i < 7; ++i) u32(0);
+    u32(1); u32(0);                                         // loop count, sampler data
+    u32(0); u32(0); u32(start); u32(last); u32(0); u32(0);  // id, type, start, end, fraction, play count
+    body.resize(std::min(body.size(), cut));
+    wav += "smpl";
+    for (int i = 0; i < 4; ++i) wav.push_back(char(std::uint32_t(body.size()) >> (8 * i)));
+    return wav + body;
+}
+
+}  // namespace
+
+TEST_CASE("assets.check_mix: loop points come from assets.json first and the smpl chunk is the fallback") {
+    Project p;
+    const std::string seam = wav_of(tone(100, 0.5, 1.005, kPiD / 2));  // the ends differ by a jump; frames 0..44099 are 100 whole periods
+    p.write("assets/smpl.wav", with_smpl(seam, 0, 44099));             // the chunk says: loop the clean part
+    p.write("assets/both.wav", with_smpl(seam, 0, 44099));             // the same, but assets.json says the whole file
+    p.write("assets/cut.wav", with_smpl(seam, 0, 44099, 40));          // a chunk cut short is ignored, not read past its end
+    p.write("assets.json", R"({"assets": {"assets/both.wav": {"import": {"loopStart": 0.0, "loopEnd": 1.005}}}})");
+    p.scene(R"("entities":[
+        {"id":"a","components":{"AudioSource":{"clip":"assets/smpl.wav","loop":true}}},
+        {"id":"b","components":{"AudioSource":{"clip":"assets/both.wav","loop":true}}},
+        {"id":"c","components":{"AudioSource":{"clip":"assets/cut.wav","loop":true}}}])");
+    CommandResult r = p.mix({{"includeOk", true}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& f = r.result["findings"];
+    REQUIRE(find(f, "assets/smpl.wav", "loop_seam_jump"));
+    CHECK((*find(f, "assets/smpl.wav", "loop_seam_jump"))["verdict"] == "ok");    // the smpl chunk, nothing in assets.json
+    REQUIRE(find(f, "assets/both.wav", "loop_seam_jump"));
+    CHECK((*find(f, "assets/both.wav", "loop_seam_jump"))["verdict"] == "fail");  // assets.json wins: the engine plays that
+    REQUIRE(find(f, "assets/cut.wav", "loop_seam_jump"));
+    CHECK((*find(f, "assets/cut.wav", "loop_seam_jump"))["verdict"] == "fail");   // truncated chunk: the whole file's seam
+}
+
+TEST_CASE("assets.check_mix: an .ogg is judged across the loopStart and loopEnd of assets.json") {
+    Project p;
+    const std::string wav = wav_of(tone(100, 0.5, 2.005, kPiD / 2));
+    auto ogg = encode_vorbis(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(wav.data()), wav.size()), 0.9);
+    REQUIRE(ogg.ok());
+    const std::string bytes(ogg->begin(), ogg->end());
+    p.write("assets/open.ogg", bytes);
+    p.write("assets/loop.ogg", bytes);
+    p.write("assets.json", R"({"assets": {"assets/loop.ogg": {"import": {"loopStart": 0.5, "loopEnd": 1.5}}}})");
+    p.scene(R"("entities":[
+        {"id":"a","components":{"AudioSource":{"clip":"assets/open.ogg","loop":true}}},
+        {"id":"b","components":{"AudioSource":{"clip":"assets/loop.ogg","loop":true}}}])");
+    CommandResult r = p.mix({{"includeOk", true}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& f = r.result["findings"];
+    REQUIRE(find(f, "assets/open.ogg", "loop_seam_jump"));
+    CHECK((*find(f, "assets/open.ogg", "loop_seam_jump"))["verdict"] == "fail");
+    REQUIRE(find(f, "assets/loop.ogg", "loop_seam_jump"));
+    CHECK((*find(f, "assets/loop.ogg", "loop_seam_jump"))["verdict"] == "ok");  // 0.5 to 1.5 s is 100 whole periods
+}
+
+TEST_CASE("assets.check_mix: when every sound is a recipe input the note says they were skipped") {
+    Project p;
+    p.write("assets/raw/a.wav", wav_of(tone(200, 0.3, 0.5)));
+    p.write("assets.json", R"({"assets": {"assets/mix.wav": {"provenance": {"recipe": {"command": "audio.bake", "args": {}, "inputs": [{"path": "assets/raw/a.wav", "sha256": "x"}]}}}}})");
+    CommandResult r = p.mix();
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["skipped"].size() == 1);
+    CHECK(r.result["skipped"][0]["reason"].get<std::string>().find("`paths`") != std::string::npos);
+    REQUIRE(r.result.contains("note"));
+    CHECK(r.result["note"].get<std::string>().find("skipped") != std::string::npos);
+    CHECK(r.result["note"].get<std::string>().find("No sounds found") == std::string::npos);
 }
