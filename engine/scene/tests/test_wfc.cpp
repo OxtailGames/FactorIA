@@ -389,6 +389,21 @@ TEST_CASE("wfc: cell rules fix cells and the accept hook can refuse a finished g
     CHECK((*g3)->run() == wfc::GenStatus::Failed);
     CHECK((*g3)->failure_message().find("not enough treasure") != std::string::npos);
     CHECK((*g3)->stats().rejected == 3);
+    CHECK((*g3)->stats().cutOff == 0);
+    CHECK((*g3)->failure_message().find("sample's shape") == std::string::npos);
+
+    // Cut-off areas behind most refusals name the sample's shape and how to fix it.
+    wfc::GenerateOptions cut = never;
+    cut.accept = [](const std::vector<int>&, std::string& why, std::int64_t&) {
+        why = "2 walkable area(s) are cut off from the main one (8 cells)";
+        return false;
+    };
+    auto g4 = wfc::Generator::create(model, cut);
+    REQUIRE(g4.ok());
+    CHECK((*g4)->run() == wfc::GenStatus::Failed);
+    CHECK((*g4)->stats().cutOff == 3);
+    CHECK((*g4)->failure_message().find("sample's shape") != std::string::npos);
+    CHECK((*g4)->failure_hint().find("passages 2-3 cells wide") != std::string::npos);
 }
 
 TEST_CASE("wfc: errors teach") {

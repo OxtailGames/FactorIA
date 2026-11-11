@@ -125,6 +125,9 @@ SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view
         p.fps = a.fps != 10.0f ? a.fps : clip->fps;
         p.loop = !a.loop ? false : clip->loop;
     }
+    // loopMode wins over both the clip and the `loop` alias.
+    if (a.loopMode == SpriteLoopMode::Loop) p.loop = true;
+    else if (a.loopMode == SpriteLoopMode::Once) p.loop = false;
     // The picture of a sheet: its gutter and pivot apply when the animator's grid is the sheet's.
     if (sheet && p.columns == sheet->columns && p.rows == sheet->rows) {
         p.padding = sheet->padding;
