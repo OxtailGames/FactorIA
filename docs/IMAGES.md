@@ -265,12 +265,17 @@ child of the group at 1. A wrong name or index is an error with "did you mean" a
 is the part of the old canvas that stays where it is: `top-left`, `top`, `top-right`, `left`, `center` (the default), `right`,
 `bottom-left`, `bottom` or `bottom-right`. With `top-left` a bigger canvas grows at the right and bottom and a smaller one is cropped
 there; with `center` every side moves (an odd difference puts the extra pixel at the right/bottom). Every top-level layer moves by
-that offset (a group takes its children along); a fill, gradient or procedural layer with no size just covers the new canvas; the
-text rows of an `indexed` layer and of its cels are cut or padded to the new size, so the document stays valid. `palette`, `ramps`,
+that offset (a group takes its children along); a fill, gradient or procedural layer with no size just covers the new canvas, unless
+it has `masks`: masks are in the layer's own pixels, so (when the offset is not 0, 0) the layer becomes a box of the OLD canvas size
+(`width` / `height`, or the `texture` size) and moves with the anchor like any other layer, and it no longer covers the area a bigger
+canvas adds. An `adjustment` layer with masks moves too (its masks go with it); one without masks needs no move. The text rows of an
+`indexed` layer and of its cels are CUT to the part inside the new canvas, never padded (each keeps its place through its `x` / `y`, a
+picture wholly outside becomes one transparent pixel), so a small pixel-art layer on a 4096 x 4096 canvas stays small; a resize that
+would keep more than 64 MB of rows fails and changes nothing. Positions are clamped to the +-100000 a document allows. `palette`, `ramps`,
 frames, tags and `sheet` settings are kept, and the baked sheet takes the new cell size. `fill` paints the area a bigger canvas adds
 (a masked layer named `resize fill` at the bottom); without it the new area shows the document's `background` or is transparent.
 The result has `resized` `{from, to, anchor, offset, filled}` and `warnings` for what cannot follow (stored selections, which must
-be made again; tile mode; linked cels). The Image panel's **Resize...** button runs the same command as ONE undo step. Wrong sizes
+be made again; tile mode; linked cels). In the Image panel's toolbar the canvas size button (`16x16`) opens the Resize popup, which runs the same command as ONE undo step (its Resize button is disabled while the size is the current one). Wrong sizes
 and unknown anchors are errors with the JSON pointer and a "did you mean".
 
 ### Make, look at, export

@@ -297,3 +297,127 @@ TEST_CASE("style roles: texelsPerUnit follows the role in project.validate, and 
     p.ok("style.ignore", {{"path", "assets/hud.png"}, {"rules", Json::array({"value"})}});
     CHECK(warnings().empty());
 }
+
+// ---- image.resize: masks, big canvases and huge positions ---------------------------------------------------------
+
+namespace {
+
+void save_doc(const AssetsProject& p, const char* json) { p.ok("image.save", {{"path", kDoc}, {"document", Json::parse(json)}}); }
+
+}  // namespace
+
+TEST_CASE("image.resize: a masked fill follows its masks (and a masked adjustment moves with them) when the anchor is not top-left") {
+    AssetsProject p;
+    save_doc(p, R"({"format":"factoria.image/1","width":4,"height":4,"layers":[
+        {"kind":"fill","name":"dot","color":"#ff0000","masks":[{"type":"rect","x":0,"y":0,"width":2,"height":2}]}]})");
+    CHECK(get(frame_of(p, 0), 1, 1) == kRed);
+    p.ok("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "bottom-right"}});
+    const Image img = frame_of(p, 0);
+    REQUIRE(img.width == 8);
+    CHECK(get(img, 4, 4) == kRed);  // the mask moved with the layer: the old (0, 0) is at (4, 4)
+    CHECK(get(img, 5, 5) == kRed);
+    CHECK(get(img, 0, 0) == kClear);
+    CHECK(get(img, 6, 6) == kClear);
+    const Json layer = read_doc(p)["layers"][0];
+    CHECK(layer["width"] == 4);  // a box of the old canvas
+    CHECK(layer["x"] == 4);
+    CHECK(layer["masks"][0]["x"] == 0);  // the mask itself is in the layer's own pixels and did not change
+
+    // with the top-left anchor nothing moves
+    p.ok("image.resize", {{"path", kDoc}, {"width", 12}, {"height", 12}, {"anchor", "top-left"}});
+    CHECK(get(frame_of(p, 0), 4, 4) == kRed);
+    CHECK(get(frame_of(p, 0), 3, 3) == kClear);
+
+    // an adjustment with masks
+    save_doc(p, R"({"format":"factoria.image/1","width":4,"height":4,"layers":[
+        {"kind":"fill","name":"white","color":"#ffffff"},
+        {"kind":"adjustment","name":"inv","adjustments":[{"type":"invert"}],"masks":[{"type":"rect","x":0,"y":0,"width":2,"height":2}]}]})");
+    CHECK(get(frame_of(p, 0), 0, 0) == Rgba{0, 0, 0, 255});
+    p.ok("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "bottom-right"}});
+    const Image adj = frame_of(p, 0);
+    CHECK(get(adj, 4, 4) == Rgba{0, 0, 0, 255});
+    CHECK(get(adj, 0, 0) == Rgba{255, 255, 255, 255});  // the white fill covers the new area, the inverted patch moved
+}
+
+TEST_CASE("image.resize: a small indexed image on a big canvas stays small, and the pixels come back on the way back") {
+    AssetsProject p;
+    make_dot(p);
+    p.ok("image.resize", {{"path", kDoc}, {"width", 4096}, {"height", 4096}, {"bake", false}});
+    CHECK(read_all(p.file(kDoc)).size() < 16 * 1024);  // it was 16.8 MB per frame once, padded with dots
+    const Json doc = read_doc(p);
+    for (const Json& layer : doc["layers"]) {
+        if (layer.value("kind", "") != "indexed") continue;
+        CHECK(layer["rows"].size() <= 4);
+        for (const Json& cel : layer["cels"]) CHECK(cel["rows"].size() <= 4);
+    }
+    CHECK(load_image_document(p.dir, kDoc).ok());
+    p.ok("image.resize", {{"path", kDoc}, {"width", 4}, {"height", 4}});
+    for (int f = 0; f < 3; ++f) {
+        const Image img = frame_of(p, f);
+        CHECK(get(img, f, 0) == kRed);
+        CHECK(get(img, 0, 3) == kGreen);
+    }
+    // everything wholly outside the canvas leaves one transparent pixel, not an empty list
+    p.ok("image.resize", {{"path", kDoc}, {"width", 1}, {"height", 1}, {"anchor", "bottom-right"}});
+    CHECK(load_image_document(p.dir, kDoc).ok());
+}
+
+TEST_CASE("image.resize: positions near the int limit are clamped, not wrapped") {
+    AssetsProject p;
+    write_png(p.file("assets/art/bar.png"), make_image(4, 1, kGreen));
+    write_all(p.file(kDoc), R"({"format":"factoria.image/1","width":4,"height":4,"palette":["#000000","#ff0000"],"frames":[{"duration":80},{"duration":80}],"layers":[
+        {"kind":"pixels","name":"bar","source":"assets/art/bar.png","x":2147483647,"y":-2147483647},
+        {"kind":"indexed","name":"art","x":2147483647,"y":2147483647,"rows":["1.",".."]},
+        {"kind":"indexed","name":"cels","cels":[{"frame":1,"x":9999999999,"y":-9999999999,"rows":["1"]}]}]})");
+    const CommandResult r = p.call("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "bottom-right"}, {"bake", false}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json doc = read_doc(p);
+    for (const Json& layer : doc["layers"]) {
+        CHECK(std::abs(layer.value("x", 0)) <= 100000);
+        CHECK(std::abs(layer.value("y", 0)) <= 100000);
+        if (layer.contains("cels"))
+            for (const Json& cel : layer["cels"]) {
+                CHECK(std::abs(cel.value("x", 0)) <= 100000);
+                CHECK(std::abs(cel.value("y", 0)) <= 100000);
+            }
+    }
+    CHECK(doc["layers"][0]["x"] == 100000);  // INT_MAX + 4 would have wrapped to a negative number
+    CHECK(doc["layers"][0]["y"] == -100000);
+}
+
+// ---- style.ignore on a whole-path entry, path names with dots -------------------------------------------------------
+
+TEST_CASE("style.ignore: rules on an entry that already skips every rule do not narrow it, and widening says so") {
+    AssetsProject p;
+    Json style = kStyle;
+    style["ignore"] = Json::array({Json::object({{"path", "assets/fx/spark.png"}}), Json::object({{"path", "assets/fx/flame.png"}, {"rules", Json::array({"outline"})}})});
+    write_png(p.file("assets/fx/spark.png"), block(kRed));
+    write_style(p, style);
+    Json r = p.ok("style.ignore", {{"path", "assets/fx/spark.png"}, {"rules", Json::array({"outline"})}});
+    CHECK(r["changed"] == false);
+    REQUIRE(r.contains("notes"));
+    CHECK(r["notes"][0].get<std::string>().find("every rule") != std::string::npos);
+    CHECK(p.manifest()["style"]["ignore"][0] == Json::parse(R"({"path":"assets/fx/spark.png"})"));
+    CHECK(parse_style(p.manifest()["style"]).guide.ignores("assets/fx/spark.png"));  // still every rule
+    // taking single rules back from it is refused
+    CHECK_FALSE(p.call("style.ignore", {{"path", "assets/fx/spark.png"}, {"rules", Json::array({"outline"})}, {"remove", true}}).ok);
+    // no rules on a partial entry widens it and says so
+    r = p.ok("style.ignore", {{"path", "assets/fx/flame.png"}});
+    CHECK(r["changed"] == true);
+    REQUIRE(r.contains("notes"));
+    CHECK(r["notes"].dump().find("only for") != std::string::npos);
+    CHECK(p.manifest()["style"]["ignore"][1] == "assets/fx/flame.png");
+}
+
+TEST_CASE("style.ignore and style.set_role: only a `..` segment leaves the project, a name with two dots is a name") {
+    AssetsProject p;
+    write_style(p, kStyle);
+    p.ok("style.ignore", {{"path", "assets/fx/a..b.png"}, {"rules", Json::array({"outline"})}});
+    CHECK(p.manifest()["style"]["ignore"].back()["path"] == "assets/fx/a..b.png");
+    p.ok("style.set_role", {{"path", "assets/ui/..hidden/**"}, {"role", "ui"}});
+    CHECK(p.manifest()["style"]["roles"].contains("assets/ui/..hidden/**"));
+    for (const char* bad : {"../x.png", "assets/../../x.png", "assets/fx/../a.png", "assets\\..\\a.png"}) {
+        const CommandResult r = p.call("style.ignore", {{"path", bad}});
+        CHECK_FALSE_MESSAGE(r.ok, bad);
+    }
+}
