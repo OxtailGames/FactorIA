@@ -6,8 +6,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <mutex>
 
 #include "common.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/api_export.h"
@@ -97,6 +100,66 @@ Command make_templates_command() {
     return c;
 }
 
+namespace {
+// `factoria validate` reports what the engine logged while it opened the session and loaded the scenes inside its
+// report, each once: this keeps those warnings and errors off stderr and collects them for the report instead.
+class LogCapture {
+public:
+    LogCapture() : shared_(std::make_shared<Shared>()) {
+        auto shared = shared_;
+        id_ = add_log_sink([shared](const LogEntry& e) {
+            if (e.level < LogLevel::Warn) return;
+            std::lock_guard<std::mutex> lock(shared->mutex);
+            shared->entries.push_back(e);
+        });
+        set_log_stderr_filter([](const LogEntry&) { return false; });
+    }
+    ~LogCapture() { stop(); }
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    void stop() {
+        if (id_ < 0) return;
+        set_log_stderr_filter({});
+        remove_log_sink(id_);
+        id_ = -1;
+    }
+    // Adds every captured entry the report does not already say (an issue whose message the log line contains) as a
+    // warning, one per distinct text.
+    void fold_into(ValidationReport& rep) {
+        stop();
+        std::vector<LogEntry> entries;
+        {
+            std::lock_guard<std::mutex> lock(shared_->mutex);
+            entries = shared_->entries;
+        }
+        std::vector<std::string> seen;
+        auto covered = [&](const std::string& text) {
+            for (const auto* list : {&rep.errors, &rep.warnings, &rep.notes})
+                for (const auto& i : *list)
+                    if (!i.message.empty() && text.find(i.message) != std::string::npos) return true;
+            return std::find(seen.begin(), seen.end(), text) != seen.end();
+        };
+        for (const auto& e : entries) {
+            if (covered(e.message)) continue;
+            seen.push_back(e.message);
+            ValidationIssue w;
+            w.file = e.category.empty() ? "log" : e.category;
+            w.message = std::string(e.level >= LogLevel::Error ? "The engine logged an error while loading: " : "The engine logged a warning while loading: ") + e.message;
+            w.hint = "Fix what the message names; it is shown here once instead of as a log line.";
+            rep.warnings.push_back(w);
+        }
+    }
+
+private:
+    struct Shared {
+        std::mutex mutex;
+        std::vector<LogEntry> entries;
+    };
+    std::shared_ptr<Shared> shared_;
+    int id_ = -1;
+};
+}  // namespace
+
 Command make_validate_command() {
     Command c;
     c.name = "validate";
@@ -111,6 +174,7 @@ Command make_validate_command() {
     c.examples = {"factoria validate", "factoria validate games/my-game --json"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
+        LogCapture capture;  // the log lines of the load go into the report, not to stderr
         // Script syntax and Script.props go through a logic-only engine; if the project cannot even load, scripts
         // are skipped and the scene/project errors below explain why.
         std::unique_ptr<Session> session;
@@ -125,6 +189,7 @@ Command make_validate_command() {
         ValidateOptions vo = session ? engine_validate_options(session->engine()) : ValidateOptions{};
         vo.checkScenes = !ctx.args.has("no-scenes");
         ValidationReport rep = validate_project(dir, vo);
+        capture.fold_into(rep);
         if (!engineProblem.empty()) {
             ValidationIssue w;
             w.file = "scripts";
