@@ -60,14 +60,36 @@ void collect_refs(const Json& j, std::vector<std::pair<std::string, std::string>
     }
 }
 
+// True when `text` holds `cite` (KW/FB-0020) between characters that are not part of a name or of a longer number.
+// A plain find with boundary checks: a std::regex per entry over the whole file is slow in MSVC Debug. Like the
+// test as a whole, it accepts a cite anywhere below the heading (a line that merely mentions an entry counts).
+bool has_cite(const std::string& text, const std::string& cite) {
+    for (size_t pos = text.find(cite); pos != std::string::npos; pos = text.find(cite, pos + 1)) {
+        const bool before = pos == 0 || !std::isalnum(static_cast<unsigned char>(text[pos - 1]));
+        const size_t end = pos + cite.size();
+        const bool after = end >= text.size() || !std::isdigit(static_cast<unsigned char>(text[end]));
+        if (before && after) return true;
+    }
+    return false;
+}
+
+// Every directory under examples/ that holds an ENGINE_FEEDBACK.json, at any depth up to the 4 levels
+// `factoria feedback collect` looks into.
+void find_feedback_dirs(const stdfs::path& dir, int depth, std::vector<std::string>& out) {
+    std::error_code ec;
+    if (stdfs::exists(dir / "ENGINE_FEEDBACK.json", ec)) out.push_back(dir.string());
+    if (depth >= 4) return;
+    for (const auto& e : stdfs::directory_iterator(dir, ec))
+        if (e.is_directory(ec)) find_feedback_dirs(e.path(), depth + 1, out);
+}
+
 }  // namespace
 
 TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     const stdfs::path root(FA_REPO_ROOT);
     std::vector<std::string> dirs;
-    for (const auto& e : stdfs::directory_iterator(root / "examples")) {
-        if (e.is_directory() && stdfs::exists(e.path() / "ENGINE_FEEDBACK.json")) dirs.push_back(e.path().string());
-    }
+    // `feedback collect` takes the directories it is given and finds the files below them; give it every one.
+    find_feedback_dirs(root / "examples", 0, dirs);
     std::sort(dirs.begin(), dirs.end());
     REQUIRE_MESSAGE(!dirs.empty(), "examples/*/ENGINE_FEEDBACK.json: none found.");
     auto rep = collect_feedback(dirs);
@@ -106,13 +128,15 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
             continue;
         }
         const std::string cite = it->second + "/" + id;
-        const std::regex citeRe("(^|[^A-Za-z0-9])" + cite + "($|[^0-9])");
-        if (!std::regex_search(below, citeRe)) missing.insert(cite);
+        if (!has_cite(below, cite)) missing.insert(cite);
     }
     std::ostringstream unk;
     for (const auto& p : unknownProjects) unk << " \"" << p << "\"";
-    CHECK_MESSAGE(unknownProjects.empty(), "feedback/ROADMAP.md cites entries by a two-letter prefix, and these projects have none:"
-                                               << unk.str() << ". Add a row to prefixes() in tools/common/tests/feedback_roadmap_test.cpp.");
+    CHECK_MESSAGE(unknownProjects.empty(),
+                  "feedback/ROADMAP.md cites entries by a two-letter prefix, and these projects have none:"
+                      << unk.str() << ". Pick a two-letter prefix that no row of prefixes() in "
+                      << "tools/common/tests/feedback_roadmap_test.cpp uses, add the row, and cite the project's entries "
+                      << "with it in ROADMAP.md (e.g. XX/FB-0001); their citations are not checked until the project has one.");
     std::ostringstream o;
     for (const auto& c : missing) o << " " << c;
     CHECK_MESSAGE(missing.empty(),
