@@ -201,6 +201,9 @@ using SharedGains = std::map<std::string, double>;
 
 Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const std::string& outRel, const RenderArgs& argsIn, const Json& recipeArgs, bool overwrite,
                  SharedGains* gains = nullptr) {
+    if (!recipeArgs.is_object())
+        fail("invalid_argument", "The recipe of '" + outRel + "' in " + std::string(assets::kManifestFile) + " has `args` that is not an object (provenance.recipe.args).",
+             "Edit provenance.recipe.args to an object such as {\"path\": \"" + loaded.rel + "\"}, or delete the recipe and run sfx.render again.");
     RenderArgs args = argsIn;
     const std::string ext = to_lower(fs::extension(outRel));
     if (ext != ".wav" && ext != ".ogg")
