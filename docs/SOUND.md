@@ -564,7 +564,7 @@ each memory ordering is explained where it is used:
   and waits where it is (no frame is skipped), the callback never waits for the decoder, and `stats()` counts `underruns` (one per
   voice and block) and `underrunFrames`. Only a game thread that stalls for longer than a ring lasts underruns.
 - **Streamed music.** A stem of a song that plays from stem files (docs/MUSIC.md, "Live and stems") streams when it is an `.ogg`
-  of 20 s or more at 44.1 kHz (`import.music.stream` overrides). It keeps a window of 24 chunks of 8192 frames (4.5 s) in 24 slots with
+  of 20 s or more at 44.1 kHz (`import.music.stream` overrides). It keeps a window of 32 chunks of 8192 frames (6 s) in 32 slots with
   an atomic state each, shared by every head of the transport (the playing section, a section jump or a crossfade under way, a layer
   fading in). The callback only pins a chunk, reads it and unpins it; it never decodes, waits or allocates. Each time it publishes the
   transport's state it publishes, per stem (`MusicStemStream::publish_head`, relaxed atomics, no allocation), where that stem will read
