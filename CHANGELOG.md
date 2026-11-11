@@ -12,6 +12,14 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   point with no entity, attenuated and panned by the `AudioListener` as an `AudioSource` with `spatial: true` is (linear
   fall-off to 0 at `range`, default 800; `[x, y]` in 2D). Out of range it plays nothing and returns 0. It does not follow
   anything after it starts. Kindlewatch drops its hand-made `playAt`.
+- **Emissive above white for meshes (M101.11, CC/FB-0057):** `MeshRenderer.emissiveStrength` (0..100, default 1) multiplies
+  `emissive`, so a lamp can be brighter than white and `Camera.bloom` glows more for it. The game target is now RGBA16F
+  (HDR) wherever the GPU renders to it with blending, filtering and the requested MSAA, else RGBA8 as before
+  (`FA_SCENE_FORMAT=rgba8` forces it, `Renderer::hdr_scene()` says which); the screen, screenshots and video stay 8-bit,
+  and a float target costs more memory bandwidth than an 8-bit one. The colour filter clamps its input, so its output is
+  unchanged. Meshes that differ only in `emissiveStrength` are not batched together, like a different `emissive`.
+  `validate` warns about a colour such as `[3, 2, 1]` that reads as 0..255 and is almost black, and for `emissive` it points
+  to `emissiveStrength`. Clockwork Courier's market lamps glow again with it.
 - **Music memory is counted (M101.1a):** `Audio::stats()` (and `game.state`'s `audio`) reports `musicBytes`, the decoded
   stems the music cache holds, and `decodedBytes` now includes them, so `audioDecodedMB` explains the process size.
   `audio.music_state` lists the cached songs with their bytes per stem (`cache`, `cacheBytes`); `perf.profile` memory has

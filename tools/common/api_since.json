@@ -322,6 +322,7 @@
     "MeshRenderer.castShadows": "0.1.0",
     "MeshRenderer.color": "0.1.0",
     "MeshRenderer.emissive": "0.1.0",
+    "MeshRenderer.emissiveStrength": "unreleased",
     "MeshRenderer.material": "0.2.0",
     "MeshRenderer.lods": "0.16.0",
     "MeshRenderer.materialColors": "0.3.0",

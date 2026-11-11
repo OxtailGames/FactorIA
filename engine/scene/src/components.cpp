@@ -1136,6 +1136,11 @@ void register_builtin_components(TypeRegistry& r) {
         .field("roughness", &MeshRenderer::roughness,
                "0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.").range(0, 1)
         .field("emissive", &MeshRenderer::emissive, "Light emitted by the surface regardless of lighting (glow). Black = none.")
+        .field("emissiveStrength", &MeshRenderer::emissiveStrength,
+               "HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; "
+               "above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read "
+               "as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. "
+               "Meshes that differ only here are not drawn in the same batch.").range(0, 100)
         .field("unlit", &MeshRenderer::unlit, "true = ignore lighting and draw the flat base color.")
         .field("castShadows", &MeshRenderer::castShadows, "Cast shadows from shadow-casting lights.")
         .field("receiveShadows", &MeshRenderer::receiveShadows, "Receive shadows from shadow-casting lights.")

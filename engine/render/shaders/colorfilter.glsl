@@ -48,8 +48,10 @@ vec3 to_srgb(vec3 c) {
 
 void main() {
     vec4 texel = textureLod(sampler2D(tex, smp), uv, 0.0);
-    vec3 c = texel.rgb;
     int mode = int(p.x + 0.5);
+    // The game target can hold colours above white (a float format, MeshRenderer.emissiveStrength); a filter works on what the
+    // screen shows, so it clamps. The mode 0 copy keeps them.
+    vec3 c = mode == 0 ? texel.rgb : clamp(texel.rgb, 0.0, 1.0);
     vec3 o = c;
     if (mode == 1) {
         float y = dot(to_linear(c), vec3(0.2126, 0.7152, 0.0722));
