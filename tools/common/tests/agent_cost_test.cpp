@@ -37,7 +37,7 @@ TEST_CASE("agent cost: the report finds the first playable build, the engine err
     in.transcript = fixture();
     in.cli = "claude";
     in.model = "sonnet";
-    in.finalPlay = Json::parse(R"({"ended":"timeout","phases":[{"name":"level1"}]})");
+    in.finalPlay = Json::parse(R"({"ended":"won","phases":[{"n":1,"name":"scenes/main.scene.json","kind":"scene","time":0.0,"screenshot":"phase-1.png"}]})");
     const Json r = agent_cost_report(in);
     CHECK(r["total"]["steps"] == 5);
     CHECK(r["total"]["costUsd"].get<double>() == doctest::Approx(0.12));
@@ -63,11 +63,11 @@ TEST_CASE("agent cost: a run without a result line or a playable build says so")
 }
 
 TEST_CASE("agent cost: a play.auto answer is read whole or cut") {
-    const Json whole = agent_cost_read_play_auto(R"(note {"ended":"won","phases":[{"name":"level1"},{"scene":"scenes/level2.scene.json"}],"scriptErrors":2} end)");
-    CHECK(whole["levelPhases"] == 2);
+    const Json whole = agent_cost_read_play_auto(R"(note {"ended":"won","phases":[{"n":1,"name":"scenes/a.scene.json","kind":"scene"},{"n":2,"name":"boss","kind":"mark"},{"n":3,"name":"boss","kind":"mark"}],"scriptErrors":[1,2]} end)");
+    CHECK(whole["phases"] == 2);  // the same mark twice is one phase
     CHECK(whole["ended"] == "won");
     CHECK(whole["scriptErrors"] == 2);
-    const Json cut = agent_cost_read_play_auto(R"("ended":"stuck","phases":[{"name":"level1"},{"name":"level2"},{"name":"lev)");
-    CHECK(cut["levelPhases"] == 2);
+    const Json cut = agent_cost_read_play_auto(R"("ended":"stuck","phases":[{"name":"a"},{"name":"b"},{"name":"c)");
+    CHECK(cut["phases"] == 2);
     CHECK(cut["parsed"] == false);
 }

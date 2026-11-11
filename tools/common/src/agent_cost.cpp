@@ -77,19 +77,18 @@ bool is_factoria_call(const EfficiencyToolCall& c) {
 }  // namespace
 
 Json agent_cost_read_play_auto(const std::string& text) {
-    Json out = Json::object({{"levelPhases", 0}, {"ended", ""}, {"scriptErrors", 0}, {"parsed", false}});
+    Json out = Json::object({{"phases", 0}, {"ended", ""}, {"scriptErrors", 0}, {"parsed", false}});
     const std::size_t a = text.find('{');
     const std::size_t b = text.rfind('}');
     Json j;
     if (a != std::string::npos && b != std::string::npos && b > a) j = Json::parse(text.begin() + static_cast<std::ptrdiff_t>(a), text.begin() + static_cast<std::ptrdiff_t>(b) + 1, nullptr, false);
-    std::set<std::string> levels;
+    std::set<std::string> phaseSet;
     if (j.is_object() && j.contains("phases") && j["phases"].is_array()) {
         out["parsed"] = true;
         for (const Json& p : j["phases"]) {
             if (!p.is_object()) continue;
             const std::string name = p.value("name", std::string());
-            const std::string scene = p.value("scene", std::string());
-            if (contains_ci(name, "level") || contains_ci(scene, "level")) levels.insert(name + "|" + scene);
+            phaseSet.insert(p.value("kind", std::string()) + "|" + name);
         }
         if (j.contains("ended") && j["ended"].is_string()) out["ended"] = j["ended"];
         if (j.contains("scriptErrors")) {
@@ -97,16 +96,16 @@ Json agent_cost_read_play_auto(const std::string& text) {
             out["scriptErrors"] = se.is_number() ? static_cast<int>(std::min(se.get<double>(), 1e6)) : (se.is_array() ? static_cast<int>(se.size()) : 0);
         }
     } else if (const std::size_t at = text.find("\"phases\""); at != std::string::npos) {
-        // The answer was cut or wrapped: count the distinct level names in the part that follows "phases".
-        static const std::regex name(R"re("(?:name|scene)"\s*:\s*"([^"]*level[^"]*)")re", std::regex::icase);
+        // The answer was cut or wrapped: count the distinct phase names in the part that follows "phases".
+        static const std::regex name(R"re("name"\s*:\s*"([^"]*)")re");
         const std::size_t end = std::min(text.size(), at + 20000);
         const std::string part = text.substr(at, end - at);
-        for (auto it = std::sregex_iterator(part.begin(), part.end(), name); it != std::sregex_iterator(); ++it) levels.insert((*it)[1].str());
+        for (auto it = std::sregex_iterator(part.begin(), part.end(), name); it != std::sregex_iterator(); ++it) phaseSet.insert((*it)[1].str());
         static const std::regex ended(R"re("ended"\s*:\s*"([a-z]+)")re");
         std::smatch m;
         if (std::regex_search(text, m, ended)) out["ended"] = m[1].str();
     }
-    out["levelPhases"] = static_cast<int>(levels.size());
+    out["phases"] = static_cast<int>(phaseSet.size());
     return out;
 }
 
@@ -173,7 +172,7 @@ Json agent_cost_report(const AgentCostInput& in) {
             if (isPlay) { ++playAutoCalls; if (firstPlayAutoStep == 0) firstPlayAutoStep = st.number; }
             if (isPlay && firstPlayableStep == 0 && !c.failed) {
                 const Json r = agent_cost_read_play_auto(text);
-                if (r.value("levelPhases", 0) >= levelsNeeded) firstPlayableStep = st.number;
+                if (r.value("ended", std::string()) == "won" && r.value("phases", 0) >= levelsNeeded) firstPlayableStep = st.number;
             }
         }
     }
@@ -217,18 +216,18 @@ Json agent_cost_report(const AgentCostInput& in) {
         first["minutes"] = m.minutes;
         first["tokens"] = m.tokens;
     } else {
-        notes.push_back("No play.auto in the run reached the last level (a play.auto answer with at least " + std::to_string(levelsNeeded) +
-                        " level phases): there is no first playable build to measure.");
+        notes.push_back("No play.auto in the run reached the last level (a play.auto run that ended \"won\" after at least " + std::to_string(levelsNeeded) +
+                        " phases): there is no first playable build to measure.");
     }
     report["firstPlayable"] = first;
 
     Json fin = Json::object({{"reachedLastLevel", false}});
     if (in.finalPlay.is_object()) {
         const Json r = agent_cost_read_play_auto(in.finalPlay.dump());
-        fin["levelPhases"] = r["levelPhases"];
+        fin["phases"] = r["phases"];
         fin["ended"] = r["ended"];
         fin["scriptErrors"] = r["scriptErrors"];
-        fin["reachedLastLevel"] = r.value("levelPhases", 0) >= levelsNeeded;
+        fin["reachedLastLevel"] = r.value("ended", std::string()) == "won" && r.value("phases", 0) >= levelsNeeded;
     } else {
         fin["note"] = "play.auto was not run or did not answer JSON";
     }
@@ -247,9 +246,9 @@ void register_agent_cost_commands(CommandRegistry& registry) {
     info.description =
         "Reads `transcript` (the lines of `claude -p --output-format stream-json --verbose`) and returns {format, cli, model, brief, factoriaVersion, exitStatus, elapsedSeconds, "
         "total {steps, toolCalls, minutes, tokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, "
-        "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, levelPhases, ended, scriptErrors}, "
+        "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, ended, scriptErrors}, "
         "engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message and its tokens are input + cache + output. "
-        "firstPlayable is the first `factoria call play.auto` whose answer went through at least `levels` (default 3) phases whose name or scene contains \"level\"; "
+        "firstPlayable is the first `factoria call play.auto` whose answer ended \"won\" after at least `levels` (default 3) phases, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed); "
         "finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls that gave an error code; notCaught are "
         "outputs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed. "
         "Example: {\"transcript\":\"/tmp/agent-cost.x/transcript.jsonl\",\"finalPlay\":\"/tmp/agent-cost.x/final-play.json\",\"cli\":\"claude\",\"model\":\"sonnet\"}.";
