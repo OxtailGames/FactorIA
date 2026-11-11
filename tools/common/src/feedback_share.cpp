@@ -854,9 +854,13 @@ void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, co
     for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
         if (!stdfs::exists(path)) continue;
         auto doc = load_feedback(path);
-        if (!doc.ok()) continue;
+        if (!doc.ok()) {  // a file another program is writing or a half-written one: say so, the state is not saved from it
+            FA_WARN("feedback", "the sharing state of {} was not saved from {}: {}", localId, path, doc.error().to_string());
+            continue;
+        }
         if (set_shared(doc.value(), localId, shared)) {
-            (void)save_feedback(path, doc.value());
+            if (auto saved = save_feedback(path, doc.value()); !saved.ok())
+                FA_WARN("feedback", "the sharing state of {} was not saved to {}: {}", localId, path, saved.error().to_string());
             return;
         }
     }
