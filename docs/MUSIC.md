@@ -485,10 +485,12 @@ player; `world.on("music.beat", fn)` to all.
   renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once); when the cache passes
   128 MB the ones nothing plays are dropped, the least recently played first.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
-  A stem of 20 s or more that is an `.ogg` at 44100 Hz streams: the engine keeps its encoded file and a window of a few seconds of decoded audio, and decode jobs fill the window
-  ahead of the music (see "What the music costs in memory"); shorter stems, stems in another format and stems it cannot stream are decoded whole.
+  A stem of 20 s or more that is an `.ogg` at 44100 Hz streams: the engine keeps its encoded file and a window of a few seconds of decoded audio, and the audio service thread
+  fills the window ahead of the music (see "What the music costs in memory"); shorter stems, stems in another format and stems it cannot stream are decoded whole.
   Without stem files, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
-- **auto** (default): stems whenever the song has stem files, on every device (a streamed stem costs a window, not 10 MB a minute, and there is nothing to render); live when it has none.
+- **auto** (default): stems whenever the song has stem files and they are current, on every device (a streamed stem costs a window, not 10 MB a minute, and there is nothing to render); live when it has none.
+  The stems are current when the song file is the one `music.render` rendered them from: the mix entry records the song's sha256 (`provenance.recipe.inputs`) and `auto` compares it with the file when a player starts or fetches
+  the song. A song edited since (even by a note that keeps its length) plays live, with one warning in the log ("run music.render"), and `activeMode` reads `live`; `music.render` makes the stems current again. `mode: "stems"` plays the files whatever the song says.
   Up to 0.22 a desktop rendered live even when stem files existed; set `mode: "live"` on the player to keep that. On a phone or tablet that is not high-tier, on any low-tier
   device and on the web (no worker thread to render on) a song without stem files still logs that auto would use stems there. `device_info()` (docs/MOBILE.md) and the
   `game.setDevice` override of a script (docs/SCRIPTING.md) still reach the choice. A player that is already running takes the new mode at its next beat
@@ -516,15 +518,16 @@ Every song played stays cached until the 128 MB budget drops the ones nothing pl
 | 4 layers, streamed (stems) | 4 | about 8 to 12 MB | about 8 to 12 MB |
 | 4 layers + mix stem, streamed | 5 | about 10 to 15 MB | about 10 to 15 MB |
 
-(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song, per stem, in bytes, with `streamed` and `underruns`) and `cacheBytes`;
+(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song: `song`, `mode`, `bytes`, `streamed`, `underruns`, and `stems` with each stem's `name`, `bytes` and `streamed`) and `cacheBytes`;
 `game.state` has `audio.musicBytes`, `streamedSongs`, `musicUnderruns` and `musicUnderrunFrames`; `perf.profile` has `memory.*.musicMB` and `perf.measure` the sample's `musicMB`, which are also part
 of `audioDecodedMB`. A streamed stem counts its window, scratch and encoded bytes, not the whole song, and the number is constant for its life.
 
-How a streamed stem plays: the mixer reads only decoded chunks and never decodes, waits or allocates in its callback. Each block it publishes where every stem is about to read (the playing
-position, the target of a queued section jump or crossfade, the loop's start) and the game thread hands those chunks to `audio.stream` jobs that decode them; a section jump, a loop wrap
-and a crossfade therefore land on the same sample as with a whole song. The first chunks are decoded before the song plays, and again when a jump, stinger or crossfade is queued. The null device
-(headless runs and tests) decodes a missing chunk on the spot, so its output is the same on every machine. If a chunk is still missing when the real device needs it (a very slow disk or a
-stalled game), that stem plays silence for the frames it lacks (the music does not wait, so the other stems stay in time) and `underruns` / `musicUnderruns` / `musicUnderrunFrames` count it; it comes back in time once its chunks are decoded.
+How a streamed stem plays: the mixer reads only decoded chunks and never decodes, waits or allocates in its callback. Each time it publishes the music's state it also publishes, per stem, where it is
+about to read (the playing position, the target of a queued section jump or crossfade, the loop's start). The **audio service thread** (one per audio device, started with it) reads that and decodes the
+chunks 2.2 s ahead of each of those places, every 2 to 10 ms, so the music does not depend on the game thread: a long scene load, a breakpoint or a minimized window does not silence it. A section jump,
+a loop wrap and a crossfade land on the same sample as with a whole song. The first chunks are decoded before the song plays, and the game decodes the target's first chunks before it sends a jump, stinger or
+crossfade (if the service thread is decoding that stem at that moment, the game waits for the chunk it is on, a millisecond or so, never for the whole refill; so a jump with `quantize: "none"` never plays dry). The null device
+(headless runs and tests) and the web decode a missing chunk on the spot in the mixer, so their output is the same on every machine. If a chunk is still missing when the real device needs it (a very slow disk or an overloaded machine), that stem plays silence for the frames it lacks (the music does not wait, so the other stems stay in time) and `underruns` / `musicUnderruns` / `musicUnderrunFrames` count it; it comes back in time once its chunks are decoded.
 
 ### Hot reload
 

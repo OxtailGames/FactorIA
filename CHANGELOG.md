@@ -10,11 +10,14 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
   keeps a window of 4.5 s of decoded audio (about 2 to 3 MB) instead of the whole song decoded (10.1 MB per minute per stem),
-  filled ahead by `audio.stream` jobs; section jumps, loops, crossfades and layer fades land on the same frames as before and
-  the audio callback still takes no lock and allocates nothing. Stems of 20 s or more that are `.ogg` at 44.1 kHz stream;
+  filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls
+  does not dry the music (a jump to a section decodes its first chunks before it plays, waiting for the service for one chunk at
+  most); section jumps, loops, crossfades and layer fades land on the same frames as before and the audio callback still takes
+  no lock and allocates nothing. The stems play from their encoded ogg in memory, not from disk. Stems of 20 s or more that are `.ogg` at 44.1 kHz stream;
   `import.music.stream` (`"auto"`, `"always"`, `"never"`, in the `import.music` block of the mix entry; `music.render` keeps
   it) decides by hand. **Behaviour change:** `mode: "auto"` now picks the stems whenever the song has stem files, on every device
-  (a desktop used to render live); `mode: "live"` keeps the old behaviour. A window that is dry when the device needs it plays
+  (a desktop used to render live); `mode: "live"` keeps the old behaviour. `auto` compares the song with the sha256 that
+  `music.render` recorded (`provenance.recipe.inputs`) and plays a song edited since live, with one warning, so a running game hears the edit. A window that is dry when the device needs it plays
   silence for that stem and is counted: `stats()` and `game.state`'s `audio` have `musicUnderruns`, `musicUnderrunFrames`
   (also inside `underruns`) and `streamedSongs`, and `audio.music_state`'s `cache` says which stems are `streamed` and their
   `underruns`. `musicBytes` / `musicMB` count a streamed stem's window and encoded bytes. docs/MUSIC.md has the MB per minute

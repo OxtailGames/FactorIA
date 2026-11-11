@@ -542,14 +542,19 @@ each memory ordering is explained where it is used:
 - **Streamed music.** A stem of a song that plays from stem files (docs/MUSIC.md, "Live and stems") streams when it is an `.ogg`
   of 20 s or more at 44.1 kHz (`import.music.stream` overrides). It keeps a window of 24 chunks of 8192 frames (4.5 s) in 24 slots with
   an atomic state each, shared by every head of the transport (the playing section, a section jump or a crossfade under way, a layer
-  fading in). The callback only pins a chunk, reads it and unpins it; it never decodes, waits or allocates. Each block the transport
-  publishes in its state where every stem will read (the position and, for a queued jump or crossfade, its target and the loop's start),
-  and `service()` hands those chunks to an `audio.stream` job per stem (the same jobs as the clips' rings; one job at a time per stem, the
-  farthest chunk is the one evicted). A chunk is a decode from a seek in the ogg, exact to the sample. The first chunks are decoded on the game
-  thread when the song loads, plays or is told to jump, so the first block is not dry. A chunk still missing when the callback needs
+  fading in). The callback only pins a chunk, reads it and unpins it; it never decodes, waits or allocates. Each time it publishes the
+  transport's state it publishes, per stem (`MusicStemStream::publish_head`, relaxed atomics, no allocation), where that stem will read
+  (the position and, for a queued jump or crossfade, its target and the loop's start). The **music service thread** (`Impl::MusicService`
+  in audio.cpp, started by `init()` with a real device, joined by `shutdown()`) reads that every 2 ms while a chunk is missing and 10 ms
+  otherwise, takes the stem's claim, turns the heads into the chunks to keep (4 urgent and 12 ahead per head) and decodes the missing ones;
+  the farthest chunk is the one evicted. It needs neither the API lock nor a call of the game, so a game thread that stalls (a long scene
+  load, a breakpoint, a minimized window) does not dry the music, only a service thread that cannot run does. A chunk is a decode from a seek in
+  the ogg, exact to the sample. The first chunks are decoded on the thread that loads the song, and on the game thread when it plays or is told to
+  jump (`music_prime`, which waits for the claim for the time of one chunk when the service thread is decoding the stem: the decoder gives the
+  claim up between chunks when somebody waits for it, 500 ms safety net). A chunk still missing when the callback needs
   it plays silence for that stem and block and counts an **underrun** per stem and block (`musicUnderruns`, `musicUnderrunFrames`, also
-  inside `underruns` / `underrunFrames`); the song's clock does not wait, so every other stem stays in time and the dry one comes back in time once its chunks are decoded. On the null device the
-  transport decodes the missing chunk itself, so a headless run is the same on every machine.
+  inside `underruns` / `underrunFrames`); the song's clock does not wait, so every other stem stays in time and the dry one comes back in time once its chunks are decoded. On the null device and the web the
+  mixer decodes the missing chunk itself (there is no service thread), so a headless run is the same on every machine.
 - **Music players.** Each `MusicPlayer` has its transport in the mixer (64 at most at once). The game reads the transport's
   state from a triple buffer (the newest whole copy) and its events from a ring of 2048 that the transport fills only as far as
   it has room: events are delayed, never dropped. `music_status` and the component's runtime fields are at most a block behind.
@@ -586,10 +591,11 @@ lines are made when it is switched on. Tests:
   crossfade with a device thread, with no allocation in the callback. For streamed music it checks that a chunk decoded after
   a seek equals the one decoded in order, that streamed and whole stems play the same events on the same frames (jumps and loops),
   the bytes of a 4-layer song and the `import.music.stream` rule, that a dry window plays silence, is counted and recovers, that a
-  manual-device callback through jumps, a stinger and a crossfade allocates nothing, and that the callback, the game and two decode
-  workers run together on a streamed song.
+  manual-device callback through jumps, a stinger and a crossfade allocates nothing, that a jump with no quantize while the service
+  holds the stem plays no dry block (`music_prime` waits for the claim), that the music keeps its window with no call of the game for
+  longer than the look-ahead, and that the callback, the game and the music service thread run together on a streamed song.
 
 The count covers `operator new` only, so a `malloc` inside the C decoders (stb_vorbis, minimp3, dr_wav, qoa) while the null
 device or the web decodes a dry stream in the callback is not covered. The streamed-music tests use the manual device (the test
-pumps the jobs and the callback itself), so how the real device's timing behaves on a slow disk is not tested, and the new
+calls the music service's pass and the callback itself, or starts its thread), so how the real device's timing behaves on a slow disk is not tested, and the new
 threaded test was not run under ThreadSanitizer.

@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "fa/core/math.h"
+#include "music_stream.h"
 
 namespace fa::audio_detail {
 
@@ -292,6 +293,7 @@ void Mixer::apply_commands() {
 
 void Mixer::publish_music() {
     const std::uint64_t seq = appliedSeq.load(std::memory_order_relaxed);
+    const std::uint64_t pub = musicSeq.fetch_add(1, std::memory_order_relaxed) + 1;
     for (std::size_t i = 0; i < playerCount; ++i) {
         MusicChannel& ch = *players[i];
         // The events first, then the state: a game that sees this state has the events made before it (both are
@@ -304,6 +306,13 @@ void Mixer::publish_music() {
         s.appliedSeq = seq;
         s.backlog = ch.tr.event_count();
         ch.snap.publish();
+        // Where the streamed stems are read next, for the audio service thread (music_stream.h): it keeps them decoded without the game.
+        for (std::size_t w = 0; w < s.state.wantCount; ++w) {
+            const MusicWant& want = s.state.wants[w];
+            if (!want.src) continue;
+            for (const MusicStem& stem : want.src->stems)
+                if (stem.stream) stem.stream->publish_head(pub, want.pos, want.end, want.wrapStart, want.wraps);
+        }
     }
 }
 

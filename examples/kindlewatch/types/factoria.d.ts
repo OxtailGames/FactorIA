@@ -6132,18 +6132,22 @@ declare module "factoria" {
     solver: "twoBone" | "ccd";
     /**
      * Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is. The colliders of the chain's character (the topmost ancestor of this entity and everything under it) are ignored. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.
+     * @since unreleased
      */
     groundMask: number;
     /**
      * Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. 24 by default.
+     * @since unreleased
      */
     groundReach: number;
     /**
      * Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). 0 by default.
+     * @since unreleased
      */
     groundOffset: number;
     /**
      * Ground snapping: the height of the target above the ORIGIN of the character (the topmost ancestor of this entity) when the foot is planted on flat ground, in world units (negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.
+     * @since unreleased
      */
     groundRest: number;
   }
@@ -7693,7 +7697,7 @@ declare module "factoria" {
      */
     song: string;
     /**
-     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from disk through a small window instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).
      * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";

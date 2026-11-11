@@ -139,7 +139,8 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `firstFrame` | int | `0` | First frame of the clip (inclusive, row-major index). |
 | `lastFrame` | int | `0` | Last frame of the clip (inclusive, row-major index). |
 | `fps` | float | `10.0` | Playback speed in frames per second. Range 0.0..1000.0. |
-| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. |
+| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`. |
+| `loopMode` | enum: inherit \| loop \| once | `"inherit"` | Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`. (not released yet, on main after 0.22.0) |
 | `playing` | bool | `true` | Set false to pause, true to play. |
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \| reverse \| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
@@ -644,7 +645,7 @@ Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `song` | asset (music) | `""` | Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). |
-| `mode` | enum: auto \| live \| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from disk through a small window instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md). |
+| `mode` | enum: auto \| live \| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md). |
 | `volume` | float | `0.8` | Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms. Range 0.0..1.0. |
 | `bus` | string | `"music"` | Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply. |
 | `intensity` | float | `0.0` | 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays. Range 0.0..1.0. |
@@ -2147,7 +2148,7 @@ Measure every sound of the project together: loudness per bus, music masking eff
 
 Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Example: {"targets":{"music":-16,"sfx":-14}}
 
-Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
+Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature; a .wav with loop points, as an audio document's `loop` step writes it, is judged across the join it plays, the crossfade, not across the file's ends); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. A sound that is only an input of an audio document's recipe (a recording the document is baked from) and that no scene or script plays is not judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, findings, sounds (one row of numbers per sound), skipped, targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2948,7 +2949,7 @@ What the MusicPlayer components are doing: song, section, bar, beat, layers and 
 
 Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, appliedIntensity, requestedIntensity, volume, bus, stems, stemGains, pending, pendingSong, pendingSection, pendingAt, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `song` and `section` are what is audible now; `pendingSong`, `pendingSection` and `pendingAt` (the audio frame, as in the events' `frame`) say where the next queued section change or crossfade lands (null when none waits). `intensity` = `appliedIntensity` is the value the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). `stemGains` is the gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). `cache` and `cacheBytes` are the memory of the music (docs/MUSIC.md, "What the music costs in memory"). Example: audio.music_state {"entity":"music"}
 
-`cache` lists the songs the music cache holds, {song, mode, bytes, stems: [{name, bytes, streamed, underruns}]}, and `cacheBytes` adds them up: this is the memory of the music (also `musicBytes` in game.state's audio and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` is read from its ogg through a small window, so its `bytes` are that window plus the encoded file, not the whole song decoded; `underruns` counts the blocks in which that window was not ready (the stem played silence).
+`cache` lists the songs the music cache holds, {song, mode, bytes, streamed, underruns, stems: [{name, bytes, streamed}]}, and `cacheBytes` adds them up: this is the memory of the music (also `musicBytes` in game.state's audio and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` plays from its encoded ogg (in memory) through a small window of decoded chunks, so its `bytes` are that window plus the encoded file, not the whole song decoded; `streamed` of a song says any of its stems is, and `underruns` (per song, all its stems together) counts the blocks in which a window was not ready (that stem played silence).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6620,11 +6621,12 @@ Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
-Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
+Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). `path` (one patch or a list) bakes only those patches, with the same rules (stale or missing only, `force` renders them anyway). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
+| `path` | any | no | Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project. |
 | `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
 | `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
 
@@ -9416,6 +9418,16 @@ declare module "factoria" {
      * @since 0.21.0
      */
     priority?: number;
+    /**
+     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls linearly to 0 at `range` from the AudioListener (else the primary camera) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing and play() returns 0. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
+     * @since unreleased
+     */
+    position?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
+     * @since unreleased
+     */
+    range?: number;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
@@ -14416,9 +14428,14 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.
      */
     loop: boolean;
+    /**
+     * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
+     * @since unreleased
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Set false to pause, true to play.
      */
@@ -16118,7 +16135,7 @@ declare module "factoria" {
      */
     song: string;
     /**
-     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from disk through a small window instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).
      * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
@@ -18308,7 +18325,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
