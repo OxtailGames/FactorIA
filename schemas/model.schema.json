@@ -124,6 +124,22 @@
               "minimum": 10000.0,
               "maximum": 4000000.0,
               "description": "decomposed: voxels the volume is split into. Default 100000."
+            },
+            "part": {
+              "type": "string",
+              "description": "Fit the collider to this part of the model only (the `part` of a node, e.g. a pine's \"trunk\" so the canopy does not block). Default: the whole model."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 10000.0,
+              "description": "sphere, capsule: this radius in metres instead of the fitted one."
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 10000.0,
+              "description": "capsule: this total height in metres (caps included) instead of the fitted one."
             }
           }
         },
