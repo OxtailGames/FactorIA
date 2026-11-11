@@ -3,20 +3,25 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../src/audio_testing.h"
+#include "../src/music_stream.h"
 #include "alloc_counter.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
+#include "fa/audio/convert.h"
 #include "fa/audio/music_player.h"
 #include "fa/audio/music_transport.h"
 #include "fa/audio/song.h"
 #include "fa/audio/song_preview.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/jobs.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
@@ -139,7 +144,7 @@ TEST_CASE("music: a layer's gain is a smoothstep below its threshold") {
     CHECK(music_layer_gain(0.5f, 0.5f, 0.0f) == 1.0f);
 }
 
-TEST_CASE("music: auto mode picks stems for low tiers, phones that are not high-end and the web, only when stems exist") {
+TEST_CASE("music: auto mode picks the stems whenever the song has stem files, live otherwise") {
     MusicDeviceProfile desktop, lowDesktop, phone, phoneHigh, web;
     lowDesktop.tier = "low";
     phone.formFactor = "phone";
@@ -147,13 +152,14 @@ TEST_CASE("music: auto mode picks stems for low tiers, phones that are not high-
     phoneHigh.formFactor = "phone";
     phoneHigh.tier = "high";
     web.web = true;
-    CHECK(music_resolve_mode(MusicMode::Auto, desktop, true) == MusicMode::Live);
+    CHECK(music_resolve_mode(MusicMode::Auto, desktop, true) == MusicMode::Stems);  // they play from their encoded ogg (M101.1b)
     CHECK(music_resolve_mode(MusicMode::Auto, lowDesktop, true) == MusicMode::Stems);
     CHECK(music_resolve_mode(MusicMode::Auto, phone, true) == MusicMode::Stems);
-    CHECK(music_resolve_mode(MusicMode::Auto, phoneHigh, true) == MusicMode::Live);
+    CHECK(music_resolve_mode(MusicMode::Auto, phoneHigh, true) == MusicMode::Stems);
     CHECK(music_resolve_mode(MusicMode::Auto, web, true) == MusicMode::Stems);
     // No stem files: live whatever was asked.
     CHECK(music_resolve_mode(MusicMode::Auto, phone, false) == MusicMode::Live);
+    CHECK(music_resolve_mode(MusicMode::Auto, desktop, false) == MusicMode::Live);
     CHECK(music_resolve_mode(MusicMode::Stems, desktop, false) == MusicMode::Live);
     // Taken as written otherwise.
     CHECK(music_resolve_mode(MusicMode::Live, phone, true) == MusicMode::Live);
@@ -705,7 +711,7 @@ TEST_CASE("music player: a song that is not playing is read again from disk on t
     CHECK(fx.mp().tempo == doctest::Approx(90.0f));
 }
 
-TEST_CASE("music player: a device change makes an `auto` player pick live or stems again; live and stems players stay") {
+TEST_CASE("music player: an `auto` player plays the stems when the song has them; a live player stays live whatever the device") {
     PlayerFx fx;
     // Render the stems of the demo song to files, the way music.render leaves them, and describe them in assets.json.
     SongDoc song = parsed(demo_json());
@@ -725,9 +731,10 @@ TEST_CASE("music player: a device change makes an `auto` player pick live or ste
                                   {"assets", Json::object({{"assets/music/test.wav", Json::object({{"import", Json::object({{"music", Json::object({{"role", "mix"}, {"song", "music/test.song.json"}, {"stems", stems}})}})}})}})}})
                         .dump());
     fx.step(0.5);
-    REQUIRE(fx.mp().activeMode == "live");   // a desktop: auto is live
+    REQUIRE(fx.mp().activeMode == "stems");   // auto with stem files: the stems, on a desktop too
     fx.world.events().game.clear();
 
+    // A device change that does not change the choice moves nothing.
     MusicDeviceProfile phone;
     phone.formFactor = "phone";
     phone.tier = "medium";
@@ -735,19 +742,8 @@ TEST_CASE("music player: a device change makes an `auto` player pick live or ste
     fx.step(3.0);
     CHECK(fx.mp().activeMode == "stems");
     CHECK(fx.mp().playing);
-    CHECK(fx.events("music.crossfade").size() == 1);
-
-    // A player that asked for live is not moved by the device; a second change to the same profile does nothing.
-    fx.mp().mode = MusicMode::Live;
-    fx.audio.set_music_device(phone);
-    fx.world.events().game.clear();
-    fx.step(1.0);
     CHECK(fx.events("music.crossfade").empty());
-    MusicDeviceProfile desktop;
-    fx.mp().mode = MusicMode::Auto;
-    fx.audio.set_music_device(desktop);
-    fx.step(3.0);
-    CHECK(fx.mp().activeMode == "live");
+
 }
 
 TEST_CASE("music: a live render brings a `loudness: style` master to the style guide's music level") {
@@ -1177,3 +1173,558 @@ TEST_CASE("music cache: stats count the decoded stems of every cached song, exac
     CHECK(fx.audio.music_cache_json().size() == 1);
 }
 
+// ---- streamed stems (M101.1b): the stems stay encoded and a window of decoded chunks follows the playheads ----------------------------
+
+namespace {
+
+using audio_detail::MusicStemStream;
+
+// `seconds` of stereo that changes in time (two tones and a slow wobble), so a chunk decoded from the wrong place is easy to tell.
+std::vector<float> wobble(double seconds, double freq) {
+    std::vector<float> s;
+    const std::size_t n = std::size_t(seconds * kMusicRate);
+    s.reserve(n * 2);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double t = double(i) / kMusicRate;
+        const double env = 0.6 + 0.3 * std::sin(0.7 * t);
+        s.push_back(float(env * 0.4 * std::sin(6.2831853 * freq * t)));
+        s.push_back(float(env * 0.3 * std::sin(6.2831853 * freq * 1.5 * t + 0.4 * std::sin(3.0 * t))));
+    }
+    return s;
+}
+
+std::vector<std::uint8_t> ogg_of(const std::vector<float>& stereo) {
+    auto ogg = encode_vorbis(audio_test::wav_bytes(stereo, 2, kMusicRate));
+    REQUIRE_MESSAGE(ogg.ok(), (ogg.ok() ? "" : ogg.error().to_string()));
+    return *ogg;
+}
+
+struct OggStems {
+    std::vector<std::vector<std::uint8_t>> files;
+    std::vector<std::string> names;
+    std::vector<float> thresholds;
+    std::size_t frames = 0;
+};
+
+// The stems of the demo song as music.render would leave them, in ogg (encoded once for the whole test run).
+const OggStems& demo_ogg_stems() {
+    static const OggStems stems = [] {
+        OggStems o;
+        SongDoc song = parsed(demo_json());
+        auto live = music_render_source(song, timeline_of(song), "music/test.song.json");
+        REQUIRE(bool(live));
+        for (const MusicStem& st : (*live)->stems) {
+            std::vector<float> samples(st.pcm.size());
+            for (std::size_t k = 0; k < samples.size(); ++k) samples[k] = float(st.pcm[k]) * st.scale;
+            o.files.push_back(ogg_of(samples));
+            o.names.push_back(st.name);
+            o.thresholds.push_back(st.threshold);
+            o.frames = st.frames();
+        }
+        return o;
+    }();
+    return stems;
+}
+
+// Writes the files and the import.music of the demo song's mix, with `stream` as its import.music.stream ("" = not written). `songSha`
+// ("" = none) is the hash of the song that music.render records in the mix entry's provenance.recipe.inputs.
+void install_stems(audio_test::Fixture& fx, const OggStems& s, const std::string& stream, const std::string& songSha = std::string()) {
+    Json stems = Json::array();
+    for (std::size_t i = 0; i < s.files.size(); ++i) {
+        const std::string file = "assets/music/test_" + s.names[i] + ".ogg";
+        audio_test::write_file(fx.dir / file, s.files[i]);
+        stems.push_back(Json::object({{"path", file}, {"name", s.names[i]}, {"intensity", s.thresholds[i]}}));
+    }
+    Json music = Json::object({{"role", "mix"}, {"song", "music/test.song.json"}, {"stems", stems}});
+    if (!stream.empty()) music["stream"] = stream;
+    Json entry = Json::object({{"import", Json::object({{"music", music}})}});
+    if (!songSha.empty()) {
+        Json inputs = Json::array({Json::object({{"path", "music/test.song.json"}, {"sha256", songSha}})});
+        entry["provenance"] = Json::object({{"recipe", Json::object({{"command", "music.render"}, {"args", Json::object()}, {"inputs", inputs}})}});
+    }
+    fx.write_assets(Json::object({{"format", "factoria.assets/1"}, {"assets", Json::object({{"assets/music/test.ogg", entry}})}}).dump());
+}
+
+}  // namespace
+
+TEST_CASE("music stream: a chunk decoded after a seek is the one decoded in order, and what cannot stream says why") {
+    const std::vector<std::uint8_t> ogg = ogg_of(wobble(6.0, 330.0));
+    auto bytes = std::make_shared<const audio_detail::Bytes>(ogg);
+    std::string why;
+    auto inOrder = MusicStemStream::open(bytes, ".ogg", &why);
+    REQUIRE_MESSAGE(inOrder, why);
+    auto jumpy = MusicStemStream::open(bytes, ".ogg", &why);
+    REQUIRE_MESSAGE(jumpy, why);
+    CHECK(inOrder->frames() == 6 * kMusicRate);
+    const std::int64_t count = inOrder->chunk_count();
+    REQUIRE(count > 24);  // more chunks than the window holds
+
+    auto copy = [](MusicStemStream& s, std::int64_t chunk) {
+        std::vector<float> out;
+        int slot = -1;
+        const float* d = s.pin(chunk, &slot);
+        REQUIRE(d != nullptr);
+        out.assign(d, d + 2 * audio_detail::kMusicChunkFrames);
+        s.unpin(slot);
+        return out;
+    };
+    std::vector<std::vector<float>> sequential;
+    REQUIRE(inOrder->claim());
+    for (std::int64_t c = 0; c < count; ++c) {
+        REQUIRE(inOrder->decode_now(c));
+        sequential.push_back(copy(*inOrder, c));
+    }
+    inOrder->unclaim();
+    CHECK(inOrder->decode_errors() == 0);
+
+    // Chunks in a scattered order (each one seeks, backwards and forwards), against the ones decoded in order.
+    REQUIRE(jumpy->claim());
+    const std::int64_t order[] = {20, 3, count - 1, 0, 17, count - 2, 9, 2, 11, 1};
+    for (std::int64_t c : order) {
+        REQUIRE(jumpy->decode_now(c));
+        const std::vector<float> got = copy(*jumpy, c);
+        double worst = 0.0;
+        for (std::size_t i = 0; i < got.size(); ++i) worst = std::max(worst, double(std::fabs(got[i] - sequential[std::size_t(c)][i])));
+        CHECK_MESSAGE(worst == 0.0, "chunk " << c << " differs by " << worst << " after a seek");
+    }
+    jumpy->unclaim();
+    CHECK(jumpy->decode_errors() == 0);
+    // The chunk past the end of the stem is silence, not noise.
+    const std::vector<float>& last = sequential.back();
+    const std::size_t tail = std::size_t(inOrder->frames() - (count - 1) * audio_detail::kMusicChunkFrames);
+    for (std::size_t i = tail * 2; i < last.size(); ++i) CHECK(last[i] == 0.0f);
+
+    // What cannot stream: a WAV, a rate that is not the mixer's.
+    why.clear();
+    auto wav = std::make_shared<const audio_detail::Bytes>(audio_test::wav_bytes(wobble(1.0, 220.0), 2, kMusicRate));
+    CHECK_FALSE(MusicStemStream::open(wav, ".wav", &why));
+    CHECK(why.find("ogg") != std::string::npos);
+    std::vector<float> mono;
+    audio_test::add_sine(mono, 1.0, 440.0, 0.5, 22050);
+    auto slow = encode_vorbis(audio_test::wav_bytes(mono, 1, 22050));
+    REQUIRE(slow.ok());
+    why.clear();
+    CHECK_FALSE(MusicStemStream::open(std::make_shared<const audio_detail::Bytes>(*slow), ".ogg", &why));
+    CHECK(why.find("44100") != std::string::npos);
+}
+
+TEST_CASE("music player: streamed stems play the same as whole-decoded ones, section jumps and loops land on the same frames") {
+    const OggStems& stems = demo_ogg_stems();
+    struct Run {
+        Recording rec;
+        std::vector<std::pair<std::string, std::uint64_t>> events;
+        Json cache;
+        Json stats;
+    };
+    auto play = [&](const std::string& stream) {
+        PlayerFx fx;
+        install_stems(fx, stems, stream);
+        fx.mp().quantize = MusicQuantize::Beat;
+        fx.mp().layerFade = 0.1f;
+        fx.mp().intensity = 0.2f;
+        fx.audio.start_recording();
+        fx.step(1.0);
+        REQUIRE(fx.mp().playing);
+        fx.audio.music_set_intensity(fx.world, fx.e, 1.0f, MusicQuantize::Beat);   // the harmony layer fades in
+        fx.step(1.5);
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "main", MusicQuantize::Bar, 0.05f).ok());
+        fx.step(5.0);                                                              // the loop wraps (bars 2-3 of 4) at least once
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "intro", MusicQuantize::Beat, 0.0f).ok());  // back to the start: a seek
+        fx.step(1.0);
+        MusicStingerSpec spec;
+        spec.section = "outro";
+        spec.quantize = MusicQuantize::Beat;
+        REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+        fx.step(3.0);
+        Run run;
+        for (const GameEvent& g : fx.world.events().game)
+            if (g.name.rfind("music.", 0) == 0)
+                run.events.emplace_back(g.name + ":" + g.data.value("section", std::string()), g.data.value("frame", std::uint64_t(0)));
+        run.rec = fx.finish();
+        run.cache = fx.audio.music_cache_json();
+        run.stats = fx.audio.stats();
+        return run;
+    };
+    const Run streamed = play("always");
+    const Run whole = play("never");
+    REQUIRE(streamed.cache.size() == 1);
+    CHECK(streamed.cache[0]["mode"] == "stems");
+    CHECK(streamed.cache[0]["streamed"] == true);
+    CHECK(streamed.stats["streamedSongs"] == 1);
+    CHECK(streamed.stats["musicUnderruns"] == 0);   // the null device decodes on the spot: no gap
+    REQUIRE(whole.cache.size() == 1);
+    CHECK(whole.cache[0]["mode"] == "stems");
+    CHECK(whole.cache[0]["streamed"] == false);
+    CHECK(whole.stats["streamedSongs"] == 0);
+
+    // The same events on the same frames (sections, loops, beats, the stinger), and the same sound within the 16-bit rounding of the
+    // whole path: a stream that is a frame off would be 0.03 or more away on this tone.
+    CHECK(streamed.events == whole.events);
+    CHECK(streamed.events.size() > 20);
+    REQUIRE(streamed.rec.frames() == whole.rec.frames());
+    CHECK(whole.rec.peak() > 0.05f);
+    double worst = 0.0;
+    for (std::size_t i = 0; i < whole.rec.frames(); ++i)
+        worst = std::max({worst, double(std::fabs(streamed.rec.l[i] - whole.rec.l[i])), double(std::fabs(streamed.rec.r[i] - whole.rec.r[i]))});
+    CHECK(worst < 0.002);
+}
+
+TEST_CASE("music player: import.music.stream decides which stems stream, `auto` from 20 seconds on, and the memory of each way") {
+    const OggStems& demo = demo_ogg_stems();  // about 10 seconds a stem
+    auto streamed_after = [&](const std::string& stream) {
+        PlayerFx fx;
+        install_stems(fx, demo, stream);
+        fx.step(0.5);
+        REQUIRE(fx.mp().ready);
+        const Json cache = fx.audio.music_cache_json();
+        REQUIRE(cache.size() == 1);
+        CHECK(cache[0]["mode"] == "stems");
+        return cache[0]["streamed"].get<bool>();
+    };
+    CHECK_FALSE(streamed_after(""));       // auto: the stems are shorter than 20 seconds, decoded whole
+    CHECK_FALSE(streamed_after("auto"));
+    CHECK_FALSE(streamed_after("never"));
+    CHECK(streamed_after("always"));
+
+    // Four layers of a minute: the rule a long song gets (docs/MUSIC.md, "What the music costs in memory").
+    OggStems minute;
+    const std::vector<float> tone = wobble(60.0, 196.0);
+    const std::vector<std::uint8_t> file = ogg_of(tone);
+    minute.frames = tone.size() / 2;
+    for (int i = 0; i < 4; ++i) {
+        minute.files.push_back(file);
+        minute.names.push_back("layer" + std::to_string(i));
+        minute.thresholds.push_back(0.25f * float(i));
+    }
+    const std::size_t wholeBytes = 4 * minute.frames * 2 * sizeof(std::int16_t);
+    CHECK(wholeBytes > 40'000'000);
+    {
+        PlayerFx fx;
+        install_stems(fx, minute, "");   // auto: a minute streams
+        fx.mp().intensity = 1.0f;
+        fx.step(0.5);
+        REQUIRE(fx.mp().ready);
+        const Json cache = fx.audio.music_cache_json();
+        REQUIRE(cache.size() == 1);
+        CHECK(cache[0]["streamed"] == true);
+        REQUIRE(cache[0]["stems"].size() == 4);
+        for (const Json& s : cache[0]["stems"]) CHECK(s["streamed"] == true);
+        const std::size_t streamedBytes = fx.audio.music_bytes();
+        CHECK(fx.audio.stats()["musicBytes"].get<std::size_t>() == streamedBytes);
+        // The window is fixed: the encoded file, 24 chunks and a scratch buffer each, whatever the song's length.
+        CHECK(streamedBytes < 4 * (file.size() + 2'000'000));
+        CHECK(streamedBytes < 12'000'000);
+        CHECK(streamedBytes * 3 < wholeBytes);
+        // Playing, jumping and looping does not grow it.
+        fx.step(3.0);
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "outro", MusicQuantize::None, 0.0f).ok());
+        fx.step(3.0);
+        CHECK(fx.audio.music_bytes() == streamedBytes);
+    }
+    {
+        PlayerFx fx;
+        install_stems(fx, minute, "never");
+        fx.step(0.5);
+        REQUIRE(fx.mp().ready);
+        CHECK(fx.audio.music_bytes() == wholeBytes);
+        CHECK(fx.audio.stats()["streamedSongs"] == 0);
+    }
+}
+
+TEST_CASE("music player: a player that asks for live renders the song live, with stem files there and whatever the device") {
+    PlayerFx fx;
+    install_stems(fx, demo_ogg_stems(), "always");
+    fx.mp().mode = MusicMode::Live;
+    MusicDeviceProfile phone;
+    phone.formFactor = "phone";
+    phone.tier = "medium";
+    fx.audio.set_music_device(phone);
+    fx.step(0.5);
+    REQUIRE(fx.mp().ready);
+    CHECK(fx.mp().activeMode == "live");
+    CHECK(fx.audio.stats()["streamedSongs"] == 0);
+}
+
+TEST_CASE("music player: a streamed song whose chunks are not decoded plays silence, is counted, and comes back when the service catches up") {
+    PlayerFx fx;
+    install_stems(fx, demo_ogg_stems(), "always");
+    fx.mp().intensity = 1.0f;
+    fx.mp().layerFade = 0.0f;
+    AudioTestAccess::use_manual_device(fx.audio, 44100);
+    AudioTestAccess::set_stream_service(fx.audio, false);  // as if the music service were late
+    auto frame = [&](int blocks) {
+        fx.audio.update(fx.world, 1.0f / 60.0f);
+        const float peak = render_device(fx.audio, blocks);
+        (void)AudioTestAccess::music_service_pass(fx.audio);  // what the service thread does every few ms (nothing while it is off)
+        return peak;
+    };
+    for (int i = 0; i < 10 && !fx.mp().ready; ++i) frame(1);
+    REQUIRE(fx.mp().ready);
+    // The first chunks were decoded when the song loaded (about 0.37 s): sound, then the window runs dry.
+    float early = 0.0f;
+    for (int i = 0; i < 8; ++i) early = std::max(early, frame(2));
+    CHECK(early > 0.01f);
+    for (int i = 0; i < 60; ++i) frame(2);   // past the primed chunks (32 blocks), never waiting for the decoder
+    CHECK(frame(4) == 0.0f);                 // silence, not noise or a repeat
+    Json st = fx.audio.stats();
+    CHECK(st["musicUnderruns"].get<std::uint64_t>() > 0);
+    CHECK(st["musicUnderrunFrames"].get<std::uint64_t>() >= std::uint64_t(20 * 512));
+    CHECK(st["underruns"].get<std::uint64_t>() >= st["musicUnderruns"].get<std::uint64_t>());
+    CHECK(fx.audio.music_cache_json()[0]["underruns"].get<std::uint64_t>() == st["musicUnderruns"].get<std::uint64_t>());
+    CHECK(fx.mp().playing);   // the music kept its place in time: a song cannot wait
+
+    // The service is back: the window is refilled ahead of the playhead and the sound returns.
+    AudioTestAccess::set_stream_service(fx.audio, true);
+    frame(1);
+    float again = 0.0f;
+    for (int i = 0; i < 6; ++i) again = std::max(again, frame(2));
+    CHECK(again > 0.01f);
+    const std::uint64_t before = fx.audio.stats()["musicUnderruns"].get<std::uint64_t>();
+    for (int i = 0; i < 40; ++i) frame(2);
+    CHECK(fx.audio.stats()["musicUnderruns"].get<std::uint64_t>() == before);   // refilled every frame: no more gaps
+}
+
+TEST_CASE("music player: with a device thread a streamed song mixes without allocating, through jumps, a stinger and a crossfade") {
+    audio_test::JobPool pool(jobs::Settings::threads(2));
+    {
+        PlayerFx fx;
+        install_stems(fx, demo_ogg_stems(), "always");
+        fx.mp().quantize = MusicQuantize::Beat;
+        fx.mp().crossfadeBars = 0.25f;
+        fx.mp().intensity = 1.0f;
+        AudioTestAccess::use_manual_device(fx.audio, 48000);
+        AudioTestAccess::start_music_thread(fx.audio);
+        (void)render_device(fx.audio, 0);
+        std::size_t allocs = 0;
+        auto frame = [&](int blocks) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);
+            audio_test::AllocCounter::Scope scope;
+            const float peak = render_device(fx.audio, blocks);
+            allocs += scope.count();
+            return peak;
+        };
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);   // a safety net far above the load
+        while (!fx.mp().ready && std::chrono::steady_clock::now() < deadline) frame(2);
+        REQUIRE(fx.mp().ready);
+        CHECK(fx.audio.stats()["streamedSongs"] == 1);
+        float early = 0.0f;
+        for (int i = 0; i < 10; ++i) early = std::max(early, frame(2));   // inside the chunks decoded at the load
+        CHECK(early > 0.01f);
+        for (int i = 0; i < 50; ++i) frame(2);
+        REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "main", MusicQuantize::Beat).ok());
+        MusicStingerSpec spec;
+        spec.section = "outro";
+        spec.quantize = MusicQuantize::Beat;
+        spec.duck = 0.5f;
+        REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+        for (int i = 0; i < 60; ++i) frame(2);
+        fx.mp().song = "music/other.song.json";   // a crossfade to a song that renders live
+        const auto again = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (fx.mp().tempo != 90.0f && std::chrono::steady_clock::now() < again) frame(2);
+        CHECK(fx.mp().tempo == doctest::Approx(90.0f));
+        for (int i = 0; i < 60; ++i) frame(2);
+        CHECK(fx.mp().playing);
+        CHECK_MESSAGE(allocs == 0, "the device callback allocated " << allocs << " times while the streamed music played");
+    }
+}
+
+TEST_CASE("music player: the callback, the game and the music service thread share a streamed song while it jumps") {
+    audio_test::JobPool pool(jobs::Settings::threads(2));
+    {
+        PlayerFx fx;
+        install_stems(fx, demo_ogg_stems(), "always");
+        fx.mp().quantize = MusicQuantize::Beat;
+        fx.mp().intensity = 1.0f;
+        AudioTestAccess::use_manual_device(fx.audio, 48000);
+        AudioTestAccess::start_music_thread(fx.audio);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);   // a safety net far above the load
+        while (!fx.mp().ready && std::chrono::steady_clock::now() < deadline) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);
+            (void)render_device(fx.audio, 1);
+        }
+        REQUIRE(fx.mp().ready);
+        std::atomic<bool> stopMixing{false};
+        std::atomic<std::size_t> allocs{0};
+        std::atomic<std::uint64_t> blocks{0};
+        std::thread callback([&] {
+            std::vector<float> buf(512 * 2);
+            while (!stopMixing.load(std::memory_order_acquire)) {
+                {
+                    audio_test::AllocCounter::Scope scope;
+                    AudioTestAccess::render(fx.audio, buf.data(), 512, 2);
+                    allocs.fetch_add(scope.count(), std::memory_order_relaxed);
+                }
+                blocks.fetch_add(1, std::memory_order_relaxed);
+                std::this_thread::yield();
+            }
+        });
+        // The game: 400 frames, a jump to a section, an intensity or a stinger in most of them (a few hundred commands, 10x under the ring).
+        static const char* const kSections[] = {"intro", "main", "outro", "main"};
+        MusicStingerSpec spec;
+        spec.section = "outro";
+        spec.quantize = MusicQuantize::Beat;
+        for (int i = 0; i < 400; ++i) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);
+            if (i % 4 == 1) (void)fx.audio.music_go_to_section(fx.world, fx.e, kSections[(i / 4) % 4], MusicQuantize::None, 0.02f);
+            if (i % 9 == 4) (void)fx.audio.music_set_intensity(fx.world, fx.e, (i / 9) % 2 ? 1.0f : 0.1f);
+            if (i % 50 == 7) (void)fx.audio.music_play_stinger(fx.world, fx.e, spec);
+            if (i % 20 == 0) (void)fx.audio.stats();
+            std::this_thread::yield();
+        }
+        stopMixing.store(true, std::memory_order_release);
+        callback.join();
+        CHECK(blocks.load() > 0);
+        CHECK_MESSAGE(allocs.load() == 0, "the device callback allocated " << allocs.load() << " times");
+        CHECK(fx.mp().playing);
+        const Json st = fx.audio.stats();
+        CHECK(st["commandsDropped"].get<std::uint64_t>() == 0);
+        CHECK(st["streamedSongs"] == 1);
+    }
+}
+
+
+namespace {
+
+// A player on the manual device whose song is loaded and has played a little (its window is ahead of the playhead).
+struct DeviceFx : PlayerFx {
+    explicit DeviceFx(const std::string& stems = "always") {
+        install_stems(*this, demo_ogg_stems(), stems);
+        mp().intensity = 1.0f;
+        mp().layerFade = 0.0f;
+        AudioTestAccess::use_manual_device(audio, 44100);
+    }
+    float frame(int blocks) {
+        audio.update(world, 1.0f / 60.0f);
+        const float peak = render_device(audio, blocks);
+        (void)AudioTestAccess::music_service_pass(audio);
+        return peak;
+    }
+    void play_a_little() {
+        for (int i = 0; i < 10 && !mp().ready; ++i) frame(1);
+        REQUIRE(mp().ready);
+        for (int i = 0; i < 60; ++i) frame(2);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("music player: a jump with no quantize while the music service holds the stem lands on decoded chunks") {
+    DeviceFx fx;
+    fx.play_a_little();   // the intro, about 1.6 s in; the outro (6 s, chunk 32) is far past the window
+    const auto streams = AudioTestAccess::music_streams(fx.audio);
+    REQUIRE(streams.size() == 2);
+    const std::uint64_t before = fx.audio.stats()["musicUnderruns"].get<std::uint64_t>();
+    for (const auto& s : streams) {
+        CHECK_FALSE(s->resident(33));   // the jump's target is not decoded
+        REQUIRE(s->claim());            // a decode of the service is in flight on every stem
+    }
+    // It lets go of a stem when the game waits for it (the decoder yields between chunks to a waiter).
+    std::atomic<std::size_t> released{0};
+    std::thread service([&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);   // a safety net far above the wait
+        for (const auto& s : streams) {
+            while (s->waiters() == 0 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+            s->unclaim();
+            released.fetch_add(1);
+        }
+    });
+    REQUIRE(fx.audio.music_go_to_section(fx.world, fx.e, "outro", MusicQuantize::None, 0.0f).ok());
+    service.join();
+    CHECK(released.load() == streams.size());
+    for (const auto& s : streams) CHECK(s->resident(33));   // the game decoded it itself once the service gave the claim up
+    float peak = 0.0f;
+    for (int i = 0; i < 20; ++i) peak = std::max(peak, fx.frame(2));
+    CHECK(peak > 0.01f);
+    CHECK(fx.mp().section == "outro");
+    CHECK(fx.audio.stats()["musicUnderruns"].get<std::uint64_t>() == before);
+    CHECK(before == 0);
+}
+
+TEST_CASE("music player: the music keeps its window with no call of the game for longer than the look-ahead") {
+    auto quiet_run = [](bool service) {
+        DeviceFx fx;
+        fx.play_a_little();
+        AudioTestAccess::set_stream_service(fx.audio, service);
+        // 7 seconds of the device's callbacks and the service's passes and not one call of the game: a stalled game thread, past the
+        // window (4.5 s) and the look-ahead (2.2 s); the loop of the main section wraps meanwhile.
+        float peak = 0.0f;
+        std::vector<float> buf(512 * 2);
+        for (int i = 0; i < 600; ++i) {
+            AudioTestAccess::render(fx.audio, buf.data(), 512, 2);
+            for (float v : buf) peak = std::max(peak, std::fabs(v));
+            (void)AudioTestAccess::music_service_pass(fx.audio);
+        }
+        return std::make_pair(fx.audio.stats()["musicUnderruns"].get<std::uint64_t>(), peak);
+    };
+    const auto served = quiet_run(true);
+    CHECK(served.first == 0);
+    CHECK(served.second > 0.01f);
+    // Without the service the same run goes dry (the test would pass for any reason otherwise).
+    CHECK(quiet_run(false).first > 0);
+}
+
+TEST_CASE("music player: the music service thread follows the playhead while the game goes on, and shutdown joins it") {
+    audio_test::JobPool pool(jobs::Settings::threads(2));
+    {
+        DeviceFx fx;
+        AudioTestAccess::start_music_thread(fx.audio);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);   // a safety net far above the load
+        while (!fx.mp().ready && std::chrono::steady_clock::now() < deadline) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);
+            (void)render_device(fx.audio, 1);
+        }
+        REQUIRE(fx.mp().ready);
+        const auto streams = AudioTestAccess::music_streams(fx.audio);
+        REQUIRE(streams.size() == 2);
+        // The game does not call the service: each frame waits (a condition, not a time) until the thread has decoded 4 chunks ahead.
+        for (int i = 0; i < 150; ++i) {
+            fx.audio.update(fx.world, 1.0f / 60.0f);
+            (void)render_device(fx.audio, 2);
+            const std::int64_t ahead = (std::int64_t(fx.audio.music_status(fx.world, fx.e).positionSeconds * 44100.0) >> 13) + 4;
+            for (const auto& s : streams)
+                while (!s->resident(ahead) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        }
+        CHECK(std::chrono::steady_clock::now() < deadline);
+        CHECK(fx.audio.stats()["musicUnderruns"].get<std::uint64_t>() == 0);
+        CHECK(fx.mp().playing);
+    }   // ~Audio: shutdown() stops and joins the thread (a hang here is the test failing)
+}
+
+TEST_CASE("music player: auto plays live a song that changed after music.render, with the length unchanged") {
+    const OggStems& stems = demo_ogg_stems();
+    Json edited = demo_json();
+    edited["tracks"]["pad"]["patterns"]["i"] = "(Dm@3):1";   // another chord, the same length: the stems are no longer this song
+    auto sha_of_song = [] {   // of the bytes on disk, as music.render records them
+        auto bytes = fs::read_bytes("music/test.song.json");
+        REQUIRE(bool(bytes));
+        return sha256_hex(bytes->data(), bytes->size());
+    };
+    auto play = [&](MusicMode mode, const Json& song) {
+        PlayerFx fx;
+        const std::string recorded = sha_of_song();   // the file PlayerFx wrote: the demo song
+        REQUIRE(fs::write_text("music/test.song.json", song.dump()).ok());
+        install_stems(fx, stems, "", recorded);
+        fx.mp().mode = mode;
+        fx.step(0.5);
+        REQUIRE(fx.mp().ready);
+        return fx.mp().activeMode;
+    };
+    CHECK(play(MusicMode::Auto, demo_json()) == "stems");   // the recorded hash is the file's: the stems are current
+    CHECK(play(MusicMode::Auto, edited) == "live");         // not any more: the edit is heard
+    CHECK(play(MusicMode::Stems, edited) == "stems");       // asked for by hand: the files play
+    CHECK(play(MusicMode::Live, demo_json()) == "live");
+
+    // The plan says it, and the mode choice has its own reason.
+    PlayerFx fx;
+    const std::string recorded = sha_of_song();
+    REQUIRE(fs::write_text("music/test.song.json", edited.dump()).ok());
+    install_stems(fx, stems, "", recorded);
+    CHECK(music_stem_plan_of("music/test.song.json").stale);
+    std::string why;
+    CHECK(music_resolve_mode(MusicMode::Auto, MusicDeviceProfile{}, true, &why, true) == MusicMode::Live);
+    CHECK(why.find("music.render") != std::string::npos);
+    CHECK(music_resolve_mode(MusicMode::Stems, MusicDeviceProfile{}, true, nullptr, true) == MusicMode::Stems);
+    // A mix entry that records no hash (an older project) is never stale.
+    install_stems(fx, stems, "");
+    CHECK_FALSE(music_stem_plan_of("music/test.song.json").stale);
+}

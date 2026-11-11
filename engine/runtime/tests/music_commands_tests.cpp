@@ -202,7 +202,7 @@ TEST_CASE("hot reload: a song edited on disk reaches the player that plays it (a
     e.shutdown();
 }
 
-TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: stems on a pretended phone, live again after game.setDevice()") {
+TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: a song with stem files plays them on a desktop, a pretended phone and after game.setDevice()") {
     TempProject p("device");
     // The stems music.render would leave, and the assets.json entry that tells where they are.
     {
@@ -245,15 +245,15 @@ TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: stems on a pretend
 import { test, expect, game } from "factoria:test";
 import { world } from "factoria";
 const mode = () => world.find('theme').music.status.mode;
-test('auto follows the pretended device', () => {
+test('auto plays the stem files whatever the pretended device', () => {
   game.step(30);
-  expect(mode()).toBe('live');   // a headless run reports a desktop
+  expect(mode()).toBe('stems');   // a headless run reports a desktop; the song has stem files
   game.setDevice({ formFactor: 'phone', tier: 'low' });
   game.step(240);
   expect(mode()).toBe('stems');
   game.setDevice({});
   game.step(240);
-  expect(mode()).toBe('live');
+  expect(mode()).toBe('stems');
 });
 )";
     Engine e;

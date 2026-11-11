@@ -48,11 +48,14 @@ struct MusicDeviceProfile {
     bool web = false;
 };
 
-// What `mode` means on this device. Stems for a low tier, for a phone or tablet that is not high-tier and for the web (no worker
-// thread to render on, a render takes seconds); live everywhere else. "live" and "stems" are taken as written.
+// What `mode` means on this device. "auto" is stems whenever the song has stem files (a long ogg stem streams, so it costs a window
+// instead of 10 MB a minute, and nothing is rendered) and live when it has none; the device only changes the reason it reports.
+// "live" and "stems" are taken as written.
 // `stemsAvailable` is whether the song has stem files: auto without them is live, and an explicit "stems" without them is live
-// as well (the caller warns).
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable, std::string* why = nullptr);
+// as well (the caller warns). `stemsStale` is MusicStemPlan::stale: the song is not the one the stems were rendered from, so "auto"
+// plays it live (a song edit is heard at once, as a live song's is) while an explicit "stems" still plays the files.
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable, std::string* why = nullptr,
+                             bool stemsStale = false);
 
 // ---- The timeline ----------------------------------------------------------------------------------------------------------------
 
@@ -112,12 +115,20 @@ double music_boundary(const MusicMap& map, double pos, MusicQuantize q, double l
 
 // ---- Stems and sources -----------------------------------------------------------------------------------------------------------
 
+namespace audio_detail {
+class MusicStemStream;  // src/music_stream.h (private): a stem that streams from its ogg
+}
+
 struct MusicStem {
     std::string name;
     float threshold = 0.0f;          // intensity at which the stem is full
-    float scale = 1.0f;              // sample = pcm * scale (the 16-bit PCM is normalized to the stem's peak)
-    std::vector<std::int16_t> pcm;   // interleaved stereo, kMusicRate
-    std::size_t frames() const { return pcm.size() / 2; }
+    float scale = 1.0f;              // sample = pcm * scale (the 16-bit PCM is normalized to the stem's peak); 1 for a streamed stem
+    std::vector<std::int16_t> pcm;   // interleaved stereo, kMusicRate; empty for a streamed stem
+    // Set: the stem streams from its encoded file (a window of decoded chunks, kept ahead by decode jobs) and `pcm` is empty.
+    std::shared_ptr<audio_detail::MusicStemStream> stream;
+    std::int64_t streamFrames = 0;   // the length of a streamed stem
+    std::size_t frames() const { return stream ? std::size_t(streamFrames) : pcm.size() / 2; }
+    std::size_t bytes() const;       // what the stem holds in memory: the PCM, or a streamed stem's window and encoded bytes
 };
 
 struct MusicSource {
@@ -126,8 +137,16 @@ struct MusicSource {
     MusicMap map;
     std::vector<MusicStem> stems;
     bool layered = false;            // the stems are the song's layers (intensity does something)
-    std::size_t bytes() const;
+    std::size_t bytes() const;       // the memory of every stem (MusicStem::bytes)
+    bool streamed() const;           // the stems stream from their ogg files
+    // Blocks in which the mixer found a streamed stem's chunk not decoded and played silence, and the frames of that silence, over the stems.
+    std::uint64_t underrun_events() const;
+    std::uint64_t underrun_frames() const;
 };
+
+// Decodes the first chunks at song frame `pos` of every streamed stem of `src` (a no-op for a source that is decoded whole), so a jump
+// or a start there finds its audio ready. Call it on the game thread before sending the command that moves a playhead to `pos`.
+void music_prime(const MusicSource& src, double pos);
 
 // A stem of float samples (interleaved stereo) into 16-bit PCM and scale.
 MusicStem music_make_stem(std::string name, float threshold, const std::vector<float>& interleaved);
@@ -145,6 +164,10 @@ struct MusicStemFile {
 struct MusicStemPlan {
     std::string mixPath;
     std::vector<MusicStemFile> files;
+    std::string stream = "auto";   // import.music.stream: "auto" (stems of 20 s or more stream), "always" or "never" (decode whole)
+    // The song file is not the one music.render rendered the stems from: the sha256 the mix entry recorded for it (provenance.recipe.inputs)
+    // differs from the file's now. False when the entry records none or the song cannot be read.
+    bool stale = false;
 };
 MusicStemPlan music_stem_plan_of(std::string_view songPath);
 // Reads the stem files of `plan` (whole, into 16-bit PCM). Fails with a hint when a file is missing, the stems differ in length, or

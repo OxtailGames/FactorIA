@@ -7,8 +7,11 @@
 #include <utility>
 #include <vector>
 
+#include <memory>
+
 #include "fa/audio/audio.h"
 #include "fa/scene/world.h"
+#include "music_stream.h"
 
 namespace fa {
 
@@ -24,6 +27,13 @@ struct AudioTestAccess {
     static void set_music_cache_budget(Audio& audio, std::size_t bytes);
     // Off: no decode job refills the streamed voices (a test makes underruns).
     static void set_stream_service(Audio& audio, bool on);
+    // The streams of the stems of the music cache's songs (every streamed stem, cache order).
+    static std::vector<std::shared_ptr<audio_detail::MusicStemStream>> music_streams(Audio& audio);
+    // One pass of the music service (what its thread does every few ms): decodes the streamed stems' missing chunks that the mixer
+    // published as read soon. Takes no API lock and needs no call of the game. True when a chunk is still missing.
+    static bool music_service_pass(Audio& audio);
+    // Starts the music service's own thread on a manual device, as init() does with a real one (shutdown() stops it).
+    static void start_music_thread(Audio& audio);
     // What a frame does with a device: commit, refill, take what came back.
     static void pump(Audio& audio);
     // The voices the game side still has in its mirror, stopped ones included: a voice leaves it only when the mixer says

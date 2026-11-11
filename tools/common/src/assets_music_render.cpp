@@ -196,6 +196,10 @@ Json music_render_command(const std::string& projectDir, const Json& a) {
     if (!stemList.empty()) {
         mixMusic["stemGrouping"] = grouping;
         mixMusic["stems"] = stemList;
+        // The author's streaming choice (docs/MUSIC.md, "Live and stems") survives a new render.
+        if (previous.is_object() && previous.contains("import") && previous["import"].is_object() && previous["import"].contains("music") &&
+            previous["import"]["music"].is_object() && previous["import"]["music"].contains("stream") && previous["import"]["music"]["stream"].is_string())
+            mixMusic["stream"] = previous["import"]["music"]["stream"];
     }
     Json provenance = write_entry(*norm, base + (render->loop ? std::format(", loop bars {}-{}", render->loop->startBar, render->loop->startBar + render->loop->bars - 1) : std::string(", no loop")), mixMusic, mix.clip);
     for (std::size_t i = 0; i < render->stems.size(); ++i) {

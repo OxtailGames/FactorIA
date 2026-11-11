@@ -409,7 +409,8 @@ The data the in-game player reads (it is in `assets.json`, under the asset's `im
   "name": "base", "kind": "layer", "intensity": 0, "tracks": ["pad","bass"], "buses": [] } } }
 ```
 
-`music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix.
+`music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix. Add `"stream": "auto" | "always" | "never"` to the mix's `music` block to choose
+whether the stems stream ("Live and stems"); only `.ogg` stems (`format: "ogg"`) can.
 
 ## Playing a song in a game
 
@@ -484,11 +485,19 @@ player; `world.on("music.beat", fn)` to all.
   renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once); when the cache passes
   128 MB the ones nothing plays are dropped, the least recently played first.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
-  Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
-- **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,
-  and always live when the song has no stem files. `device_info()` (docs/MOBILE.md) is what decides, and the `game.setDevice` override of a script (docs/SCRIPTING.md)
-  reaches it: a test that sets a `tier: "low"` phone gets the stems, one that sets a desktop gets live. A player that is already running takes the new mode at its next beat
+  A stem of 20 s or more that is an `.ogg` at 44100 Hz streams: the engine keeps its encoded file and a window of a few seconds of decoded audio, and the audio service thread
+  fills the window ahead of the music (see "What the music costs in memory"); shorter stems, stems in another format and stems it cannot stream are decoded whole.
+  Without stem files, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
+- **auto** (default): stems whenever the song has stem files and they are current, on every device (a streamed stem costs a window, not 10 MB a minute, and there is nothing to render); live when it has none.
+  The stems are current when the song file is the one `music.render` rendered them from: the mix entry records the song's sha256 (`provenance.recipe.inputs`) and `auto` compares it with the file when a player starts or fetches
+  the song. A song edited since (even by a note that keeps its length) plays live, with one warning in the log ("run music.render"), and `activeMode` reads `live`; `music.render` makes the stems current again. `mode: "stems"` plays the files whatever the song says.
+  Up to 0.22 a desktop rendered live even when stem files existed; set `mode: "live"` on the player to keep that. On a phone or tablet that is not high-tier, on any low-tier
+  device and on the web (no worker thread to render on) a song without stem files still logs that auto would use stems there. `device_info()` (docs/MOBILE.md) and the
+  `game.setDevice` override of a script (docs/SCRIPTING.md) still reach the choice. A player that is already running takes the new mode at its next beat
   (it crossfades to the other kind of render in the section that sounds); `mode: "stems"` or `"live"` is still the way to fix it in a scene.
+- **Streaming rule and override.** `stream` in the `import.music` block of the song's mix entry (the one with `role: "mix"`; add it by hand, `music.render` keeps it when it renders again) says whether that song streams: `"auto"` (default: the stems of 20 s or more),
+  `"always"` (every ogg stem, also a short one) or `"never"` (decode every stem whole). Another value logs a warning and is taken as `"auto"`. A stem that cannot stream (not `.ogg`, not 44100 Hz,
+  more than 2 channels, unknown length, an undecodable tail) is decoded whole whatever the setting, and `"always"` logs why. Live mode never streams: it renders from the document.
 
 Both are as loud as the song's master says. Stems carry the mix's gain, so the style guide's music loudness (`loudness: "style"`, "The mixer") is part of them; a live render
 reads the same target (`audio.loudnessLufs.music` of the project's style guide in `assets.json`) when the master says `"style"`, so the two sound equally loud. A project with no
@@ -497,18 +506,28 @@ outro plays its tail out, or a 20 ms fade when more music follows the outro).
 
 ### What the music costs in memory
 
-The cache holds every stem of a song as 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**, in both modes today (decoded whole; streaming
-the stems is not done yet). A song costs `stems x minutes x 10.1 MiB`, and every song played stays cached until the 128 MB budget drops the ones nothing plays.
+A stem decoded whole is 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**. A streamed stem holds a window of 24 chunks of 8192 frames
+(4.5 s of float stereo, 1.5 MiB), the decoder's scratch buffer and its encoded `.ogg` (typically well under 1 MB a minute): about **2 to 3 MiB per stem, whatever its length**.
+Every song played stays cached until the 128 MB budget drops the ones nothing plays.
 
 | Song | Stems | One minute | Three minutes |
 | --- | --- | --- | --- |
-| one flat mix | 1 | 10.1 MB | 30.3 MB |
-| 4 layers (live or stems) | 4 | 40.4 MB | 121 MB |
-| 4 layers + mix stem | 5 | 50.5 MB | 152 MB |
+| one flat mix, whole (live, or stems under 20 s) | 1 | 10.1 MB | 30.3 MB |
+| 4 layers, whole | 4 | 40.4 MB | 121 MB |
+| 4 layers + mix stem, whole | 5 | 50.5 MB | 152 MB |
+| 4 layers, streamed (stems) | 4 | about 8 to 12 MB | about 8 to 12 MB |
+| 4 layers + mix stem, streamed | 5 | about 10 to 15 MB | about 10 to 15 MB |
 
-(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song, per stem, in bytes) and `cacheBytes`; `game.state` has
-`audio.musicBytes`; `perf.profile` has `memory.*.musicMB` and `perf.measure` the sample's `musicMB`, which are also part of `audioDecodedMB`. The process size includes them: a game
-that plays three 3-minute 4-layer songs holds about 360 MB of music.
+(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song: `song`, `mode`, `bytes`, `streamed`, `underruns`, and `stems` with each stem's `name`, `bytes` and `streamed`) and `cacheBytes`;
+`game.state` has `audio.musicBytes`, `streamedSongs`, `musicUnderruns` and `musicUnderrunFrames`; `perf.profile` has `memory.*.musicMB` and `perf.measure` the sample's `musicMB`, which are also part
+of `audioDecodedMB`. A streamed stem counts its window, scratch and encoded bytes, not the whole song, and the number is constant for its life.
+
+How a streamed stem plays: the mixer reads only decoded chunks and never decodes, waits or allocates in its callback. Each time it publishes the music's state it also publishes, per stem, where it is
+about to read (the playing position, the target of a queued section jump or crossfade, the loop's start). The **audio service thread** (one per audio device, started with it) reads that and decodes the
+chunks 2.2 s ahead of each of those places, every 2 to 10 ms, so the music does not depend on the game thread: a long scene load, a breakpoint or a minimized window does not silence it. A section jump,
+a loop wrap and a crossfade land on the same sample as with a whole song. The first chunks are decoded before the song plays, and the game decodes the target's first chunks before it sends a jump, stinger or
+crossfade (if the service thread is decoding that stem at that moment, the game waits for the chunk it is on, a millisecond or so, never for the whole refill; so a jump with `quantize: "none"` never plays dry). The null device
+(headless runs and tests) and the web decode a missing chunk on the spot in the mixer, so their output is the same on every machine. If a chunk is still missing when the real device needs it (a very slow disk or an overloaded machine), that stem plays silence for the frames it lacks (the music does not wait, so the other stems stay in time) and `underruns` / `musicUnderruns` / `musicUnderrunFrames` count it; it comes back in time once its chunks are decoded.
 
 ### Hot reload
 
