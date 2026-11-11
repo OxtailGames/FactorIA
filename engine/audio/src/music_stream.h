@@ -4,9 +4,15 @@
 // and a stinger all read the same store, and a stem that is silent costs nothing but a decode that is kept ahead anyway.
 //
 // Threads. One thread mixes (the device callback, or the game thread on the null device and the web) and reads; at most one other thread at a
-// time decodes (whoever holds claim(): a job, or the game thread when it primes). The mixer never waits for the decoder and never allocates:
-// a chunk that is not decoded when it is needed plays as silence and is counted (underruns), as a dry ring of a streamed clip does. On the
-// null device and the web the mixer decodes the chunk itself (decode_now) so a headless run has every sample.
+// time decodes (whoever holds claim(): the audio service thread, or the game thread when it primes). The mixer never waits for the decoder
+// and never allocates: a chunk that is not decoded when it is needed plays as silence and is counted (underruns), as a dry ring of a streamed
+// clip does. On the null device and the web the mixer decodes the chunk itself (decode_now) so a headless run has every sample.
+//
+// Who keeps the window ahead. Not the game: its thread can stall for seconds (a long scene load, a breakpoint, a minimized window) and the
+// music has to go on. The mixer publishes, for each stem, where its playheads and waiting jumps read (publish_head, relaxed atomics, once per
+// callback); the audio service thread reads that (service) and decodes what is missing, whatever the game is doing. A jump that is about to
+// happen is primed by the game (prime) before it sends the command; if the service thread is decoding at that moment the game waits for the
+// claim (claim_wait) for the time of one chunk, because the decoder yields to a waiter between chunks.
 //
 // The handshake between the two is one atomic word per slot: (chunk + 1) << 16 | LOADING << 15 | readers. The mixer pins a slot (readers + 1,
 // compare-exchange) only while it holds the chunk it wants and is not LOADING, and unpins when its block is done. The decoder takes a slot
@@ -59,6 +65,10 @@ public:
     std::uint64_t underrun_events() const { return underrunEvents_.load(std::memory_order_relaxed); }
     std::uint64_t underrun_frames() const { return underrunFrames_.load(std::memory_order_relaxed); }
 
+    // Where a playhead (or a waiting jump) of this stem reads, from song frames: the mixer calls it for each want after each publish of the
+    // transport, with the same `seq` (Mixer::musicSeq) for all the calls of one publish. Mixer thread only; never allocates.
+    void publish_head(std::uint64_t seq, double pos, double end, double wrapStart, bool wraps);
+
     // ---- the producer side
     // The right to decode (and to touch the wanted list). Acquire pairs with the release of unclaim().
     bool claim() {
@@ -66,13 +76,26 @@ public:
         return busy_.compare_exchange_strong(expected, true, std::memory_order_acquire, std::memory_order_relaxed);
     }
     void unclaim() { busy_.store(false, std::memory_order_release); }
+    // claim() that waits for the holder, for the time of a chunk (the holder yields to a waiter between chunks, fill_wanted); false after a
+    // safety deadline of half a second, far above that.
+    bool claim_wait();
+    int waiters() const { return waiters_.load(std::memory_order_relaxed); }
+    // The service thread's pass number, bumped for every pass on every stem: chunks of prime() stay protected for kPrimedPasses of them.
+    void tick(std::uint64_t pass) { pass_.store(pass, std::memory_order_relaxed); }
+    // One pass of the service thread: when the mixer published this stem lately (`mixSeq` is the mixer's current Mixer::musicSeq), takes the
+    // claim (skips the stem when someone else has it), turns the published heads into the wanted chunks and decodes the missing ones.
+    // True when a wanted chunk is still missing (the thread comes back soon).
+    bool service(std::uint64_t mixSeq);
+    // True when the mixer published this stem within the last few publishes.
+    bool live(std::uint64_t mixSeq) const;
     // Replaces the chunks to keep decoded, most urgent first (at most kMusicWantedMax). Chunks decoded by prime() stay protected for a while.
     void set_wanted(const std::int64_t* chunks, std::size_t n);
     // True when a wanted chunk is not decoded.
     bool missing_any() const;
-    // Decodes up to `most` of the wanted chunks that are not decoded, in order. Returns how many it made.
+    // Decodes up to `most` of the wanted chunks that are not decoded, in order, and stops early when a claim_wait() is waiting. Returns how
+    // many it made.
     std::size_t fill_wanted(std::size_t most);
-    // Decodes chunks [first, first + count) now and keeps them out of the way of eviction for the next 240 set_wanted() calls. The game uses it
+    // Decodes chunks [first, first + count) now and keeps them out of the way of eviction for the next kPrimedPasses passes. The game uses it
     // before it sends a command that jumps somewhere, so the target is there whatever the jobs are doing.
     void prime(std::int64_t first, std::int64_t count);
     // Decodes `chunk` into any slot nobody reads (the null device and the web, on the thread that mixes). False if it could not.
@@ -91,7 +114,11 @@ private:
     static constexpr std::uint64_t kReaders = 0x7fff, kLoading = 0x8000;
     static std::uint64_t ready_word(std::int64_t chunk) { return std::uint64_t(chunk + 1) << 16; }
 
+    static constexpr std::uint64_t kPrimedPasses = 500;  // service passes (10 ms to 2 ms apart): 1 s at the least
+    static constexpr std::size_t kMaxHeads = 16;
+
     bool wanted_or_primed(std::int64_t chunk) const;
+    void refresh_wanted();  // wanted_ from the published heads
     int take_slot(std::int64_t forChunk, bool respectWanted);  // a slot set to LOADING for forChunk, or -1
     std::size_t decode_into(int slot, std::int64_t chunk);       // frames the decoder gave (the rest of the chunk is silence)
     bool ensure(std::int64_t chunk, bool respectWanted);
@@ -113,8 +140,17 @@ private:
     };
     std::array<Primed, 8> primed_{};
     std::size_t primedNext_ = 0;
-    std::uint64_t tick_ = 0;
+    std::atomic<std::uint64_t> pass_{0};
     std::atomic<bool> busy_{false};
+    std::atomic<int> waiters_{0};
+    // Published by the mixer (publish_head), read by the service thread. Advisory: a read that mixes two publishes only decodes a chunk
+    // that is not needed or one pass late. A head is packed: chunk of the position (21 bits), last chunk (21), chunk the loop continues from
+    // (21), wraps (1).
+    std::array<std::atomic<std::uint64_t>, kMaxHeads> heads_{};
+    std::atomic<std::size_t> headCount_{0};
+    std::atomic<std::uint64_t> stamp_{0};  // the seq of the last publish (0 = never)
+    std::uint64_t pubSeq_ = 0;             // mixer thread only
+    std::size_t pubCount_ = 0;
     std::atomic<std::uint64_t> underrunEvents_{0}, underrunFrames_{0}, decodeErrors_{0};
 };
 

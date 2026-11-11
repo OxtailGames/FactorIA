@@ -52,8 +52,10 @@ struct MusicDeviceProfile {
 // instead of 10 MB a minute, and nothing is rendered) and live when it has none; the device only changes the reason it reports.
 // "live" and "stems" are taken as written.
 // `stemsAvailable` is whether the song has stem files: auto without them is live, and an explicit "stems" without them is live
-// as well (the caller warns).
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable, std::string* why = nullptr);
+// as well (the caller warns). `stemsStale` is MusicStemPlan::stale: the song is not the one the stems were rendered from, so "auto"
+// plays it live (a song edit is heard at once, as a live song's is) while an explicit "stems" still plays the files.
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable, std::string* why = nullptr,
+                             bool stemsStale = false);
 
 // ---- The timeline ----------------------------------------------------------------------------------------------------------------
 
@@ -163,6 +165,9 @@ struct MusicStemPlan {
     std::string mixPath;
     std::vector<MusicStemFile> files;
     std::string stream = "auto";   // import.music.stream: "auto" (stems of 20 s or more stream), "always" or "never" (decode whole)
+    // The song file is not the one music.render rendered the stems from: the sha256 the mix entry recorded for it (provenance.recipe.inputs)
+    // differs from the file's now. False when the entry records none or the song cannot be read.
+    bool stale = false;
 };
 MusicStemPlan music_stem_plan_of(std::string_view songPath);
 // Reads the stem files of `plan` (whole, into 16-bit PCM). Fails with a hint when a file is missing, the stems differ in length, or

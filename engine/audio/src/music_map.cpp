@@ -10,6 +10,7 @@
 #include "fa/audio/song_preview.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
@@ -48,7 +49,7 @@ float music_layer_gain(float intensity, float threshold, float range) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why) {
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why, bool stemsStale) {
     auto say = [&](const char* text) { if (why) *why = text; };
     if (mode == MusicMode::Live) { say("mode is live"); return MusicMode::Live; }
     if (mode == MusicMode::Stems) {
@@ -63,11 +64,15 @@ MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool s
                        : "auto: the song has no stem files, so it renders live (run music.render to stream it from its stems)");
         return MusicMode::Live;
     }
-    // A song with stem files plays from them on every device: a long stem streams from its ogg (a window of a few MB instead of 10 MB per
-    // minute per stem), and there is no render to wait for.
+    if (stemsStale) {
+        say("auto: the song changed after music.render wrote its stems, so it plays live (run music.render again to use the stems)");
+        return MusicMode::Live;
+    }
+    // A song with stem files plays from them on every device: a long stem streams from its encoded ogg in memory (a window of a few MB
+    // instead of 10 MB per minute per stem), and there is no render to wait for.
     say(d.web ? "auto: stems on the web" : d.tier == "low" ? "auto: stems on a low-tier device"
         : needsStems ? "auto: stems on a phone or tablet that is not high-tier"
-                     : "auto: the song has stem files, which stream from disk instead of rendering the song in memory");
+                     : "auto: the song has stem files, which play from their encoded ogg instead of rendering the song in memory");
     return MusicMode::Stems;
 }
 
@@ -252,7 +257,9 @@ std::uint64_t MusicSource::underrun_frames() const {
 void music_prime(const MusicSource& src, double pos) {
     const std::int64_t chunk = std::int64_t(std::max(pos, 0.0)) >> audio_detail::kMusicChunkShift;
     for (const MusicStem& s : src.stems) {
-        if (!s.stream || !s.stream->claim()) continue;  // a decode job has it: it keeps the wanted chunks coming
+        if (!s.stream) continue;
+        // The service thread may be decoding: it gives the claim up after the chunk it is on (claim_wait), so the jump never plays dry.
+        if (!s.stream->claim_wait()) continue;
         s.stream->prime(chunk, 2);
         s.stream->unclaim();
     }
@@ -336,6 +343,14 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
         const Json& m = imp["music"];
         if (m.value("role", std::string()) != "mix" || fs::normalize(m.value("song", std::string())) != song) continue;
         plan.mixPath = it.key();
+        std::string recordedSha;  // the song's hash when music.render ran (provenance.recipe.inputs)
+        if (it->contains("provenance") && (*it)["provenance"].is_object() && (*it)["provenance"].contains("recipe") &&
+            (*it)["provenance"]["recipe"].is_object() && (*it)["provenance"]["recipe"].contains("inputs") &&
+            (*it)["provenance"]["recipe"]["inputs"].is_array()) {
+            for (const Json& in : (*it)["provenance"]["recipe"]["inputs"])
+                if (in.is_object() && in.contains("path") && in["path"].is_string() && fs::normalize(in["path"].get<std::string>()) == song)
+                    recordedSha = in.value("sha256", std::string());
+        }
         if (m.contains("stream") && m["stream"].is_string()) {
             const std::string mode = m["stream"].get<std::string>();
             if (mode == "auto" || mode == "always" || mode == "never") {
@@ -352,6 +367,10 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
             f.name = s.value("name", std::string());
             f.threshold = s.contains("intensity") && s["intensity"].is_number() ? s["intensity"].get<float>() : 0.0f;
             plan.files.push_back(std::move(f));
+        }
+        if (!plan.files.empty() && !recordedSha.empty()) {
+            auto bytes = fs::read_bytes(song);
+            plan.stale = bytes && sha256_hex(bytes->data(), bytes->size()) != recordedSha;
         }
         return plan;
     }

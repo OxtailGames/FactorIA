@@ -1,7 +1,9 @@
 #include "music_stream.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace fa::audio_detail {
 
@@ -69,12 +71,11 @@ bool MusicStemStream::wanted_or_primed(std::int64_t chunk) const {
     for (std::size_t i = 0; i < wantedCount_; ++i)
         if (wanted_[i] == chunk) return true;
     for (const Primed& p : primed_)
-        if (p.chunk == chunk && p.until >= tick_) return true;
+        if (p.chunk == chunk && p.until >= pass_.load(std::memory_order_relaxed)) return true;
     return false;
 }
 
 void MusicStemStream::set_wanted(const std::int64_t* chunks, std::size_t n) {
-    ++tick_;
     wantedCount_ = std::min(n, wanted_.size());
     for (std::size_t i = 0; i < wantedCount_; ++i) wanted_[i] = chunks[i];
 }
@@ -166,6 +167,7 @@ std::size_t MusicStemStream::fill_wanted(std::size_t most) {
     std::size_t made = 0;
     const std::int64_t count = chunk_count();
     for (std::size_t i = 0; i < wantedCount_ && made < most; ++i) {
+        if (waiters_.load(std::memory_order_relaxed) > 0) break;  // the game primes a jump: it gets the claim after this chunk
         const std::int64_t c = wanted_[i];
         if (c < 0 || c >= count || resident(c)) continue;
         if (!ensure(c, true)) break;  // the window is full of chunks that are wanted
@@ -180,11 +182,89 @@ void MusicStemStream::prime(std::int64_t first, std::int64_t count) {
         Primed& p = primed_[primedNext_];
         primedNext_ = (primedNext_ + 1) % primed_.size();
         p.chunk = c;
-        p.until = tick_ + 240;
+        p.until = pass_.load(std::memory_order_relaxed) + kPrimedPasses;
         ensure(c, true);
     }
 }
 
 bool MusicStemStream::decode_now(std::int64_t chunk) { return ensure(chunk, false); }
+
+bool MusicStemStream::claim_wait() {
+    if (claim()) return true;
+    waiters_.fetch_add(1, std::memory_order_relaxed);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);  // a safety net: the wait is a chunk's decode
+    bool got = false;
+    while (!(got = claim()) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    waiters_.fetch_sub(1, std::memory_order_relaxed);
+    return got;
+}
+
+namespace {
+constexpr std::uint64_t kChunkMask = (std::uint64_t(1) << 21) - 1;
+std::uint64_t chunk_bits(std::int64_t c) { return std::uint64_t(std::clamp<std::int64_t>(c, 0, std::int64_t(kChunkMask))); }
+}  // namespace
+
+void MusicStemStream::publish_head(std::uint64_t seq, double pos, double end, double wrapStart, bool wrapsAround) {
+    auto chunk_of = [](double p) { return std::int64_t(std::clamp(p, 0.0, 4.0e12)) >> kMusicChunkShift; };
+    const std::int64_t count = chunk_count();
+    const std::int64_t last = end > 0.0 ? std::min(chunk_of(end - 1.0), count - 1) : count - 1;
+    const std::uint64_t packed = chunk_bits(chunk_of(pos)) | (chunk_bits(last) << 21) | (chunk_bits(chunk_of(wrapStart)) << 42) |
+                                 (wrapsAround ? std::uint64_t(1) << 63 : 0);
+    if (pubSeq_ != seq) {
+        pubSeq_ = seq;
+        pubCount_ = 0;
+    }
+    if (pubCount_ < heads_.size()) heads_[pubCount_++].store(packed, std::memory_order_relaxed);
+    headCount_.store(pubCount_, std::memory_order_relaxed);
+    stamp_.store(seq, std::memory_order_release);
+}
+
+bool MusicStemStream::live(std::uint64_t mixSeq) const {
+    const std::uint64_t at = stamp_.load(std::memory_order_acquire);
+    return at != 0 && mixSeq - at <= 3;
+}
+
+// The chunks the published heads read from now on: a window ahead of each playhead, across the wrap of a loop; the first kMusicUrgent of
+// every head before the rest.
+void MusicStemStream::refresh_wanted() {
+    std::array<std::int64_t, kMusicWantedMax> list{};
+    std::size_t n = 0;
+    auto add = [&](std::int64_t c) {
+        for (std::size_t i = 0; i < n; ++i)
+            if (list[i] == c) return;
+        if (n < list.size()) list[n++] = c;
+    };
+    const std::int64_t count = chunk_count();
+    const std::size_t heads = std::min(headCount_.load(std::memory_order_relaxed), heads_.size());
+    for (int round = 0; round < 2; ++round) {
+        for (std::size_t h = 0; h < heads; ++h) {
+            const std::uint64_t packed = heads_[h].load(std::memory_order_relaxed);
+            std::int64_t c = std::int64_t(packed & kChunkMask);
+            const std::int64_t last = std::int64_t((packed >> 21) & kChunkMask);
+            const std::int64_t wrapStart = std::int64_t((packed >> 42) & kChunkMask);
+            const bool wraps = (packed >> 63) != 0;
+            for (std::int64_t k = 0; k < kMusicLookAhead; ++k, ++c) {
+                if (c > last) {
+                    if (!wraps) break;
+                    c = wrapStart;  // the loop continues from its start
+                    if (c > last) break;
+                }
+                if (c < 0 || c >= count) break;
+                if ((k < kMusicUrgent) == (round == 0)) add(c);
+            }
+        }
+    }
+    set_wanted(list.data(), n);
+}
+
+bool MusicStemStream::service(std::uint64_t mixSeq) {
+    if (!live(mixSeq)) return false;
+    if (!claim()) return true;  // the game primes, or a test holds it: look again soon
+    refresh_wanted();
+    fill_wanted(kMusicWantedMax);
+    const bool more = missing_any();
+    unclaim();
+    return more;
+}
 
 }  // namespace fa::audio_detail

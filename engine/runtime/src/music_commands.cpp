@@ -58,11 +58,12 @@ void register_music_commands(Engine&, Engine::Impl& I) {
            "beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the "
            "frames the mixer has mixed). `cache` and `cacheBytes` are the memory of the music (docs/MUSIC.md, \"What the music costs in memory\"). Example: audio.music_state {\"entity\":\"music\"}"
            FA_COMMAND_DETAILS
-           "`cache` lists the songs the music cache holds, {song, mode, bytes, stems: [{name, "
-           "bytes, streamed, underruns}]}, and `cacheBytes` adds them up: this is the memory of the music (also `musicBytes` in "
-           "game.state's audio and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` is read from its ogg "
-           "through a small window, so its `bytes` are that window plus the encoded file, not the whole song decoded; `underruns` "
-           "counts the blocks in which that window was not ready (the stem played silence).",
+           "`cache` lists the songs the music cache holds, {song, mode, bytes, streamed, underruns, stems: [{name, bytes, "
+           "streamed}]}, and `cacheBytes` adds them up: this is the memory of the music (also `musicBytes` in game.state's audio "
+           "and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` plays from its encoded ogg (in memory) "
+           "through a small window of decoded chunks, so its `bytes` are that window plus the encoded file, not the whole song "
+           "decoded; `streamed` of a song says any of its stems is, and `underruns` (per song, all its stems together) counts the "
+           "blocks in which a window was not ready (that stem played silence).",
            parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Only this entity (id or name); it needs a MusicPlayer."}}})"),
            true, "audio"},

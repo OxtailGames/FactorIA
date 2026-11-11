@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -27,6 +29,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 
 #include "audio_decoder.h"
 #include "audio_mixer.h"
@@ -294,7 +297,7 @@ struct Audio::Impl {
     bool manual = false;       // a test drives the mixer as a device (AudioTestAccess::use_manual_device)
     bool web = false;
     bool streamLogged = false;
-    bool streamService = true; // decode jobs refill the streamed voices (tests switch it off to make underruns)
+    std::atomic<bool> streamService{true};  // the clip decode jobs and the music service refill the streams (tests switch it off)
     int deviceRate = kRate;
     int deviceChannels = 2;
 
@@ -386,6 +389,7 @@ struct Audio::Impl {
         ended.reserve(kMaxEnded);
     }
     ~Impl() {
+        stop_music_service();
         // shutdown() settled the mixer; whatever is left was never sent to it or has come back.
         for (Cmd* c : staged) delete c;
         Cmd* const* c = nullptr;
@@ -566,7 +570,6 @@ struct Audio::Impl {
             }
             if (any) mixer.commands.commit();
             service_streams();
-            service_music_streams();
         }
         drain_returns();
         process_ends();
@@ -972,73 +975,108 @@ struct Audio::Impl {
         prune_jobs();
     }
 
-    // What one streamed stem has to keep decoded: the chunks the playheads and the waiting jumps read next (music_stream.h).
-    struct MusicStreamWork {
-        std::shared_ptr<audio_detail::MusicStemStream> stream;
-        std::vector<std::int64_t> urgent, ahead;
-    };
-    static void add_chunk(std::vector<std::int64_t>& list, std::int64_t c) {
-        if (std::find(list.begin(), list.end(), c) == list.end()) list.push_back(c);
-    }
-    // The chunks `w` reads from now on: a window ahead of the playhead, across the wrap of a loop.
-    static void want_chunks(const MusicWant& w, std::int64_t chunkCount, std::vector<std::int64_t>& urgent, std::vector<std::int64_t>& ahead) {
-        namespace ad = audio_detail;
-        auto chunk_of = [](double p) { return std::int64_t(std::max(p, 0.0)) >> ad::kMusicChunkShift; };
-        const std::int64_t last = w.end > 0.0 ? std::min(chunk_of(w.end - 1.0), chunkCount - 1) : chunkCount - 1;
-        std::int64_t c = chunk_of(w.pos);
-        for (std::int64_t k = 0; k < ad::kMusicLookAhead; ++k, ++c) {
-            if (c > last) {
-                if (!w.wraps) break;
-                c = chunk_of(w.wrapStart);  // the loop continues from its start
-                if (c > last) break;
-            }
-            if (c < 0 || c >= chunkCount) break;
-            add_chunk(k < ad::kMusicUrgent ? urgent : ahead, c);
+    // ------------------------------------------------------------------------------------------------ the music service
+    // Keeps the streamed stems' windows decoded ahead of every playhead on a thread of its own, so a game that stalls (a long scene load, a
+    // breakpoint, a minimized window) does not silence the music. It reads what the mixer published for each stem (music_stream.h) and none
+    // of the game's state, so it needs neither the API lock nor a call from the game. It runs only with a device thread: on the null device
+    // and the web the mixer decodes what it needs itself.
+    struct MusicService {
+        std::mutex mu;                                                      // guards the four below
+        std::condition_variable cv;
+        std::vector<std::weak_ptr<audio_detail::MusicStemStream>> streams;  // every streamed stem of every song the cache took
+        bool stop = false;
+        std::thread thread;
+        std::mutex passMu;                                                  // one pass at a time (the thread, or a test's hook)
+        std::vector<std::shared_ptr<audio_detail::MusicStemStream>> scratch;
+        std::uint64_t passNo = 0;
+    } svc;
+
+    // A song entered the cache: its streamed stems are the service's from now on (they stay while anything holds them).
+    void music_register(const MusicSource& src) {
+        std::lock_guard<std::mutex> lk(svc.mu);
+        for (const MusicStem& s : src.stems) {
+            if (!s.stream) continue;
+            const std::weak_ptr<audio_detail::MusicStemStream> w = s.stream;
+            const bool known = std::any_of(svc.streams.begin(), svc.streams.end(),
+                                           [&](const auto& o) { return !o.owner_before(w) && !w.owner_before(o); });
+            if (!known) svc.streams.push_back(w);
         }
     }
-    // With a device: for every streamed stem a player reads, the chunks to keep decoded, and a decode job when one is missing. The claim keeps
-    // it to one producer per stem; a stem whose job still runs is looked at again at the next flush. On the null device the mixer decodes.
-    void service_music_streams() {
-        if (!device || !streamService) return;
-        std::vector<MusicStreamWork> work;
-        auto gather = [&](MusicRt& rt) {
-            if (!rt.ch) return;
-            rt.ch->snap.update();
-            const MusicTransportState& st = rt.ch->snap.front().state;  // the sources it lists are held by `rt` (see music_events)
-            for (std::size_t i = 0; i < st.wantCount; ++i) {
-                const MusicWant& w = st.wants[i];
-                if (!w.src || !w.src->streamed()) continue;
-                for (const MusicStem& stem : w.src->stems) {
-                    if (!stem.stream) continue;
-                    auto at = std::find_if(work.begin(), work.end(), [&](const MusicStreamWork& m) { return m.stream == stem.stream; });
-                    if (at == work.end()) {
-                        work.push_back({stem.stream, {}, {}});
-                        at = work.end() - 1;
-                    }
-                    want_chunks(w, stem.stream->chunk_count(), at->urgent, at->ahead);
+
+    // One pass over the streamed stems: true when a chunk is still missing somewhere. Takes no lock of the game's.
+    bool music_service_pass() {
+        if (!streamService.load(std::memory_order_relaxed)) return false;
+        std::lock_guard<std::mutex> pass(svc.passMu);
+        svc.scratch.clear();
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            for (std::size_t i = 0; i < svc.streams.size();) {
+                if (auto s = svc.streams[i].lock()) {
+                    svc.scratch.push_back(std::move(s));
+                    ++i;
+                } else {
+                    svc.streams[i] = svc.streams.back();  // gone: nobody plays it
+                    svc.streams.pop_back();
                 }
             }
-        };
-        for (auto& [id, rt] : musicEnts) gather(*rt);
-        for (auto& rt : musicOrphans) gather(*rt);
-        for (MusicStreamWork& m : work) {
-            if (!m.stream->claim()) continue;
-            std::vector<std::int64_t> all = std::move(m.urgent);
-            for (std::int64_t c : m.ahead) add_chunk(all, c);
-            if (all.size() > audio_detail::kMusicWantedMax) all.resize(audio_detail::kMusicWantedMax);
-            m.stream->set_wanted(all.data(), all.size());
-            if (!m.stream->missing_any()) {
-                m.stream->unclaim();
-                continue;
-            }
-            std::shared_ptr<audio_detail::MusicStemStream> stream = m.stream;
-            jobsInFlight.push_back(jobs::submit("audio.stream", [stream] {
-                stream->fill_wanted(audio_detail::kMusicWantedMax);
-                stream->unclaim();
-            }));
         }
-        prune_jobs();
+        const std::uint64_t seq = mixer.musicSeq.load(std::memory_order_relaxed);
+        ++svc.passNo;
+        bool more = false;
+        for (const auto& s : svc.scratch) {
+            s->tick(svc.passNo);
+            more = s->service(seq) || more;
+        }
+        svc.scratch.clear();
+        return more;
     }
+
+    // The mode `asked` comes to for `song` with its stem plan. "auto" with stems that were rendered from another version of the song plays
+    // it live, and says so once (until the stems are current again): a song edit is heard in a running game, as a live song's is.
+    std::set<std::string> staleLogged;
+    MusicMode music_mode_of(MusicMode asked, const std::string& song, const MusicStemPlan& plan, std::string* why = nullptr) {
+        const bool stale = asked == MusicMode::Auto && plan.stale && !plan.files.empty();
+        if (!stale) staleLogged.erase(song);
+        else if (staleLogged.insert(song).second)
+            FA_WARN("audio", "the stems of '{}' were rendered from an older version of the song; it plays live instead "
+                             "(hint: run music.render on it to use the stems again)", song);
+        return music_resolve_mode(asked, musicDevice, !plan.files.empty(), why, plan.stale);
+    }
+
+    void start_music_service() {
+#if !defined(__EMSCRIPTEN__)
+        if (svc.thread.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            svc.stop = false;
+        }
+        svc.thread = std::thread([this] {
+            std::unique_lock<std::mutex> lk(svc.mu);
+            while (!svc.stop) {
+                lk.unlock();
+                const bool more = music_service_pass();
+                lk.lock();
+                if (svc.stop) break;
+                // Quick while a chunk is missing, slow when the windows are full: the look-ahead is seconds.
+                svc.cv.wait_for(lk, std::chrono::milliseconds(more ? 2 : 10), [this] { return svc.stop; });
+            }
+        });
+#endif
+    }
+
+    // Waits for the thread to end (a pass that is decoding finishes its chunk first).
+    void stop_music_service() {
+        if (!svc.thread.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lk(svc.mu);
+            svc.stop = true;
+        }
+        svc.cv.notify_all();
+        svc.thread.join();
+        std::lock_guard<std::mutex> lk(svc.mu);
+        svc.streams.clear();
+    }
+
     void prune_jobs() {
         jobsInFlight.erase(std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
                            jobsInFlight.end());
@@ -1361,6 +1399,7 @@ bool Audio::init(bool device, std::string* error) {
     im.inited = true;
     // Release: the rate and the fill mode above are written before the callback that sees `armed` reads them.
     im.mixer.armed.store(true, std::memory_order_release);
+    if (im.device && !im.web) im.start_music_service();  // streamed music is kept decoded without the game (Impl::MusicService)
     return true;
 }
 
@@ -1375,6 +1414,7 @@ void Audio::shutdown() {
         saudio_shutdown();  // joins the audio thread: nothing mixes from here on
 #endif
     }
+    im.stop_music_service();  // after the device: it reads what the mixer published, and songs are released below
     im.mixer.armed.store(false, std::memory_order_release);
     im.device = false;  // from here every command runs at once, on this thread
     im.manual = false;
@@ -2446,7 +2486,7 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
     if (rt.song.empty()) return;
     MusicStemPlan plan = music_stem_plan_of(rt.song);
     std::string why;
-    const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+    const MusicMode mode = music_mode_of(mp.mode, rt.song, plan, &why);
     if (mp.mode == MusicMode::Stems && plan.files.empty())
         FA_WARN("audio", "MusicPlayer on '{}': mode is \"stems\" but '{}' has no stem files in assets.json; playing it live "
                          "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")", rt.id, rt.song);
@@ -2487,6 +2527,7 @@ void Audio::Impl::music_poll() {
             if (!l.note.empty()) FA_WARN("audio", "song '{}' plays live instead of from its stems: {}", l.path, l.note);
             // A move: the load (which its job's closure may keep alive a while longer) must not hold the song, or the cache
             // could not evict it while that lasts (music_trim counts the holders).
+            music_register(*l.source);
             musicCache[l.key] = CachedSong{std::move(l.source), ++musicUse};
             music_trim(l.key);
         } else {
@@ -2635,7 +2676,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             // The mode this player would play the song in: the source of the cache for it is what the adopted transport must be playing.
             std::string why;
             const MusicStemPlan plan = music_stem_plan_of(want);
-            const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+            const MusicMode mode = music_mode_of(mp.mode, want, plan, &why);
             const auto cached = musicCache.find(music_cache_key(want, mode));
             for (auto o = musicOrphans.begin(); o != musicOrphans.end() && cached != musicCache.end(); ++o) {
                 MusicRt& old = **o;
@@ -2720,7 +2761,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             rt.epoch = musicEpoch;
             if (mp.mode == MusicMode::Auto) {
                 const MusicStemPlan plan = music_stem_plan_of(rt.song);
-                refetch = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty()) != rt.resolved;
+                refetch = music_mode_of(mp.mode, rt.song, plan) != rt.resolved;
             }
         }
         if (refetch) {
@@ -3574,6 +3615,22 @@ void AudioTestAccess::set_music_cache_budget(Audio& audio, std::size_t bytes) {
 void AudioTestAccess::set_stream_service(Audio& audio, bool on) {
     Audio::Impl::Call call(*audio.impl_);
     audio.impl_->streamService = on;
+}
+
+std::vector<std::shared_ptr<audio_detail::MusicStemStream>> AudioTestAccess::music_streams(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    std::vector<std::shared_ptr<audio_detail::MusicStemStream>> out;
+    for (const auto& [key, song] : audio.impl_->musicCache)
+        for (const MusicStem& s : song.src->stems)
+            if (s.stream) out.push_back(s.stream);
+    return out;
+}
+
+bool AudioTestAccess::music_service_pass(Audio& audio) { return audio.impl_->music_service_pass(); }  // no API lock, as the service thread
+
+void AudioTestAccess::start_music_thread(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->start_music_service();
 }
 
 void AudioTestAccess::pump(Audio& audio) {
