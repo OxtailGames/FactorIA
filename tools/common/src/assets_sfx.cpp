@@ -195,7 +195,13 @@ struct Baked {
 
 // Renders `loaded` and writes `outRel` (.wav, or .ogg through the engine's Vorbis encoder) with provenance and the recipe in
 // assets.json. `recipeArgs` are the arguments that make the same file again.
-Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const std::string& outRel, const RenderArgs& args, const Json& recipeArgs, bool overwrite) {
+// The shared normalization gain of a patch's variants, found once per call: the key is the patch and the recipe arguments without
+// the variant and the output name (everything else changes the gain).
+using SharedGains = std::map<std::string, double>;
+
+Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const std::string& outRel, const RenderArgs& argsIn, const Json& recipeArgs, bool overwrite,
+                 SharedGains* gains = nullptr) {
+    RenderArgs args = argsIn;
     const std::string ext = to_lower(fs::extension(outRel));
     if (ext != ".wav" && ext != ".ogg")
         fail("invalid_argument", "`out` '" + outRel + "' must end in .wav or .ogg.", "Example: \"out\": \"" + default_out(loaded.rel) + "\".");
@@ -209,6 +215,19 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
     require_usable_manifest(projectDir);
 
     const SfxPatch patch = effective_patch(loaded, args, kRender);
+    if (gains && args.options.variant >= 0 && (args.options.normalize ? args.options.normalize->shared : patch.normalize.shared)) {
+        Json keyArgs = recipeArgs;
+        keyArgs.erase("variant");
+        keyArgs.erase("out");
+        const std::string key = loaded.rel + "|" + keyArgs.dump();
+        auto it = gains->find(key);
+        if (it == gains->end()) {
+            auto g = sfx_shared_gain_db(patch, args.options);
+            if (!g.ok()) fail("failed", loaded.rel + ": " + g.error().message, g.error().hint);
+            it = gains->emplace(key, *g).first;
+        }
+        args.options.sharedGainDb = it->second;
+    }
     auto audio = render_sfx(patch, args.options);
     if (!audio.ok()) fail("failed", loaded.rel + ": " + audio.error().message, audio.error().hint);
     std::vector<std::uint8_t> bytes = sfx_wav_bytes(*audio);
@@ -316,13 +335,14 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
         Json items = Json::array();
         std::vector<audio_mix::SheetRow> rows;
         std::vector<double> lufs;
+        SharedGains gains;
         for (int n = 1; n <= count; ++n) {
             RenderArgs va = args;
             va.variant = n;
             va.options.variant = n - 1;
             const std::string out = out_for(loaded, va);
             Json ra = recipe_args(a, {{"path", rel}, {"out", out}, {"variants", Json()}, {"variant", n}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}});
-            const Baked b = bake_patch(projectDir, loaded, out, va, ra, overwrite);
+            const Baked b = bake_patch(projectDir, loaded, out, va, ra, overwrite, &gains);
             items.push_back(Json::object({{"variant", n}, {"path", b.out}, {"bytes", b.bytes}, {"measurements", measurements_json(b.audio)}}));
             rows.push_back(sheet_row(file_stem(b.out), b.audio));
             lufs.push_back(b.audio.lufs);
@@ -384,6 +404,7 @@ Json sfx_bake_command(const std::string& projectDir, const Json& a) {
         std::sort(chosen.begin(), chosen.end());
         patches = std::move(chosen);
     }
+    SharedGains gains;
     std::string manifestText = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile).value_or(std::string());
     Json entries = Json::object();
     if (!manifestText.empty())
@@ -435,7 +456,7 @@ Json sfx_bake_command(const std::string& projectDir, const Json& a) {
                 if (a.contains("macros")) recipeArgs["macros"] = a["macros"];
                 const RenderArgs args = render_args(kRender, recipeArgs);
                 const std::string target = ours ? recipeArgs.value("out", out) : out;
-                const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true);
+                const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true, &gains);
                 Json item = Json::object({{"patch", rel}, {"out", b.out}, {"reason", reason}, {"measurements", measurements_json(b.audio)}});
                 if (variant > 0) item["variant"] = variant;
                 baked.push_back(item);

@@ -217,6 +217,9 @@ struct SfxRenderOptions {
     std::optional<SfxNormalize> normalize;  // replaces the patch's normalization (instruments use mode None)
     std::map<std::string, double> macros;   // built-in macro values (-1..1) that replace the ones the patch declares
     int variant = -1;                 // >= 0: render variant `variant` (0-based) of patch.variations
+    // For a variant of a patch with `normalize.shared`: the gain in dB sfx_shared_gain_db returned for the same patch and options,
+    // so a loop over the variants finds it once instead of once per variant. Unset: render_sfx finds it itself.
+    std::optional<double> sharedGainDb;
 };
 
 struct SfxAudio {

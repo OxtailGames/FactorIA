@@ -691,14 +691,27 @@ TEST_CASE("sfx variations: master.normalize.shared levels every variant with one
     }
     const auto spread = [](const std::vector<double>& v) { return *std::max_element(v.begin(), v.end()) - *std::min_element(v.begin(), v.end()); };
     REQUIRE(spread(raw) > 3.0);  // the takes really differ
-    for (int i = 1; i < 4; ++i) CHECK(together[std::size_t(i)] - together[0] == doctest::Approx(raw[std::size_t(i)] - raw[0]).epsilon(0.01).scale(1.0));
+    for (int i = 1; i < 4; ++i) CHECK(std::abs((together[std::size_t(i)] - together[0]) - (raw[std::size_t(i)] - raw[0])) < 0.05);  // LU
     CHECK(spread(one) < spread(raw));  // alone, each one is pulled toward the target
     // the loudest variant is the one that reached the target (or its ceiling) and none is louder than that
     CHECK(*std::max_element(together.begin(), together.end()) <= -20.0 + 0.05);
     SfxRenderOptions o;
     auto g = sfx_shared_gain_db(shared, o);
     REQUIRE(g.ok());
-    CHECK(*g == doctest::Approx(*std::max_element(together.begin(), together.end()) - *std::max_element(raw.begin(), raw.end())).epsilon(0.01).scale(1.0));
+    CHECK(std::abs(*g - (*std::max_element(together.begin(), together.end()) - *std::max_element(raw.begin(), raw.end()))) < 0.05);  // dB
+    // A velocity stays on top of the shared gain (the gain is not found with it, which would level it away), and a gain passed in
+    // gives the same sound as the one found by the render itself.
+    SfxRenderOptions quiet;
+    quiet.variant = 2;
+    quiet.velocity = 0.5;
+    auto full = render_sfx(shared, SfxRenderOptions{.variant = 2});
+    auto half = render_sfx(shared, quiet);
+    REQUIRE((full.ok() && half.ok()));
+    CHECK(std::abs((half->lufs - full->lufs) - 20.0 * std::log10(0.5)) < 0.05);
+    quiet.sharedGainDb = *g;
+    auto given = render_sfx(shared, quiet);
+    REQUIRE(given.ok());
+    CHECK(given->samples == half->samples);
     // unknown / wrong-typed `shared` is reported with its pointer
     std::vector<SfxIssue> issues;
     auto bad = parse_json(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "sine"}]}], "master": {"normalize": {"shared": "yes"}}})");
