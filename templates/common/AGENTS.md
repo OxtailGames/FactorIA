@@ -2,15 +2,16 @@
 
 This is a **FactorIA** game project (engine {{ENGINE_VERSION}}, created {{DATE}}). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
-is text; you never need a GUI. The full guide is `factoria docs read ai-guide`
-(MCP: `docs_read {"name":"ai-guide"}`); it is long: read it by section (`factoria docs read ai-guide --heading "..."`),
-never whole.
+is text; you never need a GUI. The guide (`ai-guide`) is long: run
+`factoria docs read ai-guide --contents` for its headings, then read only the sections you need with `--heading`.
 
 ## The loop (follow it for every change)
 
-1. **Read** what exists: the sections of `factoria docs read ai-guide` your task needs (its first page lists the
-   headings; read each with `--heading`, never the whole guide), then `scripting` and `components` the same way. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
-   `contents`: read a section with `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
+1. **Read** what exists: the sections of `ai-guide` your task needs: `factoria docs read ai-guide --contents`
+   first, then `factoria docs read ai-guide --heading "..."`, never the bare command (it prints the whole 280 KB page).
+   Do the same for `scripting` and `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long
+   page comes in parts with its `contents`: read a section with
+   `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
    gives one component in full.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a

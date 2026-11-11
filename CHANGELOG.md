@@ -8,7 +8,7 @@ The editor shows these notes when it offers an update, and each release on GitHu
   `CMakeLists.txt`.
 - New projects get `CLAUDE.md` as the one line `@AGENTS.md` instead of a second copy of the guide. Projects made
   earlier keep their `CLAUDE.md` untouched (there is no `project.update` yet to rewrite it).
-- `factoria docs read <name>` takes `--heading`, `--start-line`, `--max-lines` and `--max-bytes` like the `docs.read`
+- `factoria docs read <name>` takes `--contents` (the headings with line numbers), `--heading`, `--start-line`, `--max-lines` and `--max-bytes` like the `docs.read`
   command and prints the paging hint (next call and contents) on stderr when it cuts.
 - The MCP server's instructions and the generated `AGENTS.md` tell the AI to read `ai-guide` by section, never whole.
 

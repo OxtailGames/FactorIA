@@ -126,6 +126,13 @@ TEST_CASE("docs read takes --heading, --start-line and --max-bytes like docs.rea
     auto whole = run({"docs", "read", "ai-guide"});
     CHECK(sec.out.size() < whole.out.size());
 
+    auto toc = run({"docs", "read", "ai-guide", "--contents"});
+    REQUIRE(toc.code == 0);
+    CHECK(toc.out.find("latformer character (line ") != std::string::npos);
+    CHECK(toc.out.find("--heading") != std::string::npos);
+    CHECK(toc.out.size() < 12000);
+    CHECK(toc.err.empty());
+
     auto cut = run({"docs", "read", "ai-guide", "--max-bytes", "2000"});
     REQUIRE(cut.code == 0);
     CHECK(cut.out.size() <= 2100);
