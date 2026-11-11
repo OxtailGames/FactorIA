@@ -2941,20 +2941,21 @@ NATIVE(audioPlay) {
     // (hasPosition, x, y, z, range): a sound heard from a place, as an AudioSource with `spatial` is (Audio::play_at).
     const bool atPlace = arg_bool(ctx, argc, argv, 12, false);
     const auto finite = [](double v) { return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f; };
+    bool outOfRange = false;
     const VoiceId voice = atPlace
         ? I->host->audio().play_at(W, path, pp,
                                    {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)), finite(arg_num(ctx, argc, argv, 15))},
                                    static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)),
-                                   static_cast<AudioRolloff>(std::clamp(static_cast<int>(finite(arg_num(ctx, argc, argv, 17, 0))), 0, 2)),
+                                   static_cast<AudioRolloff>(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 17, 0), 0.0, 2.0))),
                                    static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 18, 0), 0.0, 1e30)),
-                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)))
+                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)), &outOfRange)
         : I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s; a sound from a place that is out of
-    // range (voice 0, nobody hears it) shows it only when `seconds` is given.
+    // range (play_at says so: nobody hears it, and it is no failure) shows it only when `seconds` is given.
     const std::string captionText = arg_str(ctx, argc, argv, 6), captionKey = arg_str(ctx, argc, argv, 7);
     const double captionSeconds = arg_num(ctx, argc, argv, 9, 0);
-    if ((!captionText.empty() || !captionKey.empty()) && !(atPlace && voice == 0 && !(captionSeconds > 0))) {
+    if ((!captionText.empty() || !captionKey.empty()) && !(outOfRange && !(captionSeconds > 0))) {
         const double seconds = captionSeconds;
         CaptionLine line;
         line.text = captionText.empty() ? captionKey : captionText;

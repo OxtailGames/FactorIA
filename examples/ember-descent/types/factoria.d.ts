@@ -7699,7 +7699,7 @@ declare module "factoria" {
      */
     rolloff: "linear" | "inverse" | "exponential";
     /**
-     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20.
+     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
      * @since unreleased
      */
     refDistance: number;

@@ -1207,7 +1207,12 @@ test("rolloff, loop and captions", () => {
   expect(log[1].volume).toBeCloseTo(0.25);
   expect(audio.play("assets/sfx/coin.wav", { position: [500, 0, 0], range: 100, caption: "far" })).toBe(0);
   expect(game.captions()).toHaveLength(0);
+  // a clip that fails to load inside the range still shows its caption
+  game.expectErrors(/missing\.wav/);
+  expect(audio.play("assets/sfx/missing.wav", { position: [1, 0, 0], range: 100, caption: "lost" })).toBe(0);
+  expect(game.captions()).toHaveLength(1);
   expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], loop: true })).toThrow(/AudioSource/);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [900, 0, 0], range: 10, loop: true })).toThrow(/AudioSource/);
   expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], rolloff: "inverze" })).toThrow(/did you mean "inverse"/);
   expect(() => audio.play("assets/sfx/coin.wav", { rolloff: "inverse" })).toThrow(/needs a position/);
 });
