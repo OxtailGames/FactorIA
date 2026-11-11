@@ -22,6 +22,11 @@ ctest --test-dir build/dev --output-on-failure
   build of `factoria` + `ctest -L example` (`--debug-only` / `--examples-only` for one half). Script time limits (60 s
   per test, 5 s eval, 2 s callbacks) count CPU time, so a loaded machine does not fail them.
 - One module's tests: `cmake --build build/dev --target fa_test_core`.
+- Agents (Linux, macOS): `scripts/agent-build.sh build/agent-<name> [--target fa_test_core] [--tests core | --test]
+  [--examples]` configures the first time, builds and tests, and prints only errors, distinct warnings, failing tests
+  and ctest's summary (full logs in the build dir). It returns within 100 s: when its last line says `RUNNING`, call it
+  again with `--wait` until it says `DONE` (docs/BUILDING.md, "Linux and macOS, short output"). Its Debug tree is built
+  with `-O1 -g1` (assertions on, the suite in less than half the time); a debugger session needs a plain Debug tree.
 - Editor autotest while iterating: `FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M <build>/tools/editor/fa_editor_autotest`
   runs only those sections (docs/EDITOR.md, "Run only some sections").
 - Windows, from any shell (loads MSVC itself; prints only errors, unique warnings and failing tests, full logs in the
@@ -89,7 +94,25 @@ ctest --test-dir build/dev --output-on-failure
   - Reviewers (`subagent_type: "reviewer"`): every package, before it merges into the milestone branch. `sonnet`
     `high`; `opus` only for subtle concurrency or Windows path/file code. Give it the branch and the base, not the
     worker's report or your view of the change.
+  - Researchers (`subagent_type: "researcher"`, read-only): module audits, checking reported findings, feedback
+    triage against the code, web research. `sonnet` `medium`; `high` for an audit of threads or platform code. Never
+    `general-purpose` or `Explore` for these: they start with every tool of the session in their context (52k and
+    36k tokens against 12k), sent again on every turn.
   - `fast` (`haiku`): code searches, docs and typings regeneration, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
+- **What a package costs.** A subagent's quota is its turns times its context (every turn sends the whole context
+  again), not the token count the Agent tool reports; `python3 scripts/agent-usage.py` prints a session's real numbers
+  (docs/BUILDING.md, "What the agents cost"). Measured on M70, M90 and M91: the workers are two thirds to three
+  quarters of a milestone, the reviewers an eighth, the orchestrator the rest. A worker that ends within ~150 turns
+  fills its context once at most; one that fills it again and again (M91.4: 534 turns, 19 summaries) used five times
+  what an average worker does and forgot details each time. So split until every package is S or M: one module or one
+  slice of a feature, with a brief that names the files, the entry points and the tests to add, so the worker does not
+  spend its first forty turns finding them. An L package becomes two, the shared interface in the first. That one
+  `opus` worker used more than half of what the eight `sonnet` workers of its milestone used together, in tokens that
+  cost more: `opus` needs the reason above, never the size of the package.
+- **The orchestrator's own turns** are the most expensive ones (the biggest model, over 100k tokens of context each).
+  Send a `fast` agent (a lookup) or a researcher (a question that takes judgement) to read code instead of reading
+  files into this context, put independent tool calls in one message, and never poll a worker or a build: the
+  notification arrives by itself.
 - **Fix rounds.** Only BLOCKING review findings send a package back, strictly: a review with no BLOCKING finding gets
   no round, however important its POLISH items look. POLISH goes on one list, fixed in one package at the end of the
   milestone, before the version bump.
@@ -106,13 +129,15 @@ progress.
   CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph summary, replace every
   `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/ARCHITECTURE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
-- Before the push: the Debug build of every target and the full Debug `ctest` (`scripts/test-all.sh --debug-only`),
-  and read the whole diff for what this host does not exercise: Windows file rules (a file open elsewhere cannot be
-  replaced or deleted, file times step ~15 ms, case-insensitive paths, CRLF), waits, timeouts and speed or memory
-  budgets a loaded 4-vCPU CI VM misses, MSVC and GCC warnings and missing includes, the GL and D3D11 paths of render
-  code. No `scripts/ci-preflight.sh` before the push (it took hours and CI still found failures): CI is the
-  cross-platform check. The preflight and the native Windows check on the user's PC (`scripts/ci-remote-windows.sh`)
-  are for when the user asks or to confirm a CI fix; the PC is often off: never switch it on or wake it, ask the user.
+- Before the push: the Debug build of every target and the full Debug `ctest` (`scripts/agent-build.sh
+  build/agent-main --test`, which shares the workers' compiler cache and prints only what failed; Windows:
+  `scripts\agent-build.ps1 build\agent-main -Test`), and read the whole diff for what this host does not exercise:
+  Windows file rules (a file open elsewhere cannot be replaced or deleted, file times step ~15 ms, case-insensitive
+  paths, CRLF), waits, timeouts and speed or memory budgets a loaded 4-vCPU CI VM misses, MSVC and GCC warnings and
+  missing includes, the GL and D3D11 paths of render code. No `scripts/ci-preflight.sh` before the push (it took
+  hours and CI still found failures): CI is the cross-platform check. The preflight and the native Windows check on
+  the user's PC (`scripts/ci-remote-windows.sh`) are for when the user asks or to confirm a CI fix; the PC is often
+  off: never switch it on or wake it, ask the user.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask): `gh pr merge <n> --auto --merge`. If CI
   fails, fix it on the same branch and push again; never merge red. A PR that changes `.github/workflows/release.yml`
   is the exception: its Release run is not part of `CI result`, so merge it by hand once that run is green too.
