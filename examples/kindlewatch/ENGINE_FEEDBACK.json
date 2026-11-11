@@ -171,7 +171,12 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "image.resize {path, width, height, anchor, fill} moves or crops every layer, frame and cel by one of nine anchors and keeps palette, ramps, tags and sheet; the Image panel has Resize... as one undo step (docs/IMAGES.md, 'Resizing the canvas').",
+        "Fixed in a8fe09b5"
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0008",
@@ -217,7 +222,12 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "style.ignore takes {path, rules} to skip single rules, and a role (ui, icon, effect) from style.set_role or provenance turns off the rules that do not apply; assets.check_art lists styleSkipped with the reason. assets.json now uses style.roles instead of the ignore list of ten paths (docs/ASSETS.md, 'Scoping the style rules').",
+        "Fixed in a8fe09b5"
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0010",
