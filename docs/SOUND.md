@@ -167,8 +167,9 @@ without deleting it.
 With `variations`, each variant is levelled alone by default, so every variant reaches the target and the differences in
 loudness between them (the variant `gainDb` aside) are gone. `"shared": true` finds one gain on the loudest variant (the one that
 needs the least gain to reach the target, ceiling included) and applies it to all of them: the variants keep their ratios and none
-passes the target. It applies to `sfx.render {variant}`, `{variants: true}` and `sfx.bake`, and costs one extra render of every
-variant per variant rendered.
+passes the target. It applies to `sfx.render {variant}`, `{variants: true}` and `sfx.bake`. Finding the gain costs one extra
+render of every variant: once per patch in a `variants: true` render or a `sfx.bake`, once per call for a single `variant`. A
+`velocity` is applied on top of the shared gain (the gain is found at velocity 1, so a quiet hit stays quiet).
 
 The output is clamped to -1..1; the WAV is 16-bit mono.
 
@@ -374,7 +375,10 @@ carries on when playback wraps. The loop points are written to the baked file's 
 `audio.music` with loop on wrap inside those points: whatever comes before `loopStart` plays once as an intro. Only `gain` and
 `normalize` may follow a `loop` step, because anything else would change the samples around the seam. A sound with loop points
 is decoded whole, not streamed. `assets.check_mix` judges `loop_seam_slope` and `loop_seam_jump` of such a sound across those loop
-points (the crossfade), not across the file's ends, and does not judge a recording that is only an input of an audio document's
+points (the crossfade), not across the file's ends. It takes the points from assets.json (`import.loopStart`/`loopEnd`, a
+`loopEnd` past the end of the file counts as the end, as the engine plays it) first and from the `smpl` chunk only as a fallback;
+the engine itself never reads `smpl`, so a WAV that has the chunk but no import loop points is judged by its chunk while the
+game plays it whole. It does not judge a recording that is only an input of an audio document's
 recipe (it lists it under `skipped`).
 
 A song gets its loop points the same way: `music.render` writes the `smpl` chunk and `import.loopStart`/`loopEnd` for the song's loop sections, and one stem file per layer with the same
