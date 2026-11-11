@@ -207,6 +207,7 @@ struct GenStats {
     int attempts = 0;                            // attempts started (the successful one included)
     int contradictions = 0;                      // attempts that ended in a cell with no pattern left
     int rejected = 0;                            // finished grids `accept` refused
+    int cutOff = 0;                              // of those, the ones refused because walkable areas were cut off (the reason says "cut off")
     std::int64_t observations = 0;               // cells collapsed by choice
     std::int64_t propagations = 0;               // patterns removed from cells
     int patterns = 0;                            // patterns of the model

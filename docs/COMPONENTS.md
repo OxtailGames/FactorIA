@@ -139,7 +139,8 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `firstFrame` | int | `0` | First frame of the clip (inclusive, row-major index). |
 | `lastFrame` | int | `0` | Last frame of the clip (inclusive, row-major index). |
 | `fps` | float | `10.0` | Playback speed in frames per second. Range 0.0..1000.0. |
-| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. |
+| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`. |
+| `loopMode` | enum: inherit \| loop \| once | `"inherit"` | Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`. (not released yet, on main after 0.22.0) |
 | `playing` | bool | `true` | Set false to pause, true to play. |
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \| reverse \| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
@@ -14410,9 +14411,14 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.
      */
     loop: boolean;
+    /**
+     * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
+     * @since unreleased
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Set false to pause, true to play.
      */
@@ -18277,7 +18283,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };

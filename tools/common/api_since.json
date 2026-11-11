@@ -618,6 +618,7 @@
     "SpriteAnimator.frame": "0.1.0",
     "SpriteAnimator.lastFrame": "0.1.0",
     "SpriteAnimator.loop": "0.1.0",
+    "SpriteAnimator.loopMode": "unreleased",
     "SpriteAnimator.mode": "0.6.0",
     "SpriteAnimator.playedClip": "0.6.0",
     "SpriteAnimator.playing": "0.1.0",

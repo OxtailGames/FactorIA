@@ -115,6 +115,36 @@ TEST_CASE("sprite animator: a clip that does not loop ends once and clipEnded is
     CHECK(pr.ends == 1);
 }
 
+TEST_CASE("sprite animator: loopMode once stops a looping clip, loop loops a non-looping one, inherit keeps the clip's flag") {
+    SpriteAnimator once;
+    once.clip = "spin";  // looping clip, frames 0..3
+    once.loopMode = SpriteLoopMode::Once;
+    const auto oncePlan = resolve_sprite_animator(once, "t.png", test_sheet());
+    CHECK_FALSE(oncePlan.loop);
+    const Run r = play(once, oncePlan, 6);
+    CHECK(r.frames.back() == 3);
+    CHECK(r.ends == 1);
+    CHECK(once.ended);
+
+    SpriteAnimator lp;
+    lp.clip = "pop";  // non-looping clip, frames 4..6
+    lp.loopMode = SpriteLoopMode::Loop;
+    const auto lpPlan = resolve_sprite_animator(lp, "t.png", test_sheet());
+    CHECK(lpPlan.loop);
+    const Run l = play(lp, lpPlan, 8);
+    CHECK(l.ends == 0);
+    CHECK(lp.playing);
+    CHECK(l.frames == std::vector<int>{5, 6, 4, 5, 6, 4, 5, 6});
+
+    SpriteAnimator inh;
+    inh.clip = "pop";
+    CHECK_FALSE(resolve_sprite_animator(inh, "t.png", test_sheet()).loop);
+    inh.clip = "spin";
+    CHECK(resolve_sprite_animator(inh, "t.png", test_sheet()).loop);
+    inh.loop = false;  // the old bool still means once
+    CHECK_FALSE(resolve_sprite_animator(inh, "t.png", test_sheet()).loop);
+}
+
 TEST_CASE("sprite animator: changing the clip restarts, rewinding time runs a finished clip again") {
     SpriteAnimator a;
     a.clip = "pop";

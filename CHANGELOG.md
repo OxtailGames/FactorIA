@@ -17,6 +17,14 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   (same name or component set, at most two differences) instead of being an instance, and about an instance that also saves
   two or more components with the prefab's own values. The warning names the file and JSON pointer, the prefab, and the
   `{id, prefab, differences}` entry that replaces the copy (what `scene.save` writes since M101.9a).
+- **Small fixes from the examples (M101.10a):** `SpriteAnimator.loopMode` (`inherit`, `loop`, `once`) decides whether a
+  clip restarts after its last frame whatever the sheet's own loop flag says, so one baked clip can loop on one entity and
+  play once on another; `inherit` is the default and the old `loop` bool stays (false = once). A level that
+  `tilemap.generate` refuses because cut-off areas refused more than half of the attempts now says that the sample's shape
+  is the cause (rooms joined by one-cell passages, closed pockets) and how to fix the sample. Gem Roller no longer calls
+  its project tool at runtime (the scatter code moved to `scripts/scatter_gems.js`, which the game and the tool both
+  import), so its gems appear in an exported build; `factoria validate` and the export already warn about such a call.
+
 - **Music (M101.2, pending state):** the music of a scene that reloads no longer fires what the scene before had queued:
   the new `MusicPlayer` adopts the music that is playing and drops a crossfade or section change that waited for a bar line
   (or takes the target song when the crossfade had started). `entity.music.status` and `audio.music_state` show the queue
