@@ -57,9 +57,14 @@
   }
   const fmt = (args) => args.map((a) => inspect(a)).join(" ");
   // console.error and console.assert are not errors of the game for a test (testRun): they log at ERROR level like a script error, so
-  // their texts are counted here and subtracted from the ERROR records a test saw.
+  // their texts are counted here, only while a test runs (the Map is emptied when it ends: a running game keeps nothing), and
+  // subtracted from the ERROR records the test saw.
   const consoleErrorTexts = new Map();
-  const noteConsoleError = (text) => { consoleErrorTexts.set(text, (consoleErrorTexts.get(text) || 0) + 1); return text; };
+  let consoleErrorsOn = false;
+  const noteConsoleError = (text) => {
+    if (consoleErrorsOn) consoleErrorTexts.set(text, (consoleErrorTexts.get(text) || 0) + 1);
+    return text;
+  };
   const consoleObj = {
     log: (...a) => N.log(2, fmt(a)),
     info: (...a) => N.log(2, fmt(a)),
@@ -4579,7 +4584,7 @@
     }
     return out;
   }
-  function testRun(filter) {
+  function testRunBody(filter) {
     const f = (filter || "").toLowerCase();
     const results = [];
     for (const t of tests) {
@@ -4605,6 +4610,7 @@
       const start = N.nowMs();
       N.forgetLoggedErrors();  // a script error is logged once per place and text: this test must see again the ones it causes
       consoleErrorTexts.clear();
+      consoleErrorsOn = true;
       testExpected = t.expected.map((e) => ({ pattern: e.pattern, hit: false }));
       const seq0 = N.logSeq();
       const cuts0 = N.watchdogCuts();
@@ -4621,6 +4627,9 @@
           if (state === 0) throw new Error("the test returned a promise that never resolved. game.step() is synchronous: do not await timers or frames");
         }
         for (const h of t.after) h();
+        // A promise the test left rejected (an async game function, an async world.on listener) is logged when the jobs run: do it
+        // here, inside this test, so its error fails this test and not the next one (or none, at the end of the file).
+        N.pumpJobs();
       } catch (e) {
         passed = false;
         const loc = locate(e);
@@ -4651,6 +4660,8 @@
         }
       }
       testExpected = [];
+      consoleErrorsOn = false;
+      consoleErrorTexts.clear();
       results.push({ name: t.name, passed, message, loggedError, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
@@ -4658,6 +4669,9 @@
     N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);
     testCurrentName = "";
     return results;
+  }
+  function testRun(filter) {
+    try { return testRunBody(filter); } finally { consoleErrorsOn = false; consoleErrorTexts.clear(); testExpected = []; }  // also when the watchdog ended the run
   }
 
   // ---- the bot (game.autoplay): state kept between steps, and the call the play.auto driver makes every step
