@@ -339,6 +339,27 @@ TEST_CASE("image.resize: a masked fill follows its masks (and a masked adjustmen
     CHECK(get(adj, 0, 0) == Rgba{255, 255, 255, 255});  // the white fill covers the new area, the inverted patch moved
 }
 
+TEST_CASE("image.resize: an indexed layer cannot carry masks, so a crop at the left or top has none to leave behind") {
+    AssetsProject p;
+    CommandResult r = p.call("image.save", {{"path", kDoc}, {"document", Json::parse(R"({"format":"factoria.image/1","width":4,"height":4,"palette":["#000000","#ff0000"],"layers":[
+        {"kind":"indexed","name":"art","rows":["1111","1111","1111","1111"],"masks":[{"type":"rect","x":3,"y":0,"width":1,"height":4}]}]})")}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("An indexed layer cannot have `masks`") != std::string::npos);
+}
+
+TEST_CASE("image.resize: a canvas-following layer with masks that becomes a box says so in the result") {
+    AssetsProject p;
+    save_doc(p, R"({"format":"factoria.image/1","width":4,"height":4,"layers":[
+        {"kind":"fill","name":"dot","color":"#ff0000","masks":[{"type":"rect","x":0,"y":0,"width":2,"height":2}]}]})");
+    const Json r = p.ok("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "bottom-right"}});
+    CHECK(has_warning(r, "'dot'"));
+    CHECK(has_warning(r, "4x4 box"));
+    // with the top-left anchor nothing moves, so nothing is said
+    save_doc(p, R"({"format":"factoria.image/1","width":4,"height":4,"layers":[
+        {"kind":"fill","name":"dot","color":"#ff0000","masks":[{"type":"rect","x":0,"y":0,"width":2,"height":2}]}]})");
+    CHECK_FALSE(has_warning(p.ok("image.resize", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"anchor", "top-left"}}), "box"));
+}
+
 TEST_CASE("image.resize: a small indexed image on a big canvas stays small, and the pixels come back on the way back") {
     AssetsProject p;
     make_dot(p);

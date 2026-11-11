@@ -806,7 +806,11 @@ void write_png_asset(const std::string& projectDir, const std::string& rel, cons
     auto r = assets::update_entry(rel, [&](Json& e) {
         e.erase("analysis");
         e.erase("sheet");
-        e["provenance"] = provenance;
+        Json prov = provenance;
+        // What the picture is for (style role) does not change because it was made again.
+        if (!prov.contains("role") && e.contains("provenance") && e["provenance"].is_object() && e["provenance"].contains("role"))
+            prov["role"] = e["provenance"]["role"];
+        e["provenance"] = prov;
     });
     if (!r.ok()) fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
 }

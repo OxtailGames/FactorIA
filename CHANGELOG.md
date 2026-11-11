@@ -30,12 +30,13 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
   `assets.regenerate` lists at most 8 compared inputs (`comparedCount` has them all) and every missing input of a failure.
 - **Polish of `image.resize` and the style roles (M101.P6):** `image.resize` keeps the masks of a fill, gradient or procedural layer
   on the same pixels (such a layer becomes a box of the old canvas and moves with the anchor, like an adjustment layer with masks),
+  (the result's `warnings` name it),
   cuts the text rows of indexed layers and cels to the new canvas instead of padding them (a 4x4 image resized to 4096x4096 stays a few
   KB; more than 64 MB of rows fails with a hint) and clamps positions instead of overflowing. The Image panel's Resize button is now
   the canvas size in the toolbar (it fit badly at 1024 px) and the popup's Resize is disabled while the size is the current one.
   `style.ignore` with `rules` on an entry that skips every rule no longer narrows it (the result's `notes` say so);
   `assets.set_provenance` takes `role: ""` (or null) to remove a role; `assets.regenerate`, importing a file again and
-  `assets.generate_image` with `overwrite` keep the role; `style.ignore` and `style.set_role` refuse only `..` path segments.
+  `assets.generate_image` with `overwrite`, `assets.generate_texture` and `assets.draw_icon` keep the role; `style.ignore` and `style.set_role` refuse only `..` path segments.
 - **Music streams from its ogg (M101.1b, closes KW/FB-0001):** a stem of a song that plays from stem files stays encoded and
   keeps a window of 6 s of decoded audio (about 2.5 to 3.5 MiB per stem with its decoder and ogg) instead of the whole song decoded (10.1 MB per minute per stem),
   filled ahead by an audio service thread that reads where the mixer publishes each stem will read, so a game thread that stalls

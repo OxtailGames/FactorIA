@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <format>
 
 #include "editor_internal.h"
 #include "fa/core/strings.h"
@@ -307,6 +308,10 @@ void Editor::draw_image_panel() {
 void Editor::draw_image_toolbar(ImageModel& m) {
     ImageUi& u = image_;
     const bool editable = play_ == PlayState::Edit;
+    // The right edge of the last item of the one-line toolbar against the panel's right edge: the autotest checks that it fits.
+    u.toolbarRight = 0;
+    u.toolbarLimit = ImGui::GetWindowPos().x + ImGui::GetWindowWidth();
+    const auto edge = [&u] { u.toolbarRight = std::max(u.toolbarRight, ImGui::GetItemRectMax().x); };
     // Open: the documents of the project
     std::vector<std::string> docs;
     for (const BrowserFile& f : projBrowser_.listing.files)
@@ -323,10 +328,12 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         ImGui::EndCombo();
     }
     at_track("img:open");
+    edge();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The image documents (*.image.json) of the project. A double click in the Project panel opens one too.");
     ImGui::SameLine();
     if (ImGui::Button("New...")) ImGui::OpenPopup("##imgnew");
     at_track("img:new");
+    edge();
     if (ImGui::BeginPopup("##imgnew")) {
         ImGui::TextUnformatted("New image document (image.create)");
         ImGui::SetNextItemWidth(220);
@@ -356,6 +363,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     ImGui::BeginDisabled(!editable || !m.valid());
     if (ImGui::Button("Save")) image_save();
     at_track("img:save");
+    edge();
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Writes the document and bakes its PNG (image.save), like the command. Ctrl+S while this panel has the keyboard.");
@@ -365,6 +373,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         u.selectedOp = -1;
     }
     at_track("img:reload");
+    edge();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the document and its layer files again; the undo steps stay.");
     ImGui::SameLine();
     if (m.valid()) {
@@ -372,6 +381,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         const bool fresh = b.state == ImageBakeState::Fresh;
         ImGui::TextColored(fresh ? ImVec4(0.55f, 0.85f, 0.55f, 1) : ImVec4(1.0f, 0.8f, 0.4f, 1), "%s",
                            fresh ? "baked" : "not baked");
+        edge();
         // The badge stays short so the one-line toolbar fits a 1024 px window; the state and the reason are in its tooltip.
         if (ImGui::IsItemHovered() && !fresh)
             ImGui::SetTooltip("%s%s%s", image_bake_state_name(b.state), b.reason.empty() ? "" : ": ", b.reason.c_str());
@@ -386,6 +396,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
             ImGui::OpenPopup("##imgresize");
         }
         at_track("img:resize", editable);
+        edge();
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("The canvas size. Click to change it (image.resize): every layer, frame and cel moves or is cropped by the anchor. Ctrl+Z undoes it.");
@@ -421,6 +432,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     ImGui::SameLine(0, 24);
     if (ImGui::Button("Fit")) u.fitNext = true;
     at_track("img:fit");
+    edge();
     ImGui::SameLine();
     if (ImGui::Button("1:1")) {
         // 100% around the middle of the canvas
@@ -432,6 +444,7 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         u.fitNext = false;
     }
     at_track("img:zoom100");
+    edge();
     ImGui::SameLine();
     ImGui::SetNextItemWidth(60);
     int pct = int(std::lround(u.zoom * 100));
@@ -443,24 +456,29 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         u.panY = (mid.y - u.canvasY) - at.y * u.zoom;
         u.fitNext = false;
     }
+    edge();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Zoom in percent. The mouse wheel zooms around the pointer; the middle button, Space + drag, or Shift + wheel pans.\n"
                           "Above 100%% the pixels are drawn square (nearest neighbour); from 800%% a pixel grid shows.");
     ImGui::SameLine(0, 2);
     ImGui::TextDisabled("%%");
+    edge();
     ImGui::SameLine();
     ImGui::Checkbox("Grid", &u.showGrid);
     at_track("img:grid");
+    edge();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("The pixel grid, drawn from 800%% zoom up. Every %d pixels a stronger line (the tile size in a tile document).", u.gridMajor);
     ImGui::SameLine();
     if (ImGui::Checkbox("Tiled", &u.tiled)) u.fitNext = true;
     at_track("img:tiled");
+    edge();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Shows the picture repeated 3 x 3 so the seams show (a tile document opens with it on). Tools work on the middle copy.");
     ImGui::SameLine();
     ImGui::Checkbox("Checker", &u.checker);
     at_track("img:checker");
+    edge();
 }
 
 // ------------------------------------------------------------------------------------------------------------------ tools --
