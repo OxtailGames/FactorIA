@@ -868,8 +868,13 @@ itself. Three ways to leave a rule out, from the narrowest:
   sub-rule such as `value.max`; a name also covers the rules under it) only those rules are skipped and the others still check, so
   a real problem is not hidden; without `rules` every rule is skipped for the path (the plain-string entry). `remove: true` takes an
   entry, or the named rules of it, back. In assets.json: `"ignore": ["assets/old/**", {"path": "assets/fx/spark.png", "rules": ["outline"]}]`.
-- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`), and `assets.set_provenance` accepts
-  `role` for one asset (it wins over a glob and survives a rebake). `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
+  An entry with no `rules` already skips every rule, so naming rules for it changes nothing (the result says so in `notes`); to
+  narrow it, remove the entry and add the rules. Skipping every rule for a path that had only some rules widens the entry (also said in `notes`).
+  `path` is a project path: a `..` segment is refused, a name such as `a..b.png` is fine.
+- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`; `remove: true` deletes the glob), and
+  `assets.set_provenance` accepts `role` for one asset (it wins over a glob; assets.set_provenance without `role` keeps it, and
+  `assets.regenerate`, importing the file again and `assets.generate_image` with `overwrite` keep it too). `role: ""` (or null) in
+  `assets.set_provenance` takes the asset's role back. `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
   `effect` also turns off `outline`, `value` and `saturation`. The other rules keep checking.
 - `texelsPerUnit` is only judged for textures a scene draws; a texture no scene uses is left out already.
 
@@ -907,6 +912,10 @@ of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
   An asset that `{"stale": true}` leaves alone is listed in `skipped` with `reason: "up to date..."` and `compared`: the
   inputs it hashed now (`{path, sha256}`, the same hash the recipe recorded) and the style-guide values it compared, so
   an "up to date" answer shows what it looked at: only the files in the recipe's `inputs`, not any file the command could read.
+  `compared` lists at most 8 entries and `comparedCount` is how many there are in all. An asset whose inputs no longer exist is
+  in `failed` with code `missing_input`, `missingInputs` (the first 8 paths) and `missingCount`.
+  `assets.check_mix` takes the loop points of a sound from assets.json `import.loopStart`/`loopEnd` first (a `loopEnd` past the
+  end of the file is the end) and from a WAV's `smpl` chunk only as a fallback; the engine plays only the assets.json points.
   There is no list of commands: any `assets.*` command that records a recipe works, and so do `anim3d.generate` and
   `anim3d.retarget` (a clip's inputs are its rig, plus the source clip and the source rig for a retarget: a re-fit of the rig
   makes the clips stale). An edit of a clip (`anim3d.set_keys` and the other editing commands) removes its recipe, so

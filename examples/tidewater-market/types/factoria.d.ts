@@ -4843,6 +4843,11 @@ declare module "factoria" {
      */
     mode: "forward" | "reverse" | "pingpong";
     /**
+     * What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded.
+     * @since unreleased
+     */
+    loopMode: "inherit" | "loop" | "once";
+    /**
      * Index in the sheet's grid (row-major from the top-left) of the frame shown.
      * @since 0.6.0
      */

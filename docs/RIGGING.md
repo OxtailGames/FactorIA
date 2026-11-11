@@ -161,8 +161,11 @@ give the same bytes on every platform (the fit uses `+ - * /` and `sqrt` and ord
 material into one (in order of first appearance; the part names of a merged submesh are joined with `+`). Only the index list is regrouped: the
 vertices, their joints and weights and the bind pose are the same, so a posed frame looks the same. The result lists `submeshesBefore` and
 `submeshes`. The choice is kept in the recipe (`args.mergeParts`): a later `rig.bake` that leaves it out, `assets.regenerate` and `factoria
-export` repeat it; `"mergeParts": false` turns it off. Parts with different materials stay apart, and a model whose parts all differ gains nothing
-(the bake warns).
+export` repeat it; `"mergeParts": false` turns it off. Without `path`, an explicit `mergeParts` bakes only the fresh documents whose recorded
+choice differs (the others would write the same bytes); `force` bakes them all. Parts with different materials stay apart, and a model whose
+parts all differ gains nothing (the bake warns). Because `+` joins the names, a part name may not contain `+` (the model document refuses it).
+Merging inside a submesh with `blend` (alpha blending) loses the draw order the separate parts had: the triangles are drawn in the order of the
+merged index list, so keep parts that must sort against each other apart (a different material) or do not merge that model.
 
 ## Skin weights
 

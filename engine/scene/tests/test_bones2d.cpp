@@ -1,13 +1,16 @@
 // fa/scene/bones2d.h: 2D bones, skinned sprites (SpriteSkin) and IK2D.
 #include <doctest.h>
 
+#include <atomic>
 #include <cmath>
+#include <memory>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 
 #include "fa/core/image.h"
+#include "fa/core/log.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
@@ -741,7 +744,13 @@ TEST_CASE("ik2d ground: a ray that never hits warns once and says so") {
     IK2D& ik = r.ik({60, 10});
     ik.groundMask = 1;
     FakeGround none{[](float) { return -1000.0f; }};
+    auto seen = std::make_shared<std::atomic<int>>(0);
+    const int sink = add_log_sink([seen](const LogEntry& en) {
+        if (en.category == "animation" && en.message.find("ground ray has hit nothing") != std::string::npos) ++*seen;
+    });
     for (int i = 0; i < 400; ++i) update_ik2d(r.w, none.fn());
+    remove_log_sink(sink);
+    CHECK(seen->load() == 1);  // logged exactly once
     const IK2D* got = r.w.get<IK2D>(r.b1);
     REQUIRE(got != nullptr);
     CHECK_FALSE(got->groundHit);

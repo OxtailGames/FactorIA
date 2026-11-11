@@ -218,6 +218,16 @@ TEST_CASE("assets.regenerate: what a person recorded in the provenance survives,
     CHECK(entry["sheet"]["columns"] == 2);
 }
 
+TEST_CASE("assets.regenerate keeps the style role of the provenance") {
+    AssetsProject p;
+    p.ok("assets.rasterize_svg", {{"path", "assets/art/coin.png"}, {"svg", kSvg}, {"width", 64}});
+    set_provenance(p, "assets/art/coin.png", {{"origin", "original"}, {"role", "effect"}});
+    p.ok("assets.regenerate", {{"path", "assets/art/coin.png"}});
+    const Json prov = p.manifest()["assets"]["assets/art/coin.png"]["provenance"];
+    CHECK(prov["role"] == "effect");
+    CHECK(prov.contains("recipe"));
+}
+
 TEST_CASE("assets.regenerate: errors say what to do") {
     AssetsProject p;
     write_all(p.file("assets/art/coin.svg"), kSvg);

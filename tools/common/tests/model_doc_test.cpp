@@ -770,6 +770,36 @@ TEST_CASE("model.create and model.edit: the uv section can be given with the doc
     CHECK(p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", nullptr}})["measurements"].contains("uv") == false);
 }
 
+TEST_CASE("model.game_ready: collider.part fits the collider to one part, a short capsule height warns, and a part name with + is refused") {
+    AssetsProject p;
+    write_all(p.file("assets/models/tree.model.json"),
+              R"({"format": "factoria.model/1", "nodes": [{"op": "cylinder", "radius": 0.2, "height": 2, "position": [0, 1, 0], "part": "trunk"},
+                                                          {"op": "sphere", "radius": 1.5, "position": [0, 3.5, 0], "part": "canopy"}]})");
+    const Json whole = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}}}});
+    const Json trunk = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunk"}}}});
+    const Json doc = parse_json(read_all(p.file("assets/models/tree.model.json")), "doc").value();
+    CHECK(doc["gameReady"]["collider"]["part"] == "trunk");
+    const Json prefab = parse_json(read_all(p.file("assets/models/tree.prefab.json")), "prefab").value();
+    const Json size = prefab["entity"]["components"]["Collider3D"]["size"];
+    REQUIRE(size.is_array());
+    CHECK(size[0].get<double>() < 0.5);  // the trunk is 0.4 wide; the canopy is 3 wide
+    CHECK(size[1].get<double>() < 2.5);
+    (void)whole;
+    (void)trunk;
+    // a part that does not exist teaches
+    const CommandResult missing = p.call("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunc"}}}});
+    const std::string missingText = missing.ok ? missing.result.dump() : missing.error.dump();
+    CHECK(missingText.find("no part named") != std::string::npos);
+    CHECK(missingText.find("trunk") != std::string::npos);
+    // a capsule shorter than its two caps is raised, and the result says so
+    const Json capsule = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "capsule"}, {"part", "trunk"}, {"radius", 0.5}, {"height", 0.6}}}});
+    CHECK(capsule.dump().find("less than twice the radius") != std::string::npos);
+    // "+" joins merged part names, so a part may not contain it
+    const CommandResult plus = p.call("model.create", {{"path", "assets/models/bad.model.json"}, {"nodes", Json::array({{{"op", "box"}, {"part", "a+b"}}})}});
+    REQUIRE_FALSE(plus.ok);
+    CHECK(plus.error.dump().find("a_b") != std::string::npos);
+}
+
 TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs, the collider and a prefab, and fewer LODs remove the old files") {
     AssetsProject p;
     write_all(p.file("assets/models/ball.model.json"),

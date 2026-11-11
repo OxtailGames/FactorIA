@@ -495,7 +495,7 @@ TEST_CASE("assets.regenerate: the compared list is bounded and the missing input
     CHECK(f["missingInputs"][1] == "assets/raw/in5.txt");
 }
 
-TEST_CASE("sfx.bake: a path with backslashes or another case bakes the patch, and shared normalization bakes every variant") {
+TEST_CASE("sfx.bake: a path with backslashes or another case bakes the patch and its variants, with shared normalization") {
     AssetsProject p;
     write_all(p.file("assets/audio/pop.sfx.json"),
               R"({"format": "factoria.sfx/1", "length": 0.2, "tail": 0.02, "variations": {"count": 3, "seed": 4, "spread": {"filter": 1.5}},
@@ -506,7 +506,6 @@ TEST_CASE("sfx.bake: a path with backslashes or another case bakes the patch, an
     CHECK(r["count"] == 4);  // the sound and its 3 variants
     for (const char* name : {"pop.wav", "pop_01.wav", "pop_02.wav", "pop_03.wav"})
         CHECK(std::filesystem::exists(p.file(std::string("assets/audio/") + name)));
-    // With one gain for all, the variants keep their ratios: the baked loudness of the three differs like their raw loudness would.
     const Json again = p.ok("sfx.bake", Json::object());
     CHECK(again["count"] == 0);
 }

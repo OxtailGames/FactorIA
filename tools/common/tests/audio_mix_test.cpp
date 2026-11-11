@@ -264,10 +264,14 @@ TEST_CASE("assets.check_mix: loop points come from assets.json first and the smp
     Project p;
     const std::string seam = wav_of(tone(100, 0.5, 1.005, kPiD / 2));  // the ends differ by a jump; frames 0..44099 are 100 whole periods
     p.write("assets/smpl.wav", with_smpl(seam, 0, 44099));             // the chunk says: loop the clean part
-    p.write("assets/both.wav", with_smpl(seam, 0, 44099));             // the same, but assets.json says the whole file
+    p.write("assets/both.wav", with_smpl(seam, 0, 44319));             // the chunk says the whole file (a jump), assets.json the clean part
     p.write("assets/cut.wav", with_smpl(seam, 0, 44099, 40));          // a chunk cut short is ignored, not read past its end
-    p.write("assets.json", R"({"assets": {"assets/both.wav": {"import": {"loopStart": 0.0, "loopEnd": 1.005}}}})");
+    p.write("assets/clamp.wav", wav_of(tone(100, 0.5, 1.0, kPiD / 2)));  // seamless as a whole file
+    // clamp.wav: a loopEnd past the end plays loopStart..end (a quarter period in: starts at 0, ends at 0.5), which is a jump.
+    p.write("assets.json", R"({"assets": {"assets/both.wav": {"import": {"loopStart": 0.0, "loopEnd": 1.0}},
+                                         "assets/clamp.wav": {"import": {"loopStart": 0.0025, "loopEnd": 5.0}}}})");
     p.scene(R"("entities":[
+        {"id":"d","components":{"AudioSource":{"clip":"assets/clamp.wav","loop":true}}},
         {"id":"a","components":{"AudioSource":{"clip":"assets/smpl.wav","loop":true}}},
         {"id":"b","components":{"AudioSource":{"clip":"assets/both.wav","loop":true}}},
         {"id":"c","components":{"AudioSource":{"clip":"assets/cut.wav","loop":true}}}])");
@@ -277,7 +281,9 @@ TEST_CASE("assets.check_mix: loop points come from assets.json first and the smp
     REQUIRE(find(f, "assets/smpl.wav", "loop_seam_jump"));
     CHECK((*find(f, "assets/smpl.wav", "loop_seam_jump"))["verdict"] == "ok");    // the smpl chunk, nothing in assets.json
     REQUIRE(find(f, "assets/both.wav", "loop_seam_jump"));
-    CHECK((*find(f, "assets/both.wav", "loop_seam_jump"))["verdict"] == "fail");  // assets.json wins: the engine plays that
+    CHECK((*find(f, "assets/both.wav", "loop_seam_jump"))["verdict"] == "ok");    // assets.json wins over the smpl chunk (which would fail)
+    REQUIRE(find(f, "assets/clamp.wav", "loop_seam_jump"));
+    CHECK((*find(f, "assets/clamp.wav", "loop_seam_jump"))["verdict"] == "fail");  // loopEnd clamped to the file, not dropped
     REQUIRE(find(f, "assets/cut.wav", "loop_seam_jump"));
     CHECK((*find(f, "assets/cut.wav", "loop_seam_jump"))["verdict"] == "fail");   // truncated chunk: the whole file's seam
 }

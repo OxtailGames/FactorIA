@@ -358,6 +358,15 @@ Json rig_fit_command(const std::string& projectDir, const Json& a) {
 
 // ---- rig.bake ----
 
+// True when `output` was baked by rig.bake with the mergeParts the call asks for: baking it again would write the same bytes.
+bool merge_choice_unchanged(const std::string& projectDir, const std::string& output, bool wanted) {
+    ProjectRootGuard root(projectDir);
+    const Json recipe = recipe_of(assets::entry(output));
+    if (!recipe.is_object() || recipe.value("command", std::string()) != "rig.bake") return false;
+    const bool stored = recipe.contains("args") && recipe["args"].is_object() && recipe["args"].value("mergeParts", false);
+    return stored == wanted;
+}
+
 RigBakeOptions merge_options(const Json& a, bool overwrite) {
     RigBakeOptions o;
     o.overwrite = overwrite;
@@ -377,7 +386,7 @@ Json rig_bake_command(const std::string& projectDir, const Json& a) {
         const RigBakeStatus status = rig_bake_status(projectDir, rel);
         std::string reason = rig_bake_state_name(status.state);
         if (status.state == RigBakeState::Fresh) {
-            if (!force && !single && !a.contains("mergeParts")) {
+            if (!force && !single && (!a.contains("mergeParts") || merge_choice_unchanged(projectDir, status.output, tooling_detail::arg_bool(a, "mergeParts", false)))) {
                 unchanged.push_back(status.output);
                 continue;
             }

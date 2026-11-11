@@ -609,7 +609,10 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     auto sample_render = [&] {  // the numbers perf.measure / perf.check budget: the max over the run
         maxMusicBytes = std::max<std::uint64_t>(maxMusicBytes, I.audio.music_bytes());
         // stats() builds a report, so all the decoded audio is read every 8th call (music alone: every call) and at the end of the run.
-        if (samples++ % 8 == 0) maxAudioBytes = std::max<std::uint64_t>(maxAudioBytes, std::uint64_t(I.audio.stats().value("decodedBytes", 0LL)));
+        if (samples++ % 8 == 0) {
+            const auto decoded = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+            maxAudioBytes = std::max<std::uint64_t>(maxAudioBytes, decoded);
+        }
         Renderer* r = engine.renderer();
         if (!r) return;
         const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
@@ -715,7 +718,8 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         perf["lights"] = maxLights;
         perf["textureMB"] = std::round(double(maxTextureBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
         {  // reported, never gated: the decoded audio (clips and music) and the music alone, max over the run
-            const std::uint64_t audioBytes = std::max({maxAudioBytes, maxMusicBytes, std::uint64_t(I.audio.stats().value("decodedBytes", 0LL))});
+            const auto decodedNow = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+            const std::uint64_t audioBytes = std::max({maxAudioBytes, maxMusicBytes, decodedNow});
             perf["audioDecodedMB"] = std::round(double(audioBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
             perf["musicMB"] = std::round(double(maxMusicBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
         }
