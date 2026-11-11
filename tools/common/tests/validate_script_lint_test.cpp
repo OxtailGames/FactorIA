@@ -208,6 +208,17 @@ TEST_CASE("validate scripts: plural receivers, the case caveat, later declarator
     CHECK(find_issue(r.warnings, "project.scatter") == nullptr);    // only in a comment and a string
 }
 
+TEST_CASE("validate scripts: a name declared after a template substitution is still declared") {
+    testing::TempDir tmp;
+    const std::string dir = make_game(tmp);
+    write_script(dir, "scripts/after.js",
+                 "import { Behaviour, physics } from \"factoria\";\nexport default class P extends Behaviour {\n"
+                 "  onStart() {\n    let a = `x${1}`, physics = { nothing: 2 };\n    return physics.nothing + a;\n  }\n}\n");
+    const ValidationReport r = validate_with_engine(dir);
+    for (const ValidationIssue& i : r.errors) MESSAGE("error: " << i.to_string());
+    CHECK(find_issue(r.errors, "scripts/after.js:5") == nullptr);  // `physics` is declared after the `${}`
+}
+
 TEST_CASE("validate scripts: a call inside a template substitution is found, a call in the template's text is not") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);

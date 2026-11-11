@@ -281,7 +281,7 @@ test("runs", () => {});
     CHECK_FALSE(only.cases[0].passed);  // the same result with --filter
     TestReport pending = h.scripts.run_tests({"tests/pending.test.js"});
     CHECK(pending.loadErrors.empty());  // test.skip("name") with no body is a pending test, not an error
-    CHECK(pending.cases.size() >= 1);  // a skipped test is not a case of the report; "runs" is
+    CHECK(pending.cases.size() == 1);  // a skipped test is not a case of the report; "runs" is
     TestReport skip = h.scripts.run_tests({"tests/skip.test.js"});
     REQUIRE(skip.loadErrors.size() == 1);
     CHECK(contains(skip.loadErrors[0].message, "unknown option 'expectError'"));

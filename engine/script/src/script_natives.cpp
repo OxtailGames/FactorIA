@@ -542,7 +542,9 @@ NATIVE(logErrors) {
         std::lock_guard<std::mutex> lk(I->testErrors->mu);
         for (const LogEntry& e : I->testErrors->list)
             if (e.seq > since) add(e);
-        if (I->testErrors->dropped > 0) {  // the list is capped: say so, never let a flood look like a short list
+        // The list is capped: say so, never let a flood look like a short list. Only a test that started before the last drop
+        // is told (the ones after the flood have all their errors).
+        if (I->testErrors->dropped > 0 && I->testErrors->lastDroppedSeq > since) {
             LogEntry note;
             note.category = "script";
             note.message = std::to_string(I->testErrors->dropped) + " more ERROR records of this test run were dropped (the runner keeps the first " +
