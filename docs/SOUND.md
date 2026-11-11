@@ -442,6 +442,19 @@ audio.render {"path":"assets/audio/wind_loop.audio.json","stopAfter":0}
 -> the chain up to the trim: 0.585 s, before the seam
 ```
 
+## A sound at a place
+
+`audio.play(path, { position: [x, y, z], range })` plays a one-shot as if it came from a point of the world, with no
+entity: it uses what an `AudioSource` with `spatial: true` uses. The volume falls linearly from `volume` at the
+listener to 0 at `range` world units (default 800, the `AudioSource.range` default; the listener's `zoom` stretches it), and the pan follows
+the side of the listener's right axis the point is on (a point at half the range to the right pans fully right). The listener is the first active
+`AudioListener`, else the primary camera. A 2D game gives `[x, y]` (or `{x, y}`). With no listener the sound plays at
+`volume` and `pan` as given; a sound at or beyond the range plays nothing and `audio.play` returns 0. `volume` is the sound's
+own volume (multiplied by the attenuation), `pan` is replaced by the computed one; `variants`, `pitch`, `bus` and `priority` work as always.
+Position, volume and pan are computed once, when the sound starts: it does not follow the entity that made it. For a source that
+moves, use an `AudioSource`. In C++ it is `Audio::play_at(world, clip, params, position, range)`. There is no `rolloff`
+option: `AudioSource` has only the linear fall-off, and this uses the same.
+
 ## Voice stealing
 
 At most 64 voices play at once: sounds, `audio.music` and its layers, a video's sound, a `MusicPlayer`'s clip stingers (a

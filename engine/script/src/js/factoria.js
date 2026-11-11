@@ -1545,7 +1545,20 @@
       }
       if (o.priority !== undefined && !(typeof o.priority === "number" && o.priority >= 0 && o.priority <= 255))
         throw new Error(`audio.play(path, { priority }): priority is a number from 0 to 255 (default 128; higher wins a voice when all 64 play), but got ${inspect(o.priority)}`);
-      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128);
+      let at = null;
+      if (o.position !== undefined) {
+        const q = o.position;
+        const xyz = Array.isArray(q) ? q : (q !== null && typeof q === "object" ? [q.x, q.y, q.z ?? 0] : null);
+        if (!xyz || (xyz.length !== 2 && xyz.length !== 3) || !xyz.every((v) => typeof v === "number" && Number.isFinite(v)))
+          throw new Error(`audio.play(path, { position }): position is [x, y, z] (or [x, y] in a 2D game, or an object { x, y, z }), numbers in world units, but got ${inspect(q)}`);
+        if (o.range !== undefined && !(typeof o.range === "number" && o.range > 0))
+          throw new Error(`audio.play(path, { range }): range is the distance in world units where the sound reaches 0 (default 800, as AudioSource.range), a number above 0, but got ${inspect(o.range)}`);
+        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800];
+      } else if (o.range !== undefined) {
+        throw new Error(`audio.play(path, { range }) needs a position: add position: [x, y, z], or drop range`);
+      }
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128,
+        !!at, at ? at[0] : 0, at ? at[1] : 0, at ? at[2] : 0, at ? at[3] : 800);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },
