@@ -77,7 +77,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): crossfadeTo without `section` starts the other song at its beginning, never at the component's `startSection`; the director no longer passes `section`."
+      ]
     },
     {
       "id": "FB-0004",
@@ -102,7 +106,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): the next scene's player adopts the music that is playing and drops the crossfades and section changes the scene before had queued (or takes the target song when the crossfade had started); the director starts the scene without a hard play. `pendingSong`, `pendingSection` and `pendingAt` show what waits."
+      ]
     },
     {
       "id": "FB-0005",
@@ -124,7 +132,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): `status.song` stays the audible song, `status.pendingSong` (also `entity.music.pendingSong`) is the one asked for, and the component's `song` is the last one asked for; the director keeps no record of its own."
+      ]
     },
     {
       "id": "FB-0006",
