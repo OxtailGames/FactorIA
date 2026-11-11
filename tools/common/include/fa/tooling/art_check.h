@@ -175,6 +175,21 @@ struct ArtThresholds {
 // (an opaque tile has no silhouette, a flat picture has no light) is left out.
 std::vector<ArtRule> evaluate_style_rules(const ArtMeasure& m, const StyleGuide& style, const std::vector<const TextureUse*>& uses);
 
+// A rule the style scope left out of a check, and why (docs/ASSETS.md, "Scoping the style rules").
+struct StyleSkip {
+    std::string rule;    // the rule that was produced, e.g. "texelsPerUnit"
+    std::string reason;  // "role ui (assets.json provenance.role)", "style.ignore entry assets/fx/ (rules: outline)"
+};
+
+// The role of `path`: provenance.role of its entry in `manifest` (the parsed assets.json), else the first style.roles glob that names it,
+// else "". `source` tells which one ("provenance.role" or "style.roles <glob>").
+std::string style_role_of(const Json& manifest, const StyleGuide& style, const std::string& path, std::string* source = nullptr);
+
+// Removes from `rules` the ones the style does not ask of this asset: those named by a style.ignore entry that lists rules for `path`, and
+// those its `role` turns off (style_role_skips). Every removed rule goes to `skipped` with the reason, so a check can say what it left out.
+void apply_style_scope(const StyleGuide& style, const std::string& path, const std::string& role, const std::string& roleSource, std::vector<ArtRule>& rules,
+                       std::vector<StyleSkip>& skipped);
+
 // The warnings of `project.validate` for the textures in `textures` (project-relative, those a Sprite draws): one for each
 // style rule that is clearly broken (verdict fail), naming the rule, the numbers and the fix. Nothing when the project's
 // style sets no art rule. `uses` comes from the scenes validate has loaded.

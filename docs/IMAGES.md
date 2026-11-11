@@ -259,6 +259,20 @@ child of the group at 1. A wrong name or index is an error with "did you mean" a
   `image.tileset.rules`: tile mode, the seam check and the autotile generator (see "Tiles").
 - `image.inpaint`, `image.generate_layer`, `image.layer.add_provider`: pictures from an image provider as layers (see "Pictures from a provider").
 
+### Resizing the canvas: `image.resize`
+
+`image.resize {path, width, height, anchor?, fill?}` changes the canvas of a document (1 to 4096 each) without redrawing it. `anchor`
+is the part of the old canvas that stays where it is: `top-left`, `top`, `top-right`, `left`, `center` (the default), `right`,
+`bottom-left`, `bottom` or `bottom-right`. With `top-left` a bigger canvas grows at the right and bottom and a smaller one is cropped
+there; with `center` every side moves (an odd difference puts the extra pixel at the right/bottom). Every top-level layer moves by
+that offset (a group takes its children along); a fill, gradient or procedural layer with no size just covers the new canvas; the
+text rows of an `indexed` layer and of its cels are cut or padded to the new size, so the document stays valid. `palette`, `ramps`,
+frames, tags and `sheet` settings are kept, and the baked sheet takes the new cell size. `fill` paints the area a bigger canvas adds
+(a masked layer named `resize fill` at the bottom); without it the new area shows the document's `background` or is transparent.
+The result has `resized` `{from, to, anchor, offset, filled}` and `warnings` for what cannot follow (stored selections, which must
+be made again; tile mode; linked cels). The Image panel's **Resize...** button runs the same command as ONE undo step. Wrong sizes
+and unknown anchors are errors with the JSON pointer and a "did you mean".
+
 ### Make, look at, export
 
 ```json

@@ -193,7 +193,7 @@ struct Parser {
 
     void parse(const Json& style) {
         static const std::vector<std::string> known = {"prompt",      "references", "palette",  "outline", "lightDirection", "texelsPerUnit",
-                                                       "pixelArt",    "value",      "saturation", "audio",  "ignore"};
+                                                       "pixelArt",    "value",      "saturation", "audio",  "ignore", "roles"};
         if (!style.is_object()) {
             problem("/style", "style must be an object, got " + describe_json_value(style), "See docs/ASSETS.md, \"House style\".");
             return;
@@ -240,10 +240,74 @@ struct Parser {
                 problem("/style/ignore", "style.ignore must be a list of paths, got " + describe_json_value(r),
                         "Write [\"assets/ui/\", \"assets/fx/spark.png\"] (a folder ends in a slash).");
             } else {
-                for (std::size_t i = 0; i < r.size(); ++i) {
-                    if (r[i].is_string()) g.ignore.push_back(fs::normalize(r[i].get<std::string>()) + (ends_with(r[i].get<std::string>(), "/") ? "/" : ""));
-                    else problem("/style/ignore/" + std::to_string(i), "An ignored path must be a string, got " + describe_json_value(r[i]), "Write \"assets/ui/\".");
+                for (std::size_t i = 0; i < r.size(); ++i) parse_ignore_entry(r[i], "/style/ignore/" + std::to_string(i));
+            }
+        }
+        if (style.contains("roles")) parse_roles(style["roles"]);
+    }
+
+    static std::string normalized_pattern(const std::string& text) { return fs::normalize(text) + (ends_with(text, "/") ? "/" : ""); }
+
+    // "assets/ui/" (every rule), or {"path": "assets/fx/spark.png", "rules": ["texelsPerUnit", "outline"]} (only those).
+    void parse_ignore_entry(const Json& e, const std::string& pointer) {
+        StyleGuide& g = out.guide;
+        if (e.is_string()) {
+            g.ignore.push_back(normalized_pattern(e.get<std::string>()));
+            return;
+        }
+        const std::string example = R"("assets/ui/" or {"path": "assets/fx/spark.png", "rules": ["texelsPerUnit"]})";
+        if (!e.is_object()) {
+            problem(pointer, "An ignored path must be a string or {path, rules}, got " + describe_json_value(e), "Write " + example + ".");
+            return;
+        }
+        unknown_keys(e, pointer, {"path", "rules"});
+        if (!e.contains("path") || !e["path"].is_string() || e["path"].get<std::string>().empty()) {
+            problem(pointer + "/path", "An ignore entry needs a `path` (a file, a folder ending in a slash, or a glob).", "Write " + example + ".");
+            return;
+        }
+        StyleIgnoreRule rule;
+        rule.path = normalized_pattern(e["path"].get<std::string>());
+        bool ok = true;
+        if (e.contains("rules")) {
+            const Json& rs = e["rules"];
+            if (!rs.is_array()) {
+                problem(pointer + "/rules", "`rules` must be a list of rule names, got " + describe_json_value(rs), "Write \"rules\": [\"texelsPerUnit\"]; leave it out to skip every rule.");
+                ok = false;
+            } else {
+                for (std::size_t i = 0; i < rs.size(); ++i) {
+                    const std::string at = pointer + "/rules/" + std::to_string(i);
+                    if (!rs[i].is_string()) {
+                        problem(at, "A rule name must be a string, got " + describe_json_value(rs[i]), "Write \"texelsPerUnit\".");
+                        ok = false;
+                    } else if (const std::string name = rs[i].get<std::string>(); std::find(style_rule_names().begin(), style_rule_names().end(), name) == style_rule_names().end()) {
+                        problem(at, "Unknown style rule '" + name + "'.", did_you_mean(name, style_rule_names()));
+                        ok = false;
+                    } else {
+                        rule.rules.push_back(name);
+                    }
                 }
+            }
+        }
+        if (!ok) return;
+        if (rule.rules.empty()) g.ignore.push_back(rule.path);
+        else g.ignoreRules.push_back(std::move(rule));
+    }
+
+    // "roles": {"assets/ui/**": "ui", "assets/fx/*.png": "effect"}
+    void parse_roles(const Json& v) {
+        if (!v.is_object()) {
+            problem("/style/roles", "style.roles must be an object of path pattern to role, got " + describe_json_value(v),
+                    R"(Write {"assets/ui/**": "ui"}; roles: ui, icon, effect.)");
+            return;
+        }
+        for (auto it = v.begin(); it != v.end(); ++it) {
+            const std::string pointer = "/style/roles/" + escape_json_token(it.key());
+            if (!it.value().is_string()) {
+                problem(pointer, "A role must be a string, got " + describe_json_value(it.value()), "Use ui, icon or effect.");
+            } else if (const std::string role = it.value().get<std::string>(); std::find(style_roles().begin(), style_roles().end(), role) == style_roles().end()) {
+                problem(pointer, "Unknown role '" + role + "'.", did_you_mean(role, style_roles()));
+            } else {
+                out.guide.roles.emplace_back(normalized_pattern(it.key()), role);
             }
         }
     }
@@ -271,12 +335,39 @@ bool StyleGuide::has_art_rules() const {
     return outline || lightDirection || texelsPerUnit || pixelArt || value || saturation || palette;
 }
 
+bool style_path_matches(const std::string& pattern, const std::string& path) {
+    if (pattern.empty()) return false;
+    if (pattern.find_first_of("*?") != std::string::npos) return glob_match(pattern, path);
+    return pattern.back() == '/' ? path.rfind(pattern, 0) == 0 : path == pattern;
+}
+
 bool StyleGuide::ignores(const std::string& path) const {
-    for (const std::string& p : ignore) {
-        if (p.empty()) continue;
-        if (p.back() == '/' ? path.rfind(p, 0) == 0 : path == p) return true;
-    }
+    for (const std::string& p : ignore)
+        if (style_path_matches(p, path)) return true;
     return false;
+}
+
+const std::vector<std::string>& style_roles() {
+    static const std::vector<std::string> roles = {"ui", "icon", "effect"};
+    return roles;
+}
+
+const std::vector<std::string>& style_rule_names() {
+    static const std::vector<std::string> names = {"outline",       "outline.color",   "outline.width",   "value",       "value.min",     "value.max",
+                                                   "saturation",    "saturation.min",  "saturation.max",  "lightDirection", "texelsPerUnit", "pixelArt",
+                                                   "pixelArt.edges", "pixelArt.colours", "palette",        "palette.offShare"};
+    return names;
+}
+
+std::vector<std::string> style_role_skips(const std::string& role) {
+    // A picture on the interface or an icon is not on a mesh and is shaded as its artist wishes; an effect lights itself.
+    if (role == "ui" || role == "icon") return {"texelsPerUnit", "lightDirection"};
+    if (role == "effect") return {"texelsPerUnit", "lightDirection", "outline", "value", "saturation"};
+    return {};
+}
+
+bool style_rule_matches(const std::string& name, const std::string& rule) {
+    return rule == name || (rule.size() > name.size() && rule.compare(0, name.size(), name) == 0 && rule[name.size()] == '.');
 }
 
 StyleParse parse_style(const Json& style) {

@@ -461,6 +461,17 @@ ImageEditOutcome ImageModel::add_frame(bool duplicate) {
     return out;
 }
 
+ImageEditOutcome ImageModel::resize_canvas(int width, int height, const std::string& anchor, const std::string& fill) {
+    Json args = Json::object({{"width", std::clamp(width, 1, 4096)}, {"height", std::clamp(height, 1, 4096)}, {"anchor", anchor}});
+    if (!fill.empty()) args["fill"] = fill;
+    ImageEditOutcome out = run("Resize canvas", {{"image.resize", args}});
+    if (out.ok) {
+        refresh_selection();
+        mark_dirty();
+    }
+    return out;
+}
+
 ImageEditOutcome ImageModel::remove_frame(int frame) {
     ImageEditOutcome out = run("Delete frame", {{"image.frame.remove", Json::object({{"frame", frame}})}});
     if (out.ok) {
