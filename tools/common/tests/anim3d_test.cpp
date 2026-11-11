@@ -575,4 +575,13 @@ TEST_CASE("anim3d writing commands are not read-only, check assets.json before t
     p.ok("anim3d.restore", deleted["undo"]["args"]);
     CHECK(p.exists("anim/hero_idle.anim.json"));
     CHECK(p.manifest()["assets"]["anim/hero_idle.anim.json"]["provenance"] == idleRecord);
+
+    // `provenance` needs what assets.schema.json requires; with a null clip it is ignored and the result says so
+    const Json clip = p.clip("anim/hero_idle.anim.json");
+    CHECK(contains(p.error_text("anim3d.restore", {{"path", "anim/hero_idle.anim.json"}, {"clip", clip}, {"provenance", {{"origin", "madeup"}, {"date", "2026-01-01"}}}}), "/provenance/origin"));
+    CHECK(contains(p.error_text("anim3d.restore", {{"path", "anim/hero_idle.anim.json"}, {"clip", clip}, {"provenance", {{"origin", "original"}}}}), "/provenance/date"));
+    CHECK(p.manifest()["assets"]["anim/hero_idle.anim.json"]["provenance"] == idleRecord);
+    const Json ignored = p.ok("anim3d.restore", {{"path", "anim/hero_idle.anim.json"}, {"clip", nullptr}, {"provenance", idleRecord}});
+    CHECK(ignored.contains("warnings"));
+    CHECK_FALSE(p.manifest()["assets"].contains("anim/hero_idle.anim.json"));
 }

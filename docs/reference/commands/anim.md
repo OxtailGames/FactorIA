@@ -436,7 +436,7 @@ Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
-Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly, null removes it; without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
+Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly (it needs `origin` and `date`), null removes it; with `clip: null` it is ignored (the record is removed with the file); without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

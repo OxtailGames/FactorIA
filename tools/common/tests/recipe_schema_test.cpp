@@ -5,6 +5,7 @@
 #include <doctest.h>
 
 #include <format>
+#include <map>
 #include <regex>
 #include <set>
 
@@ -70,6 +71,11 @@ const std::set<std::string> kVariableCommandFiles = {
     "assets_anim3d.cpp",  // made_clip_provenance forwards its `command` parameter; its callers pass literals, which are found below
 };
 
+// Function-local constants passed as the command of a recipe ("file:name" -> command); the scan only resolves constants at file scope.
+const std::map<std::string, std::string> kLocalCommandConstants = {
+    {"assets_audio.cpp:cmd", "assets.generate_loop"},
+};
+
 // The recipe commands named in the sources: the second argument of every make_recipe(projectDir, X, ...) and made_clip_provenance(projectDir, X, ...)
 // call, X being a string literal or a name set to one in the same file (`constexpr const char* kCommand = "x.y"`). An argument of any other
 // shape (a variable) fails unless its file is in kVariableCommandFiles, so a recipe command cannot be missed by the scan.
@@ -88,11 +94,17 @@ std::set<std::string> recipe_commands_in_sources() {
                     found.insert(arg.substr(1, arg.size() - 2));
                     continue;
                 }
-                std::smatch m;
-                const std::regex named("\\b" + arg + R"re(\s*=\s*"([a-z0-9_.]+)")re");
-                if (std::regex_search(text, m, named)) found.insert(m[1]);
+                // a constant at file scope (column 0: `constexpr const char* kCommand = "x.y";`), not a local of a function
+                const std::regex named("(?:^|\n)(?:static )?(?:constexpr|const)[^\\n=(]*\\b" + arg + R"re(\s*=\s*"([a-z0-9_.]+)")re");
+                std::set<std::string> values;
+                for (std::sregex_iterator nit(text.begin(), text.end(), named), nend; nit != nend; ++nit) values.insert((*nit)[1]);
+                const auto local = kLocalCommandConstants.find(entry.path().filename().string() + ":" + arg);
+                if (values.size() == 1) found.insert(*values.begin());
+                else if (values.size() > 1)
+                    FAIL_CHECK(entry.path().filename().string() << ": `" << arg << "` is set to several commands at file scope, so the scan cannot tell which make_recipe uses: give each call a literal");
+                else if (local != kLocalCommandConstants.end()) found.insert(local->second);
                 else if (!kVariableCommandFiles.count(entry.path().filename().string()))
-                    FAIL_CHECK(entry.path().filename().string() << " passes `" << arg << "` as the command of a recipe, which this scan cannot resolve: use a string literal or a constant, or add the file to kVariableCommandFiles");
+                    FAIL_CHECK(entry.path().filename().string() << " passes `" << arg << "` as the command of a recipe, which is not a literal or a constant at file scope: use one, list it in kLocalCommandConstants, or add the file to kVariableCommandFiles");
             }
         }
     }

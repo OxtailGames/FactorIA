@@ -274,6 +274,20 @@ TEST_CASE("assets.regenerate: only asset makers run, whatever a hand-edited reci
     r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["hint"].get<std::string>().find("assets.rasterize_svg") != std::string::npos);
+    // the rule: a writing assets.* maker, anim3d.generate and anim3d.retarget; the hand edits of the anim family are not recipes
+    for (const char* edit : {"anim3d.set_keys", "anim3d.restore", "anim3d.create", "ik3d.key", "anim3d.info"}) {
+        m["assets"]["assets/art/coin.png"]["provenance"]["recipe"]["command"] = edit;
+        write_all(p.file("assets.json"), m.dump(2));
+        r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK_MESSAGE(r.error["code"] == "unknown_command", edit);
+    }
+    // the did-you-mean covers the anim3d makers too
+    m["assets"]["assets/art/coin.png"]["provenance"]["recipe"]["command"] = "anim3d.generat";
+    write_all(p.file("assets.json"), m.dump(2));
+    r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["hint"].get<std::string>().find("anim3d.generate") != std::string::npos);
 }
 
 TEST_CASE("recipes: project.validate warns about stale assets and missing inputs, with the regenerate command") {
