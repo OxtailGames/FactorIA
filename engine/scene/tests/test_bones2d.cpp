@@ -1,13 +1,16 @@
 // fa/scene/bones2d.h: 2D bones, skinned sprites (SpriteSkin) and IK2D.
 #include <doctest.h>
 
+#include <atomic>
 #include <cmath>
+#include <memory>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 
 #include "fa/core/image.h"
+#include "fa/core/log.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
@@ -712,6 +715,46 @@ TEST_CASE("ik2d ground: mask 0 and a null callback leave the target alone") {
     update_ik2d(r.w, g.fn());
     CHECK(g.calls == 1);
     CHECK(r.tip().y == doctest::Approx(0).epsilon(1e-3));
+}
+
+TEST_CASE("ik2d ground: the character is the nearest ancestor with a RigidBody2D, not the topmost one") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    ik.groundReach = 30;
+    ik.groundRest = 10;
+    FakeGround g{[](float) { return 0.0f; }};
+    // The character stands in a container (the level) that also holds the terrain, and the container sits 100 up.
+    const Entity level = r.w.create("level", "level");
+    r.set_pos(level, 0, 100);
+    r.w.set_parent(r.body, level);
+    r.w.add<RigidBody2D>(r.body);
+    r.set_pos(r.body, 0, -100);  // the character's origin stays at world y 0
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(g.lastIgnore == r.body);                       // the container (and its terrain) is not ignored
+    CHECK(r.tip().y == doctest::Approx(0).epsilon(1e-3));  // rest = body.y (0) + 10 = the target height: planted on the floor
+    // Without a RigidBody2D the topmost ancestor is the character, as before.
+    r.w.remove<RigidBody2D>(r.body);
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(g.lastIgnore == level);
+}
+
+TEST_CASE("ik2d ground: a ray that never hits warns once and says so") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    FakeGround none{[](float) { return -1000.0f; }};
+    auto seen = std::make_shared<std::atomic<int>>(0);
+    const int sink = add_log_sink([seen](const LogEntry& en) {
+        if (en.category == "animation" && en.message.find("ground ray has hit nothing") != std::string::npos) ++*seen;
+    });
+    for (int i = 0; i < 400; ++i) update_ik2d(r.w, none.fn());
+    remove_log_sink(sink);
+    CHECK(seen->load() == 1);  // logged exactly once
+    const IK2D* got = r.w.get<IK2D>(r.b1);
+    REQUIRE(got != nullptr);
+    CHECK_FALSE(got->groundHit);
+    CHECK(got->warnedGround);
 }
 
 TEST_CASE("ik2d ground: the fields survive a save and a load") {

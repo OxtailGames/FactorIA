@@ -658,6 +658,8 @@
     set clip(v) { this.component.clip = v; }
     get mode() { return this.component.mode; }
     set mode(v) { this.component.mode = v; }
+    get loopMode() { return this.component.loopMode; }
+    set loopMode(v) { this.component.loopMode = v; }
     get frame() { return this.component.frame; }
     get time() { return this.component.time; }
     set time(v) { this.component.time = v; }

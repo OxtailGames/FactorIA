@@ -707,10 +707,22 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
     Vec2 target = w.world_position(ik.target).xy();
     if (ground && ik.groundMask != 0) {
         // Planted feet: aim at the floor under the target, keeping the swing lift above the rest height.
-        Entity root = e;
-        while (w.alive(w.parent(root))) root = w.parent(root);
+        // The character's root: the nearest ancestor with a RigidBody2D (so a container that also holds the terrain is not the
+        // character), else the topmost ancestor.
+        Entity top = e;
+        Entity body = kNullEntity;
+        for (Entity p = w.parent(e); w.alive(p); p = w.parent(p)) {
+            top = p;
+            if (body == kNullEntity && w.get<RigidBody2D>(p)) body = p;
+        }
+        const Entity root = body == kNullEntity ? top : body;
         const float reach = std::max(0.0f, ik.groundReach);
-        if (auto hit = ground({target.x, target.y + reach}, {target.x, target.y - reach}, ik.groundMask, root)) {
+        const auto hit = ground({target.x, target.y + reach}, {target.x, target.y - reach}, ik.groundMask, root);
+        if (IK2D* live = w.get<IK2D>(e)) {
+            if (hit) live->groundHit = true;
+            else if (!live->groundHit && live->groundMisses < 1000000) ++live->groundMisses;
+        }
+        if (hit) {
             const float rest = w.world_position(root).y + ik.groundRest;
             target.y = hit->y + ik.groundOffset + std::max(0.0f, target.y - rest);
         }
@@ -734,6 +746,15 @@ void update_ik2d(World& w, const GroundRaycast2D& ground) {
         IK2D* ik = w.get<IK2D>(e);
         if (!ik || ik->weight <= 0.0f || ik->target.is_null()) continue;
         Result<float> r = solve_ik2d(w, e, ground);
+        if (ik->groundMask == 0) ik->groundMisses = 0;  // switched off (e.g. in the air): the count starts again
+        if (ground && ik->groundMask != 0 && !ik->groundHit && ik->groundMisses >= 300 && !ik->warnedGround) {
+            ik->warnedGround = true;
+            FA_WARN("animation",
+                    "IK2D on '{}' has groundMask {} but its ground ray has hit nothing in {} solves. Check that the character is not simply in the air (switch groundMask to 0 there), that the "
+                    "terrain's collider is on a layer in groundMask, that it is within groundReach ({}) of the target, and that it is not a child of the character's own "
+                    "RigidBody2D entity (the character's colliders are ignored). groundMask 0 turns ground snapping off.",
+                    label_of(w, e), ik->groundMask, ik->groundMisses, ik->groundReach);
+        }
         if (!r.ok() && !ik->warned) {
             ik->warned = true;
             FA_WARN("animation", "{}", r.error().to_string());

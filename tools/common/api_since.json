@@ -2097,6 +2097,7 @@
     "SpriteAnimatorAPI.component": "0.6.0",
     "SpriteAnimatorAPI.ended": "0.6.0",
     "SpriteAnimatorAPI.frame": "0.6.0",
+    "SpriteAnimatorAPI.loopMode": "unreleased",
     "SpriteAnimatorAPI.mode": "0.6.0",
     "SpriteAnimatorAPI.on": "0.6.0",
     "SpriteAnimatorAPI.play": "0.6.0",
