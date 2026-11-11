@@ -49,6 +49,10 @@ Lists templates with dimension and description.
 ### `factoria validate [project] [--json] [--no-scenes] [--fix-types]`
 Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.json` and the JavaScript syntax of
 `scripts/**/*.js` and `tools/*.js`. Messages give file, JSON pointer, the problem and a fix. Exit 1 on any error.
+The log lines the engine writes while it opens the project (a scene that failed to load, a plugin that is not loaded)
+are not printed on stderr: they go into the report, each once (a log line that says what the report already says is
+dropped; a different one becomes a warning). With `--json` stdout is only the JSON and stderr stays empty except for a
+fatal error.
 "Every scene/prefab" means every `*.scene.json` and `*.prefab.json` of the project, wherever it lives (`scenes/`,
 `prefabs/`, `levels/`...; folders starting with `.`, `node_modules` and a top-level `build/` are skipped, like
 `scene.format`). Each is loaded, prefabs on their own too, and what the loader refuses is an error with its JSON pointer:
@@ -188,6 +192,9 @@ reset before each test).
 `console.log/warn/error` output of test files and behaviours is shown by default, indented under the test as
 `| text` (also with `--log-level warn`); engine info logs stay hidden. With `--json` it is `logs` per case (and a
 top-level `logs` for output outside tests).
+When several tests fail with the same error (the same message and place), the human output prints the trace once, marks
+the others "(same error as ...)" and ends with "The same error as ... in N more tests (names)"; the sentence about an
+exception thrown inside the test is printed once per run. `--json` keeps the whole message of every case.
 
 ## Commands (the tool surface of MCP and the AI agent)
 
