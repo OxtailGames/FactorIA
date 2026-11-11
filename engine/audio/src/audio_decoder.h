@@ -31,6 +31,9 @@ public:
     // Reads up to `frames` frames; fewer than asked (0 included) only at the end of the stream.
     virtual std::size_t read(float* out, std::size_t frames) = 0;
     virtual bool rewind() = 0;  // back to the first frame
+    // The next read returns frame `frame` of the file, exactly the samples a read from the start would make there (music
+    // streams jump to the chunk they need). false when the format cannot seek that way (only .ogg does).
+    virtual bool seek(std::uint64_t frame) { (void)frame; return false; }
 
 protected:
     int channels_ = 0, rate_ = 0;

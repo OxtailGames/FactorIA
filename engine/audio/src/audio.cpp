@@ -32,6 +32,7 @@
 #include "audio_mixer.h"
 #include "audio_testing.h"
 #include "bus_fx.h"
+#include "music_stream.h"
 #include "fa/audio/analysis.h"
 #include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
@@ -345,6 +346,7 @@ struct Audio::Impl {
     std::map<std::string, CachedSong> musicCache;         // by "song|mode"
     std::uint64_t musicUse = 0;                           // the clock of the cache's least-recently-used order
     std::size_t musicCacheBudget = kMusicCacheBytes;
+    std::uint64_t musicUnderrunsGone = 0, musicUnderrunFramesGone = 0;  // underruns of the streamed songs the cache let go
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
     std::map<std::string, std::string> musicErrors;       // why a load failed, by key
     MusicDeviceProfile musicDevice;
@@ -564,6 +566,7 @@ struct Audio::Impl {
             }
             if (any) mixer.commands.commit();
             service_streams();
+            service_music_streams();
         }
         drain_returns();
         process_ends();
@@ -968,6 +971,74 @@ struct Audio::Impl {
         }
         prune_jobs();
     }
+
+    // What one streamed stem has to keep decoded: the chunks the playheads and the waiting jumps read next (music_stream.h).
+    struct MusicStreamWork {
+        std::shared_ptr<audio_detail::MusicStemStream> stream;
+        std::vector<std::int64_t> urgent, ahead;
+    };
+    static void add_chunk(std::vector<std::int64_t>& list, std::int64_t c) {
+        if (std::find(list.begin(), list.end(), c) == list.end()) list.push_back(c);
+    }
+    // The chunks `w` reads from now on: a window ahead of the playhead, across the wrap of a loop.
+    static void want_chunks(const MusicWant& w, std::int64_t chunkCount, std::vector<std::int64_t>& urgent, std::vector<std::int64_t>& ahead) {
+        namespace ad = audio_detail;
+        auto chunk_of = [](double p) { return std::int64_t(std::max(p, 0.0)) >> ad::kMusicChunkShift; };
+        const std::int64_t last = w.end > 0.0 ? std::min(chunk_of(w.end - 1.0), chunkCount - 1) : chunkCount - 1;
+        std::int64_t c = chunk_of(w.pos);
+        for (std::int64_t k = 0; k < ad::kMusicLookAhead; ++k, ++c) {
+            if (c > last) {
+                if (!w.wraps) break;
+                c = chunk_of(w.wrapStart);  // the loop continues from its start
+                if (c > last) break;
+            }
+            if (c < 0 || c >= chunkCount) break;
+            add_chunk(k < ad::kMusicUrgent ? urgent : ahead, c);
+        }
+    }
+    // With a device: for every streamed stem a player reads, the chunks to keep decoded, and a decode job when one is missing. The claim keeps
+    // it to one producer per stem; a stem whose job still runs is looked at again at the next flush. On the null device the mixer decodes.
+    void service_music_streams() {
+        if (!device || !streamService) return;
+        std::vector<MusicStreamWork> work;
+        auto gather = [&](MusicRt& rt) {
+            if (!rt.ch) return;
+            rt.ch->snap.update();
+            const MusicTransportState& st = rt.ch->snap.front().state;  // the sources it lists are held by `rt` (see music_events)
+            for (std::size_t i = 0; i < st.wantCount; ++i) {
+                const MusicWant& w = st.wants[i];
+                if (!w.src || !w.src->streamed()) continue;
+                for (const MusicStem& stem : w.src->stems) {
+                    if (!stem.stream) continue;
+                    auto at = std::find_if(work.begin(), work.end(), [&](const MusicStreamWork& m) { return m.stream == stem.stream; });
+                    if (at == work.end()) {
+                        work.push_back({stem.stream, {}, {}});
+                        at = work.end() - 1;
+                    }
+                    want_chunks(w, stem.stream->chunk_count(), at->urgent, at->ahead);
+                }
+            }
+        };
+        for (auto& [id, rt] : musicEnts) gather(*rt);
+        for (auto& rt : musicOrphans) gather(*rt);
+        for (MusicStreamWork& m : work) {
+            if (!m.stream->claim()) continue;
+            std::vector<std::int64_t> all = std::move(m.urgent);
+            for (std::int64_t c : m.ahead) add_chunk(all, c);
+            if (all.size() > audio_detail::kMusicWantedMax) all.resize(audio_detail::kMusicWantedMax);
+            m.stream->set_wanted(all.data(), all.size());
+            if (!m.stream->missing_any()) {
+                m.stream->unclaim();
+                continue;
+            }
+            std::shared_ptr<audio_detail::MusicStemStream> stream = m.stream;
+            jobsInFlight.push_back(jobs::submit("audio.stream", [stream] {
+                stream->fill_wanted(audio_detail::kMusicWantedMax);
+                stream->unclaim();
+            }));
+        }
+        prune_jobs();
+    }
     void prune_jobs() {
         jobsInFlight.erase(std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
                            jobsInFlight.end());
@@ -1212,6 +1283,10 @@ struct Audio::Impl {
         }
         if (!MusicTransport::check_start(src.get(), section, err)) return false;
         const MusicSource* raw = src.get();
+        // A streamed song has the first chunks of where it starts decoded before the command runs.
+        music_prime(*raw, section >= 0 && std::size_t(section) < raw->map.sections.size()
+                              ? raw->map.spans[std::size_t(raw->map.sections[std::size_t(section)].firstSpan)].start
+                              : 0.0);
         chan_cmd(rt, CmdKind::Keep, [raw, section, intensity, q, bars, hard](MusicTransport& tr) {
             const MusicSource* from = tr.source();
             if (tr.playing() && !hard && from) {
@@ -2151,8 +2226,16 @@ Json Audio::stats() const {
         if (clip->encoded) streamed.push_back(path);
     }
     std::size_t music = 0;
-    for (const auto& [key, song] : im.musicCache) music += song.src->bytes();
+    std::uint64_t musicUnderruns = im.musicUnderrunsGone, musicUnderrunFrames = im.musicUnderrunFramesGone;
+    std::size_t streamedSongs = 0;
+    for (const auto& [key, song] : im.musicCache) {
+        music += song.src->bytes();
+        musicUnderruns += song.src->underrun_events();
+        musicUnderrunFrames += song.src->underrun_frames();
+        streamedSongs += song.src->streamed() ? 1 : 0;
+    }
     j["musicBytes"] = music;
+    j["streamedSongs"] = streamedSongs;
     j["decodedBytes"] = decoded + music;
     j["streamedClips"] = streamed;
     float peak = im.lastPeak;
@@ -2182,8 +2265,11 @@ Json Audio::stats() const {
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);
     // The real-time path (docs/SOUND.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
-    j["underruns"] = im.mixer.underrunEvents.load(std::memory_order_relaxed);
-    j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed);
+    j["musicUnderruns"] = musicUnderruns;
+    j["musicUnderrunFrames"] = musicUnderrunFrames;
+    // Streamed clips and streamed music together.
+    j["underruns"] = im.mixer.underrunEvents.load(std::memory_order_relaxed) + musicUnderruns;
+    j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed) + musicUnderrunFrames;
     j["commandsDropped"] = im.commandsDropped;
     j["settingsDropped"] = im.settingsDropped;
     j["commandsCoalesced"] = im.commandsCoalesced;
@@ -2424,6 +2510,8 @@ void Audio::Impl::music_trim(const std::string& keepKey) {
         }
         if (victim == musicCache.end()) break;
         total -= victim->second.src->bytes();
+        musicUnderrunsGone += victim->second.src->underrun_events();
+        musicUnderrunFramesGone += victim->second.src->underrun_frames();
         musicCache.erase(victim);
     }
 }
@@ -2867,7 +2955,12 @@ void Audio::Impl::music_invalidate(const std::string& song) {
     for (const char* mode : {"|live", "|stems"}) {
         const std::string key = song + mode;
         musicLoads.erase(key);
-        musicCache.erase(key);
+        auto cached = musicCache.find(key);
+        if (cached != musicCache.end()) {
+            musicUnderrunsGone += cached->second.src->underrun_events();
+            musicUnderrunFramesGone += cached->second.src->underrun_frames();
+            musicCache.erase(cached);
+        }
         musicErrors.erase(key);
     }
     for (auto& [bits, rt] : musicEnts)
@@ -2977,6 +3070,7 @@ Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::stri
     const MusicQuantize q = quantize.value_or(mp->quantize);
     const float fade = fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds;
     const MusicChange change = im.music_predict(rt, q);
+    music_prime(*playing, playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)].start);  // streamed: the target is decoded
     // The transport checks again when the command runs (it may have stopped meanwhile): then the jump is not made.
     im.chan_cmd(rt, CmdKind::Droppable, [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
     return change;
@@ -3009,6 +3103,7 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         const float tail = std::max(spec.tail, 0.0f);
         const float length = float((span.end - span.start) / double(kMusicRate)) + tail;
         const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
+        music_prime(*playing, span.start);  // streamed: the stinger's first chunks are decoded
         im.chan_cmd(rt, CmdKind::Droppable, [index, q, volume, tail, duck, attack, hold, release](MusicTransport& tr) {
             if (tr.play_section_stinger(index, q, volume, tail, nullptr) && duck > 0.0f) tr.duck(q, duck, attack, hold, release);
         });
@@ -3141,8 +3236,9 @@ Json Audio::music_cache_json() const {
         const MusicSource& src = *song.src;
         Json stems = Json::array();
         for (const MusicStem& s : src.stems)
-            stems.push_back(Json::object({{"name", s.name}, {"bytes", s.pcm.size() * sizeof(std::int16_t)}}));
-        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"stems", stems}}));
+            stems.push_back(Json::object({{"name", s.name}, {"bytes", s.bytes()}, {"streamed", s.stream != nullptr}}));
+        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"streamed", src.streamed()},
+                                    {"underruns", src.underrun_events()}, {"stems", stems}}));
     }
     return out;
 }

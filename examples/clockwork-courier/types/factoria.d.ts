@@ -7657,7 +7657,7 @@ declare module "factoria" {
      */
     song: string;
     /**
-     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from disk through a small window instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files, live when it has none (docs/MUSIC.md).
      * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
