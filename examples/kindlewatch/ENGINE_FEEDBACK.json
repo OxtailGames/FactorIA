@@ -290,7 +290,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: input.record writes an action pressed with game.input by name as an \"actions\" event of the frame and the replay plays it back with set_action_override (same world hash). The replay replays/first_night.json, recorded with key names, stays valid."
+      ]
     },
     {
       "id": "FB-0013",
@@ -315,7 +319,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: assets.provenance and assets.disclosure are registered in the test runtime; docs/SCRIPTING.md lists the commands fa.call lacks in a test and a cli test keeps the list true. tests/assets.test.js uses assets.provenance."
+      ]
     },
     {
       "id": "FB-0014",
@@ -337,7 +345,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: game.findByTag and game.findAll in factoria:test, like world's. The Kindlewatch tests use game.findByTag."
+      ]
     },
     {
       "id": "FB-0015",
@@ -362,7 +374,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: factoria run --touch, ui.force_touch and game.screenshot {forceTouch} show the touch-only controls on a desktop (one switch, Input::set_force_touch); game.touch on a widget already drove them by finger."
+      ]
     },
     {
       "id": "FB-0016",
