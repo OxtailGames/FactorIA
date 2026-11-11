@@ -394,10 +394,16 @@ TEST_CASE("wfc: cell rules fix cells and the accept hook can refuse a finished g
 
     // Cut-off areas behind most refusals name the sample's shape and how to fix it.
     wfc::GenerateOptions cut = never;
-    cut.accept = [](const std::vector<int>&, std::string& why, std::int64_t&) {
-        why = "2 walkable area(s) are cut off from the main one (8 cells)";
-        return false;
+    cut.accept = nullptr;
+    struct CutCheck : wfc::GridCheck {
+        void begin(const std::vector<int>&) override {}
+        Verdict step(std::int64_t, std::string& why, std::int64_t&) override {
+            refusedCutOff = true;
+            why = "2 walkable area(s) are cut off from the main one (8 cells)";
+            return Verdict::Refused;
+        }
     };
+    cut.check = std::make_shared<CutCheck>();
     auto g4 = wfc::Generator::create(model, cut);
     REQUIRE(g4.ok());
     CHECK((*g4)->run() == wfc::GenStatus::Failed);

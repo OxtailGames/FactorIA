@@ -886,7 +886,7 @@ struct Generator::Impl {
         return best;
     }
 
-    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1) {
+    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1, bool cutOff = false) {
         attemptRunning = false;
         failure.attempt = attempt;
         failure.x = x;
@@ -898,7 +898,7 @@ struct Generator::Impl {
         if (isContradiction) ++stats.contradictions;
         else {
             ++stats.rejected;
-            if (reason.find("cut off") != std::string::npos) ++stats.cutOff;
+            if (cutOff) ++stats.cutOff;
         }
         if (attempt >= opt.maxAttempts) {
             status = GenStatus::Failed;
@@ -1013,6 +1013,7 @@ struct Generator::Impl {
     void accept_chunk() {
         if (opt.check) {
             if (!acceptBegun) {
+                opt.check->refusedCutOff = false;
                 opt.check->begin(output);
                 acceptBegun = true;
             }
@@ -1021,7 +1022,8 @@ struct Generator::Impl {
             const GridCheck::Verdict v = opt.check->step(kAcceptChunk, why, work);
             charge(std::max<std::int64_t>(work, 1));
             if (v == GridCheck::Verdict::More) return;
-            if (v == GridCheck::Verdict::Refused) return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
+            if (v == GridCheck::Verdict::Refused)
+                return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false, -1, opt.check->refusedCutOff);
         } else if (opt.accept) {
             std::string why;
             std::int64_t acceptWork = 0;

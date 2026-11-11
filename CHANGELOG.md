@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.21](chang
 
 ### Changes
 
+- **Animation and WFC polish (M101.P8):** `tilemap.generate` stats gain `cutOff` (refusals for areas cut off by
+  `reachability.allConnected`, flagged by the check itself, not by its wording); `SpriteAnimator.loopMode` has script accessors;
+  IK2D ground snapping takes the nearest ancestor with a `RigidBody2D` as the character (a container that also holds the terrain
+  no longer hides it), warns once when a ground ray never hits, and its field docs say the ground values are world units and the
+  ray is vertical; docs/ANIMATION.md's Sky Hopper tutorial teaches the IK2D ground fields.
 - **Rolloff for spatial sounds (M101.3):** `AudioSource.rolloff` (`linear` default, `inverse`, `exponential`) with `refDistance` and
   `rolloffFactor`, and the same three options on `audio.play({position, range, ...})` (one formula, `audio_spatial_gain`;
   docs/SOUND.md "Rolloff"). `audio.play` with a `position` and `loop` now throws (use an `AudioSource`); a positioned play out of
