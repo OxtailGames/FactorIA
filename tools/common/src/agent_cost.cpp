@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <regex>
 #include <set>
@@ -315,6 +316,7 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         "cliVersion, total {steps, toolCalls, minutes, tokens, stepTokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, "
         "firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, levelPhases, ended, endedWhy, scriptErrors}, "
         "engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message. "
+        "Reading a transcript costs nothing; recording one with scripts/agent-cost.sh spends real AI quota (docs/AI_COSTS.md): run it only when the user asks. "
         "Example: {\"transcript\":\"/tmp/agent-cost.x/transcript.jsonl\",\"finalPlay\":\"/tmp/agent-cost.x/final-play.json\",\"cli\":\"claude\",\"model\":\"sonnet\"}."
         FA_COMMAND_DETAILS
         "total.tokens is input + cache + output of the CLI's own result line "

@@ -110,7 +110,7 @@ grep -q "^HOME=$wd/cli-home\$" "$wd/fake-env.txt" && ! grep -q '^ANTHROPIC_API_K
 # 3. The wall-clock cap ends the CLI and the child it started.
 wd="$tmp/cap"
 start=$(date +%s)
-run hang "$wd" --max-seconds 2
+run hang "$wd" --max-seconds 5
 elapsed=$(( $(date +%s) - start ))
 check "the cap ended the run in time (${elapsed}s)" $((elapsed > 30))
 cpid="$(cat "$wd/child.pid" 2>/dev/null)"; fpid="$(cat "$wd/fake.pid" 2>/dev/null)"
@@ -118,7 +118,7 @@ cpid="$(cat "$wd/child.pid" 2>/dev/null)"; fpid="$(cat "$wd/fake.pid" 2>/dev/nul
 if [ -n "$cpid" ]; then wait_gone "$cpid" 8; check "the CLI's child is gone after the cap" $?; fi
 if [ -n "$fpid" ]; then wait_gone "$fpid" 8; check "the CLI is gone after the cap" $?; fi
 grep -q '^status=143$' "$wd/meta.env"; check "the cap is recorded as status 143" $?
-grep -q 'wall-clock cap of 2s' "$tmp/last.log"; check "the cap says why it stopped the CLI" $?
+grep -q 'wall-clock cap of 5s' "$tmp/last.log"; check "the cap says why it stopped the CLI" $?
 grep -q 'Terminated' "$tmp/last.log"; check "no shell job message ('Terminated') in the output" $((1 - $?))
 
 # 4. A TERM sent to the script (Ctrl-C ends the same way) stops the CLI's group too.
@@ -136,10 +136,10 @@ if [ -n "$fpid" ]; then wait_gone "$fpid" 10; check "the CLI is gone after TERM"
 # 5. The final play.auto has its own cap, and the report still gets written.
 wd="$tmp/final"
 touch "$engine/hang-play"
-run ok "$wd" --final-seconds 2
+run ok "$wd" --final-seconds 4
 check "a run whose final play.auto hangs still ends with status 0" $?
 rm -f "$engine/hang-play"
-grep -q 'final play.auto passed 2s' "$tmp/last.log"; check "the final play.auto was stopped by its cap" $?
+grep -q 'final play.auto passed 4s' "$tmp/last.log"; check "the final play.auto was stopped by its cap" $?
 grep -q '"reachedLastLevel": false' "$wd.result.json"; check "the stopped play.auto does not count as a win" $?
 pp="$(cat "$wd/engine/play-child.pid" 2>/dev/null)"
 if [ -n "$pp" ]; then wait_gone "$pp" 8; check "the child of the stopped play.auto is gone" $?; fi
