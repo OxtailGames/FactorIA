@@ -40,7 +40,7 @@ void Editor::ai_remember_scene(const std::string& checkpointId, bool dirty) {
     SceneAtCheckpoint s;
     s.id = checkpointId;
     s.scenePath = scenePath_;
-    s.scene = save_scene(world());
+    s.scene = snapshot_scene(world());
     s.dirty = dirty;
     aiScenes_.push_back(std::move(s));
     if (aiScenes_.size() > kKeepScenes) aiScenes_.erase(aiScenes_.begin());
@@ -93,7 +93,7 @@ void Editor::ai_run_checkpoint_finish(AiRun& run, AiChat& chat) {
     const std::string sceneRel = project_relative(scenePath_, projectDir_);
     bool sceneChanged = false;
     auto remembered = std::find_if(aiScenes_.begin(), aiScenes_.end(), [&](const SceneAtCheckpoint& s) { return s.id == id; });
-    if (remembered != aiScenes_.end()) sceneChanged = remembered->scenePath != scenePath_ || remembered->scene != save_scene(world());
+    if (remembered != aiScenes_.end()) sceneChanged = remembered->scenePath != scenePath_ || remembered->scene != snapshot_scene(world());
     // The world is one for every chat: it differs from the start of this run also when another chat edited it. Only a run that
     // sent a scene command of its own (or no one else could have) gets the scene.
     if (overlapped && !own.contains(sceneRel)) sceneChanged = false;
@@ -360,7 +360,7 @@ void Editor::ai_revert_apply(bool includeShared) {
     }
 
     // The world as it is now: it becomes the first Undo step and what "Undo revert" brings back.
-    const Json worldBefore = save_scene(world());
+    const Json worldBefore = snapshot_scene(world());
     const bool dirtyBefore = dirty_;
     const std::string pathBefore = scenePath_;
 
