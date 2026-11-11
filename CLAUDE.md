@@ -126,8 +126,10 @@ progress.
 - Cut the branch from the latest `origin/main` (`git fetch` first) and merge `origin/main` into it again before the
   PR. If it needs work whose PR has not merged yet, cut it from that PR's branch.
 - Version: the minor for a milestone (0.4.0 -> 0.5.0), the patch for a batch of fixes only. Bump `VERSION` in
-  CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph summary (CHANGELOG.md keeps `## Unreleased` and the newest version;
-  the older minor versions live in `changelog/0.<n>.md`, so move the previous minor's sections there and link it), replace every
+  CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph summary (CHANGELOG.md keeps `## Unreleased` and the newest minor version with its patches;
+  the older minor versions live in `changelog/0.<n>.md`, so move the previous minor's sections there and link it; a test
+  fails otherwise), set README.md's "Version x.y" line to the new minor and README.es.md's "al día en la versión x.y"
+  note with it (a test compares both with CMakeLists.txt), replace every
   `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/ARCHITECTURE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
 - Before the push: the Debug build of every target and the full Debug `ctest` (`scripts/agent-build.sh

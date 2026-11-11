@@ -690,7 +690,10 @@ in the script; a test not listed counts 2 s), so a new test runs in exactly one 
 and prints the physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third
 on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
-A newer push to the same pull request or branch cancels the older run.
+A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
+of that ref: the event and the `perfBaselines` tick are part of the concurrency group). A `_perf` test that passes inside
+the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
+in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
 so a run whose tests fail still leaves the next run a warm cache; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
@@ -706,12 +709,14 @@ export. It runs when the mobile jobs do. `release.yml` builds the web player onc
 
 The mobile jobs also RUN the app: `ios` boots an iPhone simulator and builds the touch UI test while `ios-build` builds
 the app, then runs it (`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM,
-installs the debug APK that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
-player logged `player: 60 frames rendered`, an audio device is open and being pulled, the app survives being sent to the
+installs the debug APK that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process
+stays alive, the player logged `player: 60 frames rendered`, an audio device is open and being pulled, the app survives being sent to the
 background and back and renders again, a tap in the middle of the screen reaches the player at the middle of the design
 (on iOS a UI test taps, `platforms/ios/touch-test`), nothing crashed and the screenshot shows a picture (Android also
 changes the font size), and upload their logs, the screenshot and crash reports as the artifacts `ios-smoke` and
-`android-smoke` (look there when one of them fails). The `ios` job asks for the conclusion of `ios-build` while it waits for the app, so a build that ended without one (failed, or cancelled because GitHub found no macOS runner) fails the step at once with that message instead of timing out. The Android game also carries a native plugin (built by
+`android-smoke` (look there when one of them fails). The `ios` job asks for the conclusion of `ios-build` while it
+waits for the app, so a build that ended without one (failed, or cancelled because GitHub found no macOS runner) fails
+the step at once with that message instead of timing out. The Android game also carries a native plugin (built by
 `android-apk` with the NDK, outside the game's folder through `FA_CI_PLUGINS`), and the emulator job checks that its
 script got the plugin's answers. What they cover and what not is in [MOBILE.md](MOBILE.md).
 
