@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -27,6 +28,18 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
+thread_local std::string t_denial_subject, t_denial_hint;  // CommandDenialScope
+std::atomic<std::uint32_t> g_capability_floor{CapabilitySet::all().bits()};  // CommandCapabilityFloor: the process-wide maximum
+std::mutex g_floor_words_mutex;                                                // guards the two strings below (read on a refusal only)
+std::string g_floor_subject, g_floor_hint;
+
+CapabilitySet set_from_bits(std::uint32_t bits) {
+    CapabilitySet s = CapabilitySet::all();
+    for (int i = 0; i < kCapabilityCount; ++i)
+        if ((bits & (1u << i)) == 0) s = s.without(static_cast<Capability>(i));
+    return s;
+}
+
 // The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
 CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
     const CapabilitySet granted = caller_capabilities();
@@ -37,12 +50,24 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
         first = false;
         message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
     }
-    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
-               "; the command needs " + info.capabilities.to_string() + ".";
-    CommandResult r = fail("capability_denied", std::move(message),
-                           "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
-                           "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-                           "(docs/SCRIPTING.md). Ask the user to run this command themselves, or to start the tool with that capability.");
+    std::string subject = t_denial_subject, hint = t_denial_hint;
+    {
+        std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+        if (subject.empty()) subject = g_floor_subject;
+        if (hint.empty()) hint = g_floor_hint;
+    }
+    if (subject.empty()) subject = command_caller_name(command_caller());
+    if (hint.empty()) {
+        hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
+               "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
+               "(docs/SCRIPTING.md). Ask the user to run this command themselves (`factoria call {command}` in a terminal, which has "
+               "every capability), or to start the tool with that capability.";
+    }
+    for (std::size_t at = hint.find("{command}"); at != std::string::npos; at = hint.find("{command}", at + info.name.size()))
+        hint.replace(at, 9, info.name);
+    message += ", which " + subject + " is not granted here. Granted: " + granted.to_string() + "; the command needs " +
+               info.capabilities.to_string() + ".";
+    CommandResult r = fail("capability_denied", std::move(message), std::move(hint));
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
                                     {"needs", info.capabilities.to_json()},
@@ -89,9 +114,56 @@ CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted) : previous
 
 CommandCapabilityScope::~CommandCapabilityScope() { t_granted = previous_; }
 
-CapabilitySet caller_capabilities() { return t_granted.intersect(capabilities_for_caller(command_caller())); }
+CapabilitySet caller_capabilities() {
+    return t_granted.intersect(capabilities_for_caller(command_caller())).intersect(set_from_bits(g_capability_floor.load()));
+}
 
-CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities()}; }
+CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_denial_subject, t_denial_hint}; }
+
+CommandDenialScope::CommandDenialScope(std::string subject, std::string hint)
+    : previousSubject_(t_denial_subject), previousHint_(t_denial_hint) {
+    if (!subject.empty()) t_denial_subject = std::move(subject);
+    if (!hint.empty()) t_denial_hint = std::move(hint);
+}
+
+CommandDenialScope::~CommandDenialScope() {
+    t_denial_subject = std::move(previousSubject_);
+    t_denial_hint = std::move(previousHint_);
+}
+
+CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted, std::string subject, std::string hint) {
+    std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+    previous_ = set_from_bits(g_capability_floor.load());
+    previousSubject_ = g_floor_subject;
+    previousHint_ = g_floor_hint;
+    g_capability_floor.store(previous_.intersect(granted).bits());
+    if (!subject.empty()) g_floor_subject = std::move(subject);
+    if (!hint.empty()) g_floor_hint = std::move(hint);
+}
+
+CommandCapabilityFloor::~CommandCapabilityFloor() {
+    std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+    g_capability_floor.store(previous_.bits());
+    g_floor_subject = std::move(previousSubject_);
+    g_floor_hint = std::move(previousHint_);
+}
+
+std::optional<CapabilitySet> command_capabilities_from_env_value(const char* value) {
+    if (!value || !*value) return std::nullopt;
+    if (std::string_view(value) == "none") return CapabilitySet::none();
+    auto parsed = CapabilitySet::parse_list(value);
+    if (!parsed) return CapabilitySet::none();  // a restriction nobody can read is kept as the strictest one
+    return *parsed;
+}
+
+std::optional<CapabilitySet> command_capabilities_from_env() { return command_capabilities_from_env_value(std::getenv(kCapabilitiesEnvVar)); }
+
+std::string capabilities_env_value(CapabilitySet set) {
+    if (set.empty()) return "none";
+    std::string out;
+    for (const std::string& n : set.names()) out += (out.empty() ? "" : ",") + n;
+    return out;
+}
 
 CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
     if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));

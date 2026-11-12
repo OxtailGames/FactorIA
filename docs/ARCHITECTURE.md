@@ -192,7 +192,27 @@ What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named s
 intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested
 call cannot run with "the tool's own set", a handler that needs more than its caller has is refused. Code that hops threads
 (job queues, the editor's main-thread queue) captures `command_context()` (caller and set) and installs it on the other
-thread with a `CommandContextScope`.
+thread with a `CommandContextScope`; the context also carries the words of a refusal (below). The editor's main-thread queue
+(`MainThreadQueue`) does this for every command a worker thread queues, so a command an MCP client or an AI role asks for runs
+on the main thread with that caller's set, not with the user's. A job or pool task that runs a command *for a caller* must do the
+same; the editor's background jobs only run the user's own subprocesses, so they need nothing.
+
+**Per AI role** (`fa::ai::role_capabilities`, declared in `tools/ai/include/fa/ai/config.h` next to the role definitions): the
+builder roles (orchestrator, worker, fast, artist, audio) get `capability_sets::agent()`; the critics (`artCritic`, `reviewer`)
+get `{read, state, writeProject}` and only the commands of `is_read_only_tool`, never `writeAnywhere`, `network`, `process`,
+`spend` or `publish`. `writeProject` is there because the play tools write a PNG or a session under `.factoria/`
+(`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`, `play.auto`); what keeps a critic from editing is the tool list, not the
+set, until paths are confined per command. `AgentSession` runs each tool call inside a `CommandCallerScope(Agent)` and a
+`CommandCapabilityScope(role set)`, and does not offer (nor accept) a command the set does not cover. A CLI agent gets the set in
+its environment (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`; also in the `env` of the stdio `factoria` server of its MCP config
+and, for Codex, `-c mcp_servers.factoria.env=...`), and `factoria` installs a `CommandCapabilityFloor` from it: on every
+thread of that process `caller_capabilities()` is never wider than the role's. An unparsable value is the empty set. The
+editor's per-run MCP endpoint applies the role's set itself (`endpointRole`).
+
+**The words of a refusal.** `CommandDenialScope(subject, hint)` (per thread, innermost non-empty text wins; also set by
+`CommandCapabilityFloor`) changes who `capability_denied` names ("the Reviewer role" instead of "an AI agent") and the hint
+("{command}" becomes the command's name); it never changes what is granted. An AI role's hint says to ask the user or to use a
+builder role.
 
 `CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND): a command whose
 capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability

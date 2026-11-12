@@ -2,11 +2,13 @@
 #include "fa/cli/cli.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <sstream>
 
 #include "common.h"
+#include "fa/ai/config.h"
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/log.h"
@@ -172,6 +174,16 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
         std::optional<CommandCallerFloor> floor;
         if (cmd->name != "editor") {
             if (const auto fromEnv = command_caller_from_env()) floor.emplace(*fromEnv);
+        }
+        // The same for what the role may do (FACTORIA_CAPABILITIES, with FACTORIA_ROLE for the words of a refusal): a `factoria mcp`
+        // or `factoria call` that a read-only role's CLI starts cannot do more than the role.
+        std::optional<CommandCapabilityFloor> capabilityFloor;
+        if (cmd->name != "editor") {
+            if (const auto granted = command_capabilities_from_env()) {
+                const char* role = std::getenv(kRoleEnvVar);
+                const std::string roleName = role ? role : "";
+                capabilityFloor.emplace(*granted, ai::role_denial_subject(roleName), ai::role_denial_hint(roleName));
+            }
         }
         return cmd->run(ctx);
     } catch (const UsageError& e) {

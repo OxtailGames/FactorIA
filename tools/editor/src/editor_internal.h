@@ -122,7 +122,9 @@ private:
     struct Job {
         std::string name, tag;
         Json args;
-        CommandCaller caller = CommandCaller::User;  // who asked (command_caller() of the calling thread), installed again while it runs
+        // Who asked and what they may do (command_context() of the calling thread: the caller, the capability set and the words of a
+        // refusal), installed again on the main thread while it runs: a command an MCP client or an AI role queued keeps its set.
+        CommandContext context;
         std::shared_ptr<std::promise<CommandResult>> promise;
         std::shared_ptr<std::atomic<bool>> abandoned;  // the caller gave up (Stop): the job is skipped, not run
     };

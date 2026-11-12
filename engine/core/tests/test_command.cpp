@@ -731,6 +731,83 @@ TEST_CASE("capabilities: a context captured on one thread is restored on another
     CHECK(outcomeWithout == "ok");
 }
 
+TEST_CASE("capabilities: FACTORIA_CAPABILITIES parses, and an unreadable value is the empty set") {
+    CHECK_FALSE(command_capabilities_from_env_value(nullptr).has_value());
+    CHECK_FALSE(command_capabilities_from_env_value("").has_value());
+    CHECK(*command_capabilities_from_env_value("read,state") == CapabilitySet{Capability::Read, Capability::State});
+    CHECK(*command_capabilities_from_env_value("none") == CapabilitySet());
+    CHECK(*command_capabilities_from_env_value("read,wirteProject") == CapabilitySet());  // fail closed
+    CHECK(capabilities_env_value(CapabilitySet()) == "none");
+    CHECK(capabilities_env_value(CapabilitySet{Capability::Read, Capability::State}) == "read,state");
+    for (const CapabilitySet& s : {capability_sets::agent(), capability_sets::mcp_read_only(), CapabilitySet()})
+        CHECK(*command_capabilities_from_env_value(capabilities_env_value(s).c_str()) == s);
+}
+
+TEST_CASE("capabilities: a process floor narrows on every thread, never widens, and names the refused role") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.project", false);
+    add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Publish});
+    add_cap_command(reg, "t.reader", true);
+    std::string codeOnThread, messageOnThread, hintOnThread;
+    bool readerOnThread = false;
+    {
+        CommandCapabilityFloor floor(CapabilitySet{Capability::Read, Capability::State}, "the reviewer role",
+                                     "Ask the user, or use a builder role, for {command}.");
+        CHECK(caller_capabilities() == CapabilitySet({Capability::Read, Capability::State}));
+        {
+            CommandCapabilityFloor wider(CapabilitySet::all());  // inside another floor: the intersection
+            CHECK(caller_capabilities() == CapabilitySet({Capability::Read, Capability::State}));
+        }
+        std::thread t([&] {  // a thread with no scope of its own (a `factoria mcp` worker)
+            const CommandResult r = reg.call("t.project");
+            codeOnThread = r.error["code"].get<std::string>();
+            messageOnThread = r.error["message"].get<std::string>();
+            hintOnThread = r.error["hint"].get<std::string>();
+            readerOnThread = reg.call("t.reader").ok;
+        });
+        t.join();
+        {
+            CommandCallerScope agent(CommandCaller::Agent);  // the Agent set is wider than the floor: the floor wins
+            CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+        }
+    }
+    CHECK(readerOnThread);
+    CHECK(codeOnThread == "capability_denied");
+    CHECK(messageOnThread.find("the reviewer role") != std::string::npos);
+    CHECK(hintOnThread.find("Ask the user, or use a builder role, for t.project.") != std::string::npos);
+    CHECK(reg.call("t.project").ok);  // the floor ended
+}
+
+TEST_CASE("capabilities: a denial scope changes the words of a refusal, the innermost non-empty text wins, and it travels in the context") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.project", false);
+    CommandCapabilityScope ro(CapabilitySet{Capability::Read});
+    {
+        CommandDenialScope outer("the art critic role", "Use a builder role for {command}.");
+        CommandResult r = reg.call("t.project");
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("the art critic role") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find("Use a builder role for t.project.") != std::string::npos);
+        {
+            CommandDenialScope inner("", "Ask for {command} nicely.");  // empty subject: the outer one stays
+            r = reg.call("t.project");
+            CHECK(r.error["message"].get<std::string>().find("the art critic role") != std::string::npos);
+            CHECK(r.error["hint"].get<std::string>().find("Ask for t.project nicely.") != std::string::npos);
+        }
+        const CommandContext captured = command_context();
+        CHECK(captured.denialSubject == "the art critic role");
+        std::string messageThere;
+        std::thread t([&] {
+            CommandContextScope scope(captured);
+            messageThere = reg.call("t.project").error["message"].get<std::string>();
+        });
+        t.join();
+        CHECK(messageThere.find("the art critic role") != std::string::npos);
+    }
+    const CommandResult plain = reg.call("t.project");  // no scope: the generic words
+    CHECK(plain.error["message"].get<std::string>().find("the art critic role") == std::string::npos);
+}
+
 TEST_CASE("capabilities: names, JSON and parsing, with did-you-mean on an unknown name") {
     const CapabilitySet set{Capability::State, Capability::Read, Capability::Publish};
     CHECK(set.names() == std::vector<std::string>{"read", "state", "publish"});

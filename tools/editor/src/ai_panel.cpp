@@ -392,6 +392,9 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     for (const CommandInfo* ci : engine_->commands().list()) {
         CommandInfo info = *ci;
         const std::string name = info.name;
+        // A critic's or reviewer's run (its MCP endpoint included) holds only the commands that observe and play: the capability set
+        // of those roles has to allow the PNGs of game.screenshot, so the set alone would not keep scene.save out.
+        if (ai::is_review_role(run.role) && !ai::is_read_only_tool(info)) continue;
         if (name == "play.auto") {
             // A run plays for minutes in a `factoria` child process and touches no engine state of the editor, so it runs right here on
             // the agent thread: through the queue it would hold the UI thread for the whole run (the window frozen, Stop and closing
@@ -650,11 +653,18 @@ std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
     auto started = run.mcp.start([r = &run, dir = projectDir_, session = run.mcpSession](
                                      std::string_view message, const McpHttpServer::Notify& emit) -> std::optional<std::string> {
         std::shared_ptr<CommandRegistry> proxy;
+        std::string role;
         {
             std::lock_guard<std::mutex> lock(r->mu);
             proxy = r->proxy;
+            role = r->endpointRole;
         }
         if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
+        // The CLI agent behind this endpoint can do what its role's capabilities allow and no more (a builder's CLI cannot publish
+        // through MCP; a critic's registry holds only the commands that observe and play, make_proxy_registry); the scopes travel
+        // with each command to the main thread (MainThreadQueue).
+        CommandCapabilityScope roleCapabilities(ai::role_capabilities(role));
+        CommandDenialScope roleDenial(ai::role_denial_subject(role), ai::role_denial_hint(role));
         SimpleMcpHost host(*proxy, dir);
         McpServer server(host);  // one server per message, sharing the run's session (handshake, cancellation)
         server.share_session(session);
@@ -755,6 +765,7 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
     {
         std::lock_guard<std::mutex> lock(run.mu);
         run.proxy = proxy;
+        run.endpointRole = opt.role;
     }
     run.running = true;
     run.lastActivityMs = now_ms();
