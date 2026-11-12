@@ -1054,11 +1054,11 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
       "type":"object",
       "properties":{
         "app":{"type":"string","description":"The .app to sign, relative to the project. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
-        "out":{"type":"string","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "identity":{"type":"string","description":"The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; \"-\" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json."},
         "distribution":{"type":"string","enum":["developerId","appStore"],"default":"developerId","description":"developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is \"-\")."},
         "installerIdentity":{"type":"string","description":"appStore: the '3rd Party Mac Developer Installer' / 'Mac Installer Distribution' certificate that signs the .pkg. Default: FACTORIA_MACOS_INSTALLER_IDENTITY, else sign.macos.installerIdentity of ~/.factoria/export.json."},
-        "pkg":{"type":"string","description":"appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg."},
+        "pkg":{"type":"string","x-fa-path":"write","description":"appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg."},
         "keychain":{"type":"string","description":"A keychain file that holds the certificate (or the notary profile). Default: FACTORIA_MACOS_KEYCHAIN, else the user's keychains."},
         "provisioningProfile":{"type":"string","description":"A .provisionprofile to embed in the app (needed for the capabilities the plugins ask for: Game Center, iCloud). With it the export's <slug>.entitlements are applied. Absolute path, or relative to the project."},
         "entitlements":{"type":"string","description":"An entitlements file for the app. Default: the export's <slug>.entitlements, used only with a provisioningProfile. Absolute path, or relative to the project."},
@@ -1069,7 +1069,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "apiIssuer":{"type":"string","description":"Issuer id of a team API key (not needed for an individual key). Default: FACTORIA_NOTARY_API_ISSUER."},
         "appleId":{"type":"string","description":"Apple ID for notarization. Default: FACTORIA_APPLE_ID (or APPLE_ID). The app-specific password is read from FACTORIA_APPLE_APP_PASSWORD only."},
         "teamId":{"type":"string","description":"Apple Team ID (10 characters) for notarization with an Apple ID. Default: FACTORIA_APPLE_TEAM_ID (or APPLE_TEAM_ID)."},
-        "zip":{"type":"string","description":"Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip."},
+        "zip":{"type":"string","x-fa-path":"write","description":"Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip."},
         "dryRun":{"type":"boolean","default":false,"description":"Check everything and return the exact command lines in steps[]; sign and send nothing. Works on any computer."}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -1082,13 +1082,20 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
             if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
             return dir->string();
         };
+        // What the command writes (the export folder, the zip, the pkg) goes through resolve_write_path: inside the project
+        // for an agent, anywhere for the command-line user, and never into .git or .factoria.
+        auto writable = [&](const std::string& rel, const char* what) {
+            auto dir = resolve_write_path(projectDir, rel);
+            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            return dir->string();
+        };
         auto anywhere = [&](const std::string& path, const char* what) {
             return stdfs::path(path).is_absolute() ? path : inside(path, what);
         };
         if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = inside(v, "app");
-        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = inside(v, "out");
-        if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = inside(v, "zip");
-        if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = inside(v, "pkg");
+        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
+        if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = writable(v, "zip");
+        if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = writable(v, "pkg");
         o.distribution = tooling_detail::arg_string(args, "distribution", false);
         o.installerIdentity = tooling_detail::arg_string(args, "installerIdentity", false);
         o.identity = tooling_detail::arg_string(args, "identity", false);

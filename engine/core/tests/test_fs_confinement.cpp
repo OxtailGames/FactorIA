@@ -113,12 +113,28 @@ TEST_CASE("resolve_for_write: a relative path into a managed folder is refused u
         CHECK(code_of(fs::resolve_for_write("meta/x.json", fs::WriteRoot::Project, false)) == "managed_path_denied");
         CHECK(fs::resolve_for_write("meta/x.json", fs::WriteRoot::Project, false, fs::ManagedFolders::Allow).ok());
     }
-    // Case variants name the same folder on Windows and macOS only.
-#if defined(_WIN32) || defined(__APPLE__)
+    // Case variants are refused on every system: a Linux folder may sit on a volume that ignores case (WSL /mnt/c, ext4
+    // casefold, SMB), and a project has to be portable.
     CHECK(code_of(fs::resolve_for_write(".GIT/config", fs::WriteRoot::Project, false)) == "managed_path_denied");
-#else
-    CHECK(fs::resolve_for_write(".GIT/config", fs::WriteRoot::Project, false).ok());
-#endif
+    CHECK(code_of(fs::resolve_for_write(".Factoria/x.json", fs::WriteRoot::Project, false)) == "managed_path_denied");
+    CHECK(fs::resolve_for_write(".Factoria/TMP/x.json", fs::WriteRoot::Project, false).ok());
+}
+
+TEST_CASE("resolve_for_write: names Windows cannot create are invalid_path on every system") {
+    Confined c;
+    for (const char* bad : {"con", "CON.txt", "assets/nul.png", "Aux", "prn.tar.gz", "COM1", "lpt9.txt", "com5 .x", "name.", "dir /f.txt",
+                            "assets/name ", "a./b.txt", "x/..."}) {
+        CAPTURE(bad);
+        auto r = fs::resolve_for_write(bad, fs::WriteRoot::Project, false);
+        REQUIRE_FALSE(r.ok());
+        CHECK(code_of(r) == "invalid_path");
+        CHECK_FALSE(r.error().hint.empty());
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, true)) == "invalid_path");
+    }
+    for (const char* ok : {"console.txt", "com10.txt", "com0", "comx", "lpt.txt", "auxiliary/a.txt", "a.b/c", ".hidden", "..hidden", "nul_x.png"}) {
+        CAPTURE(ok);
+        CHECK(fs::resolve_for_write(ok, fs::WriteRoot::Project, false).ok());
+    }
 }
 
 TEST_CASE("resolve_for_write: NUL bytes, drives and streams in a relative path are invalid_path") {
@@ -302,8 +318,7 @@ TEST_CASE("resolve_for_write: the managed folders stay closed to an absolute pat
     // The same files outside the project are not managed.
     CHECK(fs::resolve_for_write(fs::path_to_utf8(c.outside / ".git" / "config"), fs::WriteRoot::Project, true).ok());
     CHECK(fs::resolve_for_write(fs::path_to_utf8(c.outside / ".factoria" / "x"), fs::WriteRoot::Project, true).ok());
-#if defined(_WIN32) || defined(__APPLE__)
-    // Case variants name the same folder on these systems.
+    // Case variants count on every system (see the relative-path test).
     for (const char* bad : {".GIT/config", ".Factoria/save/a.json", ".FACTORIA/x"}) {
         CAPTURE(bad);
         auto r = fs::resolve_for_write(proj + "/" + bad, fs::WriteRoot::Project, true);
@@ -312,7 +327,6 @@ TEST_CASE("resolve_for_write: the managed folders stay closed to an absolute pat
     }
     CHECK(code_of(fs::resolve_for_write(proj + "/.FACTORIA/TMP2/x", fs::WriteRoot::Project, true)) == "managed_path_denied");
     CHECK(fs::resolve_for_write(proj + "/.Factoria/Tmp/x", fs::WriteRoot::Project, true).ok());
-#endif
 }
 
 TEST_CASE("resolve_for_write: the project folder is found whatever the case of its spelling (Windows and macOS)") {

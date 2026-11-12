@@ -764,7 +764,8 @@ std::u32string element_key(const stdfs::path& part) {
         return name_key(path_to_utf8(part));
     } else {
         std::u32string out;
-        for (const auto ch : part.native()) out.push_back(static_cast<char32_t>(static_cast<std::make_unsigned_t<std::decay_t<decltype(ch)>>>(ch)));
+        for (const auto ch : part.native())
+            out.push_back(static_cast<char32_t>(static_cast<std::make_unsigned_t<std::decay_t<decltype(ch)>>>(ch)));
         return out;
     }
 }
@@ -874,14 +875,31 @@ std::optional<Error> managed_denial(const stdfs::path& projectCanon, const stdfs
         rel += (rel.empty() ? "" : "/") + t;
     }
     if (rel.empty()) return std::nullopt;
-    if constexpr (kCaseInsensitiveVolumes) {
-        std::string folded;
-        for (char32_t c : name_key(rel)) utf8_append(folded, c);
-        rel = folded;
-    }
-    if (auto w = check_writable(rel); !w.ok())
-        return write_error("managed_path_denied", w.error().message + " (the project folder is " + path_to_utf8(projectCanon) + ")", w.error().hint);
+    // Judged with case folded on every platform: a Linux folder can sit on a volume that ignores case (WSL's /mnt/c, ext4
+    // casefold, SMB), where ".GIT" is the version-control folder too.
+    std::string folded;
+    for (char32_t c : name_key(rel)) utf8_append(folded, c);
+    if (auto w = check_writable(folded); !w.ok())
+        return write_error("managed_path_denied",
+                           replace_all(w.error().message, folded, rel) + " (the project folder is " + path_to_utf8(projectCanon) + ")",
+                           w.error().hint);
     return std::nullopt;
+}
+
+// Why a name cannot be part of a path that is written into a project, or empty. A project must stay portable: Windows cannot
+// create a file named like a device (CON, NUL, COM1... with or without an extension) or ending in a dot or a space, and strips
+// that dot or space, so the file would land under another name. Refused on every platform.
+std::string unportable_name(const std::string& seg) {
+    if (seg.empty()) return {};
+    if (seg.back() == '.' || seg.back() == ' ') return "ends in a '" + std::string(1, seg.back()) + "'";
+    std::string stem = to_lower(seg.substr(0, seg.find('.')));
+    while (!stem.empty() && stem.back() == ' ') stem.pop_back();
+    static const char* const devices[] = {"con", "prn", "aux", "nul"};
+    for (const char* d : devices)
+        if (stem == d) return "is the name of a Windows device";
+    if (stem.size() == 4 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) && stem[3] >= '1' && stem[3] <= '9')
+        return "is the name of a Windows device";
+    return {};
 }
 
 }  // namespace
@@ -968,6 +986,9 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
             if (drive || colon)
                 return write_error("invalid_path", "Path '" + given + "' has the segment '" + seg + "', which names a drive or a stream" + where,
                                    "Remove the ':' from the name: a relative path is a list of folder and file names.");
+            if (std::string why = unportable_name(seg); !why.empty())
+                return write_error("invalid_path", "Path '" + given + "' has the name '" + seg + "', which " + why + where,
+                                   "Rename it: the project has to work on Windows too (no CON, PRN, AUX, NUL, COM1-9, LPT1-9, and no name ending in a dot or a space).");
         }
         stdfs::path full = rootCanon;
         if (!out.empty()) full /= path_from_utf8(fa::join(out, "/"));

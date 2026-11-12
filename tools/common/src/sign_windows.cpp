@@ -580,8 +580,8 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
-        "msix":{"type":"string","description":"The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix."},
-        "out":{"type":"string","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
+        "msix":{"type":"string","x-fa-path":"write","description":"The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "exe":{"type":"boolean","default":false,"description":"Also sign the game's .exe in build/export/<game-slug>-windows/ (for a game shared as a folder or a zip). The package is not changed by it."},
         "pfx":{"type":"string","description":"The code-signing certificate (.pfx), absolute or relative to the project. Default: FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json. The password is read from FACTORIA_WINDOWS_PFX_PASSWORD only."},
         "testCertificate":{"type":"boolean","default":false,"description":"Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC."},
@@ -596,8 +596,15 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
             if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
             return dir->string();
         };
-        if (std::string v = tooling_detail::arg_string(args, "msix", false); !v.empty()) o.msix = inside(v, "msix");
-        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = inside(v, "out");
+        // The msix and the export folder are written: resolve_write_path keeps an agent inside the project, lets the
+        // command-line user give any folder, and refuses .git and .factoria.
+        auto writable = [&](const std::string& rel, const char* what) {
+            auto dir = resolve_write_path(projectDir, rel);
+            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            return dir->string();
+        };
+        if (std::string v = tooling_detail::arg_string(args, "msix", false); !v.empty()) o.msix = writable(v, "msix");
+        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
         if (std::string v = tooling_detail::arg_string(args, "pfx", false); !v.empty()) o.pfx = stdfs::path(v).is_absolute() ? v : inside(v, "pfx");
         o.exe = tooling_detail::arg_bool(args, "exe", false);
         o.testCertificate = tooling_detail::arg_bool(args, "testCertificate", false);

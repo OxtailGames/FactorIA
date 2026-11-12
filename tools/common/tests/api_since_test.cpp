@@ -252,19 +252,40 @@ TEST_CASE("docs.write_reference: an AI_GUIDE.md without markers or without a fil
     });
 }
 
-// A caller without WriteAnywhere (MCP, an agent) writes the reference only below the working directory, never to an absolute
-// folder: the folder is refused before any page is written.
-TEST_CASE("docs.write_reference: out stays inside the working directory for MCP and agents") {
+// A caller without WriteAnywhere (MCP, an agent) writes the reference only below the project folder, wherever the process was
+// started from, never to an absolute folder: the folder is refused before any page is written. The command-line user names a
+// folder relative to the working directory.
+TEST_CASE("docs.write_reference: out stays inside the project for MCP and agents, the command line uses the working directory") {
     with_command_registry([&](Engine& e) {
         testing::TempDir out;
-        CommandCapabilityScope mcp(capability_sets::mcp());
-        for (const std::string& bad : {out.path.generic_string(), std::string("../docs-out")}) {
-            CAPTURE(bad);
-            auto r = e.commands().call("docs.write_reference", {{"out", bad}});
-            REQUIRE_FALSE(r.ok);
-            CHECK(r.error["code"] == "invalid_argument");
-            CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+        testing::TempDir elsewhere;  // the working directory of the process: not the project
+        struct Cwd {
+            stdfs::path saved = stdfs::current_path();
+            ~Cwd() {
+                std::error_code ec;
+                stdfs::current_path(saved, ec);
+            }
+        } restoreCwd;
+        stdfs::current_path(elsewhere.path);
+        const stdfs::path project = fs::project_root();
+        {
+            CommandCapabilityScope mcp(capability_sets::mcp());
+            for (const std::string& bad : {out.path.generic_string(), std::string("../docs-out"), std::string(".git/docs")}) {
+                CAPTURE(bad);
+                auto r = e.commands().call("docs.write_reference", {{"out", bad}});
+                REQUIRE_FALSE(r.ok);
+                CHECK(r.error["code"] == "invalid_argument");
+                CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+            }
+            CHECK_FALSE(stdfs::exists(out.path / "COMPONENTS.md"));
+            auto r = e.commands().call("docs.write_reference", {{"out", "docs-mcp"}});
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            CHECK(stdfs::exists(project / "docs-mcp" / "COMPONENTS.md"));
+            CHECK_FALSE(stdfs::exists(elsewhere.path / "docs-mcp"));
         }
-        CHECK_FALSE(stdfs::exists(out.path / "COMPONENTS.md"));
+        auto r = e.commands().call("docs.write_reference", {{"out", "docs-cli"}});
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(stdfs::exists(elsewhere.path / "docs-cli" / "COMPONENTS.md"));
+        CHECK_FALSE(stdfs::exists(project / "docs-cli"));
     });
 }

@@ -4,6 +4,7 @@
 #include <doctest.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -137,11 +138,144 @@ TEST_CASE("x-fa-path: every annotation in the registered commands' schemas says 
     // The commands that write to a caller-given path say so.
     for (const auto& [command, argument] : std::vector<std::pair<std::string, std::string>>{
              {"fs.write", "path"}, {"project.export", "out"}, {"i18n.export", "out"}, {"project.new_plugin", "path"},
-             {"perf.baseline", "file"}, {"player.run_ios_sim", "screenshot"}}) {
+             {"perf.baseline", "file"}, {"player.run_ios_sim", "screenshot"}, {"project.new_ci_workflow", "path"},
+             {"sign.macos", "out"}, {"sign.macos", "zip"}, {"sign.macos", "pkg"}, {"sign.windows", "msix"}, {"sign.windows", "out"}}) {
         CAPTURE(command);
         const CommandInfo* info = reg.info(command);
         REQUIRE(info != nullptr);
         REQUIRE(info->inputSchema["properties"].contains(argument));
         CHECK(info->inputSchema["properties"][argument].value("x-fa-path", std::string()) == "write");
     }
+}
+
+namespace {
+
+// A folder link `link` -> `target`; false when the system does not let this user make one (Windows without developer mode).
+bool make_dir_link(const stdfs::path& link, const stdfs::path& target) {
+    std::error_code ec;
+    stdfs::create_directory_symlink(target, link, ec);
+    return !ec;
+}
+
+std::string message_of(const CommandResult& r) {
+    return r.error.is_object() && r.error.contains("message") ? r.error["message"].get<std::string>() : std::string();
+}
+
+}  // namespace
+
+// The managed folders are judged on the real path too: a link in the project that points into .git must not open them.
+TEST_CASE("fs.write, fs.edit and fs.delete refuse a link into .git or .factoria") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path game = tmp.path / "game";
+    stdfs::create_directories(game / ".git");
+    stdfs::create_directories(game / ".factoria" / "state");
+    testing::write_all(game / ".git" / "keep.txt", "keep");
+    testing::write_all(game / ".factoria" / "state" / "keep.txt", "keep");
+    if (!make_dir_link(game / "meta", game / ".git") || !make_dir_link(game / "state", game / ".factoria" / "state")) {
+        MESSAGE("this system does not let the test make a folder link: skipped");
+        return;
+    }
+    CommandRegistry reg;
+    register_tooling_commands(reg, game.generic_string());
+    for (const char* link : {"meta", "state"}) {
+        CAPTURE(link);
+        const std::string target = std::string(link) + "/keep.txt";
+        auto w = reg.call("fs.write", Json::object({{"path", std::string(link) + "/new.txt"}, {"content", "x"}}));
+        REQUIRE_FALSE(w.ok);
+        CHECK_MESSAGE(has_text(message_of(w), "managed_path_denied"), message_of(w));
+        auto e = reg.call("fs.edit", Json::object({{"path", target}, {"find", "keep"}, {"replace", "gone"}}));
+        REQUIRE_FALSE(e.ok);
+        CHECK_MESSAGE(has_text(message_of(e), "managed_path_denied"), message_of(e));
+        auto d = reg.call("fs.delete", Json::object({{"path", target}}));
+        REQUIRE_FALSE(d.ok);
+        CHECK_MESSAGE(has_text(message_of(d), "managed_path_denied"), message_of(d));
+    }
+    CHECK(testing::read_all(game / ".git" / "keep.txt") == "keep");
+    CHECK(testing::read_all(game / ".factoria" / "state" / "keep.txt") == "keep");
+    CHECK_FALSE(stdfs::exists(game / ".git" / "new.txt"));
+    CHECK_FALSE(stdfs::exists(game / ".factoria" / "state" / "new.txt"));
+}
+
+// One command of every family that writes what it renders or packs (sound, atlas, font) and of the signing and CI ones: the
+// target is refused before anything is produced, for a plain path into .git and for a link that leads there.
+TEST_CASE("commands that write a caller's path refuse .git and a link into it (sfx, atlas, font, sign, ci workflow)") {
+    testing::TempDir tmp;
+    testing::TempDir other;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path game = tmp.path / "game";
+    stdfs::create_directories(game / ".git" / "hooks");
+    stdfs::create_directories(game / "assets");
+    const bool linked = make_dir_link(game / "assets" / "meta", game / ".git");
+    CommandRegistry reg;
+    register_tooling_commands(reg, game.generic_string());
+    for (const char* name : {"sfx.preset", "assets.pack_atlas", "assets.subset_font", "sign.macos", "sign.windows", "project.new_ci_workflow"})
+        REQUIRE_MESSAGE(reg.has(name), name);
+
+    struct Call {
+        const char* command;
+        Json args;
+    };
+    std::vector<Call> inGit = {
+        {"assets.pack_atlas", Json::object({{"folder", "assets/frames"}, {"out", ".git/atlas.png"}})},
+        {"sign.macos", Json::object({{"out", ".git/export"}, {"dryRun", true}})},
+        {"sign.macos", Json::object({{"zip", ".factoria/game.zip"}, {"dryRun", true}})},
+        {"sign.windows", Json::object({{"msix", ".git/game.msix"}, {"dryRun", true}})},
+        {"project.new_ci_workflow", Json::object({{"path", ".git/hooks/pre-commit"}, {"dryRun", true}})},
+    };
+    if (linked) {
+        inGit.push_back({"sfx.preset", Json::object({{"name", "coin"}, {"path", "assets/meta/hooks/coin.sfx.json"}})});
+        inGit.push_back({"assets.pack_atlas", Json::object({{"folder", "assets/frames"}, {"out", "assets/meta/atlas.png"}})});
+        inGit.push_back({"assets.subset_font", Json::object({{"source", "assets/f.ttf"}, {"out", "assets/meta/f.ttf"}})});
+    }
+    // Closed to the command-line user and to an MCP client alike.
+    for (const bool mcp : {false, true}) {
+        std::optional<CommandCapabilityScope> scope;
+        if (mcp) scope.emplace(capability_sets::mcp());
+        for (const Call& c : inGit) {
+            CAPTURE(c.command);
+            CAPTURE(c.args.dump());
+            CAPTURE(mcp);
+            auto r = reg.call(c.command, c.args);
+            REQUIRE_FALSE(r.ok);
+            CHECK_MESSAGE(has_text(message_of(r), "managed_path_denied"), message_of(r));
+        }
+    }
+    CHECK(stdfs::is_empty(game / ".git" / "hooks"));
+    CHECK_FALSE(stdfs::exists(game / ".git" / "atlas.png"));
+    CHECK_FALSE(stdfs::exists(game / ".git" / "atlas.json"));
+
+    // An agent cannot leave the project with them either.
+    CommandCapabilityScope mcp(capability_sets::mcp());
+    const std::string outside = (other.path / "x").generic_string();
+    for (const Call& c : std::vector<Call>{
+             {"sfx.preset", Json::object({{"name", "coin"}, {"path", "../coin.sfx.json"}})},
+             {"assets.pack_atlas", Json::object({{"folder", "assets/frames"}, {"out", "../atlas.png"}})},
+             {"sign.macos", Json::object({{"out", outside}, {"dryRun", true}})},
+             {"sign.windows", Json::object({{"out", "../export"}, {"dryRun", true}})},
+             {"project.new_ci_workflow", Json::object({{"path", "../workflow.yml"}, {"dryRun", true}})}}) {
+        CAPTURE(c.command);
+        CHECK_FALSE(reg.call(c.command, c.args).ok);
+    }
+    CHECK_FALSE(stdfs::exists(other.path / "x"));
+    CHECK_FALSE(stdfs::exists(tmp.path / "coin.sfx.json"));
+}
+
+// project.new_ci_workflow: inside the project it writes (a dry run here), the command-line user may name the file by its
+// absolute path, and the file stays a GitHub workflow.
+TEST_CASE("project.new_ci_workflow: path is confined like the other writers, an absolute path inside the project is the user's") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path game = tmp.path / "game";
+    CommandRegistry reg;
+    register_tooling_commands(reg, game.generic_string());
+    const std::string absolute = (game / ".github" / "workflows" / "ci.yml").generic_string();
+    {
+        CommandCapabilityScope mcp(capability_sets::mcp());
+        auto ok = reg.call("project.new_ci_workflow", Json::object({{"path", ".github/workflows/ci.yml"}, {"dryRun", true}}));
+        CHECK_MESSAGE(ok.ok, ok.error.dump());
+        CHECK_FALSE(reg.call("project.new_ci_workflow", Json::object({{"path", absolute}, {"dryRun", true}})).ok);
+    }
+    auto user = reg.call("project.new_ci_workflow", Json::object({{"path", absolute}, {"dryRun", true}}));
+    CHECK_MESSAGE(user.ok, user.error.dump());
 }

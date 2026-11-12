@@ -263,9 +263,16 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
     // ---- where the file goes
     std::string rel = o.path.empty() ? std::string(".github/workflows/factoria.yml") : o.path;
     std::replace(rel.begin(), rel.end(), '\\', '/');
-    auto resolved = resolve_project_path(generic(dir), rel);
+    auto resolved = resolve_write_path(generic(dir), rel);
     if (!resolved.ok()) return err(who + "path: " + resolved.error().message, resolved.error().hint);
-    const std::string relNormal = generic(stdfs::path(rel).lexically_normal());
+    // The path as GitHub sees it: relative to the project. An absolute path (the command-line user's) counts when it lands inside.
+    std::string relNormal = generic(stdfs::path(rel).lexically_normal());
+    if (stdfs::path(rel).is_absolute()) {
+        std::error_code relEc;
+        const stdfs::path base = stdfs::weakly_canonical(os_path(dir), relEc);
+        const std::string inside = generic(resolved->lexically_relative(base));
+        if (!relEc && !inside.empty() && inside.rfind("..", 0) != 0) relNormal = inside;
+    }
     if (!starts_with(relNormal, ".github/workflows/") || !(ends_with(relNormal, ".yml") || ends_with(relNormal, ".yaml")) || relNormal.find('/', 18) != std::string::npos)
         return err(who + "path '" + rel + "' is not a workflow file: GitHub runs only .github/workflows/<name>.yml (or .yaml) of the repository",
                    "Use the default (.github/workflows/factoria.yml) or another file name in that folder.");
@@ -356,7 +363,7 @@ void register_ci_workflow_commands(CommandRegistry& registry, const std::string&
       "type":"object",
       "properties":{
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports the workflow makes: linux, windows, macos (aliases win, mac, osx also work). Default: all three."},
-        "path":{"type":"string","description":"The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml."},
+        "path":{"type":"string","x-fa-path":"write","description":"The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml."},
         "workingDirectory":{"type":"string","default":".","description":"The game's folder relative to the repository root when factoria.json is not at the root of the repository."},
         "version":{"type":"string","description":"The FactorIA release the workflow downloads: \"latest\" or a version such as 0.1.6. Default: the version of this factoria (a build from source: latest, with a warning)."},
         "overwrite":{"type":"boolean","default":false,"description":"Replace the file when it exists and differs. Without it that is an error."},

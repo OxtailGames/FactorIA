@@ -380,10 +380,10 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
         auto out = fs::normalize_checked(tooling_detail::arg_string(a, "out", false, defaultOut));
         if (!out.ok() || out->empty() || to_lower(fs::extension(*out)) != ".png")
             fail("invalid_argument", "`out` must be a project-relative .png path.", "For example \"assets/hero_sheet.png\".");
-        if (auto w = fs::check_writable(*out); !w.ok()) fail("invalid_argument", w.error().message, w.error().hint);
+        (void)project_write_file(projectDir, *out);  // refused before the PNG is encoded: managed folders, links out
         const auto png = encode_png(sheetImage);
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, *out), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, *out), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
             fail("failed", err);
         target = *out;
     }

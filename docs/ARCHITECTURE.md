@@ -159,9 +159,11 @@ the handler reads, with a `description`; the same rule applies to `project.<name
 keys (an unknown keyword is not an error, and `close_object_schemas` keeps them), so the annotation changes nothing at
 run time: it is documentation the schema carries to `describe`, `tools/list` and the docs reference, and what a review or a
 test greps for to find every place a caller can name a file. `write` marks an argument the command writes to: its handler
-must resolve it with `fa::fs::resolve_for_write` (or `resolve_write_path` / `resolve_project_path` in tooling, which call
-it with `allowAnywhere = caller_capabilities().has(Capability::WriteAnywhere)` and the project folder they were registered
-with), never with `std::filesystem` directly; see "Files". `read` marks a file the command reads (annotated where obvious;
+must resolve it with `fa::fs::resolve_for_write` or, in tooling, `resolve_write_path` (it passes
+`allowAnywhere = caller_capabilities().has(Capability::WriteAnywhere)` and the project folder the command was registered
+with, and refuses the managed folders), never with `std::filesystem` directly; see "Files". `resolve_project_path` is not
+for such an argument: it never allows an absolute path and leaves the managed folders open, because it also serves reads
+and the tools' own files. `read` marks a file the command reads (annotated where obvious;
 reads are not confined by this rule).
 
 **A description stays under 1.5 KB.** MCP's `tools/list` sends every command's summary and description with every
@@ -244,12 +246,20 @@ after resolving symlinks (`weakly_canonical`) the result must still be inside, s
 refused too. An absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless
 `allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent. With
 `WriteRoot::Project` the project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule)
-are closed to a relative path and to an absolute one alike (`managed_path_denied`); a command that picks such a target itself
-(selections, previews, review files under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first
-segment of a relative path and, on Windows, a `:` in any segment are `invalid_path`. Names compare without regard to case on
-Windows and macOS; on Linux they compare byte for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's real
-path and the fix, and end with `(code: ...)` (`fs::path_error_code`). The tooling file commands' `resolve_project_path` is a
-wrapper over it (`resolve_for_write_in`, with the project folder they were registered with).
+are closed to a relative path and to an absolute one alike (`managed_path_denied`), judged on the path as the caller wrote it
+and again on the real one after symlinks, with the names folded to lower case on every system (a case-insensitive volume
+makes `.GIT` the same folder on Linux too); a command that picks such a target itself (selections, previews, review files
+under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first segment of a relative path and, on
+Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move between them), a name Windows
+cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension) or a
+name ending in a dot or a space. Other names compare without regard to case on Windows and macOS; on Linux they compare byte
+for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's
+real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three entry points:
+`resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to write anywhere
+decides `allowAnywhere`; managed folders refused unless `ManagedFolders::Allow`), `project_write_file(projectDir, rel)` for
+the assets commands, which record project-relative paths and so stay inside the project for everyone, and `fs.write`,
+`fs.edit` and `fs.delete`, which refuse the managed folders on the real path. `resolve_project_path` (`resolve_for_write_in`
+with `allowAnywhere` false and `ManagedFolders::Allow`) is the reader's and the tools' own: selections, previews, reads.
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On

@@ -726,12 +726,11 @@ void Editor::install_command_overrides() {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
             const std::string path = a.value("path", scenePath_);
-            // Same write rules as the engine's scene.save: inside the project (an absolute path only for a caller that may write
-            // anywhere), and not in the managed folders (.git, .factoria/ except .factoria/tmp).
+            // This override applies the write rules itself: inside the project (an absolute path only for a caller that may write
+            // anywhere), and not in the managed folders (.git, .factoria/ except .factoria/tmp), which resolve_for_write refuses
+            // by default. (The engine's own scene.save does not apply them yet; a later package of M92 moves it to the same call.)
             auto target = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
             if (!target.ok()) throw CommandError("invalid_argument", target.error().message, target.error().hint);
-            if (auto w = fs::check_writable(path); !w.ok())
-                throw CommandError("invalid_argument", w.error().message, w.error().hint);
             std::vector<PrefabExpanded> expanded;
             auto r = save_scene_file(world(), fs::path_to_utf8(target.value()), false, nullptr, &expanded);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
