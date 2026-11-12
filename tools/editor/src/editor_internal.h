@@ -1274,7 +1274,7 @@ public:
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     bool showAiSettings_ = false, aiSettingsFocus_ = false;
-    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions
+    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions, 5 Agents
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
         std::string title;                         // the window's title as drawn last ("AI settings - This project: <name>")
@@ -1311,7 +1311,15 @@ public:
             bool pasteFailed = false;
             std::string saveError;
             std::shared_ptr<ToolTests> tests = std::make_shared<ToolTests>();
+            std::vector<std::string> inheritEnvGlobal;  // ai.json's top-level inheritEnv: a server made in the form or pasted gets it too (its Test inherits it)
         } tools;
+        // The "Agents" tab: the permission mode of each CLI agent (ai.json providers.<name>.permissionMode).
+        struct AgentsDraft {
+            std::map<std::string, std::string> mode;   // by provider: the mode picked in the combo (only providers the person touched)
+            std::string confirm;                       // the provider whose dangerous mode waits for the confirmation ("" = none)
+            std::string message;                       // what the last Save did, or why it failed
+            bool failed = false;
+        } agents;
         // The "Extensions" tab: plugins, skill folders and hooks (ai.json "extensions" and the project's .factoria/extensions.json).
         struct ExtensionsDraft {
             std::vector<ai::Extension> user;           // the user's entries, the working copy
@@ -1358,6 +1366,8 @@ public:
     bool ai_settings_reload_keeping_edits(bool userChanged);
     void ai_settings_save_assets(bool asDefaults);  // Save / Save as my defaults of the Assets tab
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
+    void draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable);      // ai_permissions.cpp: the permission mode of each CLI agent
+    void ai_agents_reload();                                                    // ai_permissions.cpp: after a save, the editor follows ai.json
     // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
     // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
     struct AiPluginJob {

@@ -4839,6 +4839,7 @@ void Editor::at_build_tools_script() {
             }
             write_file(x->path, R"({
   "limits": { "maxConcurrentRuns": 3 },
+  "inheritEnv": ["FA_AUTOTEST_*"],
   "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } }
 })");
             set_env("FACTORIA_AI_CONFIG", x->path);
@@ -4918,6 +4919,8 @@ void Editor::at_build_tools_script() {
             at_check(s.size() == 1 && s[0].headers.size() == 1 && s[0].headers[0].first == "Authorization" &&
                          s[0].headers[0].second == "Basic {key}" && s[0].roles.size() == 2,
                      "...with its header and roles");
+            at_check(s.size() == 1 && s[0].inheritEnvGlobal == std::vector<std::string>{"FA_AUTOTEST_*"},
+                     "...and ai.json's global inheritEnv, so its Test inherits it like a saved server");
         });
         scroll_to("aiset:tools:test:scenario", "AI settings###AiSettings");
         click("aiset:tools:test:scenario");
@@ -4949,6 +4952,7 @@ void Editor::at_build_tools_script() {
                          s[1].args[3] == "/tmp/my dir" && s[1].env.count("MODE"),
                      "Import adds the pasted stdio server (" + aiSettings_.tools.pasteMessage + ")");
             at_check(aiSettings_.tools.pasteMessage.find("disabled") != std::string::npos, "...and says which keys FactorIA does not use");
+            at_check(s.size() == 2 && s[1].inheritEnvGlobal == std::vector<std::string>{"FA_AUTOTEST_*"}, "...with ai.json's global inheritEnv too");
         });
         snap("editor_ai_tools.png");
         click("aiset:tools:save");
@@ -4985,7 +4989,74 @@ void Editor::at_build_tools_script() {
             at_check(j.is_object() && j["mcpServers"].contains("scenario") && !j["mcpServers"].contains("fs"), "Remove and Save take the server out of the file");
             at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the other keys stayed again");
         });
-        click("aiset:tools:close");
+        // The Agents tab: the permission mode of Claude Code and Codex (docs/AI_PROVIDERS.md, "Permission mode").
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { aiSettingsTab_ = 5; });
+        step(3, [this] {
+            at_check(at_visible("aiset:agents:combo:claude-code") && at_visible("aiset:agents:combo:codex"),
+                     "the Agents tab has a permission mode combo for Claude Code and for Codex");
+            at_check(!at_enabled("aiset:agents:save:claude-code"), "Save waits for a change");
+            aiSettings_.agents.mode["claude-code"] = "bypassPermissions";
+        });
+        step(2, [this] { at_check(at_enabled("aiset:agents:save:claude-code"), "picking another mode enables Save"); });
+        click("aiset:agents:save:claude-code");
+        step(3, [this, x] {
+            at_check(aiSettings_.agents.confirm == "claude-code" && at_visible("aiset:agents:confirm") && at_visible("aiset:agents:cancel"),
+                     "a dangerous mode asks before it is saved");
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && !j.contains("providers"), "...and nothing is written yet");
+        });
+        click("aiset:agents:cancel");
+        step(2, [this] { at_check(aiSettings_.agents.confirm.empty() && !at_visible("aiset:agents:confirm"), "Not now closes the question"); });
+        click("aiset:agents:save:claude-code");
+        step(3, [this] { at_check(at_visible("aiset:agents:confirm"), "Save asks again"); });
+        click("aiset:agents:confirm");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("providers") && j["providers"]["claude-code"].value("permissionMode", std::string()) == "bypassPermissions",
+                     "confirming writes permissionMode into the provider (" + aiSettings_.agents.message + ")");
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet" && j["mcpServers"].contains("scenario") &&
+                         j["inheritEnv"].size() == 1,
+                     "the other keys of the file stayed");
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                const auto it = aiConfig_.providers.find("claude-code");
+                at_check(it != aiConfig_.providers.end() && it->second.permissionMode == "bypassPermissions",
+                         "the editor's config was reloaded with the mode");
+            }
+            at_check(aiSettings_.agents.mode.empty() && aiSettings_.tools.servers.size() == 1, "the draft shows the saved mode and kept the other tab");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { aiSettings_.agents.mode["codex"] = "read-only"; });
+        click("aiset:agents:save:codex");  // not dangerous: saved at once
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("providers") && j["providers"]["codex"].value("permissionMode", std::string()) == "read-only" &&
+                         j["providers"]["claude-code"].value("permissionMode", std::string()) == "bypassPermissions",
+                     "a safe mode is saved without a question, next to the first");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(3, [this] { at_check(at_visible("aiset:agents:reset:claude-code"), "a provider with a saved mode offers Use the default"); });
+        click("aiset:agents:reset:claude-code");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("providers") && !j["providers"].contains("claude-code") && j["providers"].contains("codex"),
+                     "Use the default takes the key (and the empty provider entry) out of the file");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        click("aiset:agents:close");
         step(4, [this] {
             at_check(!showAiSettings_ && !aiSettings_.loaded && aiSettings_.tools.servers.empty(), "Close closes the window and drops the draft");
         });

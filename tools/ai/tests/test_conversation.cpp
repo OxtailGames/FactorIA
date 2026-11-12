@@ -38,13 +38,13 @@ TEST_CASE("argv template: {session} adds --resume, an empty one removes it") {
     auto first = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
     CHECK(first == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
                                             "--model", "sonnet", "--mcp-config", "/proj dir/mcp.json", "--allowedTools",
-                                            "mcp__factoria", "--permission-mode", "acceptEdits"});
+                                            "mcp__factoria"});
 
     req.sessionId = "abc-123";
     auto follow = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
     CHECK(follow == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
                                              "--model", "sonnet", "--resume", "abc-123", "--mcp-config", "/proj dir/mcp.json",
-                                             "--allowedTools", "mcp__factoria", "--permission-mode", "acceptEdits"});
+                                             "--allowedTools", "mcp__factoria"});
 
     // user templates: an element with an empty {session} goes away, and so does a bare flag right before it
     CliRunRequest none{"x", "", "/p"};

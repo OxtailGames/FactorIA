@@ -68,6 +68,9 @@ struct ProviderConfig {
     // CLI agents
     std::string command;                  // "claude", "codex" or user command
     std::vector<std::string> argv;        // template; empty = built-in default for the kind
+    // claude-code and codex: how much the agent may do without asking ("permissionMode" of the provider in ai.json; one of
+    // permission_modes(kind)). "" = the kind's default (default_permission_mode). Added to the argv by apply_permission_mode.
+    std::string permissionMode;
     std::map<std::string, std::string> env;
     std::vector<std::string> unsetEnv;
     // Environment variables of the editor's process that this provider's program may see besides the base list (PATH, HOME...)
@@ -285,11 +288,12 @@ Result<std::vector<ToolServer>> parse_tool_servers(const Json& object, std::stri
 // One server as ai.json writes it; the key is replaced by "***" when redactKeys.
 Json tool_server_to_json(const ToolServer& server, bool redactKeys);
 // The "inheritEnv" array at `at` (a JSON pointer for errors): environment variable names, each optionally ending in * to name
-// every variable with that prefix ("AWS_*"). Error when it is not an array of such strings.
+// every variable with that prefix ("AWS_*"). Error when it is not an array of such strings, a name has whitespace or "=", or a
+// name is only "*" (an empty prefix would let the program inherit everything).
 Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_view at);
 // Writes ONLY "mcpServers" into the config file at `path` (created when missing) and keeps everything else in it, the way
-// save_asset_settings does. An empty list removes the section. On Linux and macOS the file is written with owner-only
-// permissions. A file that is not a JSON object is left alone (error).
+// save_asset_settings does. An empty list removes the section. The file is written with owner-only permissions (0600; on
+// Windows a protected DACL for the current user). A file that is not a JSON object is left alone (error).
 Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path);
 // Writes text where only the owner can read it, from the first byte (fs::write_private, core/private_file.h: a temporary file
 // made private before the text goes in, then renamed over `path`; a symlinked `path` is written through). Linux and macOS: mode
@@ -402,6 +406,25 @@ std::string default_key_env(const ProviderConfig& p);
 
 // Built-in default argv templates (everything after the command).
 std::vector<std::string> default_cli_argv(ProviderKind kind);
+
+// One value of a provider's "permissionMode": what the agent may do without asking the user (a background run cannot ask, so
+// what would need an answer is refused).
+struct PermissionMode {
+    const char* value;    // what ai.json holds, and the value of the CLI's own flag ("acceptEdits", "workspace-write")
+    const char* allows;   // one line: what the agent may do in this mode (shown in AI settings, ai.settings.get)
+    bool dangerous;       // lifts the guard rails (no sandbox / no permission checks): never a default, the editor asks first
+};
+// The modes of a kind, safest first; empty for the kinds that have none (only claude-code and codex do).
+std::vector<PermissionMode> permission_modes(ProviderKind kind);
+// The mode used when the provider sets none: "acceptEdits" for claude-code (what FactorIA always passed), "default" for codex
+// (no flag: Codex's own config.toml decides, read-only without one). "" for the other kinds.
+std::string default_permission_mode(ProviderKind kind);
+// The provider's mode: its "permissionMode", or the kind's default.
+std::string effective_permission_mode(const ProviderConfig& p);
+// Writes ONE provider's "permissionMode" into the config file (created when missing; an empty `mode` removes the key and the
+// provider's entry when that leaves it empty), keeping everything else, after the same checks as load_config. The provider
+// must exist (built-in or in the file) and be a claude-code or codex one. Owner-only permissions.
+Result<void> save_provider_permission_mode(std::string_view provider, std::string_view mode, std::string_view path);
 std::string default_cli_command(ProviderKind kind);  // "claude", "codex", ""
 
 // Warn about key-looking strings in a game project (text files only, skips .git,
