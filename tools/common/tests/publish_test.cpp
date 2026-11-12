@@ -149,8 +149,6 @@ struct Fixture {
     }
 };
 
-const Json* find_step(const Json& report, std::size_t i) { return &report["steps"][i]; }
-
 }  // namespace
 
 // ---- the "publish" section of factoria.json --------------------------------------------------------------------------
