@@ -8,6 +8,8 @@ Since 0.2.0.
 
 Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).
 
+Capabilities: read, state
+
 The safe area is the part of the screen a notch, rounded corners and the system bars of a phone leave free; items with `safeArea: true` are anchored to it and screen.safeArea in scripts reports it. A real phone reports it by itself; a headless run, a test or the editor has none (the whole screen), so this sets one to check a layout: either a `profile` ("phone-portrait": notch at the top and home indicator at the bottom; "phone-landscape": notch on a side; "none"), as fractions of the design size, or insets in design pixels from each edge (`left`, `top`, `right`, `bottom`, default 0). Take a game.step and a game.screenshot to see the result. A windowed run on a phone overwrites it every frame with the device's real value. Example: screen.set_safe_area {"profile":"phone-portrait"}
 
 | Argument | Type | Required | Description |

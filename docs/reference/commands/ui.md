@@ -8,6 +8,8 @@ Since 0.2.0.
 
 Show a subtitle line on the Captions component for a few seconds.
 
+Capabilities: read, state
+
 The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line without a sound, drawn by the Captions component (docs/TEXT.md, "Captions") for `seconds` of the game clock; the newest Captions.maxLines lines show. With `key` (a localization key) the line is the translation and follows a language change. Without a Captions entity the line is only tracked and the log says so once. Example: ui.caption {"text":"Watch out!","seconds":2,"speaker":"Mara"}
 
 | Argument | Type | Required | Description |
@@ -22,6 +24,8 @@ The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line wi
 Since 0.2.0.
 
 Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.
+
+Capabilities: read, state
 
 For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, (3) `offscreen`: its rectangle leaves the screen, or (4) `tooltip`: the `tooltip` of a visible widget is not a valid tooltip, or its box (the project's ui.tooltip style: maxWidth, font sizes, padding) is larger than the screen, so it cannot be placed inside it. Example: ui.check_layout {"textScales":[1,2],"uiScales":[0.75,1,1.5],"pseudo":true}
 
@@ -44,6 +48,8 @@ Since 0.2.0.
 
 Remove every subtitle from the screen now.
 
+Capabilities: read, state
+
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
 ## `ui.force_touch` (modifies state)
@@ -51,6 +57,8 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 Since 0.23.0.
 
 Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
+
+Capabilities: read, state
 
 TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a finger: those controls are shown at once (no step needed), `input.lastDevice` says "touch" and prompts and tooltips follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. Example: ui.force_touch {"enabled":true}
 
@@ -64,6 +72,8 @@ Since 0.3.0.
 
 Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
+Capabilities: read, state
+
 The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
 
 | Argument | Type | Required | Description |
@@ -76,6 +86,8 @@ Since 0.3.0.
 
 Set the interface scale: every screen-space widget and Text gets bigger or smaller.
 
+Capabilities: read, state
+
 The same as `ui.scale = value` in a script (docs/TEXT.md, "Interface size"): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Slider..., Text with space "screen") are multiplied by `scale`, on top of the text size option (ui.set_text_scale); the layout, ui.state rectangles, clicks and the drawing all follow. The widgets are laid out in a screen of design size / scale, so a Panel with anchors keeps its place and its children stay inside it. World-space Text and entities are not scaled. 1 is as authored; the range is 0.5 to 3. The project default is the "ui": {"scale"} of factoria.json. A change sends the game event `ui.scale` {value, previous}. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot, and check every size you offer with ui.check_layout {"uiScales": [...]}. Example: ui.set_scale {"scale":1.5}
 
 | Argument | Type | Required | Description |
@@ -87,6 +99,8 @@ The same as `ui.scale = value` in a script (docs/TEXT.md, "Interface size"): the
 Since 0.3.0.
 
 Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.
+
+Capabilities: read, state
 
 For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to [min, max] and snapped to `step` exactly as dragging the track does, and the "ui.change" event {id, value} is sent when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that is the difference. Needs an active, interactable Slider, or an enabled Interactable of kind "slider". Returns {id, value, changed}. Example: ui.set_slider {"id":"music_volume","value":0.5}
 
@@ -101,6 +115,8 @@ Since 0.2.0.
 
 Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
 
+Capabilities: read, state
+
 The player's "text size" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by `scale`, and so is what ui.measureText returns for them (space "screen", the default). World-space Text is part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot. Example: ui.set_text_scale {"scale":1.5}
 
 | Argument | Type | Required | Description |
@@ -112,6 +128,8 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 Since 0.2.0.
 
 Say a line aloud with the system's text to speech (or record it, headless).
+
+Capabilities: read, state
 
 The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and record the line (game.spoken() in tests). Example: ui.speak {"text":"Play"}
 
@@ -126,6 +144,8 @@ Since 0.1.6.
 
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
+Capabilities: read
+
 Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). Example: ui.state {}
 
 `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now ({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, "Tooltips").
@@ -135,6 +155,8 @@ Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], foc
 Since 0.2.0.
 
 Stop what is being said by ui.speak and drop the queued lines.
+
+Capabilities: read, state
 
 The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 

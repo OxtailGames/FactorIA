@@ -1408,7 +1408,8 @@ library, calling Java from C, `hasCode` and the details: [MOBILE.md](MOBILE.md#n
 
 **Signing**. A debug build is signed with the debug key of the machine (fine for trying the app). `--release` signs with the
 keystore of `export.android.signing` (`keystore`, `alias`; a project-relative path is resolved against the project and the
-file is never copied into the app). The passwords are never written to a project, a file of the export or a command line:
+file is never copied into the app). The passwords are never written to a project, a file of the export or a command line
+(the only passwords on a command line are the GOG and Microsoft Store ones, see "Secrets and the process list"):
 they come from `FACTORIA_ANDROID_KEYSTORE_PASSWORD` and `FACTORIA_ANDROID_KEY_PASSWORD` (or `android.keystorePassword` /
 `keyPassword` of `~/.factoria/export.json`; the key password defaults to the keystore password) and are given to the Gradle
 process as environment variables only. `plan_export` and `--release` check that the keystore exists and that the passwords
@@ -1617,15 +1618,17 @@ The command line of a running program is readable by every user of the computer 
 tool its secret by the safest route the tool has: the environment of the process (Gradle, `butler`, BuildPatchTool, `openssl
 -passin env:`, `keytool -storepass:env`, `signtool` through the certificate store), a file or key path (altool, `notarytool --key`, fastlane
 `--json_key`, `notarytool --keychain-profile`) or its standard input (`osslsigncode -readpass -`, `notarytool` for an Apple ID
-password: with no `--password` and no terminal it reads the password from stdin, and `sign.macos` starts it detached from the terminal
-with `perl`, which every Mac has). Reports and `dryRun` list only the NAMES of the environment variables a step sets (`env`) and say
+password: with no `--password` and no terminal it reads the password from stdin, and `sign.macos` starts it in a session of its own, so
+without a controlling terminal: `ProcessOptions::newSession`; a cancel still stops notarytool and everything it started). Reports and `dryRun` list only the NAMES of the environment variables a step sets (`env`) and say
 when a secret goes on stdin (`stdinSecret`). Two uploaders leave no other way, and FactorIA warns about them in the plan: GOG Pipeline
 Builder (`--password`) and the Microsoft Store CLI (`msstore reconfigure --clientSecret`).
 
 ### Secrets: environment variables and `~/.factoria/`
 
 A secret is never read from `factoria.json`, never written to a file of the project, never shown in a result, a progress line
-or a log (the value is replaced by `<redacted>`), and never placed on a command line unless the uploader leaves no other way.
+or a log (the value is replaced by `<redacted>`), and never placed on a command line unless the uploader leaves no other way. Two
+uploaders leave none: the GOG password (`GOGGalaxyPipelineBuilder --password`) and the Microsoft Store client secret (`msstore
+reconfigure --clientSecret`) are arguments while that program runs, whatever the other lines of this section say.
 
 | Store | Secret | Where it comes from |
 |---|---|---|
@@ -1827,8 +1830,12 @@ manifest `Publisher`.
   `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument, and no program gets it on its command line:
   on Windows `signtool` has no other way to read a `.pfx` password than `/p`, so the `.pfx` is imported into your user
   certificate store (`Cert:\CurrentUser\My`) by PowerShell, which reads the password from its environment, `signtool` signs with
-  `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails; a certificate that
-  was in the store before is left alone). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
+  `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails or is cancelled; a
+  certificate that was in the store before, with its private key, is left alone). Three PowerShell steps: read the thumbprint of the
+  certificate that has a private key (imports nothing), import only that certificate (not the chain certificates of the file, which
+  would bring up Windows' root-store question), and remove it. Steps two and three hold a named mutex, so two `sign.windows` runs of
+  one user do not change the store at the same time; the mutex does not span the signing, so do not sign with the same `.pfx` in
+  two runs at once (the first to finish removes the certificate). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
   `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
   against the manifest `Publisher` and refuses when they differ. `exe: true` also signs the game's exe, for a game shared
   as a folder or a zip. `dryRun` shows the three steps (import, sign, remove) and the NAMES of the variables each one sets, never a value.

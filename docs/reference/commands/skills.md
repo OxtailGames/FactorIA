@@ -8,6 +8,8 @@ Since 0.11.0.
 
 List the skills (topic guides) available to a role: name, description, where each lives.
 
+Capabilities: read
+
 Skills are folders with a SKILL.md (Agent Skills format) that you read only when a task needs them: the engine's own (make-art, make-audio, custom-shaders...), the user's (~/.factoria/skills) and the project's (skills/). Returns {skills:[{name, description, source engine|user|project, enabled, roles, dir, entry?, shadowedBy? (another skill of the same name wins), problem + fix? (SKILL.md invalid: not offered)}], count}. With `role`, only the skills that role is offered; without it, every skill with its settings. Read one with skills.read. docs/SKILLS.md. Example: {"role":"worker"}
 
 | Argument | Type | Required | Description |
@@ -19,6 +21,8 @@ Skills are folders with a SKILL.md (Agent Skills format) that you read only when
 Since 0.11.0.
 
 Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).
+
+Capabilities: read, writeProject
 
 Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lowercase letters, digits and hyphens, up to 64, the folder's name) and `description` (what the skill is for and WHEN to read it, up to 1024 characters), then a body to fill in. Add other files beside it and name them in the body. Never overwrites an existing skill. scope "project" (default) writes into the project's skills/ folder, which the game's other AIs and `factoria validate` see; "user" writes into ~/.factoria/skills for every project. Returns {path, name, scope}. docs/SKILLS.md. Example: {"name":"enemy-design","description":"How enemies are built in this game. Read before adding an enemy."}
 
@@ -33,6 +37,8 @@ Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lower
 Since 0.11.0.
 
 Read a skill: its SKILL.md instructions, or another file of the skill.
+
+Capabilities: read
 
 Loads the instructions of the skill `name` (see the Skills list in your prompt, or skills.list) before you start the kind of work it covers. Without `file` it returns the body of SKILL.md and lists the other files beside it; read one with `file` (a path relative to the skill, "reference.md"). Long files come in pieces: `truncated` and `nextOffset` say where the next call continues (`offset`, `limit` are bytes). Returns {name, source, file, description?, content, totalBytes, truncated?, nextOffset?, files?}. Unknown names and files answer with the ones that exist. docs/SKILLS.md. Example: {"name":"make-art"} or {"name":"make-art","file":"reference.md"}
 

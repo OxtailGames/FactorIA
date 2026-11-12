@@ -90,10 +90,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`agent.cost`](commands/ai.md#agentcost): Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed. _Since 0.22.0._
 - [`ai.extensions`](commands/ai.md#aiextensions): Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading. _Since 0.11.0._
 - [`ai.hooks`](commands/ai.md#aihooks): List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook. _Since 0.11.0._
-- [`ai.hooks_test`](commands/ai.md#aihooks_test): Run the configured hooks of one event with a sample input and show what they decide. _Since 0.11.0._
-- [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
+- [`ai.hooks_test`](commands/ai.md#aihooks_test-modifies-state): Run the configured hooks of one event with a sample input and show what they decide. _Since 0.11.0._
+- [`ai.models`](commands/ai.md#aimodels-modifies-state): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.plugin_install`](commands/ai.md#aiplugin_install-modifies-state): Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions. _Since 0.11.0._
-- [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
+- [`ai.providers`](commands/ai.md#aiproviders-modifies-state): List configured AI providers and roles, or diagnose which ones are usable (doctor).
 - [`ai.retrospective`](commands/ai.md#airetrospective-modifies-state): Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries. _Since 0.17.0._
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
@@ -106,7 +106,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.settings.get`](commands/ai.md#aisettingsget): Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine. _Since 0.17.0._
 - [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes. _Since 0.17.0._
 - [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Since 0.11.0._
-- [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
+- [`ai.tool_servers`](commands/ai.md#aitool_servers-modifies-state): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 
 ### [anim](commands/anim.md)
 
@@ -114,7 +114,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Since 0.7.0._
 - [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Since 0.7.0._
 - [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Since 0.7.0._
-- [`anim.filmstrip`](commands/anim.md#animfilmstrip): One picture with a grid of a clip's poses, to see the whole motion at once. _Since 0.7.0._
+- [`anim.filmstrip`](commands/anim.md#animfilmstrip-modifies-state): One picture with a grid of a clip's poses, to see the whole motion at once. _Since 0.7.0._
 - [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. _Since 0.7.0._
 - [`anim.move_event`](commands/anim.md#animmove_event-modifies-state): Move an event of a clip to another time. _Since 0.7.0._
 - [`anim.move_keys`](commands/anim.md#animmove_keys-modifies-state): Move and scale a selection of keys in time. _Since 0.7.0._
@@ -134,7 +134,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim3d.info`](commands/anim.md#anim3dinfo): Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project. _Since 0.16.0._
 - [`anim3d.mirror_pose`](commands/anim.md#anim3dmirror_pose-modifies-state): Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r). _Since 0.16.0._
 - [`anim3d.move_keys`](commands/anim.md#anim3dmove_keys-modifies-state): Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on. _Since 0.16.0._
-- [`anim3d.preview`](commands/anim.md#anim3dpreview): Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG. _Since 0.16.0._
+- [`anim3d.preview`](commands/anim.md#anim3dpreview-modifies-state): Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG. _Since 0.16.0._
 - [`anim3d.remove_event`](commands/anim.md#anim3dremove_event-modifies-state): Remove an event from a 3D clip. _Since 0.16.0._
 - [`anim3d.remove_keys`](commands/anim.md#anim3dremove_keys-modifies-state): Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away. _Since 0.16.0._
 - [`anim3d.remove_track`](commands/anim.md#anim3dremove_track-modifies-state): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Since 0.16.0._
@@ -159,9 +159,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.analyze_audio`](commands/assets.md#assetsanalyze_audio-modifies-state): Measure the loudness of a sound (or of every sound) and keep the result in assets.json. _Since 0.1.6._
 - [`assets.animate_svg`](commands/assets.md#assetsanimate_svg-modifies-state): Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key. _Since 0.6.0._
 - [`assets.bake_sheet`](commands/assets.md#assetsbake_sheet-modifies-state): Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame. _Since 0.6.0._
-- [`assets.check_art`](commands/assets.md#assetscheck_art): Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture. _Since 0.16.0._
-- [`assets.check_mix`](commands/assets.md#assetscheck_mix): Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix. _Since 0.16.0._
-- [`assets.contact_sheet`](commands/assets.md#assetscontact_sheet): Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names. _Since 0.16.0._
+- [`assets.check_art`](commands/assets.md#assetscheck_art-modifies-state): Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture. _Since 0.16.0._
+- [`assets.check_mix`](commands/assets.md#assetscheck_mix-modifies-state): Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix. _Since 0.16.0._
+- [`assets.contact_sheet`](commands/assets.md#assetscontact_sheet-modifies-state): Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names. _Since 0.16.0._
 - [`assets.convert_audio`](commands/assets.md#assetsconvert_audio-modifies-state): Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from. _Since 0.3.0._
 - [`assets.disclosure`](commands/assets.md#assetsdisclosure): Write the AI-generated content disclosure for store forms (Steam) from the provenance records. _Since 0.1.6._
 - [`assets.draw_capsules`](commands/assets.md#assetsdraw_capsules-modifies-state): Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo. _Since 0.2.0._
@@ -179,22 +179,22 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
 - [`assets.pick`](commands/assets.md#assetspick-modifies-state): Keep the candidate the person chose: it becomes the slot, the others are dropped. _Since 0.18.0._
 - [`assets.preload`](commands/assets.md#assetspreload-modifies-state): Read a list of asset files in the background, ready for their first use. _Since 0.19.0._
-- [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
-- [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
+- [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene-modifies-state): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
+- [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet-modifies-state): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
 - [`assets.rasterize_svg`](commands/assets.md#assetsrasterize_svg-modifies-state): Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key. _Since 0.4.0._
 - [`assets.regenerate`](commands/assets.md#assetsregenerate-modifies-state): Make a made asset again from the recipe its provenance records, and say what changed. _Since 0.6.0._
-- [`assets.review`](commands/assets.md#assetsreview): A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references. _Since 0.16.0._
+- [`assets.review`](commands/assets.md#assetsreview-modifies-state): A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references. _Since 0.16.0._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._
 - [`assets.slice_sheet`](commands/assets.md#assetsslice_sheet-modifies-state): Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them. _Since 0.1.6._
-- [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Since 0.16.0._
+- [`assets.spectrogram`](commands/assets.md#assetsspectrogram-modifies-state): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Since 0.16.0._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
 - [`audio.bake`](commands/assets.md#audiobake-modifies-state): Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
 - [`audio.create`](commands/assets.md#audiocreate-modifies-state): Write a new audio document (a source and a chain of steps) and bake it. _Since 0.16.0._
 - [`audio.edit`](commands/assets.md#audioedit-modifies-state): Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it. _Since 0.16.0._
 - [`audio.info`](commands/assets.md#audioinfo): Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields. _Since 0.16.0._
-- [`audio.render`](commands/assets.md#audiorender): Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing. _Since 0.16.0._
+- [`audio.render`](commands/assets.md#audiorender-modifies-state): Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes no sound. _Since 0.16.0._
 - [`image.bake`](commands/assets.md#imagebake-modifies-state): Draw a layered image document (*.image.json) into its PNG and return the picture. _Since 0.16.0._
 - [`image.create`](commands/assets.md#imagecreate-modifies-state): Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG. _Since 0.16.0._
 - [`image.draw`](commands/assets.md#imagedraw-modifies-state): Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour. _Since 0.16.0._
@@ -248,22 +248,22 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`model.import_clean`](commands/assets.md#modelimport_clean-modifies-state): Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake. _Since 0.16.0._
 - [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Since 0.16.0._
 - [`model.palette`](commands/assets.md#modelpalette-modifies-state): Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches. _Since 0.16.0._
-- [`model.preview`](commands/assets.md#modelpreview): Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG. _Since 0.16.0._
+- [`model.preview`](commands/assets.md#modelpreview-modifies-state): Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG. _Since 0.16.0._
 - [`model.select`](commands/assets.md#modelselect): Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched. _Since 0.16.0._
 - [`model.texture`](commands/assets.md#modeltexture-modifies-state): Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture. _Since 0.16.0._
 - [`model.uv`](commands/assets.md#modeluv-modifies-state): Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture. _Since 0.16.0._
 - [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Since 0.16.0._
 - [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Since 0.16.0._
-- [`music.check`](commands/assets.md#musiccheck): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Since 0.16.0._
+- [`music.check`](commands/assets.md#musiccheck-modifies-state): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Since 0.16.0._
 - [`music.chord`](commands/assets.md#musicchord): Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste. _Since 0.16.0._
 - [`music.create`](commands/assets.md#musiccreate-modifies-state): Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro. _Since 0.16.0._
 - [`music.drums`](commands/assets.md#musicdrums-modifies-state): Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song. _Since 0.16.0._
 - [`music.edit`](commands/assets.md#musicedit-modifies-state): Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written. _Since 0.16.0._
 - [`music.export_midi`](commands/assets.md#musicexport_midi-modifies-state): Write a song as a format-1 Standard MIDI File that a DAW or notation program opens. _Since 0.16.0._
 - [`music.import_midi`](commands/assets.md#musicimport_midi-modifies-state): Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids. _Since 0.16.0._
-- [`music.info`](commands/assets.md#musicinfo): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Since 0.16.0._
+- [`music.info`](commands/assets.md#musicinfo-modifies-state): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Since 0.16.0._
 - [`music.instrument`](commands/assets.md#musicinstrument-modifies-state): List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets. _Since 0.16.0._
-- [`music.mix`](commands/assets.md#musicmix): Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did. _Since 0.16.0._
+- [`music.mix`](commands/assets.md#musicmix-modifies-state): Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did. _Since 0.16.0._
 - [`music.notes`](commands/assets.md#musicnotes): List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them. _Since 0.16.0._
 - [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Since 0.16.0._
 - [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Since 0.16.0._
@@ -287,7 +287,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin3d.limit`](commands/assets.md#skin3dlimit-modifies-state): Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise. _Since 0.16.0._
 - [`skin3d.mirror`](commands/assets.md#skin3dmirror-modifies-state): Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image. _Since 0.16.0._
 - [`skin3d.normalize`](commands/assets.md#skin3dnormalize-modifies-state): Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection. _Since 0.16.0._
-- [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
+- [`skin3d.preview`](commands/assets.md#skin3dpreview-modifies-state): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
 - [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Since 0.16.0._
 - [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Since 0.16.0._
 - [`style.ignore`](commands/assets.md#styleignore-modifies-state): Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore. _Since 0.23.0._
@@ -388,7 +388,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).
 - [`game.render_stats`](commands/game.md#gamerender_stats): What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory. _Since 0.3.0._
 - [`game.resume`](commands/game.md#gameresume-modifies-state): Resume the simulation after game.pause.
-- [`game.screenshot`](commands/game.md#gamescreenshot): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
+- [`game.screenshot`](commands/game.md#gamescreenshot-modifies-state): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
@@ -455,7 +455,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`checkpoint.create`](commands/project.md#checkpointcreate-modifies-state): Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back. _Since 0.2.0._
 - [`checkpoint.diff`](commands/project.md#checkpointdiff): Show which files changed since a checkpoint (modified, added, deleted). _Since 0.2.0._
 - [`checkpoint.list`](commands/project.md#checkpointlist): List the project's checkpoints, newest first. _Since 0.2.0._
-- [`checkpoint.read`](commands/project.md#checkpointread-modifies-state): Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything. _Since 0.4.0._
+- [`checkpoint.read`](commands/project.md#checkpointread): Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything. _Since 0.4.0._
 - [`checkpoint.restore`](commands/project.md#checkpointrestore-modifies-state): Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it. _Since 0.2.0._
 - [`perf.baseline`](commands/project.md#perfbaseline-modifies-state): Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json). _Since 0.2.0._
 - [`perf.check`](commands/project.md#perfcheck): Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner. _Since 0.2.0._
@@ -513,6 +513,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.import_ascii`](commands/scene.md#sceneimport_ascii-modifies-state): Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 - [`scene.list_entities`](commands/scene.md#scenelist_entities): List entities (id, name, tags, components) with optional filters.
 - [`scene.load`](commands/scene.md#sceneload-modifies-state): Replace the running scene with a scene file.
+- [`scene.place_ascii`](commands/scene.md#sceneplace_ascii-modifies-state): Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file. _Not released yet._
 - [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Since 0.19.0._
 - [`scene.reload`](commands/scene.md#scenereload-modifies-state): Reload the current scene from disk (discards runtime changes).
 - [`scene.remove_component`](commands/scene.md#sceneremove_component-modifies-state): Remove a component from an entity.
@@ -551,11 +552,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [setup](commands/setup.md)
 
 - [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or open Xcode's App Store page). _Since 0.1.4._
-- [`setup.status`](commands/setup.md#setupstatus): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher. _Since 0.1.4._
+- [`setup.status`](commands/setup.md#setupstatus-modifies-state): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher. _Since 0.1.4._
 
 ### [shader](commands/shader.md)
 
-- [`shader.compile`](commands/shader.md#shadercompile): Compile a custom material's GLSL snippet for the dialects of some platforms and report errors with file, line and fixes. _Since 0.2.0._
+- [`shader.compile`](commands/shader.md#shadercompile-modifies-state): Compile a custom material's GLSL snippet for the dialects of some platforms and report errors with file, line and fixes. _Since 0.2.0._
 
 ### [sign](commands/sign.md)
 

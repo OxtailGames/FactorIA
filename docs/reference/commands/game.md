@@ -8,6 +8,8 @@ Since 0.4.0.
 
 Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.
 
+Capabilities: read, state
+
 Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more frame (input.mouse.released, the ui "click" event). The same sequence as game.click in a test, so it runs hold + 1 frames. A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable that no camera shows where a player can reach it) is an error that says why and how to fix it; a click at a position or world point reaches only what the camera there draws. A page shown on a mesh: a camera with Camera.renderTarget draws world-space Interactables into a texture and a MeshRenderer shows it (texture "target:<name>"). Examples: game.click {"id":"play"}, game.click {"position":[640,360]}, game.click {"world":[3,-2],"button":"right"}
 
 A `position` over that mesh reaches the widget under it through the mesh's UVs, exactly like the real mouse, and `widget` is that widget. `id` of a widget that only such a page shows (the main camera hides it with hideTags, or it is far off screen) is aimed backwards: a point of its hit area in the target camera's view, the matching point of the mesh, its place on the screen; the command uses the first point where the pointer really reaches this widget (a mesh or widget in front is skipped) and, when there is none, says why (no mesh shows the target, the widget is outside the camera's view, the mesh is off screen or covered, a target shown inside another target is not reachable). game.input {"mouse":{"position":[x,y],"left":true}} only sets the state for the next frame and leaves the button held; a click is move + press + frame + release + frame, which this command does in one call. Returns {position, button, frames, widget, via?, frame}: `widget` is the id of the topmost UI widget or Interactable the pointer reached when the button went down (null over the world; the widget a click removes or changes in that frame is still named); `via` is {mesh, target} - the entity of the MeshRenderer and of the Camera.renderTarget camera whose page the click went through - present only when it went through a page and no screen widget was on top.
@@ -23,6 +25,8 @@ A `position` over that mesh reaches the widget under it through the mesh's UVs, 
 ## `game.input` (modifies state)
 
 Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
+
+Capabilities: read, state
 
 Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. Forms: {"action":"jump","down":true}, {"key":"Space","down":false}, {"press":["jump"],"release":["fire"]}, {"mouse":{"position":[640,360]}}, {"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}, {"touch":{"id":1,"position":[200,300],"down":true}}. gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. Example: game.input {"press":["jump"],"frames":1}
 
@@ -45,6 +49,8 @@ Names may be input actions from factoria.json, key names (Space, A, Left...) or 
 
 Read recent log lines (engine, scripts, assets...).
 
+Capabilities: read
+
 Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
 
 | Argument | Type | Required | Description |
@@ -57,6 +63,8 @@ Each line has `wallTime`, the computer's local time when it was logged (ISO 8601
 
 Pause the simulation (frame() stops simulating; game.step still works).
 
+Capabilities: read, state
+
 Example: game.pause {}
 
 ## `game.render_stats`
@@ -65,17 +73,23 @@ Since 0.3.0.
 
 What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
 
+Capabilities: read
+
 Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ## `game.resume` (modifies state)
 
 Resume the simulation after game.pause.
 
+Capabilities: read, state
+
 Example: game.resume {}
 
-## `game.screenshot`
+## `game.screenshot` (modifies state)
 
 Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
+
+Capabilities: read, state
 
 Draws the game view as it is now (design resolution) and returns it; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect.
 WITHOUT `path` the picture is temporary: the result is {width, height, frame, temporary: true, $image: {path, mimeType, temporary: true}}, the MCP server and the AI assistant attach the image to the message and then DELETE the file, so do not keep or read that path later. (`factoria call` only prints the result and leaves the file; the engine removes engine-named files `.factoria/screenshots/frame_<n>*.png` older than 3 days or beyond the newest 200 when a project opens.) WITH `path` the file is written there and kept, and the result has `path`. Use `path` when your client cannot show images (then open the file yourself) or when you want to compare pictures later.
@@ -90,7 +104,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Output PNG (project-relative or absolute). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
 | `scale` | number | no | Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom. |
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom. |
 | `zoom` | number | no | Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide). |
@@ -103,6 +117,8 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 ## `game.state`
 
 Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
+
+Capabilities: read
 
 Filters: entities (ids), components (names to include), includeDefaults, maxEntities (default 200). Example: game.state {"entities":["player"],"components":["Transform","RigidBody2D"]}
 
@@ -119,6 +135,8 @@ Since 0.19.0.
 
 One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator.
 
+Capabilities: read
+
 Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. components limits the hash to the named component types (and leaves the particles, the clock and the random generator out): compare two runs on, say, ["SpriteAnimator","Sprite"] only. Example: game.state_hash {"perEntity":true}
 
 | Argument | Type | Required | Description |
@@ -131,6 +149,8 @@ Two runs that simulate the same thing give the same hash; any difference (a floa
 ## `game.step` (modifies state)
 
 Advance the simulation by N fixed frames (deterministic) and return a state summary.
+
+Capabilities: read, state
 
 Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `release` lets go; they are applied BEFORE the first frame and stay in effect (a press without release stays held). To tap a button use game.step {"frames":1,"press":["jump"]} then game.step {"frames":1,"release":["jump"]}. Works while paused. Example: game.step {"frames":60,"press":["move_right"]}
 
@@ -146,18 +166,22 @@ Since 0.3.0.
 
 Record the input the game receives as an input replay (start / stop).
 
+Capabilities: read, state, writeProject
+
 `start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the calendar date; what is held at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that `factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop between frames. Starting while recording begins again. Example: input.record {"action":"start"} ... input.record {"action":"stop","path":"replays/run1.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
-| `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
+| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). |
 
 ## `render.inspect`
 
 Since 0.4.0.
 
 Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it.
+
+Capabilities: read
 
 Draws the picture as it is now and reads the pixels along the segment `from` -> `to` (design pixels, origin top-left): one sample per pixel along the longer axis, as a value 0..255 of the sRGB bytes (`channel`: luminance with Rec. 709 weights, or red, green, blue). It lists every STEP: a change of at least `threshold` (default 8 levels) within `window` samples (default 2), which is how a bright seam, a gap between two sprites or the edge of a gradient band shows in the numbers while the eye misses it. A smooth ramp has no steps; a staircase (Mach bands: two overlapping gradients) has one per riser. The edge of a sprite or a shape is a step too: find what draws it with render.pick at the step's `at`. Result: {from, to, channel, scale, count, samples: [values], min, max, steps: [{index, at: [x, y] (design pixels, the middle of the jump), width, from, to, delta}], stepCount, frame}; at most 200 steps and 4096 samples. `scale` (0.25 to 4, default 1) samples a render at that scale, so at 4 there are four samples per design pixel and a sub-pixel gap shows. Look at the area with game.screenshot {region, zoom} first, then measure it. Needs graphics. Example: render.inspect {"from":[600,360],"to":[680,360],"threshold":6}
 
@@ -176,6 +200,8 @@ Since 0.4.0.
 
 Which entities draw a design-space pixel of the picture, topmost first.
 
+Capabilities: read
+
 Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn box covers `position` (design pixels, origin top-left), topmost first: screen-space UI above the world, then the higher `layer`, then (world Sprites) the lower world y, then the one drawn later (component order Tilemap, Sprite, Shape2D, Text; then creation order). Each hit is {entity, name, component, layer, space: "world"|"screen"}. Use it to find which shape or sprite causes a visible artefact (a seam, a dark band) after game.screenshot {region, zoom} or render.inspect located it. The test is the oriented BOX of the visual (the same footprint as entity.bounds() and the editor's picking): a transparent corner of a sprite, the corners outside a circle and the parts of a gradient that fade out still count; an alpha-0 colour is skipped; inactive entities are skipped, and so are world visuals the camera at that pixel does not draw (Camera.showTags / hideTags). The world point is found through the primary camera; `world` in the result is that point. Example: render.pick {"position":[640,360]}
 
 `widget` is the widget a click there would reach, through the same path the mouse takes: a screen widget, else a world-space Interactable, and over a mesh that shows a render target (Camera.renderTarget) the Interactable of that page under the point, or null. `via` ({mesh, target}: the MeshRenderer entity and the target camera's) is present when the point is over such a mesh (`hits` still lists what the main camera draws there: the mesh, not the page behind it). Needs graphics (the camera is the renderer's).
@@ -190,6 +216,8 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 Since 0.17.0.
 
 What an effect document costs on a phone: live particles and the screen they cover, with the fixes.
+
+Capabilities: read
 
 Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, 1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. Example: vfx.budget {"path":"assets/vfx/hit.vfx.json"}
 
@@ -208,6 +236,8 @@ Since 0.17.0.
 
 Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
 
+Capabilities: read
+
 Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors: [{pointer, message, hint}], warnings: [...]}. Errors stop the effect from playing; warnings (a `rate` with no duration, too many live particles) do not. A sound whose file is missing is an error. Example: vfx.check {"path":"assets/vfx/hit.vfx.json"}
 
 | Argument | Type | Required | Description |
@@ -219,6 +249,8 @@ Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors:
 Since 0.17.0.
 
 Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.
+
+Capabilities: read, state
 
 Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; in a 3D game the point 5 m in front of the main 3D camera, on its axis, which the result says in `positionNote`), steps the game and captures `region` at each step into one labelled grid PNG (label "f3 +100" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect must read against. The first picture is the frame after the effect started. By default the strip covers the effect's length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. Example: vfx.filmstrip {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"frames":12}
 
@@ -234,13 +266,15 @@ Without `path` the picture is temporary (the MCP server shows it then deletes th
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
 | `columns` | integer | no | Pictures per row (default: nearly square). |
-| `path` | string | no | Keep the PNG here (project-relative or absolute). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
 
 ## `vfx.list`
 
 Since 0.17.0.
 
 The effects that play now, and the limits of an effect.
+
+Capabilities: read
 
 Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect (the document's own clock), `duration` its length. An effect started by vfx.play counts at once, before the next step (time 0). Use it in a test to see that an effect started and ended: game.step, then vfx.list. Example: vfx.list {}.
 
@@ -249,6 +283,8 @@ Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limit
 Since 0.17.0.
 
 Play an effect document (*.vfx.json) at a position, or on an entity.
+
+Capabilities: read, state
 
 Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once (an ended effect counts until its emitters' particles are gone): past that the call returns {"id": null, "dropped": true} (logged once). The effect advances with the game clock (game.step, time.scale), so the same calls at the same steps give the same result. Example: vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
 
@@ -268,6 +304,8 @@ Since 0.17.0.
 
 A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes.
 
+Capabilities: read, state, network, process, spend
+
 The last look of the make, film, grade, fix loop for effects (docs/PARTICLES.md "Reviewing an effect"). It runs vfx.budget on the document and vfx.filmstrip on the running game (so THE GAME ADVANCES by about the length of the effect, at most 3 s, and the game must have graphics), then sends a vision model the filmstrip, the budget numbers and the document with a checklist: readability at game size, timing, palette, overdraw. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with vfx.budget and vfx.filmstrip, which you can read yourself. One model call per review: call it once vfx.check passes and vfx.budget has no finding, not after every edit. Example: {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"focus":"does it read on the dark floor?"}
 
 Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding), summary, checklist: [{item, grade, note}], fixes: [{what, where, command}], budget: {peakParticles, peakOverdraw, findings, ...}, filmstrip: {frames, columns, rows, tileWidth, tileHeight, zoom, region, position (where it was filmed), positionDefault, positionNote}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names something this engine does not have is listed in `warnings`. The document is not changed. Pass `picturePath` to keep the filmstrip PNG.
@@ -286,6 +324,8 @@ Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding
 Since 0.17.0.
 
 End an effect started by vfx.play (or a Vfx entity).
+
+Capabilities: read, state
 
 `immediate` true removes the effect's entity and its children at once (particles vanish); the default lets the emitters stop emitting and their particles finish, ends the lights, and the parts that had not started never do. Example: vfx.stop {"id":"vfx_hit_3"}
 

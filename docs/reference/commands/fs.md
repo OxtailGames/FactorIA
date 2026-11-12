@@ -6,6 +6,8 @@
 
 Delete a file or folder from the project.
 
+Capabilities: read, writeProject
+
 Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may write to. Example: {"path":"scripts/old.js"} or {"path":".factoria/tmp","recursive":true}
 
 | Argument | Type | Required | Description |
@@ -16,6 +18,8 @@ Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be de
 ## `fs.edit` (modifies state)
 
 Replace exact text in a file (must match exactly once unless replaceAll).
+
+Capabilities: read, writeProject
 
 Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
 
@@ -30,6 +34,8 @@ Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360
 
 List files and folders in the project.
 
+Capabilities: read
+
 Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {"path":"scenes","recursive":true}
 
 | Argument | Type | Required | Description |
@@ -43,6 +49,8 @@ Project-relative. Hides the tools' folders (.factoria, version control) except t
 
 Read a text file (optionally a line range).
 
+Capabilities: read
+
 Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.
 
 | Argument | Type | Required | Description |
@@ -55,6 +63,8 @@ Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files a
 ## `fs.search`
 
 Search text in project files (substring or regex).
+
+Capabilities: read
 
 Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"**/*.json"} or {"query":"onUpdate\\(","regex":true}.
 
@@ -70,6 +80,8 @@ Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"*
 ## `fs.write` (modifies state)
 
 Create or overwrite a file (text, or binary via base64; parent folders are created; the write is atomic).
+
+Capabilities: read, writeProject
 
 Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For binary files such as PNG sprites pass encoding="base64" and the base64 of the bytes as content (e.g. {"path":"sprites/hero.png","encoding":"base64","content":"iVBORw0KGgo..."}). For small changes to an existing file prefer fs.edit. .json files are checked for syntax and a warning is returned if invalid; run project.validate afterwards. The file is replaced atomically (a temporary file is renamed over it), so hot reload never reads a half-written file. Writing into .factoria/ is refused except .factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).
 

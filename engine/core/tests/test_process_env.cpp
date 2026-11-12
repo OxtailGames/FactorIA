@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -94,6 +95,23 @@ TEST_CASE("base_child_env: the common names, never a secret") {
     const auto widened = child_env_allow({"AWS_PROFILE", "PATH", "", "AWS_PROFILE"});
     CHECK(widened.size() == base.size() + 1);  // the repeated and the empty names are dropped
     CHECK(widened.back() == "AWS_PROFILE");
+}
+
+TEST_CASE("run_process: inheritEnv passes the tool-path variables of base_child_env, not other variables") {
+    const char* const names[] = {"SOKOL_SHDC", "FACTORIA_EXPORT_CONFIG", "FACTORIA_FFMPEG", "FACTORIA_STEAMCMD",
+                                 "FACTORIA_FASTLANE", "FACTORIA_XCRUN", "FA_JOB_THREADS"};
+    std::vector<std::unique_ptr<ScopedVar>> set;
+    for (const char* n : names) set.push_back(std::make_unique<ScopedVar>(n, "value-of-it"));
+    ScopedVar neighbour("FACTORIA_WINDOWS_PFX_PASSWORD", "hunter2");
+    ProcessOptions po;
+    po.inheritEnv = base_child_env();
+    const auto env = child_environment(po);
+    for (const char* n : names) {
+        INFO(n);
+        REQUIRE(has(env, n));
+        CHECK(env.at(n) == "value-of-it");
+    }
+    CHECK_FALSE(has(env, "FACTORIA_WINDOWS_PFX_PASSWORD"));
 }
 
 TEST_CASE("run_process: inheritEnv drops what it does not name, keeps the base and the added variables") {

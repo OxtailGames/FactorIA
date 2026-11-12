@@ -124,9 +124,7 @@ struct FakeMac {
                 if (o.onStdoutLine) o.onStdoutLine(line);
                 if (o.onStderrLine) o.onStderrLine(line);
             }
-            // notarytool with an Apple ID password is started through `perl -e <script> --` (no controlling terminal, password on stdin)
-            std::vector<std::string> argv = o.argv;
-            if (stdfs::path(argv.at(0)).filename() == "perl" && argv.size() > 4) argv.erase(argv.begin(), argv.begin() + 4);
+            const std::vector<std::string>& argv = o.argv;
             const std::string exe = stdfs::path(argv.at(0)).filename().string();
             if (exe == "codesign" && argv.size() > 1 && argv[1] == "--force" && codesignExit != 0) {
                 r.exitCode = codesignExit;
@@ -439,7 +437,7 @@ TEST_CASE("sign.macos: notarytool credentials, in order, and nothing secret in t
         const std::vector<std::string> want = {"--apple-id", "ada@example.com", "--team-id", "ABCDE12345"};
         CHECK(std::search(argv.begin(), argv.end(), want.begin(), want.end()) != argv.end());
         CHECK_FALSE(contains(argv, "--password"));
-        CHECK(argv.front() == "/usr/bin/perl");
+        CHECK(argv.front() == "/usr/bin/xcrun");  // started directly: no wrapper program
         CHECK(step_named(*r, "Notarize")->stdinSecret);
         CHECK(r->credentials == "Apple ID ada@example.com (team ABCDE12345)");
         CHECK_FALSE(has_text(r->to_json().dump(), kPassword));
@@ -721,6 +719,8 @@ TEST_CASE("sign.macos: the app-specific password is passed to notarytool on stdi
     for (const ProcessOptions& call : mac.calls) {
         for (const std::string& a : call.argv) CHECK_FALSE(has_text(a, kPassword));
         onStdin = onStdin || call.stdinText == std::string(kPassword) + "\n";
+        // the call that feeds a password starts without a controlling terminal; no other call does
+        CHECK(call.newSession == !call.stdinText.empty());
     }
     CHECK(onStdin);
     CHECK_FALSE(has_text(r.error().message, kPassword));
@@ -807,20 +807,6 @@ TEST_CASE("sign.macos on a Mac: an ad hoc signature passes codesign --verify --s
     unzip.argv = {"/usr/bin/ditto", "-x", "-k", (app.parent_path().parent_path() / "demo-macos.zip").string(), unpacked.string()};
     REQUIRE(run_process(unzip).ok());
     CHECK(stdfs::exists(unpacked / "Demo.app" / "Contents" / "_CodeSignature" / "CodeResources"));
-}
-#endif
-
-#ifndef _WIN32
-TEST_CASE("sign.macos: the notarytool starter runs a program without a terminal, feeds it stdin and passes its exit code on") {
-    if (!stdfs::exists("/usr/bin/perl")) return;  // macOS and most Linux distributions ship it; the Apple ID form needs it on a Mac only
-    ProcessOptions po;
-    po.argv = {"/usr/bin/perl", "-e", notarytool_detach_script(), "--", "/bin/sh", "-c", "read pw; echo \"got:$pw\"; exit 3"};
-    po.stdinText = std::string(kPassword) + "\n";
-    po.timeoutSeconds = 30;
-    auto run = run_process(po);
-    REQUIRE(run.ok());
-    CHECK(run->exitCode == 3);
-    CHECK(has_text(run->stdoutText, std::string("got:") + kPassword));
 }
 #endif
 
