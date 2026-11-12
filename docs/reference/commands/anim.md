@@ -14,7 +14,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `t` | number | yes | Seconds from the start of the clip. |
 | `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
@@ -33,7 +33,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | no | The first keys [{t, value, interp?}]. |
 | `entity` | string | no | Entity that plays the clip: checks the part and gives the first key its current value. |
 | `extendDuration` | boolean | no | Raise the duration when a key is later than it. Default false. |
@@ -68,7 +68,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | yes | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
@@ -95,7 +95,7 @@ Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d
 | `onionSkin` | boolean | no | Draw faint copies of the neighbouring poses under each pose. Default false. |
 | `region` | array | no | [x, y, width, height] in design pixels; default: around the character. |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
-| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## `anim.list`
 
@@ -125,7 +125,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `to` | number | yes | The new time in seconds. |
 | `extendDuration` | boolean | no |  Default false. |
@@ -142,7 +142,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `offset` | number | no | Seconds added after scaling (negative moves earlier). Default 0. |
 | `scale` | number | no | Time scale about the pivot: 2 doubles the spacing, 0.5 halves it. Default 1. |
@@ -177,7 +177,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 
 ## `anim.remove_keys` (modifies state)
@@ -192,7 +192,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `times` | array | no | Times of the keys to remove. |
 | `all` | boolean | no | Remove every key (and so the track). Default false. |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
@@ -209,7 +209,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
 
 ## `anim.restore` (modifies state)
@@ -224,7 +224,7 @@ Every editing command returns `undo` = {command: "anim.restore", args: {path, cl
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 
 ## `anim.set_clip` (modifies state)
@@ -239,7 +239,7 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose. |
 | `doc` | string | no | What the clip shows. |
@@ -256,7 +256,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
@@ -274,7 +274,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `interp` | string | yes | linear, step, bezier or an easing of tween(). |
 | `in` | any | no | bezier: incoming slope for every selected key. |
@@ -292,7 +292,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `entity` | string | no | Entity that plays the clip (id or name): the track's part and component are checked against it. |
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
@@ -310,7 +310,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `t` | number | yes | Seconds from the start of the clip. |
 | `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
@@ -329,11 +329,11 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds (default 1). |
 | `loop` | boolean | no | true repeats the clip (default), false stops on its last pose. |
 | `rotation` | string ["euler","quat"] | no | How rotation keys are written: euler degrees (default) or quaternions. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `doc` | string | no | What the clip shows and when it is used. |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
@@ -351,10 +351,10 @@ Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLeng
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `kind` | string ["walk","run","trot","gallop","idle","swing","hit"] | yes | What to generate. |
 | `params` | object | no | The kind's parameters (anim3d.generators lists them): strideLength, cadence, bounce, armSwing, fps... |
-| `out` | string | no | Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json. |
+| `out` | string | no | Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
 ## `anim3d.generators`
@@ -379,8 +379,8 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. Path the command reads. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 
 ## `anim3d.mirror_pose` (modifies state)
 
@@ -394,8 +394,8 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `time` | number | yes | Seconds into the clip: the pose to mirror. |
 | `to` | number | no | Where to key the mirrored pose (default: `time`). |
 | `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
@@ -413,7 +413,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `dt` | number | yes | Seconds to move by (negative = earlier). |
 | `extendDuration` | boolean | no | Lengthen the clip when a key moves past its end. |
@@ -430,14 +430,14 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command reads. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `frames` | number | no | How many poses, 2 to 12 (default 8), evenly spaced over the clip. |
 | `cell` | number | no | Pixels per side of each pose (default 200). |
 | `yaw` | number | no | The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70). |
 | `yaws` | array | no | Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]. |
 | `pitch` | number | no | Degrees above the horizon (default 10). |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
 ## `anim3d.remove_event` (modifies state)
@@ -452,7 +452,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 
 ## `anim3d.remove_keys` (modifies state)
@@ -467,7 +467,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
 ## `anim3d.remove_track` (modifies state)
@@ -482,7 +482,7 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
@@ -498,7 +498,7 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 | `provenance` | any | no | The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it. |
 
@@ -514,10 +514,10 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `from` | string | no | The rig the clip was made for (default: the rig recorded in the clip). |
-| `to` | string | yes | The rig to carry the clip to. |
-| `out` | string | yes | Where to write the retargeted clip (ending in .anim.json). |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `from` | string | no | The rig the clip was made for (default: the rig recorded in the clip). Path the command reads. |
+| `to` | string | yes | The rig to carry the clip to. Path the command reads. |
+| `out` | string | yes | Where to write the retargeted clip (ending in .anim.json). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `plantFeet` | boolean | no | Solve the legs with a contact again so planted feet stay planted (default true). |
 | `scale` | number | no | Factor for root motion, ground speed and feet; 0 (default) = the ratio of the leg lengths. |
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
@@ -535,7 +535,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on its last pose. |
 | `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
@@ -553,7 +553,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
@@ -573,7 +573,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `interp` | string | yes | linear, step, bezier or an easing name. |
 
@@ -589,12 +589,12 @@ Edits one track (`bone` + `channel`, made when it does not exist): each key is {
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `bone` | string | yes | Canonical bone name: role[_index][_side], e.g. "spine_1", "thigh_l", "root". |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 | `keys` | array | yes | [{t, value, interp?, in?, out?}]: seconds from the start and the value (3 numbers, or 4 for a quaternion). |
 | `duration` | number | no | Set the clip's length in seconds (it must reach the last key). |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 
 ## `ik3d.check`
 
@@ -608,7 +608,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
 
 ## `ik3d.key` (modifies state)
@@ -623,8 +623,8 @@ Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `time` | number | yes | Seconds into the clip to key. |
 | `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets (twoBone, lookAt or foot). |
 | `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
@@ -642,9 +642,9 @@ Capabilities: read
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets. |
-| `clip` | string | no | A 3D clip to pose the rig with first (default: the rest pose). |
+| `clip` | string | no | A 3D clip to pose the rig with first (default: the rest pose). Path the command reads. |
 | `time` | number | no | Seconds into `clip` (default 0). |
 | `groundHeight` | number | no | Height of the flat ground a foot solver stands on (default 0). |
 

@@ -73,7 +73,7 @@ One node, one primitive per submesh with its material (name, base color, metalli
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The mesh ("mesh:N"). |
-| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## `mesh.update` (modifies state)
 

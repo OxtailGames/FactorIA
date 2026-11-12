@@ -1252,7 +1252,7 @@ List the hooks (programs and JavaScript modules run on events) and the recent ru
 
 Capabilities: read
 
-The "hooks" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns {entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {"recent":20}
+The "hooks" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns {entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around every command of the registry; a call refused with capability_denied is not hooked), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {"recent":20}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1546,7 +1546,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `t` | number | yes | Seconds from the start of the clip. |
 | `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
@@ -1565,7 +1565,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | no | The first keys [{t, value, interp?}]. |
 | `entity` | string | no | Entity that plays the clip: checks the part and gives the first key its current value. |
 | `extendDuration` | boolean | no | Raise the duration when a key is later than it. Default false. |
@@ -1600,7 +1600,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | yes | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
@@ -1627,7 +1627,7 @@ Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d
 | `onionSkin` | boolean | no | Draw faint copies of the neighbouring poses under each pose. Default false. |
 | `region` | array | no | [x, y, width, height] in design pixels; default: around the character. |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
-| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `anim.list`
 
@@ -1657,7 +1657,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `to` | number | yes | The new time in seconds. |
 | `extendDuration` | boolean | no |  Default false. |
@@ -1674,7 +1674,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `offset` | number | no | Seconds added after scaling (negative moves earlier). Default 0. |
 | `scale` | number | no | Time scale about the pivot: 2 doubles the spacing, 0.5 halves it. Default 1. |
@@ -1709,7 +1709,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 
 ### `anim.remove_keys` (modifies state)
@@ -1724,7 +1724,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `times` | array | no | Times of the keys to remove. |
 | `all` | boolean | no | Remove every key (and so the track). Default false. |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
@@ -1741,7 +1741,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
 
 ### `anim.restore` (modifies state)
@@ -1756,7 +1756,7 @@ Every editing command returns `undo` = {command: "anim.restore", args: {path, cl
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 
 ### `anim.set_clip` (modifies state)
@@ -1771,7 +1771,7 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose. |
 | `doc` | string | no | What the clip shows. |
@@ -1788,7 +1788,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
@@ -1806,7 +1806,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `interp` | string | yes | linear, step, bezier or an easing of tween(). |
 | `in` | any | no | bezier: incoming slope for every selected key. |
@@ -1824,7 +1824,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes |  |
 | `entity` | string | no | Entity that plays the clip (id or name): the track's part and component are checked against it. |
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
@@ -1842,7 +1842,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `t` | number | yes | Seconds from the start of the clip. |
 | `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
@@ -1861,11 +1861,11 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds (default 1). |
 | `loop` | boolean | no | true repeats the clip (default), false stops on its last pose. |
 | `rotation` | string ["euler","quat"] | no | How rotation keys are written: euler degrees (default) or quaternions. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `doc` | string | no | What the clip shows and when it is used. |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
@@ -1883,10 +1883,10 @@ Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLeng
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `kind` | string ["walk","run","trot","gallop","idle","swing","hit"] | yes | What to generate. |
 | `params` | object | no | The kind's parameters (anim3d.generators lists them): strideLength, cadence, bounce, armSwing, fps... |
-| `out` | string | no | Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json. |
+| `out` | string | no | Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
 ### `anim3d.generators`
@@ -1911,8 +1911,8 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. Path the command reads. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 
 ### `anim3d.mirror_pose` (modifies state)
 
@@ -1926,8 +1926,8 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `time` | number | yes | Seconds into the clip: the pose to mirror. |
 | `to` | number | no | Where to key the mirrored pose (default: `time`). |
 | `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
@@ -1945,7 +1945,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `dt` | number | yes | Seconds to move by (negative = earlier). |
 | `extendDuration` | boolean | no | Lengthen the clip when a key moves past its end. |
@@ -1962,14 +1962,14 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command reads. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `frames` | number | no | How many poses, 2 to 12 (default 8), evenly spaced over the clip. |
 | `cell` | number | no | Pixels per side of each pose (default 200). |
 | `yaw` | number | no | The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70). |
 | `yaws` | array | no | Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]. |
 | `pitch` | number | no | Degrees above the horizon (default 10). |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
 ### `anim3d.remove_event` (modifies state)
@@ -1984,7 +1984,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 
 ### `anim3d.remove_keys` (modifies state)
@@ -1999,7 +1999,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
 ### `anim3d.remove_track` (modifies state)
@@ -2014,7 +2014,7 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
@@ -2030,7 +2030,7 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 | `provenance` | any | no | The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it. |
 
@@ -2046,10 +2046,10 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `from` | string | no | The rig the clip was made for (default: the rig recorded in the clip). |
-| `to` | string | yes | The rig to carry the clip to. |
-| `out` | string | yes | Where to write the retargeted clip (ending in .anim.json). |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `from` | string | no | The rig the clip was made for (default: the rig recorded in the clip). Path the command reads. |
+| `to` | string | yes | The rig to carry the clip to. Path the command reads. |
+| `out` | string | yes | Where to write the retargeted clip (ending in .anim.json). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `plantFeet` | boolean | no | Solve the legs with a contact again so planted feet stay planted (default true). |
 | `scale` | number | no | Factor for root motion, ground speed and feet; 0 (default) = the ratio of the leg lengths. |
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
@@ -2067,7 +2067,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `duration` | number | no | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on its last pose. |
 | `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
@@ -2085,7 +2085,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
@@ -2105,7 +2105,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `interp` | string | yes | linear, step, bezier or an easing name. |
 
@@ -2121,12 +2121,12 @@ Edits one track (`bone` + `channel`, made when it does not exist): each key is {
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `bone` | string | yes | Canonical bone name: role[_index][_side], e.g. "spine_1", "thigh_l", "root". |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 | `keys` | array | yes | [{t, value, interp?, in?, out?}]: seconds from the start and the value (3 numbers, or 4 for a quaternion). |
 | `duration` | number | no | Set the clip's length in seconds (it must reach the last key). |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 
 ## api
 
@@ -2168,7 +2168,7 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. |
+| `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. Path the command reads. |
 
 ### `assets.animate_svg` (modifies state)
 
@@ -2184,8 +2184,8 @@ The module runs in a sandboxed QuickJS context: the language only (Math, JSON, A
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png. |
-| `source` | string | no | A project-relative JavaScript module whose default export draws one frame ("art/coin_spin.anim.js"), or an .svg file with SMIL animation. Give this or `svg`. |
+| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `source` | string | no | A project-relative JavaScript module whose default export draws one frame ("art/coin_spin.anim.js"), or an .svg file with SMIL animation. Give this or `svg`. Path the command reads. |
 | `svg` | string | no | One SVG with SMIL animation as text, sampled at every frame. Give this or `source`. |
 | `frames` | integer | no | Number of frames. Required with a module; with SMIL the default is one pass of the animation. Not with `clips` (they give their own). |
 | `fps` | number | no | Frames per second: t = frame / fps, and the fps of the sheet's clip. Default 12. |
@@ -2226,9 +2226,9 @@ SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the PNG sheet, project-relative, under assets/ and ending in .png. |
-| `prefab` | string | no | The prefab to bake, project-relative ("prefabs/burst.prefab.json"). Give this, or `scene` + `entity`. |
-| `scene` | string | no | A scene file that holds the entity to bake. Needs `entity`. |
+| `path` | string | yes | Where to write the PNG sheet, project-relative, under assets/ and ending in .png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `prefab` | string | no | The prefab to bake, project-relative ("prefabs/burst.prefab.json"). Give this, or `scene` + `entity`. Path the command reads. |
+| `scene` | string | no | A scene file that holds the entity to bake. Needs `entity`. Path the command reads. |
 | `entity` | string | no | The id of the entity of `scene` to bake, with its children. |
 | `frames` | integer | no | Frames per clip (all of them without `clips`). Default 12. |
 | `fps` | number | no | Frames per second of simulated time (at most the project's fixed rate, 60 by default): a frame is captured every 1/fps seconds. Also the sheet's clip speed. Default 12. |
@@ -2262,7 +2262,7 @@ Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
+| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. Path the command reads. |
 | `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
 | `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
 | `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
@@ -2306,7 +2306,7 @@ A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, t
 | `greyscale` | boolean | no | Add a last row with the pictures in greyscale over mid-grey, to judge their value structure. Default true. |
 | `columns` | integer | no | Cells per line; more wrap to a new block of rows below. Default 8. |
 | `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
-| `path` | string | no | Also save the picture as a PNG at this path (ending in .png; project-relative, an absolute path only for the command-line user). Needs the writeProject capability. Without it only a temporary screenshot in .factoria/screenshots is made. |
+| `path` | string | no | Also save the picture as a PNG at this path (ending in .png; project-relative, an absolute path only for the command-line user). Needs the writeProject capability. Without it only a temporary screenshot in .factoria/screenshots is made. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
 
 ### `assets.convert_audio` (modifies state)
@@ -2321,8 +2321,8 @@ Reads the WAV at `path` (8, 16, 24 or 32-bit PCM or float, mono or stereo) and w
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The WAV to convert, project-relative, under assets/. |
-| `to` | string | no | Where to write the Ogg, under assets/ and ending in .ogg. Default: next to the WAV, same name. |
+| `path` | string | yes | The WAV to convert, project-relative, under assets/. Path the command reads. |
+| `to` | string | no | Where to write the Ogg, under assets/ and ending in .ogg. Default: next to the WAV, same name. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `quality` | number | no | 0 to 1. Higher is bigger and closer to the WAV; 0.6 suits ambience, 0.8 music. Default 0.6. |
 | `overwrite` | boolean | no | Replace the Ogg when it already exists. Default false. |
 
@@ -2355,7 +2355,7 @@ Without a logo the art is cut without one and the logo-only assets are skipped.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `keyArt` | string | yes | The art to cut the capsules from: a project image path, 1920x1080 or bigger is best (a screenshot taken with --render-scale). |
+| `keyArt` | string | yes | The art to cut the capsules from: a project image path, 1920x1080 or bigger is best (a screenshot taken with --render-scale). Path the command reads. |
 | `focus` | array | no | The point of the art that must stay in view when it is cropped, as fractions [x, y]. Default [0.5, 0.5]. |
 | `logo` | object | no | The logo: give image or text. |
 | `logoAnchor` | any | no | Where the logo sits in the safe area instead of the asset's own rule: a name or a point [x, y] (0..1; [0, 0] touches the top-left corner of the safe area). |
@@ -2384,8 +2384,8 @@ Layer types: rect {x,y,w,h} (x,y = top-left), roundRect {x,y,w,h,radius}, circle
 |---|---|---|---|
 | `background` | object | yes | The icon's backdrop. |
 | `layers` | array | yes | Drawn in order, later on top. Each has a `type` (rect, roundRect, circle, ellipse, polygon, text) and the fields listed in the command description. |
-| `path` | string | no | PNG to write the icon to. Default: factoria.json `icon`, else assets/icon.png. |
-| `foreground` | any | no | PNG for the Android adaptive-icon foreground, or false to skip it. Default: export.android.adaptiveIcon.foreground, else assets/icon_fg.png. |
+| `path` | string | no | PNG to write the icon to. Default: factoria.json `icon`, else assets/icon.png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `foreground` | any | no | PNG for the Android adaptive-icon foreground, or false to skip it. Default: export.android.adaptiveIcon.foreground, else assets/icon_fg.png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `assets.generate_image` (modifies state)
 
@@ -2432,7 +2432,7 @@ Wind: {"kind":"noise","color":"brown","cutoff":900,"gusts":0.6,"seconds":20}. Fi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the loop, project-relative, under assets/ and ending in .wav or .ogg, e.g. "assets/audio/wind.wav". |
+| `path` | string | yes | Where to write the loop, project-relative, under assets/ and ending in .wav or .ogg, e.g. "assets/audio/wind.wav". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `kind` | string ["noise","drone"] | yes | noise: a bed (wind, fire, rain, a clock). drone: pads and chords (music, a mood). |
 | `seconds` | number | no | Length of the loop (default 12). For a drone with chordSeconds, leave it out to get chords x chordSeconds. |
 | `sampleRate` | integer | no | Sample rate in Hz. 22050 is plenty for ambience; the engine resamples. Default 22050. |
@@ -2586,7 +2586,7 @@ Examples: {"path":"assets/textures/desk.png","preset":"planks","width":1280,"hei
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png, e.g. "assets/textures/paper.png". |
+| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png, e.g. "assets/textures/paper.png". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `preset` | string ["paper","parchment","wood","planks","leather","fabric","linen","stone","value","fbm","cellular","gradient","radial","vignette"] | yes | The material or pattern. See the list in the command description. |
 | `width` | integer | no | Width in pixels (up to 2048; tile it for larger areas). Default 512. |
 | `height` | integer | no | Height in pixels. Default: the width (512 when neither is given). |
@@ -2658,8 +2658,8 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. |
-| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). |
+| `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. Path the command reads. |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
@@ -2697,9 +2697,9 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `folder` | string | yes | Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots. |
-| `out` | string | yes | Project-relative .png to write, e.g. "assets/atlas.png". Replaced if it exists. |
-| `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
+| `folder` | string | yes | Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots. Path the command reads. |
+| `out` | string | yes | Project-relative .png to write, e.g. "assets/atlas.png". Replaced if it exists. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
 
@@ -2749,8 +2749,8 @@ Starts the scene `scene` in a second, headless engine, steps `steps` frames (def
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path of the asset: a PNG/JPG (placed as a Sprite) or a .glb (placed as a MeshRenderer). |
-| `scene` | string | yes | Project-relative path of the scene to place it in, e.g. scenes/main.scene.json. The file is read, never written. |
+| `path` | string | yes | Project-relative path of the asset: a PNG/JPG (placed as a Sprite) or a .glb (placed as a MeshRenderer). Path the command reads. |
+| `scene` | string | yes | Project-relative path of the scene to place it in, e.g. scenes/main.scene.json. The file is read, never written. Path the command reads. |
 | `at` | array | no | World position [x, y] or [x, y, z] for the asset. Not with `entity`. |
 | `entity` | string | no | Id (or name) of an entity of the scene: the asset goes next to it, or in its place (see `placement`). Not with `at`. |
 | `placement` | string ["beside","replace"] | no | With `entity`: beside = to the right of the entity; replace = at its position, with the entity hidden in the picture. |
@@ -2772,7 +2772,7 @@ Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in ass
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path of the sprite sheet image. |
+| `path` | string | yes | Project-relative path of the sprite sheet image. Path the command reads. |
 | `clip` | string | no | Show only this clip of the sheet entry (its frames, loop seam and pivot). Default: all the clips, or all the frames. |
 | `onion` | boolean | no | Draw the previous frame in red and the next one in blue under each frame (onion skin). Default false. |
 | `scale` | integer | no | Magnification of each frame (whole numbers, nearest-neighbour). Default: enough for about 160 px per tile. |
@@ -2811,9 +2811,9 @@ Supported: path (all commands), rect (with rx, ry), circle, ellipse, line, polyl
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png. |
+| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG document as text, starting with <svg ...>. Give this or `source`. |
-| `source` | string | no | A project-relative .svg file, e.g. "assets/art/crest.svg". Give this or `svg`. |
+| `source` | string | no | A project-relative .svg file, e.g. "assets/art/crest.svg". Give this or `svg`. Path the command reads. |
 | `width` | integer | no | Width in pixels. With only the height given, it follows the SVG's proportions. Default: the SVG's own size. |
 | `height` | integer | no | Height in pixels. With only the width given, it follows the SVG's proportions. |
 | `background` | any | no | A colour to put the picture over ("#rrggbb", "#rrggbbaa", a name or [r, g, b]). Default: transparent. |
@@ -2839,7 +2839,7 @@ What a person recorded in the provenance (license, author, notes) is kept; the r
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative path of the asset to make again (it must record a recipe). |
+| `path` | string | no | Project-relative path of the asset to make again (it must record a recipe). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `all` | boolean | no | Make every asset with a recipe again. |
 | `stale` | boolean | no | Make again only the assets whose recipe inputs (the files they were made from) changed since. |
 | `dryRun` | boolean | no | List what would run (command, arguments, which inputs changed) and change nothing. |
@@ -2906,7 +2906,7 @@ background "auto" first makes a solid background transparent (the four corners m
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative image (png, jpg, tga, bmp), e.g. "assets/hero.png". |
+| `path` | string | yes | Project-relative image (png, jpg, tga, bmp), e.g. "assets/hero.png". Path the command reads. |
 | `columns` | integer | no | Grid mode: frames per row (1 if neither columns nor frameWidth is given). With auto: frames per row of the new sheet (default: the most sprites found in one row). |
 | `rows` | integer | no | Grid mode: number of rows (1 if neither rows nor frameHeight is given). |
 | `frameWidth` | integer | no | Grid mode: width of a frame in pixels, instead of columns. |
@@ -2916,7 +2916,7 @@ background "auto" first makes a solid background transparent (the four corners m
 | `auto` | boolean | no | Find the frames (groups of touching pixels separated by transparent gutters) and repack them into a uniform grid. Default false. |
 | `align` | string ["center","bottom"] | no | auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground. |
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
-| `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
+| `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `assets.spectrogram` (modifies state)
 
@@ -2930,10 +2930,10 @@ Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, li
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative sound file, e.g. assets/sfx/jump.wav. |
+| `path` | string | yes | Project-relative sound file, e.g. assets/sfx/jump.wav. Path the command reads. |
 | `width` | integer | no | Width of the picture in pixels. Default 1000. |
 | `height` | integer | no | Height of the picture in pixels. Default 640. |
-| `out` | string | no | Also keep the PNG at this project-relative path (must end in .png; needs the writeProject capability, never inside .git or .factoria). Without it the picture is a temporary screenshot. |
+| `out` | string | no | Also keep the PNG at this project-relative path (must end in .png; needs the writeProject capability, never inside .git or .factoria). Without it the picture is a temporary screenshot. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `loop` | boolean | no | Mark the loop seam. Default: whether the project plays the sound looping (scenes, prefabs and scripts). |
 | `channels` | string ["mid","each"] | no | "mid": one waveform of the average of the channels; "each": one lane per channel of a stereo sound. Default "mid". |
 
@@ -2951,8 +2951,8 @@ Runs HarfBuzz's subsetter: no Python or fontTools. The result has the sizes, the
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable. |
-| `out` | string | yes | Project-relative .ttf or .otf under assets/ to write, e.g. "assets/fonts/NotoSansSC-Regular-subset.ttf". Replaced if it exists. |
+| `source` | string | yes | The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable. Path the command reads. |
+| `out` | string | yes | Project-relative .ttf or .otf under assets/ to write, e.g. "assets/fonts/NotoSansSC-Regular-subset.ttf". Replaced if it exists. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `locales` | array | no | Languages whose locales/<language>.json give the characters, e.g. ["zh-Hans"]. Default: every language of localization.languages in factoria.json. |
 | `keep` | string | no | Extra characters to keep, written out: e.g. the characters a script builds names from, or a whole alphabet. |
 | `axes` | object | no | Where to pin the variable font's axes, tag to value: {"wght":400}. Default {"wght":400}. An axis not listed goes to its default. |
@@ -2989,7 +2989,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the WAV, project-relative, under assets/ and ending in .wav, e.g. "assets/audio/bark.wav". |
+| `path` | string | yes | Where to write the WAV, project-relative, under assets/ and ending in .wav, e.g. "assets/audio/bark.wav". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `preset` | string ["bark","growl","meow","screech","whoosh","explosion","hit","coin","pickup","jump","powerup","laser","blip","click","error","splash","footstep"] | yes | The kind of sound to make. See the list in the command description. |
 | `seed` | integer | no | Chooses the take: the same preset and seed always give the same file; change it for a variation (the noise changes and the pitch shifts up to 10 percent). Default 0. |
 | `seconds` | number | no | Length in seconds: the whole sound (envelopes, sweeps) is stretched to it. Default: the preset's own length. |
@@ -3007,7 +3007,7 @@ Without `path` this bakes every *.audio.json of the project whose sound is missi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Bake only this document (project-relative, ending in .audio.json). Leave out for every document. |
+| `path` | string | no | Bake only this document (project-relative, ending in .audio.json). Leave out for every document. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `force` | boolean | no | Bake documents that are fresh too. Default false. |
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no audio document baked. Default false. |
@@ -3047,8 +3047,8 @@ Writes `path` (*.audio.json under assets/) with the format, `source` (a project 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. |
-| `source` | string | yes | The sound to start from: a project path ending in .wav/.ogg/.mp3/.qoa, .sfx.json or .audio.json. |
+| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `source` | string | yes | The sound to start from: a project path ending in .wav/.ogg/.mp3/.qoa, .sfx.json or .audio.json. Path the command reads. |
 | `steps` | array | no | The chain, in order. Each step is {"type": ..., fields}. |
 | `seed` | integer | no | Seed of the random steps. |
 | `output` | object | no | {format: wav\|ogg, channels: source\|mono, quality: 0..1 (ogg), path: where to bake}. |
@@ -3068,13 +3068,13 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `op` | string ["add","set","remove","move","document"] | yes | What to do. |
 | `index` | integer | no | The step to act on (add: where to insert it). |
 | `step` | object | no | add: the new step, {"type": ..., fields}. |
 | `values` | object | no | set: fields to change; null removes a field. |
 | `to` | integer | no | move: the new position. |
-| `source` | string | no | document: the new source. |
+| `source` | string | no | document: the new source. Path the command reads. |
 | `seed` | integer | no | document: the new seed. |
 | `output` | object | no | document: the new output settings. |
 | `bake` | boolean | no | Bake the sound after writing. Default true. |
@@ -3093,7 +3093,7 @@ An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-des
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `seed` | integer | no | Render this take (replaces the document's seed). |
 | `render` | boolean | no | Render the chain in memory for the measurements. Turn it off to only check it. Default true. |
@@ -3175,13 +3175,13 @@ Applies the chain of the document (`path`, or an inline `document`) and returns 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, instead of `path`. |
 | `seed` | integer | no | Replaces the document's seed for this render. |
 | `stopAfter` | integer | no | Render only steps 0..stopAfter. |
 | `compare` | boolean | no | Show the unprocessed source above the result in the picture. Default true. |
 | `picture` | boolean | no | Return the picture (`$image`). Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Without it the picture is a temporary screenshot. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Without it the picture is a temporary screenshot. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 
 ## audio
@@ -3274,7 +3274,7 @@ Returns the content `path` (project-relative, forward slashes) had at checkpoint
 |---|---|---|---|
 | `id` | string | yes | A checkpoint id from checkpoint.list. |
 | `path` | string | yes | File to read, relative to the project folder, forward slashes: scripts/player.js. |
-| `out` | string | no | Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit. |
+| `out` | string | no | Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `checkpoint.restore` (modifies state)
 
@@ -3380,7 +3380,7 @@ Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the sc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `out` | string | yes | Docs folder to write into, usually "docs". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory. |
+| `out` | string | yes | Docs folder to write into, usually "docs". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## engine
 
@@ -3754,7 +3754,7 @@ Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be de
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path. |
+| `path` | string | yes | Project-relative path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `recursive` | boolean | no | Delete a folder and everything in it. Default false. |
 
 ### `fs.edit` (modifies state)
@@ -3767,7 +3767,7 @@ Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `find` | string | yes | Exact text to find (whitespace-sensitive). |
 | `replace` | string | yes | Replacement text (may be empty to delete). |
 | `replaceAll` | boolean | no | Replace every occurrence. Default false. |
@@ -3782,7 +3782,7 @@ Project-relative. Hides the tools' folders (.factoria, version control) except t
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Folder to list (default: project root). |
+| `path` | string | no | Folder to list (default: project root). Path the command reads. |
 | `recursive` | boolean | no | Descend into subfolders. Default false. |
 | `glob` | string | no | Only paths matching this glob, e.g. "**/*.js". |
 | `limit` | integer | no | Maximum entries returned. Default 500. |
@@ -3797,7 +3797,7 @@ Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command reads. |
 | `startLine` | integer | no | First line (1-based). Default 1. |
 | `endLine` | integer | no | Last line, inclusive (default: end of file). Default 0. |
 | `numbered` | boolean | no | Prefix every line with its number and a tab. Default false. |
@@ -3815,7 +3815,7 @@ Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"*
 | `query` | string | yes | Text or regular expression (ECMAScript). |
 | `regex` | boolean | no | Treat query as a regular expression. Default false. |
 | `caseSensitive` | boolean | no | Case-sensitive match. Default false. |
-| `path` | string | no | Folder to search (default: project root). |
+| `path` | string | no | Folder to search (default: project root). Path the command reads. |
 | `glob` | string | no | Only files matching this glob, e.g. "**/*.js". |
 | `limit` | integer | no | Maximum matches returned. Default 100. |
 
@@ -3829,7 +3829,7 @@ Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For b
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `content` | string | yes | Full new file content (base64 text when encoding=base64). |
 | `encoding` | string ["utf8","base64"] | no | "utf8" writes content as text; "base64" decodes it and writes the bytes (images, audio). Default "utf8". |
 | `overwrite` | boolean | no | Allow replacing an existing file. Default true. |
@@ -3938,7 +3938,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `scale` | number | no | Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom. |
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom. |
 | `zoom` | number | no | Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide). |
@@ -4010,7 +4010,7 @@ Reads locales/<language>.json of every language and writes what a translator nee
 |---|---|---|---|
 | `format` | string ["csv","xliff"] | no | csv = one spreadsheet file; xliff = one XLIFF 1.2 file per language (Poedit, OmegaT, memoQ...). Default "csv". |
 | `languages` | array | no | Languages to translate into, as in localization.languages (e.g. ["es", "pt-BR"]). Default: all but the default language. |
-| `out` | string | no | Folder to write into, project-relative and inside the project (an absolute path only from the command line; default build/translations). Not inside locales/. |
+| `out` | string | no | Folder to write into, project-relative and inside the project (an absolute path only from the command line; default build/translations). Not inside locales/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `delimiter` | string [",",";","\t"] | no | CSV only. Use ";" for Excel set to Spanish, German, French... (decimal comma). Default ",". |
 
 ### `i18n.import` (modifies state)
@@ -4025,7 +4025,7 @@ Reads a file written by i18n.export (or edited in a spreadsheet or a translation
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | yes | The CSV or XLIFF file to read, project-relative or absolute. |
+| `file` | string | yes | The CSV or XLIFF file to read, project-relative or absolute. Path the command reads. |
 | `languages` | array | no | Import only these languages of the file (default: all but the default language). |
 | `dryRun` | boolean | no | Report what would change without writing anything. Default false. |
 
@@ -4067,7 +4067,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
 
 ### `ik3d.key` (modifies state)
@@ -4082,8 +4082,8 @@ Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
-| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `time` | number | yes | Seconds into the clip to key. |
 | `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets (twoBone, lookAt or foot). |
 | `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
@@ -4101,9 +4101,9 @@ Capabilities: read
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. Path the command reads. |
 | `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets. |
-| `clip` | string | no | A 3D clip to pose the rig with first (default: the rest pose). |
+| `clip` | string | no | A 3D clip to pose the rig with first (default: the rest pose). Path the command reads. |
 | `time` | number | no | Seconds into `clip` (default 0). |
 | `groundHeight` | number | no | Height of the flat ground a foot solver stands on (default 0). |
 
@@ -4121,7 +4121,7 @@ Composites the layers of the image document at `path` (project-relative, ending 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. "assets/art/hero.image.json". |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. "assets/art/hero.image.json". Path the command reads. |
 | `onlyIfNeeded` | boolean | no | Skip the drawing when the PNG already matches the document and every file it reads (what the export does). Default false. |
 
 ### `image.create` (modifies state)
@@ -4136,7 +4136,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
+| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | yes | Canvas width in pixels. |
 | `height` | integer | yes | Canvas height in pixels. |
 | `background` | any | no | A colour the canvas starts with: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Without it the canvas starts transparent. |
@@ -4144,7 +4144,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 | `description` | string | no | A sentence for people and AIs about the picture. |
 | `palette` | any | no | For indexed (pixel-art) layers: "style" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each "#rrggbb" or {"name", "color"}; at most 81. See docs.read IMAGES, "Pixel art". |
 | `ramps` | array | no | Colour ramps for shading by index: lists of palette colours (index, name or "#rrggbb") from the darkest to the lightest, e.g. [["skin-dark","skin","skin-light"]]. |
-| `output` | string | no | The PNG the document bakes to, project-relative, ending in .png (e.g. "assets/art/enemy.png" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png. |
+| `output` | string | no | The PNG the document bakes to, project-relative, ending in .png (e.g. "assets/art/enemy.png" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
 | `bake` | boolean | no | Also draw the PNG. Default true. |
 
@@ -4162,7 +4162,7 @@ Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"sh
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to draw on: its name or an index path like "1/0". |
 | `create` | boolean | no | When no layer has that name, create a blank indexed layer with it at the top. Default false. |
 | `shapes` | array | yes | The shapes, drawn in order. |
@@ -4185,7 +4185,7 @@ A shape, gradient, text or other non-pixel layer is first rasterized: it becomes
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `selection` | string | yes | The stored selection to act on (image.select), or "all". |
 | `layer` | any | yes | The layer to change: its name or an index path like "1/0". |
 | `action` | object | yes | What to do. type: fill, recolor, move, transform, delete, copy, cut. See the command description for each action's fields. |
@@ -4206,8 +4206,8 @@ Draws the document at `path` (or only `layer`, by name or index path, with its m
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document. |
-| `out` | string | yes | The PNG to write, project-relative, ending in .png. |
+| `path` | string | yes | The image document. Path the command reads. |
+| `out` | string | yes | The PNG to write, project-relative, ending in .png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `scale` | number | no | Size factor of the result. Default 1. |
 | `layer` | any | no | Export only this layer or group (name or index path) instead of the whole picture. |
 | `trim` | boolean | no | Crop to the pixels that are not transparent. Default false. |
@@ -4227,7 +4227,7 @@ Inserts `count` frames at `at` (0..number of frames; default: at the end). Each 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `at` | integer | no | Where the new frames go (default: after the last frame). Existing frames from here on move up. |
 | `from` | integer | no | The frame the new frames copy (default: the frame before `at`). |
 | `blank` | boolean | no | The new frames show nothing on pixels and indexed layers. Not with `from`. Default false. |
@@ -4247,7 +4247,7 @@ A pixels or indexed layer has a picture (cel) per frame. This sets the cel of `l
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | A pixels or indexed layer: its name or an index path like "1/0". |
 | `frame` | integer | yes | The frame whose cel changes. |
 | `from` | integer | no | Show what the layer shows in this frame. |
@@ -4266,7 +4266,7 @@ Takes frame `frame` out and puts it back so that it is frame `to` (the frames in
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `frame` | integer | yes | The frame to move. |
 | `to` | integer | yes | The place it ends up at. |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
@@ -4283,7 +4283,7 @@ Deletes frame `frame` from every layer and from `frames`. Tags after it move dow
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `frame` | integer | yes | The frame to remove (0 = the first). |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
@@ -4299,7 +4299,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `frame` | any | yes | A frame number, a range [first, last] or "all". |
 | `duration` | integer | yes | Milliseconds each of those frames shows (100 = 10 frames per second). |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
@@ -4316,7 +4316,7 @@ The bake of an animated document is a sprite sheet. `columns` sets the frames (c
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `columns` | any | yes | Cells per row (1..1024), or null for the automatic grid. |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
@@ -4365,7 +4365,7 @@ Reads the document at `path` and returns {document, width, height, background, v
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative. |
+| `path` | string | yes | The image document, project-relative. Path the command reads. |
 
 ### `image.inpaint` (modifies state)
 
@@ -4411,7 +4411,7 @@ Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | object | yes | The layer: {kind, name?, visible?, opacity?, blend?, x?, y?, clip?, masks?, ...fields of its kind}. |
 | `parent` | any | no | A group (name or index path) to add the layer into. Default: the top level. |
 | `index` | integer | no | Position in the list, 0 = the bottom. Default: the top. |
@@ -4429,8 +4429,8 @@ The second half of image.inpaint and image.generate_layer, and the way to put an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
-| `source` | string | yes | The PNG the provider made, project-relative. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `source` | string | yes | The PNG the provider made, project-relative. Path the command reads. |
 | `provenance` | object | yes | How it was made: provider (required), model, prompt, seed, references, license, author, notes. |
 | `name` | string | no | Layer name (distinct). Default: provider, provider 2, ... |
 | `selection` | string | no | A stored selection (image.select) or "all": the layer shows only there. |
@@ -4454,7 +4454,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The layer to convert: its name or an index path like "1/0". |
 | `to` | string ["indexed","pixels"] | yes | indexed: palette-locked pixel art. pixels: a PNG layer. |
 | `palette` | any | no | to indexed: the palette to use when the document has none (a list of colours or "style"); it is written into the document. |
@@ -4477,7 +4477,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
 | `index` | integer | no | Position afterwards, 0 = the bottom. Default: the top. |
 | `parent` | any | no | Group to move into (name or index path), or "" for the top level. Default: stay in the same list. |
@@ -4495,7 +4495,7 @@ Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
@@ -4511,7 +4511,7 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
 | `set` | object | yes | The fields to change, e.g. {"opacity":0.5,"visible":false}. null removes a field. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
@@ -4530,7 +4530,7 @@ Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"str
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The layer to paint on: its name or an index path like "1/0". |
 | `create` | boolean | no | When no layer has that name, create an empty pixels layer with it at the top. Default false. |
 | `selection` | string | no | A stored selection (image.select) that limits where the strokes paint. |
@@ -4551,7 +4551,7 @@ Without `palette` and `ramps` it only reads: every colour with its index, the ch
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `palette` | any | no | New palette: "style" or a list of colours, each "#rrggbb" or {"name", "color"}; null removes the document's palette (the style palette applies). Omit to only read. |
 | `ramps` | any | no | New ramps: [[colour, colour, ...], ...] darkest first, colours by index, name or "#rrggbb"; null removes them. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
@@ -4568,7 +4568,7 @@ Reorders the palette of the document (the colours of its indexed layers, cels an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `from` | any | yes | The colour to move: its index, name or #rrggbb. |
 | `to` | any | yes | The colour whose position it takes (index, name or #rrggbb); an index is where it ends up. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
@@ -4585,7 +4585,7 @@ Takes the colour `index` (index, name or #rrggbb) out of the palette; the colour
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `index` | any | yes | The colour to remove: its index, name or #rrggbb. |
 | `replaceWith` | any | no | The palette colour its pixels take (index, name or #rrggbb). Left out: they become transparent. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
@@ -4604,7 +4604,7 @@ Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"pi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to draw on: its name or an index path like "1/0". |
 | `create` | boolean | no | When no layer has that name, create a blank indexed layer with it at the top. Default false. |
 | `pixels` | array | no | [[x, y, colour], ...]: single pixels. A palette colour: its index (3), its name ("skin"), its single index character ("3"), or a colour that IS in the palette ("#e0a070"). null, "." or "transparent" erases. {"step": -1} is one shade darker than what is in the pixel (+1 lighter); {"color": "skin", "step": 1} is the colour one step lighter than skin. A colour outside the palette is an error that names the nearest palette colour. |
@@ -4629,7 +4629,7 @@ Three passes (`passes`, default all, in this order). orphans: a pixel with no ne
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4657,7 +4657,7 @@ Writes into the region (`selection`, and/or `rect`, else the whole layer box; tr
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4687,7 +4687,7 @@ Outlines the shape of an INDEXED layer (everything that is not transparent). `si
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4717,7 +4717,7 @@ Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4743,7 +4743,7 @@ Scales the visible pixels of the layer (or of the `selection`) by `factor` (a nu
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4770,7 +4770,7 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
 | `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
 | `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
@@ -4797,7 +4797,7 @@ Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | yes | New canvas width in pixels. |
 | `height` | integer | yes | New canvas height in pixels. |
 | `anchor` | string ["top-left","top","top-right","left","center","right","bottom-left","bottom","bottom-right"] | no | The part of the old canvas that stays put; the canvas grows or is cropped on the opposite sides. Default "center". |
@@ -4816,7 +4816,7 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
+| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `document` | object | yes | The image document: {"width", "height", "background"?, "output"?, "layers": [...]}. See docs.read IMAGES for the layer kinds. |
 | `bake` | boolean | no | Also draw the PNG. False only checks and writes the document. Default true. |
 
@@ -4834,7 +4834,7 @@ PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/sel
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command reads. |
 | `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
 | `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
 | `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
@@ -4865,7 +4865,7 @@ Deletes the tag `name`; the frames stay. The next bake drops its clip from the s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `name` | string | yes | The tag to remove. |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
@@ -4881,7 +4881,7 @@ Creates the tag `name`, or changes it when it exists (omitted fields keep their 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `name` | string | yes | The tag's name; also the clip name. Unique in the document. |
 | `from` | integer | no | First frame (required for a new tag). |
 | `to` | integer | no | Last frame, inclusive (required for a new tag). |
@@ -4901,7 +4901,7 @@ Compares the pixels that touch when a tile repeats: its right column against its
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Path the command reads. |
 | `tileWidth` | integer | no | One tile's width; must divide the picture. Default: the document's tile, else the whole canvas. |
 | `tileHeight` | integer | no | One tile's height. Default as tileWidth. |
 | `tolerance` | integer | no | The largest difference between two touching pixels that still counts as matching. Default: automatic (0 for pixel art). |
@@ -4920,7 +4920,7 @@ Sets the `tile` key of the document at `path`. With tile mode on, the drawing co
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `enabled` | boolean | no | False turns tile mode off (removes `tile` from the document). Default true. |
 | `width` | integer | no | One tile's width in pixels; must divide the canvas width. Default: the canvas width. |
 | `height` | integer | no | One tile's height in pixels; must divide the canvas height. Default: the canvas height. |
@@ -4940,7 +4940,7 @@ Run it again to update: keys you give override, `parts` merge by name (null remo
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Created when it does not exist. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Created when it does not exist. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | string | no | The tileset layer's name. Found and updated, or added. Default "tileset". |
 | `mode` | string ["basic16","blob47"] | no | basic16: 4 neighbours, 16 tiles. blob47: 8 neighbours, 47 tiles. Default "blob47". |
 | `tileWidth` | integer | no | One tile's width in pixels (even). Required for a new layer; with only one of the sizes the tile is square. |
@@ -4950,12 +4950,12 @@ Run it again to update: keys you give override, `parts` merge by name (null remo
 | `variations` | integer | no | Pictures per tile; the others pick variants of the parts by seed. Default 1. |
 | `seed` | integer | no | Picks the variants of the tiles (and is stored in the rules, so painting picks the same variations). Default 0. |
 | `terrain` | string | no | The terrain's name in the rules (paint with tilemap.paint_terrain {terrain}). Default: the layer name. |
-| `rules` | string | no | Where the rules file goes. Default: <document>.terrains.json. |
+| `rules` | string | no | Where the rules file goes. Default: <document>.terrains.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `writeRules` | boolean | no | False writes no rules file. Default true. |
 | `palette` | array | no | The document's palette (colours) when parts use `rows`. |
 | `ramps` | array | no | The document's colour ramps. |
 | `description` | string | no | The document's description. |
-| `output` | string | no | The PNG the document bakes to. Default: next to the document. |
+| `output` | string | no | The PNG the document bakes to. Default: next to the document. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the rules file when it exists and is not this layer's. Default false. |
 | `bake` | boolean | no | Also draw the PNG (default true). Default true. |
 
@@ -4971,7 +4971,7 @@ Reads the tileset layer of the document at `path`, reports every part that is mi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Path the command reads. |
 | `layer` | string | no | The tileset layer. Default: the only one. |
 | `tolerance` | integer | no | The largest difference between two touching pixels that still counts as matching. Default: automatic (0 for pixel art). |
 | `scale` | integer | no | Magnification of the preview. Default: fits about 768 pixels. |
@@ -4988,7 +4988,7 @@ Describes what image.tileset.build is made of: for the mode (basic16 or blob47),
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Optional: describe its tileset layer. |
+| `path` | string | no | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Optional: describe its tileset layer. Path the command reads. |
 | `layer` | string | no | The tileset layer. Default: the only one. |
 | `mode` | string ["basic16","blob47"] | no | Without `path`: which set to describe. Default blob47. |
 | `squareTile` | boolean | no | Without `path`: false for a tile that is not square (it also needs edgeLeft). Default true. |
@@ -5005,9 +5005,9 @@ Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","ter
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Path the command reads. |
 | `layer` | string | no | The tileset layer. Default: the only one. |
-| `rules` | string | no | The rules file. Default: <document>.terrains.json. |
+| `rules` | string | no | The rules file. Default: <document>.terrains.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace a file that is not this layer's rules. Default false. |
 
 ### `image.to_pixel_art` (modifies state)
@@ -5024,9 +5024,9 @@ Then `orphans` (default true, but false with a `dither`, whose pixels would look
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `source` | any | no | The layer to convert: its name or an index path. Give this or `png`. |
-| `png` | string | no | A PNG (or JPG, BMP, TGA) of the project to convert. Give this or `source`. |
+| `png` | string | no | A PNG (or JPG, BMP, TGA) of the project to convert. Give this or `source`. Path the command reads. |
 | `into` | string | yes | The name of the indexed layer that receives the pixel art: created at the top when it does not exist, replaced when it does. |
 | `width` | integer | no | Width of the pixel art in pixels (alone: the height follows the proportions). |
 | `height` | integer | no | Height of the pixel art in pixels. |
@@ -5061,7 +5061,7 @@ Capabilities: read, state, writeProject
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
-| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). |
+| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## jobs
 
@@ -5194,7 +5194,7 @@ One node, one primitive per submesh with its material (name, base color, metalli
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The mesh ("mesh:N"). |
-| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). |
+| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `mesh.update` (modifies state)
 
@@ -5231,24 +5231,24 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Bake only this document (project-relative, ending in .model.json). Leave out for every document. |
+| `path` | string | no | Bake only this document (project-relative, ending in .model.json). Leave out for every document. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `force` | boolean | no | Bake documents that are fresh too. Default false. |
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no model document baked. Default false. |
 
-### `model.bake_maps`
+### `model.bake_maps` (modifies state)
 
 Since 0.16.0.
 
 Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures.
 
-Capabilities: read
+Capabilities: read, state
 
 Measures the maps that `texturing` wear and `ao` use, so you can choose thresholds before changing the document. ao: 1 (white) is open, lower is occluded by the rest of the model (rays up to `distance`, `samples` per texel); curvature: 0.5 grey is flat, lighter is a convex edge, darker a concave corner (sharp edges turn the surface by at least `edgeAngle` degrees and give a band `edgeWidth` metres wide); thickness: how far the inside of the shell is from the opposite surface up to `thicknessDistance`, darker is thin. All three are CPU and deterministic. The defaults are the document's texturing.maps (else samples 16, distance 15% and thicknessDistance 50% of the model's diagonal, edgeAngle 20, edgeWidth 3% of the diagonal). The atlas is the document's `uv` section (a model with none is unwrapped for the measurement; nothing is written). `size` defaults to texturing.size, else the uv texture size. The result has each map's mean, min, max and coverage over the covered texels, the texels covered and the share claimed by two pieces, and one picture with the maps side by side. To keep the maps as pictures next to the model add them to texturing.maps.write; to paint with them add wear entries (model.texture). Example: {"path":"assets/models/crate.model.json","maps":["ao","curvature"],"size":512}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command reads. |
 | `maps` | array | no | The maps to bake; default all three. |
 | `size` | integer | no | Side of the atlas in texels (16..4096); default texturing.size, else the uv section's texture size. |
 | `samples` | integer | no | Rays per texel for ao and thickness (4..256); default texturing.maps.samples or 16. |
@@ -5272,7 +5272,7 @@ Every finding has `message` (what is wrong, with the parts and bounds), `hint` (
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, instead of a file (format is filled in). |
 | `expectedHeight` | number | no | The height (Y) the model should have in metres, e.g. 1.8 for a person, 0.75 for a table. 0 = no expectation. Default 0.0. |
 | `tolerance` | number | no | A fraction of expectedHeight the height may differ by. Default 0.25. |
@@ -5292,7 +5292,7 @@ Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `nodes` | array | no | The tree, in order. Each node is {"op": ..., fields}; groups and modifiers hold `children`. |
 | `materials` | object | no | Named materials the nodes refer to with `material`: {name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}. |
 | `uv` | object | no | The uv section: how the model gets its UVs ({method, layout, texelsPerUnit, ...}; docs/MODELING.md, "UVs"). model.uv changes it field by field. |
@@ -5317,7 +5317,7 @@ Adding decals to a model with no texturing section creates one (and a uv unwrap 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `add` | any | no | A decal {name, image, position, size, normal, depth, rotation, opacity, tint, maxAngle, parts, faces} or a list of them. An existing name is replaced. |
 | `remove` | any | no | The name of a decal to remove, or a list of names. |
 | `clear` | boolean | no | Remove every decal. Default false. |
@@ -5337,7 +5337,7 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `op` | string ["add","set","remove","move","document"] | yes | What to do. |
 | `target` | string | no | set, remove, move: the node to act on, by id or JSON pointer. |
 | `node` | object | no | add: the new node, {"op": ..., fields}. |
@@ -5368,7 +5368,7 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
 | `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
 | `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
@@ -5392,8 +5392,8 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | The mesh to clean: a project-relative .glb, .gltf or .obj. |
-| `out` | string | no | The model document to write, under assets/, ending in .model.json. Default <source folder>/<name>_clean.model.json. |
+| `source` | string | yes | The mesh to clean: a project-relative .glb, .gltf or .obj. Path the command reads. |
+| `out` | string | no | The model document to write, under assets/, ending in .model.json. Default <source folder>/<name>_clean.model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the document, and a .glb that no model document baked. Default false. |
 | `upAxis` | string ["y","z"] | no | Which axis is up in the source: y (glTF, the engine) or z (Blender and CAD exports; turned to y). Default "y". |
 | `weldDistance` | number | no | Vertices closer than this many metres are one (when uv, colour and normal agree). 0 = a millionth of the model's size. Default 0.0. |
@@ -5401,7 +5401,7 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 | `minPieceSize` | number | no | A piece whose size is under this fraction of the biggest piece's is floating and removed (0..1). Default 0.02. |
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin goes: keep, center, bottom, bottom_center (the ground centre). Default "bottom_center". |
 | `height` | number | no | Scale so the model is this many metres tall (Y extent). Exclusive with reference and scale. |
-| `reference` | string | no | Scale to the height of this model: "human" (1.8 m) or a project .model.json, .glb or .gltf. Exclusive with height and scale. |
+| `reference` | string | no | Scale to the height of this model: "human" (1.8 m) or a project .model.json, .glb or .gltf. Exclusive with height and scale. Path the command reads. |
 | `scale` | number | no | Multiply the size by this factor (0.01 for centimetres). Exclusive with height and reference. |
 | `platform` | string ["desktop","mobile","web"] | no | The budget to decimate to: desktop, mobile or web (model.game_ready lists them). Default "desktop". |
 | `triangles` | integer | no | Decimate to at most this many triangles instead of the platform budget. |
@@ -5424,7 +5424,7 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `evaluate` | boolean | no | Build the mesh in memory for the measurements. Turn it off to only check the document. Default true. |
 
@@ -5442,7 +5442,7 @@ The colours multiply any the nodes already have, and go into the .glb as vertex 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `set` | object | no | Fields of the vertexColors section to change: palette, snap, flat, variation, seed, color, parts. A null value removes a field; parts merges part by part (a null part is removed). |
 | `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
 | `clear` | boolean | no | Remove the vertexColors section. Default false. |
@@ -5462,7 +5462,7 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, instead of a file (format is filled in). |
 | `views` | number | no | How many sides to draw, 4 to 8, evenly spaced around the model (a whole number). Default 6.0. |
 | `yaw` | number | no | The angle of the first view in degrees: 0 looks at the model's +Z side, 90 at its +X side. Default 30.0. |
@@ -5472,7 +5472,7 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 | `figure` | boolean | no | Draw the 1.8 m reference figure beside the model. Default true. |
 | `ground` | boolean | no | Draw the grid on y = 0. Default true. |
 | `part` | string | no | A part of the model to draw in orange. |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; needs the writeProject capability, never inside .git or .factoria). Left out, it is a temporary file. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; needs the writeProject capability, never inside .git or .factoria). Left out, it is a temporary file. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
 
 ### `model.select`
@@ -5487,7 +5487,7 @@ The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and as
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. Path the command reads. |
 | `document` | object | no | The document itself, as JSON, instead of a file. |
 | `node` | string | yes | The node whose mesh is selected on, by id or JSON pointer. |
 | `faces` | object | no | A face query, e.g. {"by": "normal", "direction": "top"}. model.info {} lists them. |
@@ -5507,7 +5507,7 @@ What goes into the picture: the colour of each material (a material with a `text
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `set` | object | no | Fields of the texturing section to change: size, bleed, vertexColors, background, document, ao, maps, wear, decals. A null value removes a field; maps merges field by field; wear and decals are replaced whole (model.decal edits single decals). |
 | `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
 | `clear` | boolean | no | Remove the texturing section. The layer pictures go with the next bake; the texture's image document and what you painted stay. Default false. |
@@ -5529,7 +5529,7 @@ The same spec works on sdf organic shapes, whose default box uvs it replaces. Wi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `set` | object | no | Fields of the uv section to change: layout, method, axis, texelsPerUnit, textureSize, padding, seams, rotate, parts. A null value removes a field; parts merges part by part (a null part is removed). |
 | `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
 | `clear` | boolean | no | Remove the uv section: the model keeps its primitives' own uvs. Default false. |
@@ -5549,7 +5549,7 @@ Spells the chords of `progression` one note after another, in a direction (up, d
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
 | `pattern` | string | no | Name of the pattern. |
 | `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
@@ -5568,7 +5568,7 @@ Spells the chords of `progression` one note after another, in a direction (up, d
 | `staccato` | boolean | no | Short notes. Default false. |
 | `seed` | integer | no | Direction random: the same seed gives the same notes. |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5585,7 +5585,7 @@ A bass part from the progression: root (a note per beat on the root), root_fifth
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
 | `pattern` | string | no | Name of the pattern. |
 | `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
@@ -5599,7 +5599,7 @@ A bass part from the progression: root (a note per beat on the root), root_fifth
 | `rate` | integer | no | Note value: 4 or 8; 0 = the style's own. |
 | `velocity` | integer | no | Note velocity 1 to 127. Default 100. |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5616,7 +5616,7 @@ Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a not
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command reads. |
 | `song` | object | no | The song itself, as JSON, to check before writing it to a file. |
 | `rules` | array | no | Which rules to run (default: every rule that needs no render). Naming loudness renders the song. |
 | `render` | boolean | no | Also run the loudness rule: render the song and measure it. Default false. |
@@ -5636,7 +5636,7 @@ With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at
 |---|---|---|---|
 | `name` | string | no | One chord: root, quality, optional /bass. Omit to list qualities. |
 | `progression` | string | no | Chord names or Roman numerals; *N holds a chord N bars. |
-| `path` | string | no | Read meter, key and mode from this song. |
+| `path` | string | no | Read meter, key and mode from this song. Path the command reads. |
 | `key` | string | no | Key for Roman numerals. Default C, or the song's. |
 | `mode` | string | no | Scale for Roman numerals. Default major, or the song's. |
 | `meter` | string | no | Meter such as "4/4". Default 4/4, or the song's. |
@@ -5654,7 +5654,7 @@ Makes a complete, valid starting song at `path` (assets/..., ending in .song.jso
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`) of the new song. Default true. |
 | `tempo` | number | no | Quarter notes per minute, 20 to 400. Default: the middle of the drum style's usual range. |
 | `meter` | string | no | Meter such as "4/4", "3/4" or "6/8". Default 4/4. |
@@ -5668,7 +5668,7 @@ Makes a complete, valid starting song at `path` (assets/..., ending in .song.jso
 | `doc` | string | no | A sentence about the song, stored in the document. |
 | `seed` | integer | no | The song's seed (the take of random hits and arpeggios). |
 | `overwrite` | boolean | no | Replace the file when it exists. Default false. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5685,7 +5685,7 @@ Without `style` it lists the styles and the kit's lanes. With one it returns a d
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
 | `pattern` | string | no | Name of the pattern. |
 | `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
@@ -5694,7 +5694,7 @@ Without `style` it lists the styles and the kit's lanes. With one it returns a d
 | `fill` | boolean | no | Make the last beat of the last bar a tom fill. Default false. |
 | `meter` | string | no | Meter. Default 4/4, or the song's. |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 
@@ -5712,10 +5712,10 @@ Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `ops` | array | yes | The operations, applied in order. |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5732,8 +5732,8 @@ Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quart
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. |
-| `out` | string | no | The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid. |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. Path the command reads. |
+| `out` | string | no | The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file when it exists. Default false. |
 
 ### `music.import_midi` (modifies state)
@@ -5750,8 +5750,8 @@ Markers become sections (a name starting with intro, loop or outro, or written "
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The MIDI file: an absolute path on this machine, or relative to the project. Ends in .mid or .midi. |
-| `out` | string | no | The song to write: under assets/, ending in .song.json. Default: assets/music/<name>.song.json. |
+| `path` | string | yes | The MIDI file: an absolute path on this machine, or relative to the project. Ends in .mid or .midi. Path the command reads. |
+| `out` | string | no | The song to write: under assets/, ending in .song.json. Default: assets/music/<name>.song.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `quantize` | string | no | "off" (default) or a note value to snap starts and ends to: "4", "8", "16", "32", "64", "8t", "16t"... |
 | `soundfont` | string | no | A SoundFont (.sf2) under assets/: pitched tracks play its preset with their General MIDI program and drums its drum kit. |
 | `loop` | boolean | no | A file with no markers: make its one section the song's loop (default: an ordinary section). Default false. |
@@ -5772,10 +5772,10 @@ Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command reads. |
 | `song` | object | no | The song itself, as JSON, to check before writing it to a file (format is filled in). |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`). Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Default: a temporary screenshot. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Default: a temporary screenshot. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5793,7 +5793,7 @@ Without `name` it lists what a track's `instrument` can be: the built-in pitched
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | no | A built-in instrument ("pluck"), a drum lane ("kit:kick", "kit:electronic:kick" or "kick") or a project .sf2 ("assets/audio/piano.sf2": lists its presets). Omit to list them all. |
-| `path` | string | no | Write the patch here (a .sfx.json under assets/). |
+| `path` | string | no | Write the patch here (a .sfx.json under assets/). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file at `path` when it exists. Default false. |
 
 ### `music.mix` (modifies state)
@@ -5808,7 +5808,7 @@ Renders the song (`path`, or inline `song`) like music.preview but writes no fil
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json. |
+| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json. Path the command reads. |
 | `song` | object | no | The song document inline (a song not saved yet); `path` or `song`. |
 | `fromBar` | integer | no | First bar rendered, counted from 1 (default 1). |
 | `bars` | integer | no | Number of bars rendered from `fromBar` (default: to the end). |
@@ -5829,7 +5829,7 @@ Reads the pattern `pattern` of `track` in the song at `path` and returns its not
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command reads. |
 | `track` | string | yes | The track. |
 | `pattern` | string | yes | The pattern of that track. |
 
@@ -5847,8 +5847,8 @@ The result has the measurements (lufs, peakDb), the numbers of the file as writt
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
-| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the song's path with .preview.wav. |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". Path the command reads. |
+| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the song's path with .preview.wav. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `fromBar` | integer | no | First bar rendered, counted from 1 (default 1). Notes that start earlier are not played. |
 | `bars` | integer | no | Number of bars rendered from `fromBar` (default: to the end). |
 | `solo` | array | no | Render only these tracks. |
@@ -5857,7 +5857,7 @@ The result has the measurements (lufs, peakDb), the numbers of the file as writt
 | `sampleRate` | integer [22050,32000,44100,48000] | no | Sample rate of the file. Default 44100. |
 | `overwrite` | boolean | no | Replace the file when it exists and was not made by music.preview (one made by it is always replaced). Default false. |
 | `picture` | boolean | no | Return the spectrogram picture (`$image`) of the preview. Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
 
@@ -5875,8 +5875,8 @@ A stem is named <out without extension>.stem.<name>.<ext>, has the same length, 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. |
-| `out` | string | no | Where to write the mix: .wav or .ogg under assets/. Default: the song's path with .wav (or .ogg when `format` says so). |
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. Path the command reads. |
+| `out` | string | no | Where to write the mix: .wav or .ogg under assets/. Default: the song's path with .wav (or .ogg when `format` says so). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `format` | string ["wav","ogg"] | no | File format when `out` is not given. wav is lossless and holds the loop points in a smpl chunk; ogg is smaller. |
 | `sampleRate` | integer [22050,32000,44100,48000] | no | Sample rate of the files. Default 44100. |
 | `seed` | integer | no | Added to the song's seed: another take of the instruments' noise. Default 0. |
@@ -6042,7 +6042,7 @@ File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuMedian:
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | no | Budget file, project-relative and inside the project (an absolute path only from the command line). Default "perf.json". |
+| `file` | string | no | Budget file, project-relative and inside the project (an absolute path only from the command line). Default "perf.json". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `frames` | integer | no | Frames per run; stored in the file (default: the file's value, else 300). |
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
@@ -6063,7 +6063,7 @@ The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCall
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
+| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". Path the command reads. |
 | `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
 | `requireBaseline` | boolean | no | Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything. Default false. |
 | `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs. |
@@ -6394,12 +6394,12 @@ The replay is applied by frame number to the window's frames at their real durat
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app` | string | yes | The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute). |
-| `input` | string | no | An input replay JSON ({"frames":{"0":{"press":["jump"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs. |
+| `app` | string | yes | The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute). Path the command reads. |
+| `input` | string | no | An input replay JSON ({"frames":{"0":{"press":["jump"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs. Path the command reads. |
 | `orientation` | string ["portrait","landscape"] | no | Turn the screen to this orientation about a second after the start. |
 | `device` | string | no | The simulator: a UDID or a name or part of one ("iPad Pro 13-inch"). Default: a booted iPhone, else the first iPhone of the newest iOS runtime. |
 | `bundleId` | string | no | The app's bundle id. Default: read from the app's Info.plist. |
-| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line). |
+| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `seconds` | integer | no | How long to wait for the replay to finish. Default 90. |
 | `settleMilliseconds` | integer | no | Wait this long after the last replay frame before the screenshot. Default 1500. |
 | `dryRun` | boolean | no | Return the simctl commands and run nothing. Default false. |
@@ -6419,7 +6419,7 @@ A prefab describes the reusable thing, not this instance, so the file does NOT c
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Id (or name) of the entity to save; its children are saved with it. |
-| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. |
+| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file when it already exists. Without it an existing file is an error. Default false. |
 
 ## project
@@ -6451,7 +6451,7 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dir` | string | yes | Target folder (created; must be empty or new). |
+| `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
@@ -6471,11 +6471,11 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platform` | string | no | linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria. |
-| `out` | string | no | Parent folder of the export, relative to the project folder and inside it (an absolute path only from the command line). Default: build/export. |
+| `out` | string | no | Parent folder of the export, relative to the project folder and inside it (an absolute path only from the command line). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
-| `player` | string | no | The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another. |
+| `player` | string | no | The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another. Path the command reads. |
 | `singleFile` | boolean | no | Web only: write ONE html file, <slug>-web/<slug>.html, with the player's JavaScript, the wasm, the icon and the game inlined (base64), that runs offline from a double click (file://) in a browser with no server. No zip, no loose files besides FACTORIA_NOTICES.txt. Refused with an error that says how to fix it when the page would be over singleFileMaxMb, or when the web player needs a server (a threaded build with shared memory needs cross-origin isolation headers, which a file cannot have). The CLI flag is --single-file. Default false. |
 | `singleFileMaxMb` | number | no | With singleFile: the biggest page to write, in megabytes (1 MB = 1048576 bytes; a fraction such as 1.5 is accepted, rounded to the nearest byte), from 1 to 256 (below 1 is refused); the size is worked out from the files BEFORE the page is built, so a game over it fails fast. Default 64. Browsers get slow with pages over about 100 MB, a page of 256 MB is about the biggest string a browser's JavaScript can hold, and base64 makes every file a third bigger. The CLI flag is --single-file-max-mb. |
 | `allowMissingPlugins` | boolean | no | Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is "optional" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins. Default false. |
@@ -6503,7 +6503,7 @@ Writes .github/workflows/factoria.yml into the game's folder. On every push to m
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports the workflow makes: linux, windows, macos (aliases win, mac, osx also work). Default: all three. |
-| `path` | string | no | The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml. |
+| `path` | string | no | The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `workingDirectory` | string | no | The game's folder relative to the repository root when factoria.json is not at the root of the repository. Default ".". |
 | `version` | string | no | The FactorIA release the workflow downloads: "latest" or a version such as 0.1.6. Default: the version of this factoria (a build from source: latest, with a warning). |
 | `overwrite` | boolean | no | Replace the file when it exists and differs. Without it that is an error. Default false. |
@@ -6525,7 +6525,7 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 |---|---|---|---|
 | `name` | string | yes | The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>. |
 | `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
-| `path` | string | no | Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts. |
+| `path` | string | no | Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
@@ -6544,7 +6544,7 @@ The server stops with the process or with {"stop":true}; it lives in the process
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `lan` | boolean | no | Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. Default false. |
+| `lan` | boolean | no | Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. true needs the publish capability (the editor's AI agent does not have it: it asks the user to run the command). Default false. |
 | `stop` | boolean | no | Stop the server and close its connections (instead of starting it). Cannot be combined with the other arguments. The server also stops when the process ends. Default false. |
 | `player` | string | no | The folder with factoria_player.js and factoria_player.wasm to serve instead of the installed web player, relative to the project folder or absolute (like project.export). Default "". |
 | `allowPlayerMismatch` | boolean | no | Serve a web player built from another commit than this factoria (like project.export). Default false. |
@@ -6596,7 +6596,7 @@ The key stays a file outside the project: nothing of it is written, shown or log
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact` | string | no | The .ipa or .pkg to upload, relative to the project. A .pkg is the Mac App Store package (sign.macos distribution appStore writes build/export/<game-slug>-macos.pkg); anything else is an .ipa. Default: the .pkg if it exists and no .ipa does, else build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes the .ipa (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project. |
+| `artifact` | string | no | The .ipa or .pkg to upload, relative to the project. A .pkg is the Mac App Store package (sign.macos distribution appStore writes build/export/<game-slug>-macos.pkg); anything else is an .ipa. Default: the .pkg if it exists and no .ipa does, else build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes the .ipa (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project. Path the command reads. |
 | `platforms` | array | no | Which build to upload when `artifact` does not say: ["ios"] the .ipa, ["macos"] the Mac App Store .pkg of sign.macos. Default: the one that exists. |
 | `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
@@ -6614,8 +6614,8 @@ Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the exp
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
-| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
-| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
+| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. Path the command reads. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
 ### `publish.gog` (modifies state)
@@ -6631,8 +6631,8 @@ Writes gog-<platform>.json (the Pipeline Builder project: the export folder as t
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
-| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
-| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
+| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. Path the command reads. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `branch` | string | no | GOG branch to put the build on (Pipeline Builder --branch). Default: none, the build is only uploaded. 'master' is refused: Pipeline Builder cannot publish to it. |
 
@@ -6650,7 +6650,7 @@ Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, dest
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact` | string | no | The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes. |
+| `artifact` | string | no | The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes. Path the command reads. |
 | `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `track` | string | no | Release track: internal, alpha, beta, production or the name of a closed testing track. Default: publish.googleplay.track, else internal. |
@@ -6669,8 +6669,8 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
-| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
-| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
+| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. Path the command reads. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
 ### `publish.microsoft` (modifies state)
@@ -6687,7 +6687,7 @@ Needs: the app reserved in Partner Center with its first submission made by hand
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `artifact` | string | no | The .msix to upload, relative to the project. Default: build/export/<game-slug>-windows.msix, which `factoria export --platform windows --format msix` writes. Upload it unsigned: the Store signs it. |
+| `artifact` | string | no | The .msix to upload, relative to the project. Default: build/export/<game-slug>-windows.msix, which `factoria export --platform windows --format msix` writes. Upload it unsigned: the Store signs it. Path the command reads. |
 | `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `releaseStatus` | string ["draft","completed"] | no | draft: msstore publish --noCommit, the submission is prepared in Partner Center and waits for you to submit it; completed: it is also submitted for certification. Default: draft. |
@@ -6705,8 +6705,8 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
-| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
-| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
+| `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. Path the command reads. |
 | `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `account` | string | no | Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login. |
 | `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (a dry run accepts 480, Valve's test app, with a warning; a real upload refuses it). |
@@ -6853,7 +6853,7 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Bake only this document (project-relative, ending in .rig.json). Leave out for every document. |
+| `path` | string | no | Bake only this document (project-relative, ending in .rig.json). Leave out for every document. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `force` | boolean | no | Bake documents that are fresh too. Default false. |
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no rig document baked. Default false. |
@@ -6873,8 +6873,8 @@ Unless bake is false it is baked: <name>.rig.glb next to the document is the mod
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
-| `model` | string | yes | The model document to fit, project-relative, ending in .model.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `model` | string | yes | The model document to fit, project-relative, ending in .model.json. Path the command reads. |
 | `template` | string ["humanoid","quadruped","bird","tail","chain","generic"] | yes | The skeleton template. |
 | `options` | object | no | The template's options, e.g. {"spine":4,"tail":3} (rig.templates {} lists them); the rest keep their defaults. |
 | `parts` | object | no | {bone: part name or list of part names}: the model parts that decide where a bone is. Normally the fit recognises parts by their names. |
@@ -6898,7 +6898,7 @@ Reads `path` (*.rig.json), applies the changes you give, checks the document as 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `parts` | any | no | {bone: part name or list of part names}; a null value removes that bone's entry, null removes all of them. |
 | `landmarks` | any | no | {bone or "bone.tail": [x,y,z]}; a null value removes that landmark, null removes all of them. |
 | `options` | any | no | The template's options to change (rig.templates {} lists them); null as a value returns one to its default. |
@@ -6921,7 +6921,7 @@ Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command reads. |
 | `fit` | boolean | no | Fit the template to the model for the report (evaluates the model). Default true. |
 
 ### `rig.templates`
@@ -6955,7 +6955,7 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). |
+| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
@@ -7019,7 +7019,7 @@ Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an is
 | `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
-| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
+| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
 | `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Needs no writeProject: `path` is only read. Default false. |
 | `edits` | object | no | File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {"camera": {"Camera": {"clearColor": [0.5, 0.7, 0.9, 1]}}}). Add "$merge": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}. A wrong entity/component/field fails and nothing is written. |
@@ -7058,7 +7058,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 
 ### `scene.place_ascii` (modifies state)
 
-Not released yet (on main after 0.24.0).
+Since 0.25.0.
 
 Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file.
 
@@ -7122,7 +7122,7 @@ Writes canonical scene JSON (only non-default fields, except settings.gravity2D 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene. |
+| `path` | string | no | Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `includeSpawned` | boolean | no | Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load. Default false. |
 
 ### `scene.set_component` (modifies state)
@@ -7309,7 +7309,7 @@ Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's p
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
-| `path` | any | no | Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project. |
+| `path` | any | no | Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project. Path the command reads. |
 | `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
 | `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
 
@@ -7325,7 +7325,7 @@ Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. |
+| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `op` | string ["set","remove","add","move"] | yes | What to do. |
 | `pointer` | string | yes | JSON pointer into the patch, e.g. /oscillators/0/wave or /effects. |
 | `value` | any | no | The new value (set) or the element to insert (add). Any JSON. |
@@ -7344,14 +7344,14 @@ Writes one patch per sound into the `out` directory (default: the base's path wi
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `from` | string | yes | The base patch, project-relative, ending in .sfx.json: the timbre every sound shares. |
+| `from` | string | yes | The base patch, project-relative, ending in .sfx.json: the timbre every sound shares. Path the command reads. |
 | `names` | array | no | Which sounds to make: click, hover, confirm, cancel, error, open, close, notify. |
 | `preset` | string | no | "ui": make all eight sounds. Give this or `names`. |
-| `out` | string | no | Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family. |
+| `out` | string | no | Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace patches and sounds that exist. Default false. |
 | `render` | boolean | no | Bake each sound to a WAV too (default); false writes only the patches and measures them in memory. Default true. |
 | `picture` | boolean | no | Return the contact sheet (`$image`): one row per sound. Default true. |
-| `pictureOut` | string | no | Also keep the sheet's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the sheet's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 
 ### `sfx.info`
@@ -7366,7 +7366,7 @@ Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `pre
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | A sound patch file, project-relative, ending in .sfx.json. |
+| `path` | string | no | A sound patch file, project-relative, ending in .sfx.json. Path the command reads. |
 | `patch` | object | no | The patch itself, as JSON, to check before writing it to a file. |
 | `preset` | string | no | The name of a preset (see sfx.preset). |
 | `seed` | integer | no | Render this take for the measurements (default 0). |
@@ -7384,7 +7384,7 @@ The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | no | The preset to return. Leave out to list them all. |
-| `path` | string | no | Write the patch here: project-relative, under assets/, ending in .sfx.json. |
+| `path` | string | no | Write the patch here: project-relative, under assets/, ending in .sfx.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file when it exists. Default false. |
 
 ### `sfx.render` (modifies state)
@@ -7401,8 +7401,8 @@ Options that change one render without editing the patch: `seed` (another take o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The sound patch, project-relative, under assets/ and ending in .sfx.json, e.g. "assets/audio/coin.sfx.json". |
-| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav. |
+| `path` | string | yes | The sound patch, project-relative, under assets/ and ending in .sfx.json, e.g. "assets/audio/coin.sfx.json". Path the command reads. |
+| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `seed` | integer | no | Added to the patch's seed: another take of every noise. The same seed always gives the same file. Default 0. |
 | `freq` | number | no | Transpose the patch so its base pitch (the first pitched layer's pitch.freq) becomes this frequency in Hz. Fixed-frequency oscillators stay. |
 | `note` | string | no | The same as freq as a note name: "C4" (middle C), "A4" (440 Hz), "C#3", "Bb2". |
@@ -7412,7 +7412,7 @@ Options that change one render without editing the patch: `seed` (another take o
 | `variant` | integer | no | Render this variation (1-based) of a patch that declares `variations`; the default out is name_NN.wav. |
 | `variants` | boolean | no | Render every variation of the patch to name_01.wav, name_02.wav... and return one picture with a row per variant. Takes neither `out` nor `variant`. Default false. |
 | `picture` | boolean | no | Return the spectrogram picture (`$image`) of the sound. Turn it off when rendering many. Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
 | `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
@@ -7429,13 +7429,13 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. |
+| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `macros` | object | yes | Macro name to amount, e.g. {"brightness": 0.2, "tail": -0.3}. |
 | `absolute` | boolean | no | Set the macros to these values instead of adding to the declared ones. Default false. |
 | `render` | boolean | no | Render the sound again and compare the measurements. Turn it off to only edit the patch. Default true. |
 | `seed` | integer | no | Seed of the renders (default 0). |
 | `picture` | boolean | no | Return the spectrogram picture (`$image`). Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `width` | integer | no | Width of the picture in pixels. |
 | `height` | integer | no | Height of the picture in pixels. |
 
@@ -7474,12 +7474,12 @@ Identity: `identity` ("Developer ID Application: Your Name (TEAMID)"; `security 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app` | string | no | The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). |
-| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
+| `app` | string | no | The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `identity` | string | no | The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; "-" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json. |
 | `distribution` | string ["developerId","appStore"] | no | developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is "-"). Default "developerId". |
 | `installerIdentity` | string | no | appStore: the '3rd Party Mac Developer Installer' / 'Mac Installer Distribution' certificate that signs the .pkg. Default: FACTORIA_MACOS_INSTALLER_IDENTITY, else sign.macos.installerIdentity of ~/.factoria/export.json. |
-| `pkg` | string | no | appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg. |
+| `pkg` | string | no | appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keychain` | string | no | A keychain file that holds the certificate (or the notary profile). Default: FACTORIA_MACOS_KEYCHAIN, else the user's keychains. |
 | `provisioningProfile` | string | no | A .provisionprofile to embed in the app (needed for the capabilities the plugins ask for: Game Center, iCloud). With it the export's <slug>.entitlements are applied. Absolute path, or relative to the project. |
 | `entitlements` | string | no | An entitlements file for the app. Default: the export's <slug>.entitlements, used only with a provisioningProfile. Absolute path, or relative to the project. |
@@ -7490,7 +7490,7 @@ Identity: `identity` ("Developer ID Application: Your Name (TEAMID)"; `security 
 | `apiIssuer` | string | no | Issuer id of a team API key (not needed for an individual key). Default: FACTORIA_NOTARY_API_ISSUER. |
 | `appleId` | string | no | Apple ID for notarization. Default: FACTORIA_APPLE_ID (or APPLE_ID). The app-specific password is read from FACTORIA_APPLE_APP_PASSWORD only. |
 | `teamId` | string | no | Apple Team ID (10 characters) for notarization with an Apple ID. Default: FACTORIA_APPLE_TEAM_ID (or APPLE_TEAM_ID). |
-| `zip` | string | no | Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip. |
+| `zip` | string | no | Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign and send nothing. Works on any computer. Default false. |
 
 ### `sign.windows` (modifies state)
@@ -7507,8 +7507,8 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `msix` | string | no | The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix. |
-| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
+| `msix` | string | no | The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `exe` | boolean | no | Also sign the game's .exe in build/export/<game-slug>-windows/ (for a game shared as a folder or a zip). The package is not changed by it. Default false. |
 | `pfx` | string | no | The code-signing certificate (.pfx), absolute or relative to the project. Default: FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json. The password is read from FACTORIA_WINDOWS_PFX_PASSWORD only. |
 | `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |
@@ -7630,7 +7630,7 @@ Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -7653,7 +7653,7 @@ The weights are computed before anything is written (a bad part or bone fails an
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `method` | string ["auto","heat","voxel","rigid"] | no | The method: for every part, or for `part` when given. |
 | `part` | string | no | A model part to give its own method (and bone). Without `method` and `bone` its override is removed. |
 | `bone` | string | no | With `part`: the bone the part follows (rigid) or is centred on (heat, voxel). |
@@ -7678,7 +7678,7 @@ Removes `index` (as skin3d.info and the answer of an edit command number them) o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `index` | integer | no | The edit to remove (0 is the first); left out: every edit. |
 | `dryRun` | boolean | no | Report without writing. Default false. |
 | `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
@@ -7696,7 +7696,7 @@ Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` s
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command reads. |
 
 ### `skin3d.limit` (modifies state)
 
@@ -7710,7 +7710,7 @@ Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormali
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -7732,7 +7732,7 @@ Copies the weights from the side `from` ("l" = the character's left, +X; "r" = r
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -7752,7 +7752,7 @@ Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales w
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -7772,7 +7772,7 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command reads. |
 | `bone` | string | no | Draw the weights of this bone as a heat map. |
 | `mode` | string ["heat","bones"] | no | heat (needs `bone`; the default with it) or bones (one colour per bone; the default without). |
 | `pose` | any | no | Bones to bend: {bone: degrees} or a list of {bone, degrees, axis}. Adds a row with the deformed model. |
@@ -7780,7 +7780,7 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 | `yaw` | number | no | The angle of the first view in degrees: 0 looks at the model's +Z side (default 20). |
 | `pitch` | number | no | Degrees above the horizon (default 12). |
 | `cell` | number | no | Pixels per side of each view (default 280). |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; never inside .git or .factoria). Left out, it is a temporary file. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; never inside .git or .factoria). Left out, it is a temporary file. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
 
 ### `skin3d.set` (modifies state)
@@ -7795,7 +7795,7 @@ Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow on
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -7816,7 +7816,7 @@ Moves the weights of each vertex towards the average of the vertices that share 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
 | `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
 | `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
@@ -8270,11 +8270,11 @@ Inserts one new element into an SVG file, SVG text or an svg layer of an image d
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8315,11 +8315,11 @@ Moves the picked elements (shapes or whole groups) so their bounds line up: hori
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8344,11 +8344,11 @@ Names the shapes and groups that have no id (path, path-2, g, g-2...) so the oth
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8368,11 +8368,11 @@ Inserts a smooth closed blob (or, with closed: false, an open curve) built from 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8407,11 +8407,11 @@ Combines the picked shapes with a path boolean (Clipper2, integer-exact) and wri
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8436,11 +8436,11 @@ Removes the picked shapes or groups (a group takes everything in it). The rest o
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8460,11 +8460,11 @@ Moves the picked elements along `axis` so the gaps between them (by: "gaps", def
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8488,11 +8488,11 @@ Inserts a copy of each picked element (shape or group, with everything in it) ri
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8513,11 +8513,11 @@ Puts the picked elements (all in the same group) into a new <g>, which takes the
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8538,12 +8538,10 @@ Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing spa
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command reads. |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command reads. |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
-| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
 | `preview` | boolean | no | false skips the preview picture (`$image`): a live drag asks for the result many times a second and draws it itself. Default true. |
@@ -8562,11 +8560,11 @@ For each picked shape, reflects it across the line x = at (axis "vertical") or y
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8595,11 +8593,11 @@ Ops: {"op": "move", "node": n, "to": [x, y]} or "by": [dx, dy] (the handles go w
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8624,11 +8622,11 @@ Offsets the outline of each picked shape by `distance` drawing units (positive g
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8655,11 +8653,11 @@ Capabilities: read, writeProject
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8682,11 +8680,11 @@ Adds copies of one element (a shape or a group): mode "grid" lays out `columns` 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8717,11 +8715,11 @@ Sets presentation properties on the picked elements (shapes or groups): fill, st
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8756,11 +8754,11 @@ Sets the outline of ONE shape to the path data `d`: a rect or circle becomes a <
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8785,11 +8783,11 @@ For each picked shape builds a shadow band (the part of the shape on the side aw
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8822,11 +8820,11 @@ Inserts a new element with exact geometry (the shapes AIs draw badly by hand) in
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8888,11 +8886,11 @@ Rewrites each picked shape (default: every shape) with fewer nodes: a path with 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8915,11 +8913,11 @@ Gives every node that is not a sharp corner smooth handles, so a polygon or a ro
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8943,11 +8941,11 @@ Converts the stroke of each picked shape (its stroke-width, linecap, linejoin, m
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -8977,11 +8975,11 @@ Applies assets.json `style` to the SVG: `outline` puts the guide's outline colou
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -9003,11 +9001,11 @@ Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligat
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -9048,9 +9046,9 @@ JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG m
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | yes | The project-relative .svg whose groups are the parts, e.g. "assets/art/hero.svg". |
-| `out` | string | no | The prefab to write or update, project-relative, ending in .prefab.json. Default prefabs/<name of the svg>.prefab.json. An existing prefab is updated in place (it needs overwrite: true only when none of its entities draws this rig's pictures). |
-| `atlas` | string | no | layout "atlas": the atlas picture, under assets/, ending in .png (default assets/art/<name>_parts.png). layout "files": the folder of the part pictures (default assets/art/<name>_parts). |
+| `source` | string | yes | The project-relative .svg whose groups are the parts, e.g. "assets/art/hero.svg". Path the command reads. |
+| `out` | string | no | The prefab to write or update, project-relative, ending in .prefab.json. Default prefabs/<name of the svg>.prefab.json. An existing prefab is updated in place (it needs overwrite: true only when none of its entities draws this rig's pictures). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `atlas` | string | no | layout "atlas": the atlas picture, under assets/, ending in .png (default assets/art/<name>_parts.png). layout "files": the folder of the part pictures (default assets/art/<name>_parts). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layout` | string ["atlas","files"] | no | atlas: one picture and a Sprite.region per part (one texture, fewer draw calls). files: one picture per part. Default "atlas". |
 | `scale` | number | no | Pixels per drawing unit (viewBox unit) the parts are drawn at. Default: the size the SVG declares over its viewBox (usually 1). More pixels = sharper parts. |
 | `pixelsPerUnit` | number | no | Texture pixels per world unit: the sprite and bone sizes are pixels / pixelsPerUnit. Default: the style's texelsPerUnit (assets.json), else `scale`, so one drawing unit is one world unit. |
@@ -9083,11 +9081,11 @@ Applies a transform of the DRAWING space to the picked elements (shapes or whole
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -9113,11 +9111,11 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
-| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
-| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
 | `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
 | `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
@@ -9174,7 +9172,7 @@ Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/P
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The effect document, project-relative, under assets/ and ending in .vfx.json. |
+| `path` | string | yes | The effect document, project-relative, under assets/ and ending in .vfx.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `doc` | string | no | The file's `doc` text: what the effect is and where the game plays it. |
 | `overwrite` | boolean | no | Replace the file when it exists. Default false. |
 
@@ -9190,7 +9188,7 @@ Edits `*.vfx.json` the way a hand edit would, but checked: the document is parse
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The effect document, project-relative, ending in .vfx.json. |
+| `path` | string | yes | The effect document, project-relative, ending in .vfx.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `op` | string ["set","remove","add","move"] | yes | What to do. |
 | `pointer` | string | yes | JSON pointer into the document, e.g. /parts/0/emitter/burst or /parts. |
 | `value` | any | no | The new value (set) or the element to insert (add). Any JSON. |
@@ -9221,7 +9219,7 @@ Without `path` the picture is temporary (the MCP server shows it then deletes th
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
 | `columns` | integer | no | Pictures per row (default: nearly square). |
-| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `vfx.list`
 
@@ -19331,7 +19329,7 @@ declare module "factoria:test" {
     expectErrors?: (RegExp | string)[];
     /**
      * What fa.call in this test may do besides the default {read, state}: ["writeProject"] lets it call a command that writes a project file (fa.call("scene.save"), fs.write...). An unknown name fails with its JSON pointer and a "did you mean". It cannot get more than whoever runs the tests has (a test run over MCP never gets writeAnywhere), and the game's own scripts keep {read, state}.
-     * @since unreleased
+     * @since 0.25.0
      */
     capabilities?: ("read" | "state" | "writeProject" | "writeAnywhere" | "network" | "process" | "spend" | "publish")[];
   }

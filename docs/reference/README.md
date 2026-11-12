@@ -239,7 +239,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.tileset.rules`](commands/assets.md#imagetilesetrules-modifies-state): Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current). _Since 0.16.0._
 - [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Since 0.16.0._
 - [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
-- [`model.bake_maps`](commands/assets.md#modelbake_maps): Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures. _Since 0.16.0._
+- [`model.bake_maps`](commands/assets.md#modelbake_maps-modifies-state): Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures. _Since 0.16.0._
 - [`model.check`](commands/assets.md#modelcheck): Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix. _Since 0.16.0._
 - [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Since 0.16.0._
 - [`model.decal`](commands/assets.md#modeldecal-modifies-state): Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture. _Since 0.16.0._
@@ -513,7 +513,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.import_ascii`](commands/scene.md#sceneimport_ascii-modifies-state): Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 - [`scene.list_entities`](commands/scene.md#scenelist_entities): List entities (id, name, tags, components) with optional filters.
 - [`scene.load`](commands/scene.md#sceneload-modifies-state): Replace the running scene with a scene file.
-- [`scene.place_ascii`](commands/scene.md#sceneplace_ascii-modifies-state): Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file. _Not released yet._
+- [`scene.place_ascii`](commands/scene.md#sceneplace_ascii-modifies-state): Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file. _Since 0.25.0._
 - [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Since 0.19.0._
 - [`scene.reload`](commands/scene.md#scenereload-modifies-state): Reload the current scene from disk (discards runtime changes).
 - [`scene.remove_component`](commands/scene.md#sceneremove_component-modifies-state): Remove a component from an entity.

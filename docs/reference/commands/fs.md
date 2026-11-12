@@ -12,7 +12,7 @@ Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be de
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path. |
+| `path` | string | yes | Project-relative path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `recursive` | boolean | no | Delete a folder and everything in it. Default false. |
 
 ## `fs.edit` (modifies state)
@@ -25,7 +25,7 @@ Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `find` | string | yes | Exact text to find (whitespace-sensitive). |
 | `replace` | string | yes | Replacement text (may be empty to delete). |
 | `replaceAll` | boolean | no | Replace every occurrence. Default false. |
@@ -40,7 +40,7 @@ Project-relative. Hides the tools' folders (.factoria, version control) except t
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Folder to list (default: project root). |
+| `path` | string | no | Folder to list (default: project root). Path the command reads. |
 | `recursive` | boolean | no | Descend into subfolders. Default false. |
 | `glob` | string | no | Only paths matching this glob, e.g. "**/*.js". |
 | `limit` | integer | no | Maximum entries returned. Default 500. |
@@ -55,7 +55,7 @@ Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files a
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command reads. |
 | `startLine` | integer | no | First line (1-based). Default 1. |
 | `endLine` | integer | no | Last line, inclusive (default: end of file). Default 0. |
 | `numbered` | boolean | no | Prefix every line with its number and a tab. Default false. |
@@ -73,7 +73,7 @@ Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"*
 | `query` | string | yes | Text or regular expression (ECMAScript). |
 | `regex` | boolean | no | Treat query as a regular expression. Default false. |
 | `caseSensitive` | boolean | no | Case-sensitive match. Default false. |
-| `path` | string | no | Folder to search (default: project root). |
+| `path` | string | no | Folder to search (default: project root). Path the command reads. |
 | `glob` | string | no | Only files matching this glob, e.g. "**/*.js". |
 | `limit` | integer | no | Maximum matches returned. Default 100. |
 
@@ -87,7 +87,7 @@ Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For b
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file path. |
+| `path` | string | yes | Project-relative file path. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `content` | string | yes | Full new file content (base64 text when encoding=base64). |
 | `encoding` | string ["utf8","base64"] | no | "utf8" writes content as text; "base64" decodes it and writes the bytes (images, audio). Default "utf8". |
 | `overwrite` | boolean | no | Allow replacing an existing file. Default true. |
