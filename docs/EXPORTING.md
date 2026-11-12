@@ -417,15 +417,18 @@ player has to match the factoria that copies it into a game, which is why the fo
 toolchain is read from `export.json` (below) and CMake is `fa::find_cmake`: `PATH`, Homebrew, `/Applications/CMake.app`, then
 `tools/cmake` (`build_ios.sh` runs `FACTORIA_CMAKE` when it is set, else the CMake the export found, else `cmake` from `PATH`).
 
-**From an AI.** The commands `setup.status` (read-only) and `setup.install` (MCP tools `setup_status`, `setup_install`) do
-the same. `setup.status {"component":"android"}` returns each component's `state` (`installed`, `missing`, `partial`,
-`unsupported`), `problems[]`, `installSizeMb` and, while the Android license is not accepted, `licenses[]` with its full
-text. `setup.install {"component":"android","acceptLicenses":true}` installs and returns the `steps[]` (each `installed`,
-`skipped` or `guidance`), `paths`, `nextSteps` and `warnings`; errors carry a `code` (`license_required`, `checksum_mismatch`,
-`network`, `no_release`, `cancelled`, `unsupported`, `invalid_argument`, `failed`) and the steps done before the failure. An
-install downloads hundreds of megabytes: ask the user first, and set `acceptLicenses` only after the user has read the
-license text and said yes, never on your own. C++: `fa/tooling/setup.h` (`fa::setup_status`, `fa::setup_install`); the
-editor's Export window builds its buttons on it.
+**From an AI.** An AI checks, the user installs. `setup.status {"component":"android"}` (MCP tool `setup_status`; it runs
+the tools it probes and may fetch the Android license text, so it is not a pure read) returns each component's `state`
+(`installed`, `missing`, `partial`, `unsupported`), `problems[]`, `installSizeMb` and, while the Android license is not
+accepted, `licenses[]` with its full text. An AI reads that and tells the user what to do: press the editor's **File > Set Up
+This Computer...** button for the component or run `factoria setup <component>`. `setup.install` installs software outside the
+project and accepts licenses, which is the user's call: it needs `writeAnywhere`, so an MCP client or an AI agent gets
+`capability_denied`; only the command line (`factoria setup`, `factoria call setup.install`) and the editor's buttons run it. Its
+result is the `steps[]` (each `installed`, `skipped` or `guidance`), `paths`, `nextSteps` and `warnings`; errors carry a `code`
+(`license_required`, `checksum_mismatch`, `network`, `no_release`, `cancelled`, `unsupported`, `invalid_argument`, `failed`) and the
+steps done before the failure. An install downloads hundreds of megabytes, and `acceptLicenses` is set only by the user who has
+read the license text. C++: `fa/tooling/setup.h` (`fa::setup_status`, `fa::setup_install`); the editor's Export window builds its
+buttons on it.
 
 Tests: `FACTORIA_SETUP_ONLINE_TESTS=1 ctest -R tooling` also reads the real Google, Adoptium and GitHub listings (a few
 hundred KB, nothing is installed) to catch a changed format, or Google dropping the pinned command-line tools revision.
@@ -2010,7 +2013,7 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
   `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, `PATH`,
   then the copy `factoria setup ffmpeg` installs under `$FACTORIA_HOME/tools/ffmpeg/` (`setup.status` lists the `ffmpeg`
-  component and `setup.install {"component": "ffmpeg"}` installs it, one download of 19-28 MB). FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
+  component; the user installs it with `factoria setup ffmpeg` or the editor's setup window, one download of 19-28 MB). FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
   before the replay runs, with this advice: run `factoria setup ffmpeg`, install ffmpeg yourself, or record `.avi` and convert it yourself:
   `ffmpeg -i trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4`.
 - Stores want the video at their own sizes and rates (Microsoft: 1920x1080 MP4, under 2 GB, 60 s or less recommended);

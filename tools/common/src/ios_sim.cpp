@@ -290,6 +290,9 @@ void register_ios_sim_commands(CommandRegistry& registry, const std::string& pro
         "dryRun":{"type":"boolean","default":false,"description":"Return the simctl commands and run nothing."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return run_ios_sim(projectDir, args); });
+    // runs xcrun simctl; the screenshot is written to a path of the caller.
+    declare_command_capabilities(registry, {
+        {"player.run_ios_sim", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process}}});
 }
 
 }  // namespace fa

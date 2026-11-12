@@ -748,6 +748,8 @@ void register_publish_commands(CommandRegistry& registry, const std::string& pro
             if (r->failed) throw CommandError("failed", r->failure, r->failureHint, r->to_json());
             return r->to_json();
         });
+        // Uploads the build to a store (publish), with the store's uploader (process) over the network; the builds it makes first go to `out`.
+        registry.declare_capabilities("publish." + store, CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Publish});
     }
 }
 

@@ -365,6 +365,10 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             arg_error(kCommand, "/atlas", std::format("with layout \"files\" `atlas` is the folder of the part pictures, under assets/; '{}' is not.", d), "Example: \"assets/art/hero_parts\".");
         return *norm;
     }();
+    // every file this command writes is checked now, before the SVG is read: the prefab and the atlas (or the part pictures)
+    // must be inside the project and outside .git and .factoria, for every caller
+    (void)project_write_file(projectDir, prefabRel);
+    (void)project_write_file(projectDir, atlasMode ? atlasRel : filesDir + "/part.png");
     const std::string texturePrefix = atlasMode ? atlasRel : filesDir + "/";
     const bool dryRun = tooling_detail::arg_bool(a, "dryRun", false);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
@@ -963,7 +967,7 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     }
 
     // ---- the prefab ----
-    const stdfs::path prefabAbs = project_file(projectDir, prefabRel);
+    const stdfs::path prefabAbs = project_write_file(projectDir, prefabRel);
     Json oldDoc;
     bool prefabExisted = false;
     if (auto t = tooling_detail::read_file(prefabAbs)) {
@@ -1204,7 +1208,7 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         auto put_png = [&](const std::string& rel, const Image& img) {
             const std::vector<std::uint8_t> png = encode_png(img);
             std::string err;
-            if (!tooling_detail::write_file(project_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+            if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
             written.push_back(rel);
         };
         if (atlasMode) put_png(atlasRel, atlas);
@@ -1340,8 +1344,12 @@ void register_vector_rig_command(CommandRegistry& registry, const std::string& p
          {"ai", boolean("Whether the SVG was written by an AI (the default); false for one a person drew, for the provenance.", true)},
          {"author", str("Who gets the credit in the provenance record.")},
          {"license", str("License of the pictures for the provenance record. Default CC0-1.0.")}});
+    props["source"]["x-fa-path"] = "read";
+    props["out"]["x-fa-path"] = "write";
+    props["atlas"]["x-fa-path"] = "write";
     info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"source"})}, {"additionalProperties", false}, {"properties", props}});
     registry.add(info, [projectDir](const Json& args) { return to_rig(projectDir, args); });
+    registry.declare_capabilities(kCommand, capability_sets::writes_project());
 }
 
 }  // namespace fa::assets_detail

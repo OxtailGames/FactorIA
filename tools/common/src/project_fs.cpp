@@ -442,6 +442,13 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             return Json::object({{"path", r}, {"deleted", 1}});
         });
     }
+    declare_command_capabilities(registry, {
+        {"fs.list", capability_sets::reads()},
+        {"fs.read", capability_sets::reads()},
+        {"fs.search", capability_sets::reads()},
+        {"fs.write", capability_sets::writes_project()},
+        {"fs.edit", capability_sets::writes_project()},
+        {"fs.delete", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

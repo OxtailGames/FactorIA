@@ -208,7 +208,8 @@ void register_provider_commands(CommandRegistry& registry, const std::string& pr
       "parent":{"description":"Group to put it in (name or index path). Default: the top level."},
       "index":{"type":"integer","minimum":0,"description":"Position in the list, 0 = the bottom. Default: the top."},
       "bake":{"type":"boolean","default":true,"description":"Also draw the PNG (default true). False only writes the document."}}})");
-    registry.add(info, [projectDir](const Json& args) { return image_layer_add_provider(projectDir, args); });
+    info.inputSchema["properties"]["source"]["x-fa-path"] = "read";
+    add_image_command(registry, info, [projectDir](const Json& args) { return image_layer_add_provider(projectDir, args); });
 }
 
 }  // namespace imgedit

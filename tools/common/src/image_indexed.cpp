@@ -878,7 +878,7 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
         info.description = description;
         info.inputSchema = Json::parse(schema);
         if (std::string(name) == "image.pixel" || std::string(name) == "image.draw") add_frame_support(info, "to draw on");
-        registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
+        add_image_command(registry, info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
 
     add("image.pixel", "Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.",
