@@ -40,5 +40,8 @@ Held held_open(const std::filesystem::path& file);
 // sharing or lock violation). MoveFileExW answers ERROR_ACCESS_DENIED both for a target that is open somewhere (mapped
 // or not, delete shared or not) and for one this process may not write: this tells the two apart. One look, no retry.
 bool open_elsewhere(const std::filesystem::path& file);
+// fs_win32.cpp: the system's temporary folder as GetTempPath2W / GetTempPathW answer it (UTF-16, with a trailing separator),
+// or an empty string when Windows names none.
+std::wstring windows_temp_path();
 #endif
 }  // namespace fa::fs::detail

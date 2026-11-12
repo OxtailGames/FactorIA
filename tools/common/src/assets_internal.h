@@ -259,8 +259,9 @@ stdfs::path caller_output_file(const std::string& projectDir, const std::string&
 inline Result<stdfs::path> project_write_path(const std::string& projectDir, const std::string& rel) {
     return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
 }
-// Refuses the picture a caller asks to keep (argument `pictureOut`, a .png) when `command` may not write it, before any work is done.
-void check_kept_picture(const std::string& projectDir, const Json& args, const char* command);
+// Refuses the picture a caller asks to keep (argument `pictureOut`, a .png) when `command` may not write it, before any work is done,
+// and a `pictureOut` given when the picture is off (`picture` false, or absent where `pictureDefault` is false): it would be ignored.
+void check_kept_picture(const std::string& projectDir, const Json& args, const char* command, bool pictureDefault = true);
 // A string property of an inputSchema that names a project path; `kind` is "read" or "write" (the "x-fa-path" annotation).
 inline Json path_property(const char* kind, const std::string& description) {
     return Json::object({{"type", "string"}, {"x-fa-path", kind}, {"description", description}});

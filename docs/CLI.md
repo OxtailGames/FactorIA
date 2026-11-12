@@ -36,6 +36,11 @@ The path a command writes to (`scene.save`, `scene.import_ascii` `path`, `scene.
 of the project, no absolute path (`absolute_path_denied`, `path_outside_root`). From `factoria call` you may name an absolute
 path, except into the project's managed folders (`managed_path_denied`).
 
+A symbolic link is judged by where it leads, not by its name: a relative path that goes through a link to a folder outside the
+project (a shared asset folder linked into the project, say) is `path_outside_root` for every caller, the command-line user
+included, because the file would land outside the project. The command-line user can name the target with its absolute path
+instead; an MCP client or an agent cannot write there, and keeps the linked folder for reading.
+
 ## Projects
 
 ### `factoria new <dir> [--template T] [--name NAME] [--id ID] [--force] [--json]`

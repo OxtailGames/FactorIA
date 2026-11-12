@@ -279,3 +279,36 @@ TEST_CASE("project.new_ci_workflow: path is confined like the other writers, an 
     auto user = reg.call("project.new_ci_workflow", Json::object({{"path", absolute}, {"dryRun", true}}));
     CHECK_MESSAGE(user.ok, user.error.dump());
 }
+
+TEST_CASE("resolve_write_path: a folder set with set_export_dir wins even when it is spelled like the default one") {
+    testing::TempDir tmp;
+    const stdfs::path first = tmp.path / "first";
+    const stdfs::path second = tmp.path / "second";
+    stdfs::create_directories(first);
+    stdfs::create_directories(second);
+    struct Restore {
+        stdfs::path root = fs::project_root();
+        ~Restore() {
+            fs::set_export_dir({});
+            fs::set_project_root(root);
+        }
+    } restore;
+    fs::set_project_root(first);
+    std::error_code ec;
+    const stdfs::path firstCanon = stdfs::weakly_canonical(first, ec);
+    const stdfs::path secondCanon = stdfs::weakly_canonical(second, ec);
+
+    // Nothing set: the default export folder of the project the command was registered with.
+    auto byDefault = resolve_write_path(second.generic_string(), "game.zip", fs::WriteRoot::Export);
+    REQUIRE_MESSAGE(byDefault.ok(), byDefault.error().message);
+    CHECK(byDefault.value() == secondCanon / "build" / "export" / "game.zip");
+    CHECK_FALSE(fs::export_dir_is_set());
+
+    // Set to exactly the default folder of the open project: it was named, so it is the one used (comparing values took it for
+    // "not set" and answered with the registered project's folder).
+    fs::set_export_dir(first / "build" / "export");
+    CHECK(fs::export_dir_is_set());
+    auto named = resolve_write_path(second.generic_string(), "game.zip", fs::WriteRoot::Export);
+    REQUIRE_MESSAGE(named.ok(), named.error().message);
+    CHECK(named.value() == firstCanon / "build" / "export" / "game.zip");
+}

@@ -22,6 +22,15 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   inherit proxies and certificates like every other program the AI starts, saves of `ai.json` take a file lock, `ai.providers` and
   `ai.tool_servers` are `{read}` (only `doctor` and `test:true` need Process and Network, so critics and `factoria mcp --read-only`
   keep the listing), and the docs say what the environment floor is not (a barrier against an unsandboxed shell).
+- Path safety polish (M92.POLISH-F1): Windows refuses `:` (alternate data streams) in an absolute path and `\??\` paths as
+  `invalid_path`; `temp_base` asks the system for the temporary folder per platform; `resolve_for_write` shares one helper for the
+  elements below the root; a `writeProject` refusal of a command with `dryRun` says that a dry run needs none; `project.create`
+  `dir` is confined for a caller that may not write anywhere, `project.serve_web` `lan: true` needs `publish`, and
+  `model.bake_maps` is declared `{read, state}` like the other previews; a `pictureOut` with the picture off is an error that
+  says so instead of being ignored; `vector.info` no longer carries a write path in its schema; `input.record` keeps the replay in
+  its error when the file cannot be written; `mesh.save` resolves its path once; `scene.save` in the editor recognises the open
+  scene under any spelling of its path; the docs reference shows what each path argument is used for; the registry-walk test
+  now reaches `anim.filmstrip` and `vfx.filmstrip` (they judge `path` before they render).
 - Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
   refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
   generic CLI, in `tools/ai/tests/fixtures/cli/`, are replayed through `CliStreamParser`, `list_models` and `detect_providers`;

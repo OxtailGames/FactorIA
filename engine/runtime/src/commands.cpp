@@ -621,7 +621,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               Json replay = engine.stop_input_recording();
               Json out = Json::object({{"recording", false}, {"frames", frames}, {"replay", replay}});
               if (writeReplay) {
-                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+                  // The recording is already stopped: a failed write must not lose the replay, so the error carries it (and the path tried).
+                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok())
+                      throw CommandError("failed", "The replay could not be written to '" + path + "': " + r.error().message +
+                                                       " The recording is stopped; the replay is in this error's `data.replay`.",
+                                         "Save `data.replay` with fs.write to a path that works, or record again. " + r.error().hint,
+                                         Json::object({{"path", path}, {"frames", frames}, {"replay", replay}}));
                   out["path"] = path;
               }
               return out;

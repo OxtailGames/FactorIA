@@ -731,7 +731,7 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
 Json finish_edit(const std::string& projectDir, const Json& a, const std::string& rel, const Json& song, Json edits, const char* command) {
     SongDoc doc = check_song_json(song, rel, "Nothing was written.");
     const SongTimeline tl = expand_or_fail(doc, rel);
-    check_picture_out(projectDir, a, command);
+    check_picture_out(projectDir, a, command, /*pictureDefault=*/false);
     write_song(projectDir, rel, song);
     Json result = Json::object({{"path", rel}, {"edits", edits}});
     Json s = summary_json(doc, tl);
