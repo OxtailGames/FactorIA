@@ -64,7 +64,7 @@ namespace {
 // notification, a response, a batch, garbage).
 Json queued_request_id(const std::string& line) {
     if (line.find("\"id\"") == std::string::npos) return nullptr;  // cheap test first: most notifications stop here
-    return McpServer::runnable_request_id(Json::parse(line, nullptr, false));
+    return McpServer::runnable_request_id(parse_json_lenient(line));
 }
 
 // Reads the input on its own thread for the whole loop, so a notifications/cancelled reaches the server at once, whether
