@@ -201,7 +201,7 @@ def test_template(tmp, template):
                 'test("fs.write is available inside tests", () => {\n'
                 '  fa.call("fs.write", { path: "tests/out/probe.txt", content: "hi" });\n'
                 '  expect(fa.call("fs.read", { path: "tests/out/probe.txt" }).content).toContain("hi");\n'
-                '});\n')
+                '}, { capabilities: ["writeProject"] });\n')  # a test is granted {read, state} unless it asks for more
     code, out, err = run(["test", proj, "--filter", "fs.write is available"])
     check(code == 0 and "1 passed, 0 failed" in out and out.count("fs.write is available") == 1,
           "fs.* works inside factoria test; each result printed once")

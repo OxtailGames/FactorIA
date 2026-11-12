@@ -186,6 +186,22 @@ void require_capability(Capability needed, std::string_view command, std::string
 // absolute_path_denied, managed_path_denied...), message and hint.
 std::string resolve_caller_write_path(std::string_view path, std::string_view command);
 
+// What a "capability_denied" refusal is about, handed to a CapabilityHintProvider.
+struct CapabilityDenial {
+    const CommandInfo& command;  // the refused command (name, declared capabilities)
+    CapabilitySet missing;       // what it needs and the caller lacks
+    CapabilitySet granted;       // what the caller has
+};
+
+// Says where THIS caller gets what it lacks: the hint of the "capability_denied" error. The default hint (core) names the
+// callers of the engine in general; a script host installs a provider (CommandCapabilityScope's second argument) so a game
+// script, an editor Play script or a test is told what applies to it. An empty answer keeps the default.
+class CapabilityHintProvider {
+public:
+    virtual ~CapabilityHintProvider() = default;
+    virtual std::string hint(const CapabilityDenial& denial) const = 0;
+};
+
 // Narrows what the calls made on this thread inside the scope may do. Like CommandCallerScope it only ever narrows: the
 // granted set becomes the intersection of the current one and `granted`, so a nested scope cannot widen what an outer
 // one took away. That also means a nested call cannot say "this one legitimately runs with the tool's own set": a
@@ -194,13 +210,16 @@ std::string resolve_caller_write_path(std::string_view path, std::string_view co
 // The scope is per thread; code that hops threads takes a command_context() snapshot and installs it there.
 class CommandCapabilityScope {
 public:
-    explicit CommandCapabilityScope(CapabilitySet granted);
+    // `hint`: (optional) words the hint of a capability_denied error raised inside the scope; a nested scope without one keeps
+    // the outer scope's, so a tool a game script calls is refused with the game script's hint.
+    explicit CommandCapabilityScope(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
     ~CommandCapabilityScope();
     CommandCapabilityScope(const CommandCapabilityScope&) = delete;
     CommandCapabilityScope& operator=(const CommandCapabilityScope&) = delete;
 
 private:
     CapabilitySet previous_;
+    std::shared_ptr<const CapabilityHintProvider> previousHint_;
 };
 
 // Who is calling and what they may do, as one value a job queue or the editor's main-thread queue captures on the calling
@@ -209,13 +228,14 @@ private:
 struct CommandContext {
     CommandCaller caller = CommandCaller::User;
     CapabilitySet capabilities = CapabilitySet::all();
+    std::shared_ptr<const CapabilityHintProvider> hint;  // the hint provider in force (null = the default hint)
 };
 
 CommandContext command_context();
 
 class CommandContextScope {
 public:
-    explicit CommandContextScope(const CommandContext& context) : caller_(context.caller), capabilities_(context.capabilities) {}
+    explicit CommandContextScope(const CommandContext& context) : caller_(context.caller), capabilities_(context.capabilities, context.hint) {}
     CommandContextScope(const CommandContextScope&) = delete;
     CommandContextScope& operator=(const CommandContextScope&) = delete;
 
