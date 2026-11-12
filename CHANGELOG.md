@@ -10,6 +10,7 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   `--read-only` grants `{read, state, writeProject}` and refuses the tools it does not serve (`tool_not_available`). Tool
   hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`
   is no longer reported as destructive.
+- The permission mode of each CLI agent is a setting (M92.3c): `providers.claude-code.permissionMode` (`manual`, `plan`, `dontAsk`, `acceptEdits` (default, what FactorIA always passed), `auto`, `bypassPermissions`) and `providers.codex.permissionMode` (`read-only`, `default`, `workspace-write`, `danger-full-access`), in your `ai.json` only (a project's file cannot hold it), in the new **Agents** tab of the AI settings window (a combo, one line per value on what it allows, a question before a dangerous mode) and through `ai.settings.get` / `ai.settings.set`. A role that only reads stays read-only; a command line of your own that already has a permission flag wins. `inheritEnv` names reject `*` alone and spaces, and a tool server made in the editor's form or pasted gets the global `inheritEnv` for its Test button. See docs/AI_PROVIDERS.md, "Permission mode".
 - The feedback server limits every write route per installation, per network and for the whole server (verdicts and
   sign-ins gained network and global caps), and refuses write requests without `CF-Connecting-IP` (`missing_client_ip`)
   unless `ALLOW_NO_CLIENT_IP` is set for local development.

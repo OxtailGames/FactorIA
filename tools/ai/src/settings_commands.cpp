@@ -57,6 +57,35 @@ Json values_json(const ResolvedAiConfig& r) {
     return out;
 }
 
+// "/providers/<name>/permissionMode": the one provider field ai.settings.set can change (and only for the user, never in a project).
+bool permission_pointer(const std::string& pointer, std::string& provider) {
+    const std::string prefix = "/providers/", suffix = "/permissionMode";
+    if (pointer.size() <= prefix.size() + suffix.size() || pointer.rfind(prefix, 0) != 0) return false;
+    if (pointer.compare(pointer.size() - suffix.size(), suffix.size(), suffix) != 0) return false;
+    provider = pointer.substr(prefix.size(), pointer.size() - prefix.size() - suffix.size());
+    return provider.find('/') == std::string::npos && !provider.empty();
+}
+
+// What each CLI agent provider (claude-code, codex, yours of those kinds) may do without asking: [{provider, kind, pointer, mode,
+// default, source ("you" when ai.json names a mode), values:[{value, allows, dangerous}]}].
+Json permission_modes_json(const AiConfig& cfg) {
+    Json out = Json::array();
+    for (const auto& [name, p] : cfg.providers) {
+        const auto modes = permission_modes(p.kind);
+        if (modes.empty()) continue;
+        Json values = Json::array();
+        for (const PermissionMode& m : modes) values.push_back(Json::object({{"value", m.value}, {"allows", m.allows}, {"dangerous", m.dangerous}}));
+        out.push_back(Json::object({{"provider", name},
+                                    {"kind", provider_kind_name(p.kind)},
+                                    {"pointer", "/providers/" + name + "/permissionMode"},
+                                    {"mode", effective_permission_mode(p)},
+                                    {"default", default_permission_mode(p.kind)},
+                                    {"source", p.permissionMode.empty() ? "default" : "you"},
+                                    {"values", std::move(values)}}));
+    }
+    return out;
+}
+
 bool is_project(const std::string& dir) {
     std::error_code ec;
     return !dir.empty() && fsys::exists(fsys::path(dir) / "factoria.json", ec);
@@ -115,8 +144,14 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             "A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with "
             "ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is "
             "not accepted is in invalidError and has no effect either. scope \"user\" returns your own ai.json view: "
-            "{scope, configPath, configFound, values} with source \"you\" (the file sets it, or it differs from the engine's) or "
-            "\"default\". Read-only; providers and keys are never part of it. Example: {\"scope\":\"resolved\"}";
+            "{scope, configPath, configFound, values}. Read-only; providers and keys are never part of the values. "
+            "Example: {\"scope\":\"resolved\"}"
+            FA_COMMAND_DETAILS
+            "In scope \"user\" `source` is \"you\" (the file sets the value, or it differs from the engine's) or \"default\". "
+            "Scopes \"resolved\" and \"user\" also return permissionModes: [{provider, kind, pointer, mode, default, source, "
+            "values:[{value, allows, dangerous}]}], what each CLI agent (claude-code, codex) may do without asking and every value it "
+            "accepts with a line on what it allows (docs/AI_PROVIDERS.md \"Permission mode\"); only the user changes it, with "
+            "ai.settings.set scope \"user\".";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "scope":{"type":"string","enum":["resolved","project","user"],"default":"resolved","description":"resolved: what this project runs with, each value with its source. project: the project's own file. user: your ai.json."}},
             "additionalProperties":false})");
@@ -129,7 +164,8 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 auto r = resolve_ai_config("", aiConfigPath, env);
                 if (!r) throw CommandError("invalid_config", r.error().message, r.error().hint);
                 const std::string path = aiConfigPath.empty() ? default_config_path(env) : aiConfigPath;
-                return Json::object({{"scope", "user"}, {"configPath", path}, {"configFound", !r->config.sourcePath.empty()}, {"values", values_json(*r)}});
+                return Json::object({{"scope", "user"}, {"configPath", path}, {"configFound", !r->config.sourcePath.empty()}, {"values", values_json(*r)},
+                                          {"permissionModes", permission_modes_json(r->config)}});
             }
             if (scope == "project" && dir.empty()) {
                 throw CommandError("no_project", "No FactorIA project is open here, so there is no project AI settings file to show",
@@ -146,7 +182,8 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 }
                 return out;
             }
-            Json out = Json::object({{"scope", "resolved"}, {"project", dir.empty() ? Json(nullptr) : Json(dir)}, {"values", values_json(*r)}});
+            Json out = Json::object({{"scope", "resolved"}, {"project", dir.empty() ? Json(nullptr) : Json(dir)}, {"values", values_json(*r)},
+                                     {"permissionModes", permission_modes_json(r->inherited)}});
             if (r->fileExists) out["projectSettings"] = project_state(*r);
             return out;
         });
@@ -173,6 +210,10 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             "Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's "
             "decision."
             FA_COMMAND_DETAILS
+            "/providers/<name>/permissionMode (scope \"user\" only, never in a project's file) is what a CLI agent may do without "
+            "asking: claude-code manual, plan, dontAsk, acceptEdits, auto or bypassPermissions; codex read-only, default, "
+            "workspace-write or danger-full-access. ai.settings.get lists every value with what it allows; bypassPermissions and "
+            "danger-full-access remove the guard rails, so only the user picks them. "
             "A new provider for a role or asset route drops its model, effort and voice. A project can only "
             "NAME providers, tool servers and extensions that your ai.json defines, and never holds a "
             "command, address, header, environment or key: such keys, and pointers that are not settings, "
@@ -212,6 +253,57 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                                        command_caller_name(command_caller()),
                                    "Tell the user which setting you want and ask the user to change it in the editor's AI settings window (Your defaults). "
                                    "scope \"project\" changes this project's file instead (the user accepts it in the editor).");
+            }
+            if (std::string permProvider; permission_pointer(pointer, permProvider)) {
+                if (scope != "user") {
+                    throw CommandError("rejected_key",
+                                       "'permissionMode' is not allowed in a project's AI settings file: what an agent may do without asking is the "
+                                       "user's decision (a project copied to another computer must not loosen it)",
+                                       "The user sets it in ~/.factoria/ai.json (editor: AI settings > Agents) or with ai.settings.set scope \"user\".");
+                }
+                if (!value.is_null() && !value.is_string()) {
+                    throw CommandError("invalid_setting", "/providers/" + permProvider + "/permissionMode must be a string (or null to go back to the default)",
+                                       "ai.settings.get lists the values of each provider under permissionModes.");
+                }
+                const std::string userFile = aiConfigPath.empty() ? default_config_path(env) : aiConfigPath;
+                auto beforeCfg = load_config(userFile, env);
+                if (!beforeCfg) throw CommandError("invalid_config", beforeCfg.error().message, beforeCfg.error().hint);
+                const ProviderConfig* was = beforeCfg->provider(permProvider);
+                if (!was) {
+                    std::vector<std::string> names;
+                    for (const auto& [n, p] : beforeCfg->providers) if (!permission_modes(p.kind).empty()) names.push_back(n);
+                    throw CommandError("unknown_pointer", "No provider named '" + escape_control_chars(permProvider) + "'", fa::did_you_mean(permProvider, names));
+                }
+                const std::string mode = value.is_null() ? std::string() : value.get<std::string>();
+                if (value.is_string() && mode.empty()) {
+                    throw CommandError("invalid_setting", "/providers/" + permProvider + "/permissionMode is empty", "Use null to go back to the default.");
+                }
+                const std::string from = effective_permission_mode(*was);
+                if (auto ok = save_provider_permission_mode(permProvider, mode, userFile); !ok) fail("invalid_setting", ok.error());
+                if (onUserConfigChanged) onUserConfigChanged();
+                auto afterCfg = load_config(userFile, env);
+                if (!afterCfg) throw CommandError("invalid_config", afterCfg.error().message, afterCfg.error().hint);
+                const ProviderConfig* now = afterCfg->provider(permProvider);
+                const std::string to = now ? effective_permission_mode(*now) : std::string();
+                const auto modes = now ? permission_modes(now->kind) : std::vector<PermissionMode>{};
+                const bool dangerous = std::any_of(modes.begin(), modes.end(), [&](const PermissionMode& m) { return to == m.value && m.dangerous; });
+                Json changed = Json::array();
+                if (from != to) changed.push_back(Json::object({{"pointer", pointer}, {"from", from}, {"to", to}}));
+                return Json::object({{"ok", true},
+                                     {"scope", "user"},
+                                     {"pointer", pointer},
+                                     {"removed", value.is_null()},
+                                     {"value", to},
+                                     {"runsWith", to},
+                                     {"source", value.is_null() ? "default" : "you"},
+                                     {"file", userFile},
+                                     {"needsAcceptance", false},
+                                     {"applied", true},
+                                     {"dangerous", dangerous},
+                                     {"changed", changed},
+                                     {"hint", dangerous ? "DANGEROUS mode saved: this agent now runs without the guard rails, in every project. Read-only roles "
+                                                          "(artCritic, reviewer) still run with the read-only sandbox / acceptEdits."
+                                                        : "Saved in your ai.json: the next run of this provider uses it."}});
             }
             std::string dir = projectDir ? projectDir() : std::string();
             if (scope == "project" && !is_project(dir)) {
