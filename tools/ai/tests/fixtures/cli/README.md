@@ -44,11 +44,11 @@ Scrubbed before committing (the recording is otherwise byte for byte what the CL
 - Rewritten everywhere: the throwaway directory is `/tmp/fa-contract/proj`, the home folder `/home/user`; every UUID
   (session ids, event ids) is a stable fake `00000000-0000-4000-8000-0000000000NN`; `toolu_`, `msg_` and `req_` ids are
   `..._FIXTUREnnnn`.
-- Left as printed: token counts, costs, model names, durations, the rate-limit percentages (they only say how much of a plan
-  was used) and the text the model answered (some answers are in Spanish because of the recorder's CLI settings).
+- Replaced by neutral values: the rate-limit windows (`utilization` 0.5, `resetsAt` 1800000000), which were the recorder's plan usage.
+- Left as printed: token counts, costs, model names, durations, and the text the model answered (some answers are in Spanish because of the recorder's CLI settings).
 
 There is no scrub script in the repository: write a few lines of Python each time, then check the result with
-`grep -ril 'Users/\|@\|private/tmp' <folder>` and by reading the `init` and `control_response` lines.
+`grep -rinE 'Users/|@|private/tmp|home/|worktrees' <folder>` (only `/home/user` and `/tmp/fa-contract` may match) and by reading the `init` and `control_response` lines.
 
 ## codex-docs (written from the docs, not a recording)
 
