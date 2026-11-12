@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- Path safety, last part of M92.2 (M92.2b3): a managed folder (`.git/`, `.factoria/` except `.factoria/tmp/`) is refused when
+  either its spelling or the place it leads to is managed (a symlink `meta -> .factoria` no longer gets round it; `.git./` and
+  `.GIT/` are the same folder), `COM¹`..`LPT³` and `CONIN$`/`CONOUT$` are device names, and the rule for names Windows cannot
+  create (`nul`, trailing dot or space) only applies where a call creates the file, so an existing file with such a name can
+  still be read or deleted. `prefab.save`, `scene.format` and the editor's `scene.save` confine their paths like the other
+  writers (and their errors name the command), `scene.import_ascii` and `scene.ascii_edit` with `dryRun: true` no longer need
+  `writeProject`, and two tests walk the whole command registry: every command declares its capabilities, and every schema path
+  marked `"x-fa-path": "write"` refuses `..` and absolute paths for an MCP client without creating a file outside the project.
 - Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
   refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
   generic CLI, in `tools/ai/tests/fixtures/cli/`, are replayed through `CliStreamParser`, `list_models` and `detect_providers`;

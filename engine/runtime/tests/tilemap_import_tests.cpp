@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/runtime/engine.h"
@@ -1126,6 +1128,21 @@ TEST_CASE("import_ascii path: arguments are checked, and writes follow the same 
     // dryRun predicts the real call, so it refuses the same paths.
     auto dry = s.import(level(R"({"path":".factoria/save/a.scene.json","dryRun":true})"));
     CHECK_FALSE(dry.ok);
+    CHECK(dry.error["code"] == "managed_path_denied");
+    {
+        // A dry run writes nothing, so a read-only client (no writeProject) may ask; the real call is refused for it.
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        auto predicted = s.import(level(R"({"path":"scenes/dry.scene.json","dryRun":true})"));
+        CHECK_MESSAGE(predicted.ok, error_text(predicted));
+        auto real = s.import(level(R"({"path":"scenes/dry.scene.json"})"));
+        REQUIRE_FALSE(real.ok);
+        CHECK(real.error["code"] == "capability_denied");
+        auto saved = s.import(level(R"({"save":true})"));
+        REQUIRE_FALSE(saved.ok);
+        CHECK(saved.error["code"] == "capability_denied");
+        CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/dry.scene.json"));
+    }
     auto ok = s.import(level(R"({"path":".factoria/tmp/a.scene.json"})"));
     REQUIRE_MESSAGE(ok.ok, error_text(ok));
     CHECK(stdfs::exists(s.project.dir / ".factoria/tmp/a.scene.json"));
