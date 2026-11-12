@@ -20,9 +20,11 @@
 
 namespace fa::render {
 
+#if defined(SOKOL_D3D11) || defined(SOKOL_GLCORE)
 namespace {
 constexpr int kRing = 6;  // queries in flight: results are a few frames late; a full ring skips the frame being timed
 }
+#endif
 
 #if defined(SOKOL_D3D11)
 

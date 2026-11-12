@@ -4350,12 +4350,12 @@ const Reg kRegs[] = {
 }  // namespace
 
 void Impl::install_natives(JSValue N) {
-    JSRuntime* rt = JS_GetRuntime(ctx);
-    if (!JS_IsRegisteredClass(rt, g_navHandleClass)) {
+    JSRuntime* jsRuntime = JS_GetRuntime(ctx);
+    if (!JS_IsRegisteredClass(jsRuntime, g_navHandleClass)) {
         JSClassDef def{};
         def.class_name = "FaNavHandle";
         def.finalizer = nav_handle_finalizer;
-        JS_NewClass(rt, g_navHandleClass, &def);
+        JS_NewClass(jsRuntime, g_navHandleClass, &def);
     }
     for (const Reg& r : kRegs) JS_SetPropertyStr(ctx, N, r.name, JS_NewCFunction(ctx, r.fn, r.name, r.argc));
 }

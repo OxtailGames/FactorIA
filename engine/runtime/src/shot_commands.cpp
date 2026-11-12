@@ -210,13 +210,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                          "Use a smaller zoom or region, more columns, or fewer pictures (a larger everyFrames).");
                   std::vector<Image> shots;
                   std::vector<std::string> labels;
-                  const int startFrame = I.frame;
+                  const std::uint64_t startFrame = I.frame;
                   for (int i = 0; i < count; ++i) {
                       if (i > 0) engine.step(every);
                       Image tile;
                       if (!engine.capture_region(tile, region, zoom, &err)) throw CommandError("unavailable", err, "Screenshots need graphics (headless needs Mesa/EGL).");
                       simulate_color_vision(tile, *sim);
-                      const int offset = I.frame - startFrame;
+                      const int offset = static_cast<int>(std::min<std::uint64_t>(I.frame - startFrame, 1000000));
                       labels.push_back("f" + std::to_string(I.frame) + (offset > 0 ? " +" + std::to_string(offset) : ""));
                       tiles.push_back(Json::object({{"frame", I.frame}, {"offset", offset}}));
                       shots.push_back(std::move(tile));

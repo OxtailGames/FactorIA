@@ -12,14 +12,7 @@ namespace fa {
 
 namespace {
 
-constexpr float kDefaultSlop = 6.0f, kMaxSlop = 100.0f;
-
-// Is `e` the entity `root` or below it?
-bool at_or_under(const World& w, Entity e, Entity root) {
-    for (; e; e = w.parent(e))
-        if (e == root) return true;
-    return false;
-}
+constexpr float kMaxSlop = 100.0f;
 
 }  // namespace
 

@@ -343,11 +343,11 @@ struct McpHttpServer::Impl {
                         }
                     std::deque<std::string> batch;
                     batch.swap(call->out);
-                    const bool finished = call->done;
+                    const bool callDone = call->done;
                     lock.unlock();
                     for (const std::string& m : batch) open = open && send_all(c, "event: message\ndata: " + m + "\n\n");
                     lock.lock();
-                    if (finished && call->out.empty()) break;
+                    if (callDone && call->out.empty()) break;
                 }
                 lock.unlock();
                 pending.get();  // stop() needs the handler done anyway

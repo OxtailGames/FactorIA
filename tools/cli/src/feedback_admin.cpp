@@ -39,7 +39,7 @@ std::string utc_today_now() {
 #else
     gmtime_r(&t, &tm);
 #endif
-    char buf[16];
+    char buf[48];  // room for every digit an int can have, so the compiler can see the text never truncates
     std::snprintf(buf, sizeof buf, "%04d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
     return buf;
 }

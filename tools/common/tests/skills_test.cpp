@@ -18,12 +18,6 @@ namespace {
 
 bool has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
 
-std::string messages(const std::vector<SkillProblem>& problems) {
-    std::string out;
-    for (const SkillProblem& p : problems) out += p.file + ":" + std::to_string(p.line) + ": " + p.message + " | " + p.hint + "\n";
-    return out;
-}
-
 }  // namespace
 
 TEST_CASE("skills: names follow the Agent Skills rules and a fix is suggested") {

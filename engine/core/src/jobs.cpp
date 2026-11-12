@@ -1,3 +1,12 @@
+#if !defined(__EMSCRIPTEN__)  // the web build has its own cap (kAutoCapWebThreads)
+bool is_mobile() {
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
 #include "fa/core/jobs.h"
 
 #include <algorithm>

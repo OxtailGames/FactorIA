@@ -419,7 +419,7 @@ TEST_CASE("ui slider: format writes the value as a pattern: {v}, {v:N}, {percent
     vs.formatKey = "slider.pct";
     localize_entity(w, e, i18n);
     CHECK(vs.format == "{percent}%");                                 // the placeholders survive the translation
-    i18n.set_language("fr");
+    REQUIRE(i18n.set_language("fr").ok());
     localize_entity(w, e, i18n);
     CHECK(vs.format == "{percent} %");
     CHECK(ui_slider_value_text(vs, 0.25f) == "25 %");

@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- Warnings as errors in CI (M93.3a): the CI jobs (Linux, Linux sniper, Windows, macOS, iOS, Android and Web, and
+  `scripts/ci-local.sh`) configure with `-DFA_WARNINGS_AS_ERRORS=ON`, so a compiler warning in the engine, the tools, the
+  player or the test programs fails the build (`-Werror` on GCC and Clang, `/WX` on MSVC); `external/` stays out. The
+  warning set is the same as before and the option stays OFF in the presets, so local builds and `release.yml` are not
+  affected (docs/BUILDING.md, "Strict builds"). The plugin test program `fa_test_plugin_example` now links `fa_warnings` too.
+  The warnings the CI logs of 0.25.0 showed are fixed: unused functions, constants, captures and members (some now only
+  compiled where they are used: the GPU timer ring, the iOS Simulator helpers, the folder picker's glob list), a trigraph in
+  `classify_path`, date buffers too small for GCC's range analysis, loop variables bound to temporaries, locals and
+  parameters that hid a member or an outer variable (MSVC C4456-C4459), narrowing conversions, an unhandled `Tileset` case
+  in the image panel's layer badge, `''` in the web HTTP script (Emscripten) and a 32-bit shift of the texture seed
+  (`>> 32` of a 32-bit `long` on Windows, now taken from a 64-bit value).
+
 ## 0.25.0
 
 FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,
