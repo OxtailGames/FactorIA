@@ -111,10 +111,11 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0) and M97.1 and M97.2 (0.24.0) are done. Next M92, M93, M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only
-then M71-M89 in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and
-accounts. The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of
-the open entries of `examples/*`. Update this paragraph when a milestone lands.
+**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0) and
+M92 (0.25.0) are done. Next M93, M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only then M71-M89 in their own
+order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and accounts. The reasons are
+in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open entries of
+`examples/*`. Update this paragraph when a milestone lands.
 
 Finished milestones are not kept here: each has a file in [done/](done/README.md) (one line per milestone). This file
 holds the open entries, the decisions of finished milestones and the milestones that are open or partly open.
@@ -392,6 +393,21 @@ M97.1/M97.2 (0.24.0):
 - `docs.write_reference` says "No AI_GUIDE.md" when the file exists but cannot be read.
 - `docs.components`/`docs.commands` accept `maxBytes` from 1000, below the envelope and preamble of a first full page (~1.7 KB); raise the minimum to about 2000.
 - Groups loaded with `tool_load` are lost when the MCP server restarts after an update (the `--tools` profile is kept).
+
+M92 (0.25.0):
+- `project.create` with no project open (a `factoria mcp` started outside a project) still accepts any folder from an
+  MCP client; with a project open it is confined.
+- The hint "dryRun: true needs no writeProject" is added to any command with a `dryRun` argument; a command whose dry
+  run also judges a path that needs writeProject would get a wrong hint (none known).
+- The capability check before the AI hooks cannot see a command that only appears when a `beforeCall_` hook reloads the
+  commands; that call is refused after `before` has seen it.
+- The sweep of old `factoria-run_*` temporary folders keeps any folder with a file newer than 24 hours (no lock or pid
+  marks a live run).
+- The re-check of the AI trust files' hash under the lock has no deterministic test of the race.
+- Path checks resolve a path and then open it: a link swapped in between by a local user who can already write into the
+  project is out of scope.
+- The Codex CLI contract fixtures are written from its documented format, not recorded (Codex was not installed); Claude
+  Code's are recorded from version 2.1.318.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -1047,10 +1063,10 @@ Rules: those of every milestone (tests, docs, teaching errors), plus: each fix c
 caught it, and each performance package shows its gain on M93.5's benchmarks.
 
 Order: M90 first (small). Then M91, M92 and M93, before any new feature. M94 and M95 before M71: M71 builds on M95's
-frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the
-small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
-when the user has the hardware and the accounts. M100, M101, M97.1 and M97.2 are done (0.22.0, 0.23.0, 0.24.0) and M92 comes next
-("M100-M101").
+frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the small
+player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99 when
+the user has the hardware and the accounts. M100, M101, M97.1, M97.2 and M92 are done (0.22.0, 0.23.0, 0.24.0, 0.25.0)
+and M93 comes next ("M100-M101").
 
 ## M100-M101: the examples' feedback and a third outside review (planned 2026-11-10, both done)
 
@@ -1108,34 +1124,35 @@ Rules: those of every milestone, plus: each fix comes with the test that would h
 still pass under M100.2's stricter rule, and each feedback entry a package closes gets its `Fixed in` note and the game
 drops its workaround in the same package.
 
-Order (M100, M101, M97.1 and M97.2 are done): M100 then M101, before M92 (M100 is what the game AI meets on its first run; M101 was the backlog). M100.1
-(the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost of the first step; done in 0.24.0), then M92, M93
-(its ASan+UBSan job first), M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after
-M97.2. A triage of every open entry of `examples/*` opens each milestone.
+Order (M100, M101, M97.1, M97.2 and M92 are done): M100 then M101, before M92 (M100 is what the game AI meets on its
+first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost
+of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (its ASan+UBSan job first), M94, M95, M96 and M98.
+M71-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open entry of `examples/*` opens
+each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):
 - Elsewhere: KW/FB-0018's bite and chop go into M82.2 with `anim3d.pose`; TM/FB-0003, TM/FB-0051 and TM/FB-0055
   stay where they were (TM/FB-0055 is M86).
 - CC/FB-0057 (minor, an emissive colour above white for the clockwork-courier market scenes) was closed in M101.
 
-## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09
+## M92. Safety: capabilities, files and secrets (L; 4 packages) — outside review, 2026-11-09 — DONE in 0.25.0
 
-- M92.1 (L) Capabilities: each command declares what it can do (read, write the project, write anywhere, network, start
-  a process, spend money, publish), each caller has a set (a game script in the player, in the editor's Play and in a
-  test; each AI role; an MCP client, read-only or not; the CLI user), and `fa.call` from a game script gets the
-  runtime set. A denied call is a teaching error that names the capability and where to grant it (a test can ask for
-  more in its file). The commands reference and `api.json` show each command's capabilities.
-- M92.2 (M) Paths confined in one place: every command that writes takes its paths through one `fa::fs` function (the
-  project, the game's save folder, the user's export folder; an absolute path only for a caller that may write
-  anywhere); `game.screenshot`, `input.record` and the rest move to it. A test walks the registry and tries `..` and
-  absolute paths on every path argument.
-- M92.3 (M) Secrets off command lines and inherited environments: signing passwords never in argv (each tool's file,
-  environment, keychain-profile or API-key form; signtool through a certificate imported for the run); hooks and agent
-  CLIs get an allow-listed environment; private files on Windows get an owner-only ACL; the permission mode of each AI
-  CLI (`acceptEdits` for Claude Code today) is shown and editable in AI Settings with what it allows; the feedback
-  server limits per install and per IP and holds without `cf-connecting-ip`.
-- M92.4 (M) Contract tests for the AI CLIs: recorded outputs of each CLI (`stream-json` and the others) replayed by
-  tests, so a CLI update that changes its format fails here, not in a user's run.
+- M92.1 (L) — DONE in 0.25.0 Capabilities: each command declares what it can do (read, write the project, write
+  anywhere, network, start a process, spend money, publish), each caller has a set (a game script in the player, in the
+  editor's Play and in a test; each AI role; an MCP client, read-only or not; the CLI user), and `fa.call` from a game
+  script gets the runtime set. A denied call is a teaching error that names the capability and where to grant it (a test
+  can ask for more in its file). The commands reference and `api.json` show each command's capabilities.
+- M92.2 (M) — DONE in 0.25.0 Paths confined in one place: every command that writes takes its paths through one `fa::fs`
+  function (the project, the game's save folder, the user's export folder; an absolute path only for a caller that may
+  write anywhere); `game.screenshot`, `input.record` and the rest move to it. A test walks the registry and tries `..`
+  and absolute paths on every path argument.
+- M92.3 (M) — DONE in 0.25.0 Secrets off command lines and inherited environments: signing passwords never in argv (each
+  tool's file, environment, keychain-profile or API-key form; signtool through a certificate imported for the run);
+  hooks and agent CLIs get an allow-listed environment; private files on Windows get an owner-only ACL; the permission
+  mode of each AI CLI (`acceptEdits` for Claude Code today) is shown and editable in AI Settings with what it allows;
+  the feedback server limits per install and per IP and holds without `cf-connecting-ip`.
+- M92.4 (M) — DONE in 0.25.0 Contract tests for the AI CLIs: recorded outputs of each CLI (`stream-json` and the others)
+  replayed by tests, so a CLI update that changes its format fails here, not in a user's run.
 
 ## M93. Oracles: sanitizers, fuzzing, strict builds, benchmarks (L; 5 packages) — outside review, 2026-11-09
 
