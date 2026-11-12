@@ -85,10 +85,100 @@ TEST_CASE("resolve_for_write: a relative path stays in the project and comes bac
     CHECK(fs::resolve_for_write("a/..", fs::WriteRoot::Project, false).value() == c.canon());
     // Folders that do not exist yet are fine, and nothing is created.
     CHECK_FALSE(stdfs::exists(c.proj / "a"));
-    // The managed folders are NOT this function's job for a relative path (commands write screenshots there).
-    CHECK(fs::resolve_for_write(".factoria/screenshots/s.png", fs::WriteRoot::Project, false).ok());
-    CHECK(fs::resolve_for_write(".git/config", fs::WriteRoot::Project, false).ok());
 }
+
+TEST_CASE("resolve_for_write: a relative path into a managed folder is refused unless the command opts in") {
+    Confined c;
+    for (const char* bad : {".factoria/screenshots/s.png", ".git/config", ".git", ".factoria", "a/../.factoria/x.json", ".factoria/tmpx/a"}) {
+        CAPTURE(bad);
+        auto r = fs::resolve_for_write(bad, fs::WriteRoot::Project, false);
+        REQUIRE_FALSE(r.ok());
+        CHECK(code_of(r) == "managed_path_denied");
+        CHECK(r.error().hint.find(".factoria/tmp/") != std::string::npos);
+        // allowAnywhere does not open them, and the opt-in does.
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, true)) == "managed_path_denied");
+        CHECK(fs::resolve_for_write(bad, fs::WriteRoot::Project, false, fs::ManagedFolders::Allow).ok());
+        CHECK(fs::resolve_for_write_in(c.proj, fs::WriteRoot::Project, bad, false, fs::ManagedFolders::Allow).ok());
+        CHECK(code_of(fs::resolve_for_write_in(c.proj, fs::WriteRoot::Project, bad, false)) == "managed_path_denied");
+    }
+    for (const char* ok : {".factoria/tmp/a.json", ".factoria/tmp", ".gitignore", ".factoria_x/a", "scenes/.factoria/a"}) {
+        CAPTURE(ok);
+        CHECK(fs::resolve_for_write(ok, fs::WriteRoot::Project, false).ok());
+    }
+    // Save and Export roots are what a command writes on purpose, even when they sit inside .factoria.
+    CHECK(fs::resolve_for_write("slot.json", fs::WriteRoot::Save, false).ok());
+    // A link into a managed folder counts (judged on the canonical path).
+    stdfs::create_directories(c.proj / ".factoria" / "save");
+    if (make_link(c.proj / ".factoria", c.proj / "meta", true)) {
+        CHECK(code_of(fs::resolve_for_write("meta/x.json", fs::WriteRoot::Project, false)) == "managed_path_denied");
+        CHECK(fs::resolve_for_write("meta/x.json", fs::WriteRoot::Project, false, fs::ManagedFolders::Allow).ok());
+    }
+    // Case variants name the same folder on Windows and macOS only.
+#if defined(_WIN32) || defined(__APPLE__)
+    CHECK(code_of(fs::resolve_for_write(".GIT/config", fs::WriteRoot::Project, false)) == "managed_path_denied");
+#else
+    CHECK(fs::resolve_for_write(".GIT/config", fs::WriteRoot::Project, false).ok());
+#endif
+}
+
+TEST_CASE("resolve_for_write: NUL bytes, drives and streams in a relative path are invalid_path") {
+    Confined c;
+    using namespace std::string_literals;
+    for (const std::string& bad : std::vector<std::string>{"a\0b.png"s, "\0"s, "a/../C:/x"s, "a/../D:"s, "x/../z:y/f"s}) {
+        CAPTURE(bad);
+        auto r = fs::resolve_for_write(bad, fs::WriteRoot::Project, false);
+        REQUIRE_FALSE(r.ok());
+        CHECK(code_of(r) == "invalid_path");
+        CHECK_FALSE(r.error().hint.empty());
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, true)) == "invalid_path");
+    }
+    CHECK(code_of(fs::resolve_for_write("/tmp/a\0b"s, fs::WriteRoot::Project, true)) == "invalid_path");
+    // A colon after the first segment is a valid name on POSIX.
+#ifndef _WIN32
+    CHECK(fs::resolve_for_write("a/b:c.txt", fs::WriteRoot::Project, false).ok());
+#else
+    CHECK(code_of(fs::resolve_for_write("a/b:stream", fs::WriteRoot::Project, false)) == "invalid_path");
+#endif
+}
+
+#ifndef _WIN32
+TEST_CASE("resolve_for_write: on a case-sensitive system names that are not UTF-8 stay different") {
+#if !defined(__APPLE__)
+    Confined c;
+    // Two folders whose names differ in invalid bytes only: decoding both as U+FFFD would call them the same.
+    const std::string a = "d\xff\xfe", b = "d\xfd\xfc";
+    std::error_code ec;
+    stdfs::create_directories(c.proj / a, ec);
+    if (ec) {
+        MESSAGE("this file system refuses names that are not UTF-8: skipped");
+        return;
+    }
+    stdfs::create_directories(c.proj / b);
+    // A path through folder a is not inside the root b.
+    auto outside = fs::resolve_for_write_in(c.proj / b, fs::WriteRoot::Project, "../" + a + "/x.txt", false);
+    CHECK(code_of(outside) == "path_outside_root");
+    auto inside = fs::resolve_for_write_in(c.proj / b, fs::WriteRoot::Project, "x.txt", false);
+    REQUIRE(inside.ok());
+    CHECK(inside.value().parent_path().filename().native() == b);
+    // The absolute path of a file in folder a, for a root that is b: not a path inside the root.
+    auto denied = fs::resolve_for_write_in(c.proj / b, fs::WriteRoot::Project, (c.proj / a / "x.txt").generic_string(), false);
+    REQUIRE_FALSE(denied.ok());
+    CHECK(code_of(denied) == "absolute_path_denied");
+    CHECK(denied.error().hint.find("is inside the project folder") == std::string::npos);
+#endif
+}
+
+TEST_CASE("resolve_for_write: Windows forms of a network path are invalid_path on this system") {
+    for (const char* foreign : {"\\\\server\\share\\x", "//server/share/x", "\\\\?\\UNC\\server\\share\\x", "//?/UNC/server/share/x"}) {
+        CAPTURE(foreign);
+        Confined c;
+        auto b = fs::resolve_for_write(foreign, fs::WriteRoot::Project, true);
+        REQUIRE_FALSE(b.ok());
+        CHECK(code_of(b) == "invalid_path");
+        CHECK(code_of(fs::resolve_for_write(foreign, fs::WriteRoot::Project, false)) == "absolute_path_denied");
+    }
+}
+#endif
 
 TEST_CASE("resolve_for_write: a '..' that leaves the root is path_outside_root and the error teaches") {
     Confined c;
@@ -270,12 +360,12 @@ TEST_CASE("resolve_for_write: the three roots") {
         REQUIRE(moved.ok());
         CHECK(moved.value() == stdfs::weakly_canonical(c.outside, ec) / "saves" / "a" / "slot.json");
     }
-    // Export: <project>/build/exports until set_export_dir.
+    // Export: <project>/build/export until set_export_dir.
     {
-        CHECK(fs::export_dir() == fs::project_root() / "build" / "exports");
+        CHECK(fs::export_dir() == fs::project_root() / "build" / "export");
         auto r = fs::resolve_for_write("game.zip", fs::WriteRoot::Export, false);
         REQUIRE(r.ok());
-        CHECK(r.value() == c.canon("build/exports/game.zip"));
+        CHECK(r.value() == c.canon("build/export/game.zip"));
         CHECK_FALSE(stdfs::exists(c.proj / "build"));  // nothing is created until a write
         auto esc = fs::resolve_for_write("../../x", fs::WriteRoot::Export, false);
         REQUIRE_FALSE(esc.ok());
@@ -289,7 +379,7 @@ TEST_CASE("resolve_for_write: the three roots") {
         CHECK(moved.value() == stdfs::weakly_canonical(c.outside, ec) / "out" / "game.zip");
         CHECK(code_of(fs::resolve_for_write("../x", fs::WriteRoot::Export, false)) == "path_outside_root");
         fs::set_export_dir({});
-        CHECK(fs::export_dir() == fs::project_root() / "build" / "exports");
+        CHECK(fs::export_dir() == fs::project_root() / "build" / "export");
     }
     // Project is the project; the same relative path lands in three places.
     CHECK(fs::resolve_for_write("a.txt", fs::WriteRoot::Project, false).value() == c.canon("a.txt"));

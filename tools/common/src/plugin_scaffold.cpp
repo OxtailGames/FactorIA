@@ -9,6 +9,7 @@
 #include "fa/runtime/project.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/json_patch.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/tooling.h"
 #include "util.h"
 
@@ -62,7 +63,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
       "properties":{
         "name":{"type":"string","description":"The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>."},
         "template":{"type":"string","default":"basic","description":"What to start from: \"basic\" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones."},
-        "path":{"type":"string","description":"Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts."},
+        "path":{"type":"string","x-fa-path":"write","description":"Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts."},
         "platforms":{"type":"array","items":{"type":"string","enum":["windows","macos","linux","ios","android"]},
                      "description":"The platforms it will be built for (default: this computer's)."},
         "optional":{"type":"boolean","default":true,"description":"Written as \"optional\" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it."},
@@ -87,6 +88,17 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
             throw CommandError("invalid_argument", "factoria.json#/plugins/" + name + " is already declared",
                                "Choose another name, or remove the declaration first.");
         const bool dryRun = a.value("dryRun", false);
+        // The folder is written to: a caller that may not write outside the project (MCP, the built-in agent) gets a path inside it, and
+        // no ${VARIABLE} (which expands to wherever the environment says); the command-line user names any folder.
+        if (a.contains("path") && a["path"].is_string()) {
+            const std::string given = a["path"].get<std::string>();
+            const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+            if (!anywhere && given.find("${") != std::string::npos)
+                throw CommandError("invalid_argument", "path '" + given + "' uses a ${VARIABLE}, which can lead outside the project",
+                                   "Give a folder inside the project, such as plugins/" + name + ".");
+            if (auto r = resolve_write_path(projectDir, given); !r.ok() && (!anywhere || given.find("${") == std::string::npos))
+                throw CommandError("invalid_argument", "path: " + r.error().message, r.error().hint);
+        }
 
         // The declaration, patched into the text of factoria.json (only plugins.<name> changes; the other keys, their order and
         // the layout stay as they are). Nothing is written yet: load_project checks the name and the platforms on a copy.

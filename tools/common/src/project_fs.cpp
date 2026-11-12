@@ -92,6 +92,10 @@ std::string lines_slice(const std::string& text, long from, long to, bool number
 }
 
 Json str_prop(const char* desc) { return Json::object({{"type", "string"}, {"description", desc}}); }
+// A path property: `kind` is "read" or "write" (the "x-fa-path" annotation of docs/ARCHITECTURE.md, "Commands").
+Json path_prop(const char* kind, const char* desc) {
+    return Json::object({{"type", "string"}, {"description", desc}, {"x-fa-path", kind}});
+}
 Json bool_prop(const char* desc, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", desc}}); }
 Json int_prop(const char* desc, long def) { return Json::object({{"type", "integer"}, {"default", def}, {"description", desc}}); }
 
@@ -100,7 +104,21 @@ Json int_prop(const char* desc, long def) { return Json::object({{"type", "integ
 Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::string_view relPath) {
     // The confinement rules live in fa::fs (core/fs.h, resolve_for_write): a project-relative path, no absolute form, no ".."
     // above the project, no symlink out. `projectDir` is this registration's folder, which need not be fs::project_root().
-    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, relPath, /*allowAnywhere=*/false);
+    // The managed folders stay open here: the callers are the tools' own files (selections, previews, review files under
+    // `.factoria/`), and the commands that write what a caller names check fs::check_writable or use resolve_write_path.
+    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, relPath, /*allowAnywhere=*/false,
+                                    fs::ManagedFolders::Allow);
+}
+
+Result<stdfs::path> resolve_write_path(const std::string& projectDir, std::string_view path, fs::WriteRoot root, fs::ManagedFolders managed) {
+    const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+    stdfs::path rootDir(projectDir);
+    // The tooling commands know their own project folder (projectDir), which need not be fs::project_root(): the default export
+    // folder follows it, a folder set with set_export_dir does not.
+    if (root == fs::WriteRoot::Export && fs::export_dir() == fs::project_root() / "build" / "export") rootDir = rootDir / "build" / "export";
+    else if (root == fs::WriteRoot::Export) rootDir = fs::export_dir();
+    else if (root == fs::WriteRoot::Save) rootDir = fs::user_dir();
+    return fs::resolve_for_write_in(rootDir, root, path, anywhere, managed);
 }
 
 void register_fs_commands(CommandRegistry& registry, const std::string& projectDir) {
@@ -112,7 +130,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.summary = "List files and folders in the project.";
         info.description = "Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {\"path\":\"scenes\",\"recursive\":true}";
         info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", str_prop("Folder to list (default: project root).")},
+            {"properties", Json::object({{"path", path_prop("read", "Folder to list (default: project root).")},
                                          {"recursive", bool_prop("Descend into subfolders.", false)},
                                          {"glob", str_prop("Only paths matching this glob, e.g. \"**/*.js\".")},
                                          {"limit", int_prop("Maximum entries returned.", 500)}})}});
@@ -161,7 +179,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.description = "Example: {\"path\":\"scripts/player.js\",\"startLine\":1,\"endLine\":80}. "
                            "Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.";
         info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
+            {"properties", Json::object({{"path", path_prop("read", "Project-relative file path.")},
                                          {"startLine", int_prop("First line (1-based).", 1)},
                                          {"endLine", int_prop("Last line, inclusive (default: end of file).", 0)},
                                          {"numbered", bool_prop("Prefix every line with its number and a tab.", false)}})},
@@ -201,7 +219,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                            "and a warning is returned if invalid; run project.validate afterwards. The file is replaced atomically (a temporary file is renamed over it), so hot reload never reads a half-written file. Writing into .factoria/ is refused except "
                            ".factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).";
         info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
+            {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
                                          {"content", str_prop("Full new file content (base64 text when encoding=base64).")},
                                          {"encoding", Json::object({{"type", "string"}, {"enum", Json::array({"utf8", "base64"})},
                                               {"default", "utf8"},
@@ -262,7 +280,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                            "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. "
                            "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).";
         info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
+            {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
                                          {"find", str_prop("Exact text to find (whitespace-sensitive).")},
                                          {"replace", str_prop("Replacement text (may be empty to delete).")},
                                          {"replaceAll", bool_prop("Replace every occurrence.", false)}})},
@@ -325,7 +343,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             {"properties", Json::object({{"query", str_prop("Text or regular expression (ECMAScript).")},
                                          {"regex", bool_prop("Treat query as a regular expression.", false)},
                                          {"caseSensitive", bool_prop("Case-sensitive match.", false)},
-                                         {"path", str_prop("Folder to search (default: project root).")},
+                                         {"path", path_prop("read", "Folder to search (default: project root).")},
                                          {"glob", str_prop("Only files matching this glob, e.g. \"**/*.js\".")},
                                          {"limit", int_prop("Maximum matches returned.", 100)}})},
             {"required", Json::array({"query"})}});
@@ -399,7 +417,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                            "only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may "
                            "write to. Example: {\"path\":\"scripts/old.js\"} or {\"path\":\".factoria/tmp\",\"recursive\":true}";
         info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", str_prop("Project-relative path.")},
+            {"properties", Json::object({{"path", path_prop("write", "Project-relative path.")},
                                          {"recursive", bool_prop("Delete a folder and everything in it.", false)}})},
             {"required", Json::array({"path"})}});
         registry.add(info, [projectDir](const Json& args) {

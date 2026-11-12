@@ -77,5 +77,5 @@ Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the sc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `out` | string | yes | Docs folder to write into (relative to the working directory), usually "docs". |
+| `out` | string | yes | Docs folder to write into (relative to the working directory, and inside it; an absolute path only from the command line), usually "docs". |
 
