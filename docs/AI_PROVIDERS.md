@@ -540,6 +540,10 @@ offers instead:
 * `tool_describe` and `tool_call`, and
 * a `# Tools` section in the system prompt with one line per remaining command, grouped by category.
 
+The core list and the group rules (category, exact name, `core`, `all`, a did-you-mean for an unknown group) live in
+`tools/common/include/fa/tooling/tool_groups.h` and are shared with the MCP server, whose `--tools` profiles
+([MCP.md](MCP.md#tool-profiles)) offer the same core set to clients that do not defer tools themselves.
+
 The model reads the catalog, describes the commands it is about to use (several in one call) and calls them through
 `tool_call`, which runs the command under its own name: the chat shows `assets_slice_sheet`, not `tool_call`, and the transcript and
 the events carry the command's arguments. The catalog is used only when it saves something (the definitions it leaves out add
