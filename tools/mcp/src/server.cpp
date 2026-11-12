@@ -354,6 +354,31 @@ bool McpServer::listed_locked(const CommandInfo& c) const {  // profileMutex_ he
     return false;
 }
 
+namespace {
+// True when a schema property (at any depth) is marked "x-fa-path": "write": the command can write a file the caller names.
+bool schema_writes_path(const Json& schema) {
+    if (schema.is_object()) {
+        auto it = schema.find("x-fa-path");
+        if (it != schema.end() && it->is_string() && it->get<std::string>() == "write") return true;
+        for (const auto& kv : schema.items())
+            if (schema_writes_path(kv.value())) return true;
+    } else if (schema.is_array()) {
+        for (const Json& v : schema)
+            if (schema_writes_path(v)) return true;
+    }
+    return false;
+}
+}  // namespace
+
+bool mcp_command_is_read_only(const CommandInfo& c) {
+    // {read} only. Exceptions, each tested: an optional argument that writes (a schema property marked x-fa-path "write":
+    // checkpoint.read `out`, model.preview `out`...) and the commands whose handler asks for writeProject at run time
+    // without a path (feedback.check `reject`).
+    if (!CapabilitySet{Capability::Read}.has_all(c.capabilities)) return false;
+    if (c.name == "feedback.check") return false;
+    return !schema_writes_path(c.inputSchema);
+}
+
 Json McpServer::tool_json(const CommandInfo& c) const {
     Json t = Json::object();
     t["name"] = mcp_tool_name(c.name);
@@ -371,9 +396,10 @@ Json McpServer::tool_json(const CommandInfo& c) const {
     if (!schema.contains("type")) schema["type"] = "object";
     t["inputSchema"] = schema;
     const CapabilitySet caps = c.capabilities;
-    const bool readOnlyHint = CapabilitySet{Capability::Read}.has_all(caps);
+    const bool readOnlyHint = mcp_command_is_read_only(c);
     // Commands whose default behaviour writes only under .factoria/ (game.screenshot...) declare {read, state}, so they are
-    // not destructive; the ones that write project files declare writeProject.
+    // not destructive; the ones that write project files declare writeProject. A command that only writes a file the caller
+    // names through an optional argument (x-fa-path "write") is not read-only but not destructive either.
     const bool destructiveHint = !readOnlyHint && (caps.has(Capability::WriteAnywhere) || caps.has(Capability::Publish) ||
                                                     caps.has(Capability::Spend) || caps.has(Capability::WriteProject));
     const bool openWorldHint = caps.has(Capability::Network) || caps.has(Capability::Publish) || caps.has(Capability::Spend);
@@ -687,7 +713,7 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     if (command.empty()) {
         for (const CommandInfo* c : host_.commands().list())
             if (!is_user_only_command(c->name) && mcp_tool_name(c->name) == toolName && !visible(*c))
-                return text_result("tool_not_available: '" + toolName + "' is not served by this server (it only serves the tools tools/list shows).\nhint:ask the user to run it themselves (`factoria call " + c->name +
+                return text_result("tool_not_available: '" + toolName + "' is not served by this server (it only serves the tools tools/list shows).\nhint: ask the user to run it themselves (`factoria call " + c->name +
                                        "`) or to start `factoria mcp` without --read-only.",
                                    true);
     }

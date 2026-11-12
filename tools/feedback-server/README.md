@@ -95,6 +95,8 @@ per-network cap is what stops a loop of fresh ids. Admin routes need the admin t
 | `POST /v1/verdicts` (requests) | 240 | 960 | 100 000 |
 | `POST /v1/auth/github` (sign-ins; no installation id exists yet) | - | 20 | 2 000 |
 
+An IPv6 client counts as its /64, but a client with a /48 or /56 delegation can still get fresh buckets by moving between its /64s; the global daily cap ("Whole server") is the defence against that.
+
 The network is `CF-Connecting-IP`, which Cloudflare sets on every request; only a keyed hash of it is stored. A write
 request without that header did not come through Cloudflare and is refused with `400 missing_client_ip` (reads and admin
 routes are unaffected). For local `wrangler dev` and the tests, set the variable `ALLOW_NO_CLIENT_IP=1` (for example

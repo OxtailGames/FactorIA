@@ -92,10 +92,11 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
     }
 
     /**
-     * The network of a write request (an IPv6 address counts as its /64, an IPv4-mapped one as the IPv4): its keyed hash and the prefix of its counters. Cloudflare always sets
-     * cf-connecting-ip; a request without it did not come through Cloudflare, so it is refused (every such request would
-     * share one bucket, and the per-network cap is what stops free installation ids). ALLOW_NO_CLIENT_IP (local
-     * `wrangler dev`, tests; only "1" or "true") lets it through into one strict bucket of caps.noIp units per day, apart from every real network.
+     * The network of a write request (an IPv6 address counts as its /64, an IPv4-mapped one as the IPv4): its keyed hash and
+     * the prefix of its counters. Cloudflare always sets cf-connecting-ip; a request without it did not come through
+     * Cloudflare, so it is refused (every such request would share one bucket, and the per-network cap is what stops free
+     * installation ids). ALLOW_NO_CLIENT_IP (local `wrangler dev`, tests; only "1" or "true") lets it through into one strict
+     * bucket of caps.noIp units per day, apart from every real network.
      */
     async function clientNetwork(ms, request) {
         const ip = request.headers.get("cf-connecting-ip");

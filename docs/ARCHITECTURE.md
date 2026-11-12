@@ -195,7 +195,8 @@ these (JSON names are camelCase):
 
 A command that declares nothing gets a set derived from `readOnly` when it is added: `{read}` if read-only, otherwise
 `{read, state, writeProject}` (never one of the dangerous four, so a command that needs one must declare it);
-`CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities` (camelCase names) and `capabilitiesDeclared` (bool). The same two fields appear in
+`CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities` (camelCase names) and
+`capabilitiesDeclared` (bool). The same two fields appear in
 `api.commands`, `factoria commands [--json]`, `factoria api --json` (api.json); every command page of the generated reference
 has a "Capabilities:" line ("not declared yet" while `capabilitiesDeclared` is false); an MCP tool carries them in its
 `_meta` (`factoria/capabilities`, `factoria/capabilitiesDeclared`) and `tool_describe` returns them per command.

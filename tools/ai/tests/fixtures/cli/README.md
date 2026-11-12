@@ -26,7 +26,7 @@ echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"
 |---|---|---|---|---|
 | `plain.jsonl` | `Reply with exactly the word: pong` | acceptEdits | 2 | text answer, usage, cost, rate-limit event |
 | `tool_use.jsonl` | `Read the file hello.txt and tell me the secret word in one short sentence.` | acceptEdits | 3 | `tool_use` / `tool_result` of `Read` |
-| `permission_denied.jsonl` | `Create a file named out.txt containing the word hi, using the Write tool.` | default | 3 | `Write` refused: errored `tool_result`, `permission_denials`, `system/permission_denied` |
+| `permission_denied.jsonl` | `Create a file named out.txt containing the word hi, using the Write tool.` | default | 3 | `Write` refused: errored `tool_result` (the file also holds `permission_denials` and `system/permission_denied`, which the parser does not read) |
 | `max_turns.jsonl` | `Read the file hello.txt and tell me the secret word.` | acceptEdits | 1 | `result` with `subtype: error_max_turns`, `is_error: true`, `errors[]` |
 | `models.jsonl` | (the `initialize` control request `list_models` sends, no model call) | | | `control_response` with the model list |
 
@@ -49,6 +49,14 @@ Scrubbed before committing (the recording is otherwise byte for byte what the CL
 
 There is no scrub script in the repository: write a few lines of Python each time, then check the result with
 `grep -rinE 'Users/|@|private/tmp|home/|worktrees' <folder>` (only `/home/user` and `/tmp/fa-contract` may match) and by reading the `init` and `control_response` lines.
+
+### What the Claude Code tests cover beyond the recordings
+
+`thinking` blocks (`tool_use.jsonl`: ThinkingDelta), `cache_creation.ephemeral_1h_input_tokens`, `parent_tool_use_id` and
+`mcp_servers` with a status other than `connected` are tested by changing one field of a recorded line and feeding it to the
+parser (the recordings only hold `parent_tool_use_id: null` and connected servers). The session id is tested for `system/init`
+alone, `result` alone, both, and a `result` without an id. Not covered: `permission_denials` and `system/permission_denied`
+(the parser does not read them), `result.modelUsage` of more than one model, sub-agent runs recorded for real.
 
 ## codex-docs (written from the docs, not a recording)
 

@@ -95,6 +95,9 @@ std::string mcp_tool_name(std::string_view commandName);
 // Commands that install software on the user's computer: only the user starts them (the editor, the CLI). No MCP server
 // lists or runs them, whatever the filter says, so an AI client (Claude Code included) cannot. Today: ai.plugin_install.
 bool is_user_only_command(std::string_view commandName);
+// The tool's readOnlyHint: the command declares only {read} and no schema property is an x-fa-path "write" (an optional
+// output path) and it is not feedback.check (its `reject` edits ENGINE_FEEDBACK.json when the handler asks for writeProject).
+bool mcp_command_is_read_only(const CommandInfo& c);
 
 inline constexpr const char* kMcpLatestProtocol = "2025-11-25";
 const std::vector<std::string>& mcp_supported_protocols();
