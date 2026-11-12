@@ -186,7 +186,7 @@ A command that declares nothing gets a set derived from `readOnly` when it is ad
 `CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities`.
 
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
-`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read}`), `agent` (all but `writeAnywhere` and `publish`),
+`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state, writeProject}`: the play commands that the `--read-only` filter serves change the game and `game.screenshot` writes under `.factoria/`; the filter keeps the editing commands out, and `McpServer::set_capabilities` installs the set on every tools/call), `agent` (all but `writeAnywhere` and `publish`),
 `game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
 `cli_user`, Mcp: `mcp`, Agent: `agent`). **A scope only narrows**: `CommandCapabilityScope` (and `CommandCallerScope`)
 intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested

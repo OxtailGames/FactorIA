@@ -42,7 +42,8 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
     CommandResult r = fail("capability_denied", std::move(message),
                            "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
                            "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-                           "(docs/SCRIPTING.md). Ask the user to run this command themselves, or to start the tool with that capability.");
+                           "(docs/SCRIPTING.md). Ask the user to run this command themselves (`factoria call " + info.name +
+                               "` in a terminal, which has every capability), or to start the tool with that capability.");
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
                                     {"needs", info.capabilities.to_json()},

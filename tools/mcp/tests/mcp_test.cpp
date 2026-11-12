@@ -1201,3 +1201,105 @@ TEST_CASE("mcp: a session keeps a cancel for a queued request until it begins") 
     CHECK_FALSE(session.end_request("five", other));
     CHECK(session.requests_queued() == 0);
 }
+
+namespace {
+void add_cap_tool(Fixture& f, const char* name, CapabilitySet caps, bool readOnly = false, std::shared_ptr<int> ran = nullptr) {
+    CommandInfo i;
+    i.name = name;
+    i.summary = "Capability test command.";
+    i.readOnly = readOnly;
+    f.registry.add(i, [ran](const Json&) {
+        if (ran) ++*ran;
+        return Json::object({{"ran", true}});
+    });
+    REQUIRE(f.registry.declare_capabilities(name, caps));
+}
+
+Json tool_annotations(Fixture& f, const std::string& tool) {
+    const Json listed = f.rpc("tools/list");  // a named value: a range over a temporary would dangle
+    for (const Json& t : listed["result"]["tools"])
+        if (t["name"] == tool) return t["annotations"];
+    FAIL("tool not listed: " << tool);
+    return Json();
+}
+
+std::string error_text(const Json& response) { return response["result"]["content"][0]["text"].get<std::string>(); }
+}  // namespace
+
+TEST_CASE("mcp: a normal server refuses a writeAnywhere command with capability_denied and a hint that names the CLI") {
+    Fixture f;
+    auto ran = std::make_shared<int>(0);
+    add_cap_tool(f, "test.outside", CapabilitySet{Capability::Read, Capability::WriteAnywhere}, false, ran);
+    f.initialize();
+    CHECK(f.server.capabilities() == capability_sets::mcp());
+    const Json res = f.call("test_outside");
+    CHECK(res["result"]["isError"] == true);
+    const std::string text = error_text(res);
+    CHECK(text.find("capability_denied") != std::string::npos);
+    CHECK(text.find("writeAnywhere") != std::string::npos);
+    CHECK(text.find("factoria call test.outside") != std::string::npos);
+    CHECK(*ran == 0);
+}
+
+TEST_CASE("mcp: the read-only server serves the play commands and refuses the rest, listed or not") {
+    Fixture f;
+    auto stepped = std::make_shared<int>(0), saved = std::make_shared<int>(0), published = std::make_shared<int>(0);
+    add_cap_tool(f, "game.step", capability_sets::changes_state(), false, stepped);
+    add_cap_tool(f, "game.screenshot", capability_sets::edits_project());
+    add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
+    add_cap_tool(f, "test.publish", CapabilitySet{Capability::Read, Capability::Publish}, false, published);
+    f.server.set_command_filter([](const CommandInfo& info) {
+        return info.readOnly || info.name == "game.step" || info.name == "game.screenshot" || info.name == "test.publish";
+    });
+    f.server.set_capabilities(capability_sets::mcp_read_only());
+    f.initialize();
+
+    CHECK(f.call("game_step")["result"]["isError"] == false);
+    CHECK(*stepped == 1);
+    CHECK(f.call("game_screenshot")["result"]["isError"] == false);
+
+    const Json unlisted = f.call("scene_save");  // not served: the filter refuses it before any capability check
+    CHECK(unlisted["result"]["isError"] == true);
+    CHECK(error_text(unlisted).find("tool_not_available") != std::string::npos);
+    CHECK(error_text(unlisted).find("factoria call scene.save") != std::string::npos);
+    CHECK(*saved == 0);
+
+    const Json denied = f.call("test_publish");  // served, but the set lacks publish
+    CHECK(error_text(denied).find("capability_denied") != std::string::npos);
+    CHECK(*published == 0);
+}
+
+TEST_CASE("mcp: the read-only capability set covers the play commands it serves and nothing dangerous") {
+    const CapabilitySet ro = capability_sets::mcp_read_only();
+    CHECK(ro.has_all(capability_sets::changes_state()));
+    CHECK(ro.has_all(capability_sets::edits_project()));
+    CHECK_FALSE(ro.has(Capability::WriteAnywhere));
+    CHECK_FALSE(ro.has(Capability::Network));
+    CHECK_FALSE(ro.has(Capability::Process));
+    CHECK_FALSE(ro.has(Capability::Spend));
+    CHECK_FALSE(ro.has(Capability::Publish));
+}
+
+TEST_CASE("mcp: tool hints come from the capabilities") {
+    Fixture f;
+    add_cap_tool(f, "scene.save", capability_sets::edits_project());
+    add_cap_tool(f, "game.screenshot", capability_sets::edits_project());
+    add_cap_tool(f, "test.look", capability_sets::reads(), true);
+    add_cap_tool(f, "test.net", CapabilitySet{Capability::Read, Capability::Network});
+    add_cap_tool(f, "test.spend", CapabilitySet{Capability::Read, Capability::Spend});
+    add_cap_tool(f, "test.edit_memory", capability_sets::changes_state());
+    f.initialize();
+    auto check = [&](const char* tool, bool readOnly, bool destructive, bool openWorld) {
+        const Json a = tool_annotations(f, tool);
+        INFO(tool);
+        CHECK(a["readOnlyHint"] == readOnly);
+        CHECK(a["destructiveHint"] == destructive);
+        CHECK(a["openWorldHint"] == openWorld);
+    };
+    check("scene_save", false, true, false);
+    check("game_screenshot", false, false, false);  // writes a new PNG under .factoria/ only
+    check("test_look", true, false, false);
+    check("test_net", false, false, true);
+    check("test_spend", false, true, true);
+    check("test_edit_memory", false, false, false);
+}
