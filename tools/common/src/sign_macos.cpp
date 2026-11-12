@@ -10,6 +10,7 @@
 #include <fstream>
 #include <regex>
 
+#include "assets_internal.h"
 #include "export_internal.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -1103,7 +1104,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
-        "app":{"type":"string","description":"The .app to sign, relative to the project. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
+        "app":{"type":"string","x-fa-path":"write","description":"The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
         "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "identity":{"type":"string","description":"The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; \"-\" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json."},
         "distribution":{"type":"string","enum":["developerId","appStore"],"default":"developerId","description":"developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is \"-\")."},
@@ -1142,7 +1143,8 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         auto anywhere = [&](const std::string& path, const char* what) {
             return stdfs::path(path).is_absolute() ? path : inside(path, what);
         };
-        if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = inside(v, "app");
+        // `app` is signed where it is, so it is a write: inside the project for every caller (even the command line), never in .git or .factoria
+        if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = fs::path_to_utf8(assets_detail::project_write_file(projectDir, v));
         if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
         if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = writable(v, "zip");
         if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = writable(v, "pkg");
@@ -1168,6 +1170,9 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         return r->to_json();
     });
     register_sign_windows_command(registry, projectDir);
+    // runs codesign/notarytool/stapler/productbuild: signs the app in place and sends it to Apple's notary service.
+    declare_command_capabilities(registry, {
+        {"sign.macos", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

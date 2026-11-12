@@ -288,6 +288,10 @@ void register_setup_commands(CommandRegistry& registry) {
             return r.report.to_json();
         });
     }
+    // setup.status probes the installed tools (process) and may fetch the Android license text (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
+    declare_command_capabilities(registry, {
+        {"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
+        {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

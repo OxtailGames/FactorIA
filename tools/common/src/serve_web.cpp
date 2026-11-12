@@ -1204,6 +1204,9 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         if (st.state == "failed") throw CommandError("failed", st.error + " (the previous build is still served at " + st.localUrl + ")", st.hint);
         return st.to_json();
     });
+    // exports the web build into the project and listens on a TCP port.
+    declare_command_capabilities(registry, {
+        {"project.serve_web", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}}});
 }
 
 }  // namespace fa

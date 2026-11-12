@@ -535,6 +535,9 @@ void register_api_export_commands(CommandRegistry& registry) {
                              tooling_detail::arg_string(args, "filter", false), render);
         });
     }
+    declare_command_capabilities(registry, {
+        {"docs.components", capability_sets::reads()},
+        {"docs.commands", capability_sets::reads()}});
 }
 
 void register_api_reference_command(CommandRegistry& registry, const ScriptSystem& scripts) {
@@ -600,6 +603,9 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             return result;
         });
     }
+    // docs.write_reference writes <out>/ (inside the project for an MCP client or agent, any folder for the command line).
+    declare_command_capabilities(registry, {
+        {"docs.write_reference", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

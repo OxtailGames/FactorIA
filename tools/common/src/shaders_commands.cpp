@@ -151,6 +151,10 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             return out;
         });
     }
+    // shader.compile runs sokol-shdc on the material; its cache lives in .factoria/shader-cache.
+    declare_command_capabilities(registry, {
+        {"shader.compile", CapabilitySet{Capability::Read, Capability::Process}},
+        {"material.info", capability_sets::reads()}});
 }
 
 std::vector<ValidationIssue> shader_validation_issues(const ShaderCompileResult& result) {

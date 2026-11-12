@@ -173,6 +173,8 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         if (dryRun) out["dryRun"] = true;
         return out;
     });
+    declare_command_capabilities(registry, {
+        {"project.new_plugin", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

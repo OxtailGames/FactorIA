@@ -72,7 +72,7 @@ Json image_select(const std::string& projectDir, const Json& a) {
     check_arg_keys(kCmd, a, "",
                    {"path", "name", "by", "mode", "then", "clear", "color", "at", "tolerance", "contiguous", "threshold", "layer", "x", "y", "width", "height", "points", "rect",
                     "ellipse", "polygon", "frame"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), kCmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), kCmd, false);
     FrameScope frameScope(projectDir, d.rel, d.json, a, kCmd);   // color / alpha / layer selections read the picture of `frame`
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     const std::string name = arg_string(a, "name", false, "selection");
@@ -323,7 +323,7 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
       "height":{"type":"number","minimum":0,"description":"rect / ellipse: height of the box."},
       "points":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"polygon: the corners [[x,y],...], at least three."}}})");
     add_frame_support(info, "the color, alpha and layer selections read", false, "the selection reads the picture of that frame; the stored selection itself is the same for every frame");
-    registry.add(info, [projectDir](const Json& args) { return image_select(projectDir, args); });
+    add_image_command(registry, info, [projectDir](const Json& args) { return image_select(projectDir, args); }, false);
 }
 
 }  // namespace fa::imgedit

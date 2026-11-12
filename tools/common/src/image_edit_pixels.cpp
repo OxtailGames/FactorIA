@@ -444,7 +444,7 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
           "name":{"type":"string","description":"copy / cut: the new layer's name (default: '<layer> copy' / '<layer> cut')."},
           "bake":{"type":"boolean","default":true,"description":"Bake the document to its PNG after the edit."}}})");
         add_frame_support(info, "to edit");
-        registry.add(info, [projectDir](const Json& args) { return image_edit(projectDir, args); });
+        add_image_command(registry, info, [projectDir](const Json& args) { return image_edit(projectDir, args); });
     }
     {
         CommandInfo info;
@@ -484,7 +484,7 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "spacing":{"type":"number","minimum":0.01,"maximum":512,"description":"Pixels of arc length between stamps (default size/5, at least 1)."}}}},
           "bake":{"type":"boolean","default":true,"description":"Bake the document to its PNG after painting."}}})");
         add_frame_support(info, "to paint on");
-        registry.add(info, [projectDir](const Json& args) { return image_paint(projectDir, args); });
+        add_image_command(registry, info, [projectDir](const Json& args) { return image_paint(projectDir, args); });
     }
 }
 

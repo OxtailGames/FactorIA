@@ -626,6 +626,9 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
             "dryRun": {"type": "boolean", "default": false, "description": "Report what would change without writing anything."}
         }})");
     registry.add(importer, [projectDir](const Json& args) { return import_translations(projectDir, args); });
+    declare_command_capabilities(registry, {
+        {"i18n.export", capability_sets::writes_project()},
+        {"i18n.import", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

@@ -45,6 +45,13 @@ std::string normalized(const std::string& rel) {
     return norm.ok() && !norm->empty() ? *norm : rel;
 }
 
+// Where a document or its baked picture is written: inside the project for every caller (the paths are recorded in assets.json),
+// and not in the tools' own folders (`.git`, `.factoria/` except `.factoria/tmp`), judged on the real path after links. The caller
+// may be an MCP client or an agent: `output` of a document comes from its JSON.
+Result<stdfs::path> resolve_document_write(const std::string& projectDir, const std::string& rel) {
+    return fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+}
+
 // The manifest entry of a project file, read from projectDir's assets.json.
 Json manifest_entry(const std::string& projectDir, const std::string& rel) {
     ProjectRootGuard root(projectDir);
@@ -144,7 +151,7 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(render->image) : encode_png(render->image);
     result.sha256 = sha256_hex(png.data(), png.size());
 
-    auto outPath = resolve_project_path(projectDir, result.output);
+    auto outPath = resolve_document_write(projectDir, result.output);
     if (!outPath.ok()) return make_error(outPath.error().message, outPath.error().hint);
 
     // who made the pieces: AI-made sources make the baked picture AI-made, and their licenses travel
@@ -243,8 +250,11 @@ Result<ImageBakeResult> save_image_document(const std::string& projectDir, const
         return make_error("'" + rel + "' is not an image document path (it must end in " + kImageDocSuffix + ").", "Name it like \"assets/art/hero.image.json\".");
     auto parsed = parse_image_document(document, rel, projectDir);
     if (!parsed.ok()) return make_error(parsed.error().message + " Nothing was written.", parsed.error().hint);
-    auto path = resolve_project_path(projectDir, rel);
+    auto path = resolve_document_write(projectDir, rel);
     if (!path.ok()) return make_error(path.error().message, path.error().hint);
+    // the picture's path comes from the document too: refuse it before the document is written
+    if (auto picture = resolve_document_write(projectDir, image_document_output(*parsed, rel)); !picture.ok())
+        return make_error("`output` of the document: " + picture.error().message + " Nothing was written.", picture.error().hint);
     std::string err;
     if (!tooling_detail::write_file(*path, dump_json(document), &err)) return make_error("Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     if (!bake) {

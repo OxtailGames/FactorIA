@@ -1434,6 +1434,12 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
                                          {"properties", Json::object({{"sheet", Json::object({{"type", Json::array({"string", "integer"})}, {"description", "The sheet: its id (\"sheet-0003\"), its number (3 or \"3\") or \"latest\" (default)."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return info_command(projectDir, args); });
     }
+    declare_command_capabilities(registry, {
+        {"review.sheet", capability_sets::writes_project()},
+        {"review.pick", capability_sets::writes_project()},
+        {"review.cleanup", capability_sets::writes_project()},
+        {"review.list", capability_sets::reads()},
+        {"review.info", capability_sets::reads()}});
 }
 
 }  // namespace fa::assets_detail

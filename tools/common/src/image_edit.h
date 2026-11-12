@@ -35,7 +35,21 @@ struct DocFile {
     std::string rel;  // project-relative, normalized
     Json json;
 };
-DocFile open_doc(const std::string& projectDir, const std::string& relArg, const char* command);
+// `forWrite` (the default) is for a command that saves the document again: its path must be a place the command may write
+// (inside the project, outside .git and .factoria; check_write_target), so an MCP client is refused before anything is computed.
+// image.info and the checks pass false.
+DocFile open_doc(const std::string& projectDir, const std::string& relArg, const char* command, bool forWrite = true);
+// Throws CommandError (invalid_argument, with the JSON pointer of `key` in the message) unless `rel`, a normalized project-relative
+// path, is a file the command may write: inside the project for every caller, and not in the tools' own folders (`.git`,
+// `.factoria/` except `.factoria/tmp`), judged on the real path after links (fs::resolve_for_write_in).
+void check_write_target(const std::string& projectDir, const std::string& rel, const char* command, const char* key);
+// Marks the path properties of an image command's schema with "x-fa-path": `path` is "write" when the command saves the document
+// and "read" when it only reads it; `out`, `output` and `rules` are "write"; `png` is "read".
+void mark_image_paths(CommandInfo& info, bool writes);
+// Registers an image.* command: marks its path properties (mark_image_paths; `path` is a write unless `savesDocument` is false, for
+// the commands that only read the document and write something of their own) and declares its capabilities: {read} when the
+// command is read-only, else {read, writeProject} (every file it writes is in the project).
+void add_image_command(CommandRegistry& registry, CommandInfo info, CommandHandler handler, bool savesDocument = true);
 // A normalized project-relative document path that ends in .image.json (does not need to exist).
 std::string doc_path_arg(const std::string& relArg, const char* command, const char* key = "path");
 

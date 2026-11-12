@@ -635,6 +635,7 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
                 }
             Json out = Json::object({{"count", caught.size()}, {"entries", caught}});
             if (args.value("reject", false)) {
+                require_capability(Capability::WriteProject, "feedback.check", "`reject` changes ENGINE_FEEDBACK.json");
                 auto ids = reject_claimed_feedback_file(path, &registry);
                 if (!ids.ok()) throw CommandError("failed", ids.error().message, ids.error().hint);
                 out["rejected"] = *ids;
@@ -648,6 +649,9 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
         in.suggestion = tooling_detail::arg_string(args, "suggestion", false);
         return check_feedback_claim(in, &registry, 4).to_json();
     });
+    // feedback.check only reads; `reject` changes ENGINE_FEEDBACK.json and requires writeProject in the handler.
+    declare_command_capabilities(registry, {
+        {"feedback.check", capability_sets::reads()}});
 }
 
 }  // namespace fa
