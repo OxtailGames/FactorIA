@@ -1,0 +1,106 @@
+// Command capabilities: what a command can do to the world outside the engine's memory, and the sets of them that a
+// caller is granted. A command declares the capabilities it needs (CommandInfo::capabilities, command.h); the registry
+// refuses a call whose caller is not granted all of them (error code "capability_denied", docs/ARCHITECTURE.md,
+// "Commands", "Capabilities"). This header only holds the vocabulary: the enum, the bitmask set and the named sets.
+#pragma once
+
+#include <cstdint>
+#include <initializer_list>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "fa/core/json.h"
+#include "fa/core/types.h"
+
+namespace fa {
+
+enum class Capability : std::uint8_t {
+    Read,           // "read": reads project or engine state (scenes, project files, logs, docs, screenshots of the running game).
+    State,          // "state": changes the running game or the open scene in memory only; writes no file.
+    WriteProject,   // "writeProject": writes files inside the project folder.
+    WriteAnywhere,  // "writeAnywhere": writes outside the project (absolute paths, the user's folders, user-level settings).
+    Network,        // "network": talks to a remote service (HTTP, a cloud API, a feedback server).
+    Process,        // "process": starts an external program (a compiler, an installer, a CLI agent).
+    Spend,          // "spend": can cost money (paid AI APIs, store fees).
+    Publish,        // "publish": makes something public or uploads a build to a store.
+};
+
+inline constexpr int kCapabilityCount = 8;
+
+// JSON name ("writeProject") and the one-line meaning of a capability (what an error or the docs print).
+const char* capability_name(Capability c);
+const char* capability_doc(Capability c);
+// Exact (case-sensitive) camelCase name -> capability; nullopt for an unknown name.
+std::optional<Capability> capability_from_name(std::string_view name);
+// Every capability name in declaration order, for "valid: ..." lists.
+std::vector<std::string> capability_names();
+
+// A set of capabilities: a bitmask value type, cheap to copy and to test (one AND).
+class CapabilitySet {
+public:
+    constexpr CapabilitySet() = default;
+    constexpr CapabilitySet(std::initializer_list<Capability> list) {
+        for (Capability c : list) bits_ |= bit(c);
+    }
+    static constexpr CapabilitySet all() { return from_bits((1u << kCapabilityCount) - 1u); }
+    static constexpr CapabilitySet none() { return CapabilitySet(); }
+
+    constexpr bool has(Capability c) const { return (bits_ & bit(c)) != 0; }
+    constexpr bool empty() const { return bits_ == 0; }
+    // Every capability of `other` is in this set.
+    constexpr bool has_all(CapabilitySet other) const { return (other.bits_ & ~bits_) == 0; }
+    constexpr CapabilitySet with(Capability c) const { return from_bits(bits_ | bit(c)); }
+    constexpr CapabilitySet without(Capability c) const { return from_bits(bits_ & ~bit(c)); }
+    constexpr CapabilitySet intersect(CapabilitySet other) const { return from_bits(bits_ & other.bits_); }
+    constexpr CapabilitySet unite(CapabilitySet other) const { return from_bits(bits_ | other.bits_); }
+    // What this set has and `other` lacks.
+    constexpr CapabilitySet missing_from(CapabilitySet other) const { return from_bits(bits_ & ~other.bits_); }
+    constexpr std::uint32_t bits() const { return bits_; }
+
+    constexpr bool operator==(const CapabilitySet& o) const { return bits_ == o.bits_; }
+    constexpr bool operator!=(const CapabilitySet& o) const { return bits_ != o.bits_; }
+
+    // JSON names in declaration order: {"read", "state"}.
+    std::vector<std::string> names() const;
+    // ["read","state"]
+    Json to_json() const;
+    // "{read, state}" for messages; "{}" for the empty set.
+    std::string to_string() const;
+
+    // From JSON: an array of names (or one name as a string). An unknown name fails with its JSON pointer
+    // (`pointer` + "/1") and fa::did_you_mean.
+    static Result<CapabilitySet> parse(const Json& json, std::string_view pointer = {});
+    // From text: names separated by commas and/or spaces ("read, state"); the CLI and test options use it.
+    static Result<CapabilitySet> parse_list(std::string_view text);
+
+private:
+    static constexpr std::uint32_t bit(Capability c) { return 1u << static_cast<unsigned>(c); }
+    static constexpr CapabilitySet from_bits(std::uint32_t b) {
+        CapabilitySet s;
+        s.bits_ = b;
+        return s;
+    }
+    std::uint32_t bits_ = 0;
+};
+
+// The sets of capabilities a caller is granted. A call needs every capability of its command inside the set.
+namespace capability_sets {
+// The user's own CLI / editor console / settings windows: everything.
+constexpr CapabilitySet cli_user() { return CapabilitySet::all(); }
+// An MCP client (`factoria mcp`, the editor's per-run endpoint): everything but writeAnywhere.
+constexpr CapabilitySet mcp() { return CapabilitySet::all().without(Capability::WriteAnywhere); }
+// `factoria mcp --read-only`: only read.
+constexpr CapabilitySet mcp_read_only() { return CapabilitySet{Capability::Read}; }
+// The in-engine AI agents: everything but writeAnywhere and publish (a later package refines it per role).
+constexpr CapabilitySet agent() { return CapabilitySet::all().without(Capability::WriteAnywhere).without(Capability::Publish); }
+// A script of the game the player is playing (fa.call from game scripts): read and state.
+constexpr CapabilitySet game_player() { return CapabilitySet{Capability::Read, Capability::State}; }
+// Scripts and tools the editor runs while the game plays in its window: read and state.
+constexpr CapabilitySet editor_play() { return CapabilitySet{Capability::Read, Capability::State}; }
+// A test file of the project (`factoria test`): read and state; its options can ask for more.
+constexpr CapabilitySet test_script() { return CapabilitySet{Capability::Read, Capability::State}; }
+}  // namespace capability_sets
+
+}  // namespace fa

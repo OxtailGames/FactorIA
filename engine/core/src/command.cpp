@@ -27,11 +27,35 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
+// The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
+CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
+    const CapabilitySet granted = caller_capabilities();
+    std::string message = "'" + info.name + "' was not run: it needs ";
+    bool first = true;
+    for (const std::string& n : missing.names()) {
+        if (!first) message += "; ";
+        first = false;
+        message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
+    }
+    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
+               "; the command needs " + info.capabilities.to_string() + ".";
+    CommandResult r = fail("capability_denied", std::move(message),
+                           "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
+                           "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
+                           "(docs/SCRIPTING.md). Ask the user to run this command themselves, or to start the tool with that capability.");
+    r.error["data"] = Json::object({{"command", info.name},
+                                    {"missing", missing.to_json()},
+                                    {"needs", info.capabilities.to_json()},
+                                    {"granted", granted.to_json()}});
+    return r;
+}
+
 thread_local CommandProgressSink t_progress_sink;
 // The registries this thread is inside a call() of, outermost first (see call_inner).
 thread_local std::vector<const CommandRegistry*> t_active_calls;
 thread_local CommandCaller t_caller = CommandCaller::User;
 thread_local const std::atomic<bool>* t_cancel = nullptr;
+thread_local CapabilitySet t_granted = CapabilitySet::all();  // narrowed by CommandCapabilityScope / CommandCallerScope
 std::atomic<int> g_caller_floor{static_cast<int>(CommandCaller::User)};  // CommandCallerFloor: the process-wide minimum
 
 }  // namespace
@@ -42,11 +66,32 @@ CommandProgressScope::CommandProgressScope(CommandProgressSink sink) : previous_
 
 CommandProgressScope::~CommandProgressScope() { t_progress_sink = std::move(previous_); }
 
-CommandCallerScope::CommandCallerScope(CommandCaller caller) : previous_(t_caller) {
+CommandCallerScope::CommandCallerScope(CommandCaller caller) : previous_(t_caller), previousGranted_(t_granted) {
     if (command_caller() == CommandCaller::User) t_caller = caller;  // never loosened: an agent inside an MCP call stays refused
+    t_granted = t_granted.intersect(capabilities_for_caller(caller));  // nor are the capabilities
 }
 
-CommandCallerScope::~CommandCallerScope() { t_caller = previous_; }
+CommandCallerScope::~CommandCallerScope() {
+    t_caller = previous_;
+    t_granted = previousGranted_;
+}
+
+CapabilitySet capabilities_for_caller(CommandCaller caller) {
+    switch (caller) {
+        case CommandCaller::User: return capability_sets::cli_user();
+        case CommandCaller::Agent: return capability_sets::agent();
+        case CommandCaller::Mcp: return capability_sets::mcp();
+    }
+    return capability_sets::cli_user();
+}
+
+CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted) : previous_(t_granted) { t_granted = t_granted.intersect(granted); }
+
+CommandCapabilityScope::~CommandCapabilityScope() { t_granted = previous_; }
+
+CapabilitySet caller_capabilities() { return t_granted.intersect(capabilities_for_caller(command_caller())); }
+
+CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities()}; }
 
 CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
     if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));
@@ -112,6 +157,11 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // not on every call.
     for (const SchemaError& e : check_schema_patterns(info.inputSchema))
         FA_ERROR("command", "{}: inputSchema{}: {} ({})", name, e.pointer, e.message, e.hint);
+    // Declaring is setting a non-empty set; a command that declares nothing gets the conservative set its readOnly implies.
+    info.capabilitiesDeclared = info.capabilitiesDeclared || !info.capabilities.empty();
+    if (!info.capabilitiesDeclared)
+        info.capabilities = info.readOnly ? CapabilitySet{Capability::Read}
+                                          : CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
     commands_[name] = Entry{std::move(info), std::move(handler)};
 }
 
@@ -190,6 +240,9 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
     }
     const Entry& entry = it->second;
 
+    if (const CapabilitySet missing = entry.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
+        return capability_denied(entry.info, missing);
+
     Json args = argsIn.is_null() ? Json::object() : argsIn;
     const Json& schema = entry.info.inputSchema;
     if (args.is_object()) {
@@ -239,6 +292,7 @@ Json CommandRegistry::describe() const {
                                     {"details", i.details},
                                     {"inputSchema", i.inputSchema},
                                     {"readOnly", i.readOnly},
+                                    {"capabilities", i.capabilities.to_json()},
                                     {"category", i.category}}));
     }
     return arr;
