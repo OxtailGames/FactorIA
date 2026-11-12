@@ -70,6 +70,14 @@ struct ProviderConfig {
     std::vector<std::string> argv;        // template; empty = built-in default for the kind
     std::map<std::string, std::string> env;
     std::vector<std::string> unsetEnv;
+    // Environment variables of the editor's process that this provider's program may see besides the base list (PATH, HOME...)
+    // and what its kind needs (its API key variable, Claude Code's CLAUDE_*/ANTHROPIC_*, Codex's CODEX_*/OPENAI_*, proxies,
+    // certificates): names, or "PREFIX*". "inheritEnv" of the provider in ai.json. Everything else (signing passwords, the keys
+    // of other providers) stays out of the program's environment.
+    std::vector<std::string> inheritEnv;
+    // The top-level "inheritEnv" of the file (AiConfig::inheritEnv), copied here by load_config so the code that starts the
+    // program needs only the provider. Not written back.
+    std::vector<std::string> inheritEnvGlobal;
     std::string factoriaCommand = "factoria";
     Pricing pricing;                      // known=false unless configured
     AssetPricing assetPricing;            // asset providers: what one image, second, 1000 characters or model costs ("assetPricing")
@@ -226,6 +234,9 @@ struct ToolServer {
     std::map<std::string, std::string> env;                    // stdio; values may use {key} and ${ENV}
     std::string apiKeyEnv;                                     // name of the env var that holds the key ({key})
     std::string apiKey;                                        // the key itself (user file only; an env var is better)
+    std::vector<std::string> inheritEnv;                       // stdio; variables of the editor's environment the program may see
+                                                               // besides the base list (names or "PREFIX*"); see ProviderConfig
+    std::vector<std::string> inheritEnvGlobal;                 // AiConfig::inheritEnv, copied by load_config; not written back
     std::string note;                                          // goes to the AI's prompt: what the server is good for
     std::vector<std::string> roles;                            // who may use it; empty = kDefaultToolServerRoles
     bool enabled = true;
@@ -254,6 +265,7 @@ struct ResolvedToolServer {
     std::string command;
     std::vector<std::string> args;
     std::map<std::string, std::string> env;
+    std::vector<std::string> inheritEnv;  // stdio: the server's own + the file's list + its apiKeyEnv: what its program may inherit
     double timeoutSeconds = 120;
     std::string keySource;  // "env:SCENARIO_API_KEY", "config" or "" (the server does not use {key}, or has none)
     bool usesKey = false;   // some header/arg/env value contains {key}
@@ -272,17 +284,25 @@ Result<std::vector<ToolServer>> parse_tool_servers(const Json& object, std::stri
                                                    std::vector<std::string>* ignored = nullptr);
 // One server as ai.json writes it; the key is replaced by "***" when redactKeys.
 Json tool_server_to_json(const ToolServer& server, bool redactKeys);
+// The "inheritEnv" array at `at` (a JSON pointer for errors): environment variable names, each optionally ending in * to name
+// every variable with that prefix ("AWS_*"). Error when it is not an array of such strings.
+Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_view at);
 // Writes ONLY "mcpServers" into the config file at `path` (created when missing) and keeps everything else in it, the way
 // save_asset_settings does. An empty list removes the section. On Linux and macOS the file is written with owner-only
 // permissions. A file that is not a JSON object is left alone (error).
 Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path);
-// Writes text where only the owner can read it, from the first byte (a temporary file made private before the text goes in,
-// then renamed over `path`; a symlinked `path` is written through). Windows: a plain fs::write_text, no ACL is set: the file has
-// the permissions its folder gives it (the profile folder is normally closed to other users).
+// Writes text where only the owner can read it, from the first byte (fs::write_private, core/private_file.h: a temporary file
+// made private before the text goes in, then renamed over `path`; a symlinked `path` is written through). Linux and macOS: mode
+// 0600. Windows: a protected DACL with one entry, full control for the current user.
 Result<void> write_private_file(std::string_view path, const std::string& text);
 
 struct AiConfig {
     std::string defaultProvider = "anthropic";
+    // "inheritEnv" at the top of ai.json: names (or "PREFIX*") of environment variables that EVERY program the AI starts may
+    // inherit (hooks, CLI agents, asset commands, stdio tool servers), on top of the base list and of what each provider kind
+    // needs. For a CLI that needs AWS_PROFILE or SSH_AUTH_SOCK. Programs started by the AI do not see the rest of the editor's
+    // environment (signing passwords, other providers' keys).
+    std::vector<std::string> inheritEnv;
     std::map<std::string, ProviderConfig> providers;
     std::map<std::string, RoleConfig> roles;  // always has the seven roles after load
     std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"

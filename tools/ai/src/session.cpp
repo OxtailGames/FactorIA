@@ -878,6 +878,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     };
     HookRunContext hookCtx;
     hookCtx.projectDir = opt_.projectDir;
+    hookCtx.inheritEnv = config_.inheritEnv;
     hookCtx.sessionId = stamp_ + "-" + role + (depth ? "-" + std::to_string(delegateCount_) : "");
     hookCtx.transcriptPath = tr.path();
     hookCtx.cancel = cancel_;

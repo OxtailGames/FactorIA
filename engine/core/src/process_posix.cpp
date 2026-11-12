@@ -38,6 +38,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "child_env.h"
 #include "exec_posix.h"
 
 extern char** environ;
@@ -90,9 +91,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         std::string s = *e;
         auto eq = s.find('=');
         std::string key = s.substr(0, eq);
-        bool drop = opt.env.count(key) > 0;
-        for (const auto& u : opt.unsetEnv) drop = drop || (u == key);
-        if (!drop) envStore.push_back(std::move(s));
+        if (detail::child_env_keeps(opt.inheritEnv, opt.env, opt.unsetEnv, key, detail::kEnvNamesIgnoreCase))
+            envStore.push_back(std::move(s));
     }
     for (const auto& [k, v] : opt.env) envStore.push_back(k + "=" + v);
     std::vector<char*> envp;

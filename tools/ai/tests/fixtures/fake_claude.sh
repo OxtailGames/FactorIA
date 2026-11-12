@@ -9,6 +9,7 @@
 # editor's continuation -- gets a plain answer instead). FAKE_SLEEP=<seconds> keeps it silent that long after its init line.
 # A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". The file after --mcp-config is copied to
 # $FAKE_ARGV_FILE.mcpconfig (the run deletes its own when it ends).
+# FAKE_ENV_FILE=<file> records the environment it was started with (POSIX only).
 # fake_claude.cmd is the same script for Windows.
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
@@ -16,6 +17,8 @@ if [ -n "$FAKE_ARGV_FILE" ]; then
   prev=""
   for a in "$@"; do if [ "$prev" = "--mcp-config" ] && [ -f "$a" ]; then cp "$a" "$FAKE_ARGV_FILE.mcpconfig"; fi; prev="$a"; done
 fi
+# FAKE_ENV_FILE: the environment this CLI was started with (one NAME=value per line), to test what it inherits.
+if [ -n "$FAKE_ENV_FILE" ]; then env > "$FAKE_ENV_FILE"; fi
 stdin=$(cat)
 if [ -n "$FAKE_ARGV_FILE" ] && [ -n "$stdin" ]; then printf 'stdin:%s\n' "$stdin" >> "$FAKE_ARGV_FILE"; fi
 case "$FAKE_MODE" in
