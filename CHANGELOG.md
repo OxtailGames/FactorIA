@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- Microbenchmarks (M93.5): `fa_bench` measures the engine's hot paths (ECS queries, the transform hierarchy, 2D and 3D physics steps, a headless render frame, command dispatch, the JS bridge, the audio mixer) from fixed seeds, with warm-up, repeats, median and spread. `--compare` checks a run against `tools/bench/baselines/<runner>.json` with a warning band and a fail limit (x2 on the median) and a teaching message; a new `bench` CI job runs it on Linux, and a `benchBaselines` run of the workflow refreshes the baselines. docs/PERFORMANCE.md, "Microbenchmarks".
+
 ## 0.25.0
 
 FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,
