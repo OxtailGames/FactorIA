@@ -1006,13 +1006,20 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
             if (auto denied = managed_denial(rootCanon, full)) return *denied;
         }
         // A name that Windows cannot create is refused when this call would CREATE it, never when it is already there: a
-        // project that holds such a file (made on Linux) can still read it and delete it.
+        // project that holds such a file (made on Linux) can still read it and delete it. "Already there" means a regular file,
+        // a folder or a link that was statted without error; anything else (not found, an error, a FIFO, a device) does not
+        // count. On Windows the exemption does not exist: such a file cannot be there (NUL, CON, COM1... "exist" in every
+        // folder, with or without an extension, and a trailing dot or space is stripped, so `scenes.` would be `scenes`).
         {
             stdfs::path walkName = rootCanon;
             for (const std::string& seg : out) {
                 walkName /= path_from_utf8(seg);
+#ifndef _WIN32
                 std::error_code nec;
-                if (stdfs::symlink_status(os_path(walkName), nec).type() != stdfs::file_type::not_found) continue;
+                const stdfs::file_type kind = stdfs::symlink_status(os_path(walkName), nec).type();
+                if (!nec && (kind == stdfs::file_type::regular || kind == stdfs::file_type::directory || kind == stdfs::file_type::symlink))
+                    continue;
+#endif
                 if (std::string why = unportable_name(seg); !why.empty())
                     return write_error("invalid_path", "Path '" + given + "' has the name '" + seg + "', which " + why + where,
                                        "Rename it: the project has to work on Windows too (no CON, PRN, AUX, NUL, COM1-9, LPT1-9, and no name ending in a dot or a space).");

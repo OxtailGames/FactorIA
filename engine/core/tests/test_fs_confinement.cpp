@@ -13,6 +13,10 @@
 
 #include "fa/core/fs.h"
 
+#ifndef _WIN32
+#include <sys/stat.h>  // mkfifo
+#endif
+
 using namespace fa;
 namespace stdfs = std::filesystem;
 
@@ -122,6 +126,14 @@ TEST_CASE("resolve_for_write: a relative path into a managed folder is refused u
 
 TEST_CASE("resolve_for_write: names Windows cannot create are invalid_path on every system") {
     Confined c;
+    // Windows strips the trailing dot: `scenes./x.json` would be `scenes/x.json`, and NUL is a device in every folder. Refused
+    // there whether or not the stripped name exists; elsewhere because `scenes.` is a new name.
+    stdfs::create_directories(c.proj / "scenes");
+    for (const char* bad : {"scenes./x.json", "scenes /x.json", "scenes/nul.png", "nul.scene.json", "scenes/COM1"}) {
+        CAPTURE(bad);
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, false)) == "invalid_path");
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, false, fs::ManagedFolders::Allow)) == "invalid_path");
+    }
     for (const char* bad : {"con", "CON.txt", "assets/nul.png", "Aux", "prn.tar.gz", "COM1", "lpt9.txt", "com5 .x", "name.", "dir /f.txt",
                             "assets/name ", "a./b.txt", "x/..."}) {
         CAPTURE(bad);
@@ -166,6 +178,20 @@ TEST_CASE("resolve_for_write: a name Windows cannot create is only refused where
     CHECK(code_of(fs::resolve_for_write("newdir./f.txt", fs::WriteRoot::Project, false, fs::ManagedFolders::Allow)) == "invalid_path");
     CHECK(fs::resolve_for_write("odd./fine.txt", fs::WriteRoot::Project, false).ok());
 }
+
+#ifndef _WIN32
+TEST_CASE("resolve_for_write: only a regular file, a folder or a link makes a name 'already there'") {
+    Confined c;
+    // A FIFO called nul.txt is something the system holds, not a file the project owns: the rule still applies to it.
+    if (::mkfifo((c.proj / "nul.txt").c_str(), 0600) == 0) {
+        CHECK(code_of(fs::resolve_for_write("nul.txt", fs::WriteRoot::Project, false)) == "invalid_path");
+    }
+    // A link (even a dangling one) is "there".
+    std::error_code ec;
+    stdfs::create_symlink("elsewhere", c.proj / "con.lnk", ec);
+    if (!ec) CHECK(code_of(fs::resolve_for_write("con.lnk", fs::WriteRoot::Project, false)) != "invalid_path");
+}
+#endif
 #endif
 
 TEST_CASE("resolve_for_write: a managed folder is refused by its spelling too, not only by where it leads") {
