@@ -219,8 +219,8 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK_FALSE(has_text(thumbprintScript, "X509Store"));
     CHECK_FALSE(has_text(thumbprintScript, "Import-PfxCertificate"));
     CHECK_FALSE(has_text(thumbprintScript, "Remove-Item"));
-    // default key flags (EphemeralKeySet is missing before .NET Framework 4.7.2), nothing persisted, the temporary keys reset
-    CHECK(has_text(thumbprintScript, "DefaultKeySet"));
+    // user key set, not persisted (EphemeralKeySet is missing before .NET Framework 4.7.2), nothing persisted, the temporary keys reset
+    CHECK(has_text(thumbprintScript, "X509KeyStorageFlags]'UserKeySet'"));  // user key set only, like the import
     CHECK_FALSE(has_text(thumbprintScript, "EphemeralKeySet"));
     CHECK_FALSE(has_text(thumbprintScript, "PersistKeySet"));
     CHECK(has_text(thumbprintScript, "$c.Reset()"));
@@ -237,6 +237,10 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK_FALSE(has_text(importScript, "Import-PfxCertificate"));  // that would import the chain certificates too
     // the mutex is the user's, across logon sessions
     CHECK(has_text(importScript, "'Global\\FactorIA-sign-windows-store-' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"));
+    // a mutex an elevated PowerShell of the user holds denies the creation: the script opens it instead, and teaches if it cannot
+    CHECK(has_text(importScript, "[System.Threading.Mutex]::OpenExisting($mn, 'Synchronize, Modify')"));
+    CHECK(has_text(importScript, "started as administrator"));
+    CHECK(importScript.find("New-Object System.Threading.Mutex") < importScript.find("OpenExisting"));
     // the order inside the mutex: look in the store first, only then load the file (PersistKeySet writes the key to disk), then add
     const std::size_t check = importScript.find("$had = ");
     const std::size_t load = importScript.find("PersistKeySet, UserKeySet");  // UserKeySet: never the machine's key folder
@@ -263,7 +267,8 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK(has_text(importScript.substr(handler, 120), "$drop"));
     CHECK(has_text(importScript, "$k.Key.Delete()"));
     CHECK(has_text(importScript, "$k.PersistKeyInCsp = $false; $k.Clear()"));
-    CHECK(has_text(importScript, "ReferenceEquals($c, $x)"));
+    CHECK(has_text(importScript, "$c.Thumbprint -ne $t"));  // by thumbprint: $x may be wrapped by the pipeline
+    CHECK_FALSE(has_text(importScript, "ReferenceEquals"));
     // 3. sign: by thumbprint, no password anywhere
     REQUIRE(stdfs::path(calls.list[2].argv.at(0)).filename() == "signtool.exe");
     const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};
@@ -390,34 +395,29 @@ TEST_CASE("sign.windows: a certificate that could not be removed is named in the
     CHECK(has_text(r.error().hint, "certmgr.msc"));
 }
 
-TEST_CASE("sign.windows quotes a path for PowerShell: the ASCII quote and the typographic single quotes are doubled") {
-    WinGame g;
-    // ' U+2018 U+2019 U+201A U+201B (the literals are split: "a" after a hex escape would be read as part of it)
-    // The folder names are built from UTF-8 (u8string), never from a narrow string: on Windows that goes through the ANSI code page.
-    const auto utf8 = [](const std::filesystem::path& p) {
-        const std::u8string u = p.generic_u8string();
-        return std::string(u.begin(), u.end());
-    };
-    const std::filesystem::path dir = g.tmp.path / std::filesystem::path(std::u8string(u8"it's \u2018a\u2019 \u201A\u201B x"));
-    testing::write_all(dir / "code.pfx", "not a real pfx");
-    SignWindowsOptions o = g.options("windows");
-    o.pfx = utf8(dir / "code.pfx");
-    o.dryRun = true;
-    auto r = sign_windows(o);
-    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    const std::string script = r->steps.at(0).command.back();  // the command line shows the script as it is (UTF-8)
-    CHECK(has_text(script, "it''s "));
-    CHECK(has_text(script, "\xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99 "));
-    CHECK(has_text(script, "\xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x"));
-    CHECK_FALSE(has_text(script, "\xE2\x80\x98" "a\xE2\x80\x99 "));  // never a single one
-    // other characters that start with the same bytes are left alone (U+201C is a double quote)
-    const std::filesystem::path other = g.tmp.path / std::filesystem::path(std::u8string(u8"say \u201Chi\u201D"));
-    testing::write_all(other / "code.pfx", "not a real pfx");
-    o.pfx = utf8(other / "code.pfx");
-    auto r2 = sign_windows(o);
-    REQUIRE_MESSAGE(r2.ok(), (r2.ok() ? "" : r2.error().to_string()));
-    CHECK(has_text(r2->steps.at(0).command.back(), "say \xE2\x80\x9C" "hi\xE2\x80\x9D/code.pfx'"));
+// A pure function on UTF-8 text: no file with such a name is made (on Windows a path with these characters cannot be passed as a
+// narrow string at all). The literals are split: "a" after a hex escape would be read as part of it.
+TEST_CASE("sign.windows quotes text for PowerShell: the ASCII quote and the typographic single quotes are doubled") {
+    using fa::detail::powershell_quote;
+    CHECK(powershell_quote("plain") == "'plain'");
+    CHECK(powershell_quote("") == "''");
+    CHECK(powershell_quote("it's") == "'it''s'");
+    CHECK(powershell_quote("''") == "''''''");
+    // U+2018 U+2019 U+201A U+201B
+    CHECK(powershell_quote("\xE2\x80\x98" "a\xE2\x80\x99") == "'\xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99'");
+    CHECK(powershell_quote("\xE2\x80\x9A\xE2\x80\x9B x") == "'\xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x'");
+    CHECK(powershell_quote("it's \xE2\x80\x98" "a\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9B x") ==
+          "'it''s \xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x'");
+    // other characters that share the first bytes are left alone: U+201C and U+201D are double quotes
+    CHECK(powershell_quote("say \xE2\x80\x9C" "hi\xE2\x80\x9D") == "'say \xE2\x80\x9C" "hi\xE2\x80\x9D'");
+    CHECK(powershell_quote("\xE2\x80\x97") == "'\xE2\x80\x97'");  // U+2017, just below the range
+    // a cut sequence at the end of the text is kept as it is, not read past the end
+    CHECK(powershell_quote("a\xE2\x80") == "'a\xE2\x80'");
+    CHECK(powershell_quote("a\xE2") == "'a\xE2'");
+    // accented letters stay one piece
+    CHECK(powershell_quote("ni\xC3\xB1o") == "'ni\xC3\xB1o'");
 }
+
 
 TEST_CASE("sign.windows without a password: the steps set no variable and the scripts read none") {
     WinGame g;

@@ -287,25 +287,7 @@ std::string utf16le_base64(const std::string& utf8) {
     return base64_encode(bytes.data(), bytes.size());
 }
 
-// A PowerShell single-quoted string. PowerShell treats the typographic single quotes U+2018..U+201B (UTF-8: E2 80 98..9B) like the
-// ASCII ' (Word and web pages turn ' into them), so each of them is doubled too.
-std::string ps_quote(const std::string& s) {
-    std::string out = "'";
-    for (std::size_t i = 0; i < s.size(); ++i) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        if (c == '\'') {
-            out += "''";
-        } else if (c == 0xE2 && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0x80 &&
-                   static_cast<unsigned char>(s[i + 2]) >= 0x98 && static_cast<unsigned char>(s[i + 2]) <= 0x9B) {
-            out.append(s, i, 3);
-            out.append(s, i, 3);
-            i += 2;
-        } else {
-            out += static_cast<char>(c);
-        }
-    }
-    return out + "'";
-}
+std::string ps_quote(const std::string& s) { return detail::powershell_quote(s); }
 
 // The PowerShell that finds (or creates) a self-signed code-signing certificate whose subject is `publisher`, saves its public
 // part to `cer` and prints THUMBPRINT=<hex>. The private key stays in the user's certificate store.
@@ -320,11 +302,12 @@ std::string test_certificate_script(const std::string& publisher, const std::str
 // Scripts that make the .pfx usable by signtool WITHOUT the password reaching a command line: they read it from the environment
 // variable of their own process ($env:FACTORIA_WINDOWS_PFX_PASSWORD, set by the runner), never from the script text. Three steps, in
 // this order, so that nothing is imported before we know what to take out again:
-//   1. pfx_thumbprint_script: loads the file with the DEFAULT key flags (no PersistKeySet: the key container it needs is temporary and
+//   1. pfx_thumbprint_script: loads the file with UserKeySet only (no PersistKeySet: the key container it needs is temporary and
 //      Reset() deletes it; EphemeralKeySet would be cleaner but it does not exist before .NET Framework 4.7.2 and an ephemeral key
 //      may report HasPrivateKey = false there, which would make every sign fail on Windows PowerShell 5.1). It prints
 //      THUMBPRINT=<hex> of the certificate that has a private key and PRESENT=1 or 0 (is a certificate with that thumbprint AND a
-//      private key in Cert:\CurrentUser\My already). It imports nothing and leaves no key on disk.
+//      private key in Cert:\CurrentUser\My already). It imports nothing and leaves no key on disk, unless the PowerShell is killed
+//      between the load and Reset(): then a temporary key container of that certificate stays.
 //   2. import_pfx_script, only when PRESENT=0: adds that one certificate (not the chain certificates the file may carry:
 //      Import-PfxCertificate would add them too and Windows would ask to confirm the new root certificates) to CurrentUser\My through
 //      X509Store and prints IMPORTED=1 or 0. Inside the mutex it checks the store first and only then loads the file with
@@ -352,7 +335,7 @@ std::string pfx_prelude(const std::string& pfx, bool withPassword) {
 // Step 1. Only the certificate with a private key is the one to sign with (a .pfx may carry its chain too).
 std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
     std::string s = pfx_prelude(pfx, withPassword);
-    s += "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet); "
+    s += "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'UserKeySet'); "
          "try { "
          "$x = @($col | Where-Object { $_.HasPrivateKey }) | Select-Object -First 1; "
          "if (-not $x) { throw 'The file has no certificate with a private key.' }; "
@@ -365,8 +348,12 @@ std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
 
 // `body` runs while the store mutex is held.
 std::string with_store_mutex(const std::string& body) {
-    return "$m = New-Object System.Threading.Mutex($false, ('" + std::string(kStoreMutexPrefix) +
-           "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)); "
+    // A mutex that an elevated PowerShell of the same user created and holds denies the creation with full rights: open it with the
+    // rights the wait and the release need.
+    return "$mn = '" + std::string(kStoreMutexPrefix) + "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; "
+           "try { $m = New-Object System.Threading.Mutex($false, $mn) } catch { "
+           "try { $m = [System.Threading.Mutex]::OpenExisting($mn, 'Synchronize, Modify') } catch { "
+           "throw 'Cannot open the lock that keeps sign.windows runs apart (another PowerShell of this user, started as administrator, may hold it): close it and run again.' } }; "
            "try { try { $got = $m.WaitOne(120000) } catch { $got = $_.Exception.ToString() -like '*AbandonedMutexException*' }; "
            "if (-not $got) { throw 'Another sign.windows run is changing the certificate store (waited 2 minutes).' }; " + body +
            " } finally { try { $m.ReleaseMutex() } catch { } }";
@@ -397,7 +384,7 @@ std::string import_pfx_script(const std::string& pfx, bool withPassword, const s
         "$x = @($col | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }) | Select-Object -First 1; "
         "$store.Add($x) "
         "} catch { foreach ($c in $col) { if ($c.HasPrivateKey) { & $drop $c } }; throw }; "  // not added: no key of this file may stay
-        "foreach ($c in $col) { if ($c.HasPrivateKey -and -not [object]::ReferenceEquals($c, $x)) { & $drop $c } }; "  // the chain's keys
+        "foreach ($c in $col) { if ($c.HasPrivateKey -and $c.Thumbprint -ne $t) { & $drop $c } }; "  // the chain's keys (by thumbprint: $x may be wrapped by the pipeline)
         "Write-Output 'IMPORTED=1' } "
         "} finally { $store.Close() }");
     return s;
@@ -430,6 +417,30 @@ bool is_thumbprint(const std::string& t) {
 }
 
 }  // namespace
+
+namespace detail {
+
+// A PowerShell single-quoted string. PowerShell treats the typographic single quotes U+2018..U+201B (UTF-8: E2 80 98..9B) like the
+// ASCII ' (Word and web pages turn ' into them), so each of them is doubled too.
+std::string powershell_quote(const std::string& s) {
+    std::string out = "'";
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c == '\'') {
+            out += "''";
+        } else if (c == 0xE2 && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0x80 &&
+                   static_cast<unsigned char>(s[i + 2]) >= 0x98 && static_cast<unsigned char>(s[i + 2]) <= 0x9B) {
+            out.append(s, i, 3);
+            out.append(s, i, 3);
+            i += 2;
+        } else {
+            out += static_cast<char>(c);
+        }
+    }
+    return out + "'";
+}
+
+}  // namespace detail
 
 Json SignWindowsReport::to_json() const {
     Json j = Json::object();
