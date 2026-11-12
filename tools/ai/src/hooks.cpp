@@ -12,6 +12,7 @@
 
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
+#include "ai_env.h"
 #include "fa/ai/hook_js.h"
 #include "util.h"
 
@@ -496,7 +497,12 @@ void run_command_handler(const HookHandler& h, HookEvent event, const std::strin
     po.argv = {"/bin/sh", "-c", h.command};
 #endif
     po.workingDir = ctx.projectDir;
-    po.inheritEnv = fa::child_env_allow(ctx.inheritEnv);  // base list + the user's "inheritEnv": no API key or signing password
+    // Like every other program the AI starts: base list + proxies and certificate files (a hook that calls curl or git behind a
+    // company proxy needs them) + the user's "inheritEnv"; no API key or signing password.
+    std::vector<std::string> inherit = plain_inherit_env();
+    for (const std::string& e : ctx.inheritEnv)
+        if (!e.empty() && std::find(inherit.begin(), inherit.end(), e) == inherit.end()) inherit.push_back(e);
+    po.inheritEnv = std::move(inherit);
     po.env["CLAUDE_PROJECT_DIR"] = ctx.projectDir;
     po.env["FACTORIA_PROJECT_DIR"] = ctx.projectDir;
     po.env["FACTORIA_HOOK_EVENT"] = hook_event_name(event);

@@ -92,7 +92,7 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
                     a.message = name + ": permission mode " + shown + " saved.";
                     a.failed = false;
                     a.mode.erase(name);
-                    ai_agents_reload();
+                    ai_agents_reload("Permission mode saved. The next message to the AI uses it.");
                 }
             }
             at_track("aiset:agents:confirm", changed);
@@ -110,7 +110,7 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
                     a.message = name + ": permission mode " + shown + " saved.";
                     a.failed = false;
                     a.mode.erase(name);
-                    ai_agents_reload();
+                    ai_agents_reload("Permission mode saved. The next message to the AI uses it.");
                 }
             }
             at_track("aiset:agents:save:" + name, changed && configReadable);
@@ -129,7 +129,7 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
                     a.failed = false;
                     a.mode.erase(name);
                     a.confirm.clear();
-                    ai_agents_reload();
+                    ai_agents_reload("Permission mode of " + name + " back to the default. The next message to the AI uses it.");
                 }
             }
             ImGui::EndDisabled();
@@ -153,7 +153,7 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
 }
 
 // The file changed under the window: the editor's config follows it and the draft keeps what was typed in its other tabs.
-void Editor::ai_agents_reload() {
+void Editor::ai_agents_reload(const std::string& notice) {
     auto loaded = ai::load_config(aiSettings_.path);
     {
         std::lock_guard<std::mutex> lock(aiMu_);
@@ -167,7 +167,9 @@ void Editor::ai_agents_reload() {
         ai_settings_load(*loaded, true, true);
         aiSettings_.agents.message = std::move(message);
         aiSettings_.agents.failed = failed;
-        notify("Permission mode saved. The next message to the AI uses it.");
+        // The tools draft is kept as typed, but ai.json's global inheritEnv is not something typed here: follow the file.
+        aiSettings_.tools.inheritEnvGlobal = loaded->inheritEnv;
+        notify(notice);
     } else {
         aiSettings_.agents.message = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
         aiSettings_.agents.failed = true;

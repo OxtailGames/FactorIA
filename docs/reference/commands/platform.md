@@ -8,6 +8,8 @@ Since 0.2.0.
 
 Set up a store backend for this game: its plugin, its build and what the store needs.
 
+Capabilities: read, writeProject, process
+
 One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs.
 
  steam: the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK ("sdk": its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt ("appId", default Valve's test app 480) for development. apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). googleplay: the Google Play Billing, Play Games Services and Play Integrity plugin for Android (a C bridge and a Java module; it builds with the Android SDK's NDK). admob: the AdMob ads plugin for Android and iOS: Google's consent form (UMP), App Tracking Transparency on iOS and rewarded ads. It offers only the "ads" service, so it works next to the store backend of the game. Android: a C bridge and a Java module (built with the Android SDK's NDK). iOS: Swift (built on a Mac with Xcode against Google's iOS SDK: "sdk", its zip or folder). macOS has no AdMob SDK: there the game has no ads. Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would write), keys[] (the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error with a "did you mean" (backend-specific ones like sdk or appId are listed above and are accepted for every backend). Example: {"backend": "steam", "appId": 480}.
@@ -31,6 +33,8 @@ Since 0.2.0.
 
 Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change.
 
+Capabilities: read, state
+
 `event` is "purchase" ({productId, status?: "purchased" | "pending" | "cancelled" (default purchased), transactionId?, receipt?}; a purchased one also records an unfinished transaction, made up when not given), "overlay" ({open: bool}) or "player" ({id?, name?, signedIn}). Scripts get it through platform.on(event, fn) at the start of the next frame (game.step). Fails when the game runs a real store backend. Example: platform.emit {"event":"overlay","data":{"open":true}}
 
 | Argument | Type | Required | Description |
@@ -43,6 +47,8 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 Since 0.3.0.
 
 A guest joins the fake platform's Remote Play Together session, as Steam would tell the game.
+
+Capabilities: read, state
 
 Adds a session that remotePlay.sessions() lists and sends the game {status: "connected", session} at the start of the next frame (game.step), which platform.on("remotePlay", fn) listeners receive. `session` is {id (numbered from 1), guestName, guestId, deviceName, formFactor, resolution: {width, height}}; what you leave out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080). Returns the session. A guest's input is NOT simulated here: drive the pad the guest would use with game.gamepad(i). Fails when the game runs a real store backend. Example: platform.remote_play_connect {"guestName":"Ana","formFactor":"phone"}
 
@@ -60,6 +66,8 @@ Since 0.3.0.
 
 A guest leaves the fake platform's Remote Play Together session.
 
+Capabilities: read, state
+
 Removes the session from remotePlay.sessions() and sends the game {status: "disconnected", session} (the session as it was) at the start of the next frame (game.step). Fails when no guest has that session id (the message lists the connected ones) or when the game runs a real store backend. Example: platform.remote_play_disconnect {"id":1}
 
 | Argument | Type | Required | Description |
@@ -72,6 +80,8 @@ Since 0.2.0.
 
 Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.
 
+Capabilities: read, state
+
 Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again, and forgets the answer of platform.ads.setUnderAge (the game asks the age again). Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
 
 ## `platform.respond` (modifies state)
@@ -79,6 +89,8 @@ Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1
 Since 0.2.0.
 
 Script the next answer(s) the fake platform backend gives to a method: an error, an exact result, or a change to the default.
+
+Capabilities: read, state
 
 `method` is a platform method such as "purchases.buy" (docs/PLATFORM.md lists them all). `answer` is one of {"error": "network", "message"?, "hint"?} to reject (codes: unavailable, notSignedIn, notAllowed, unknownId, network, failed), {"result": value} to resolve with exactly that value, or any other object, which is merged into the default result: {"status": "cancelled"} cancels a purchase (and buys nothing). Answers are used first in, first out, one per request; `times` queues the same answer several times. Fails when the game runs a real store backend. Example: platform.respond {"method":"purchases.buy","answer":{"status":"cancelled"}}
 
@@ -94,6 +106,8 @@ Since 0.3.0.
 
 Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
 
+Capabilities: read, state
+
 The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a "purchase" event {status: "revoked", productId, transactionId, receipt} at the start of the next frame (game.step), which platform.on("purchase", fn) listeners receive. Fails when the player owns no such product (the message lists the owned ones) or when the game runs a real store backend. Example: platform.revoke {"productId":"remove_ads"}
 
 | Argument | Type | Required | Description |
@@ -105,6 +119,8 @@ The product leaves purchases.restore() and its unfinished transaction is dropped
 Since 0.3.0.
 
 Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
+
+Capabilities: read, state
 
 `outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. `privacyOptions` ("required", "notRequired", "unknown") is what ads.consent() answers for the privacy options form: with "required", platform.ads.privacyOptions() "shows" the form. Give any of them. platform.state's fake.ads counts the ads shown and rewarded and the privacy forms shown. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
 
@@ -121,6 +137,8 @@ Since 0.2.0.
 
 Change how the fake platform backend behaves: signed in or out, how many frames it holds its answers, and the time of its cloud saves.
 
+Capabilities: read, state
+
 `signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give any of them. `cloudClock: n` sets the time (Unix seconds) the next cloud.save gets as its modified time, which cloud.stat reports; it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up by one second with each save, so saves are ordered without the wall clock. `backend: "none"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
 
 | Argument | Type | Required | Description |
@@ -135,6 +153,8 @@ Change how the fake platform backend behaves: signed in or out, how many frames 
 Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
+
+Capabilities: read
 
 Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), droppedEvents (events the full queue lost, oldest first), timedOut (requests the engine gave up on: docs/PLATFORM.md, "Deadlines"), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
 

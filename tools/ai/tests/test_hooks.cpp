@@ -648,6 +648,8 @@ TEST_CASE("command hooks run with the base environment, their own variables and 
     Var key("ANTHROPIC_API_KEY", "sk-ant-secret");
     Var listed("FACTORIA_TEST_LISTED", "visible");
     Var prefixed("MYTOOL_TOKEN", "tool-token");
+    Var proxy("HTTPS_PROXY", "http://proxy.example:3128");  // like every program the AI starts, a hook gets proxies and certificates
+    Var cert("SSL_CERT_FILE", "/etc/company-ca.pem");
 
     HookHarness h;
     h.cfg.inheritEnv = {"FACTORIA_TEST_LISTED", "MYTOOL_*"};
@@ -668,6 +670,8 @@ TEST_CASE("command hooks run with the base environment, their own variables and 
     CHECK(line("CLAUDE_PROJECT_DIR=" + h.proj.str()));
     CHECK(line("FACTORIA_TEST_LISTED=visible"));  // named in inheritEnv
     CHECK(line("MYTOOL_TOKEN=tool-token"));       // matched by "MYTOOL_*"
+    CHECK(line("HTTPS_PROXY=http://proxy.example:3128"));
+    CHECK(line("SSL_CERT_FILE=/etc/company-ca.pem"));
     CHECK_FALSE(name("FACTORIA_TEST_SECRET"));
     CHECK_FALSE(name("FACTORIA_WINDOWS_PFX_PASSWORD"));
     CHECK_FALSE(name("ANTHROPIC_API_KEY"));
