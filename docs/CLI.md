@@ -133,7 +133,8 @@ menu entry). After an update the editor rewrites, at start, a launcher that open
 a launcher that opens another `factoria` is left alone until `factoria setup launcher` points it at this one. `--force`
 installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
-checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
+checked against its publisher's checksum. Details, what is trusted and what an AI may do (`setup.status` checks; `setup.install` is the
+user's call and an AI gets `capability_denied`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
 ```
 factoria setup

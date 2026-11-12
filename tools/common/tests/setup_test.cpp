@@ -1558,7 +1558,7 @@ TEST_CASE("setup: the commands are registered with the documentation an AI needs
     CHECK_FALSE(install->readOnly);
     CHECK(install->description.find("acceptLicenses") != std::string::npos);
     CHECK(install->description.find("license_required") != std::string::npos);
-    CHECK(install->description.find("ask the user") != std::string::npos);
+    CHECK(install->description.find("capability_denied") != std::string::npos);
     CHECK(status->description.find("licenses") != std::string::npos);
     for (const CommandInfo* info : {status, install}) {
         for (const auto& [name, prop] : info->inputSchema.at("properties").items()) {

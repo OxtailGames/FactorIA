@@ -620,6 +620,9 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
     info.inputSchema = Json::object({{"type", "object"}, {"properties", props}});
     registry.add(info, [&registry, projectDir](const Json& args) {
         if (args.value("entries", false)) {
+            // `reject` changes ENGINE_FEEDBACK.json: refused up front, whatever the file holds (the command is read-only otherwise)
+            if (args.value("reject", false))
+                require_capability(Capability::WriteProject, "feedback.check", "`reject` changes ENGINE_FEEDBACK.json");
             const std::string path = feedback_file_for_project(projectDir);
             auto loaded = load_feedback(path);
             if (!loaded.ok()) return Json::object({{"entries", Json::array()}, {"count", 0}, {"note", "No ENGINE_FEEDBACK.json yet."}});
@@ -635,7 +638,6 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
                 }
             Json out = Json::object({{"count", caught.size()}, {"entries", caught}});
             if (args.value("reject", false)) {
-                require_capability(Capability::WriteProject, "feedback.check", "`reject` changes ENGINE_FEEDBACK.json");
                 auto ids = reject_claimed_feedback_file(path, &registry);
                 if (!ids.ok()) throw CommandError("failed", ids.error().message, ids.error().hint);
                 out["rejected"] = *ids;

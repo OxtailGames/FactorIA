@@ -220,18 +220,18 @@ void register_setup_commands(CommandRegistry& registry) {
         info.readOnly = false;
         info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or open Xcode's App Store page).";
         info.description =
-            "Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns "
+            "The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP client "
+            "or an AI agent gets `capability_denied`. Call setup.status and tell the user to press the editor's File > Set Up "
+            "This Computer... button or run `factoria setup <component>`. "
+            "Run by the user, it downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns "
             "{component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether "
-            "it was installed or skipped because it was already there. It downloads hundreds of megabytes "
-            "(setup.status says how many: installSizeMb) and can take minutes: ask the user before calling "
-            "it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, "
-            "platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity "
-            "Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error "
-            "code `license_required` until acceptLicenses is true: the Android SDK license is a legal "
-            "agreement between the user and Google, so show the user the text from setup.status "
-            "(components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said "
-            "yes; never set it on your own. Example: {\"component\":\"android\",\"acceptLicenses\":true}."
+            "it was installed or skipped. Hundreds of megabytes (setup.status: installSizeMb), minutes. `android`: "
+            "JDK 21 and the Android SDK, saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with "
+            "`license_required` until acceptLicenses is true, which only the user who has read the Android SDK license "
+            "(setup.status components[].licenses[].text) sets. Example: {\"component\":\"android\",\"acceptLicenses\":true}."
             FA_COMMAND_DETAILS
+            "`android` in full: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, "
+            "platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's). "
             "`players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, "
             "for exports to other platforms without building anything; from the GitHub release of this "
             "factoria's version (a development build ahead of the last release takes the newest release's "
