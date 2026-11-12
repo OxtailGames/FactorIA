@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -7,6 +8,7 @@
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
+#include "fa_test_paths.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -310,6 +312,59 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
     auto none = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "Platformr character"}});
     REQUIRE_FALSE(none.ok);
     CHECK(none.error["message"].get<std::string>().find("Did you mean") != std::string::npos);
+}
+
+// docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
+// make-game prompt send agents there first). It must stay small and complete.
+TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ## and ### headings of the guide") {
+    std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    REQUIRE_FALSE(text.empty());
+    std::set<std::string> headings;
+    std::set<std::string> listed;
+    bool inFence = false;
+    bool inIndex = false;
+    size_t indexEnd = std::string::npos;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        const std::string line = text.substr(pos, nl - pos);
+        if (line.rfind("```", 0) == 0) inFence = !inFence;
+        if (!inFence && (line.rfind("## ", 0) == 0 || line.rfind("### ", 0) == 0)) {
+            const std::string title = line.substr(line.find(' ') + 1);
+            if (inIndex && line.rfind("## ", 0) == 0) { inIndex = false; indexEnd = pos; }
+            if (title == "Index") inIndex = true;
+            else headings.insert(title);
+        } else if (inIndex && line.rfind("- ", 0) == 0) {
+            const size_t sep = line.find(" -- ");
+            listed.insert(sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2));
+        }
+        pos = nl + 1;
+    }
+    REQUIRE_MESSAGE(indexEnd != std::string::npos, "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
+    CHECK_MESSAGE(indexEnd < 5120, "The start of docs/AI_GUIDE.md up to the end of `## Index` is " << indexEnd
+                                       << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
+    std::string problems;
+    for (const std::string& h : headings)
+        if (!listed.count(h))
+            problems += "  missing from the index: \"" + h + "\" -> add the line `- " + h + " -- <what it holds>` in heading order\n";
+    for (const std::string& l : listed)
+        if (!headings.count(l))
+            problems += "  stale index line: \"" + l + "\" is no heading of the guide -> fix or remove it (entries are `- <exact heading title> -- note`)\n";
+    CHECK_MESSAGE(problems.empty(), "The `## Index` of docs/AI_GUIDE.md does not match its ## and ### headings:\n" << problems);
+
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto r = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "Index"}});
+    REQUIRE(r.ok);
+    CHECK(r.result["heading"] == "Index");
+    CHECK(r.result["truncated"] == false);
+    const std::string content = r.result["content"].get<std::string>();
+    CHECK(content.rfind("## Index", 0) == 0);
+    CHECK(content.find("## 1. Mental model") == std::string::npos);
+    CHECK(content.find("14. Where to read more") != std::string::npos);
+    CHECK(content.size() < 5120);
 }
 
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is everything") {
