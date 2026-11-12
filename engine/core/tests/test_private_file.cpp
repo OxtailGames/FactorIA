@@ -316,6 +316,65 @@ TEST_CASE("make_temp_dir: a temporary folder that is a file gives a teaching err
     stdfs::remove_all(holder, ec);
 }
 
+TEST_CASE("temp_base: an absolute folder that follows the environment, whether it exists or not") {
+    auto base = fs::temp_base();
+    REQUIRE_MESSAGE(base.ok(), (base.ok() ? "" : base.error().message));
+    CHECK(base->is_absolute());
+    const stdfs::path holder = *base / ("fa_test_tempbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path missing = holder / "not" / "yet";
+    {
+        ScopedTempEnv env(missing);
+        auto where = fs::temp_base();
+        REQUIRE_MESSAGE(where.ok(), (where.ok() ? "" : where.error().message));
+        CHECK(where->lexically_normal().generic_string().find("not/yet") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(missing));  // temp_base only names it; make_temp_dir makes it
+    }
+}
+
+#ifndef _WIN32
+TEST_CASE("temp_base: a relative TMPDIR is refused, not resolved against the working directory") {
+    const stdfs::path holder = *fs::temp_base() / ("fa_test_relbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::error_code ec;
+    REQUIRE(stdfs::create_directories(holder, ec));
+    {
+        ScopedCwd inCwd(holder);
+        ScopedTempEnv env("scratch");
+        auto base = fs::temp_base();
+        REQUIRE_FALSE(base.ok());
+        CHECK(base.error().message.find("relative") != std::string::npos);
+        CHECK(base.error().message.find("scratch") != std::string::npos);
+        auto dir = fs::make_temp_dir("fa_test_rel");
+        CHECK_FALSE(dir.ok());
+        CHECK(entries_in(holder) == 0);  // nothing was made in the working directory
+    }
+    stdfs::remove_all(holder, ec);
+}
+#endif
+
+TEST_CASE("make_temp_dir: a FILE that has the next name is skipped, not an error") {
+    const stdfs::path holder = *fs::temp_base() / ("fa_test_filename_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::error_code ec;
+    REQUIRE(stdfs::create_directories(holder, ec));
+    {
+        ScopedTempEnv env(holder);
+        const stdfs::path first = fs::make_temp_dir("fa_test_fn").value();
+        const std::string name = first.filename().string();
+        const std::size_t us = name.rfind('_');
+        REQUIRE(us != std::string::npos);
+        const stdfs::path planted =
+            holder / (name.substr(0, us + 1) + std::to_string(std::stoul(name.substr(us + 1)) + 1));
+        {
+            std::ofstream(planted) << "x";
+        }
+        auto second = fs::make_temp_dir("fa_test_fn");
+        REQUIRE_MESSAGE(second.ok(), (second.ok() ? "" : second.error().message));
+        CHECK(*second != planted);
+        CHECK(stdfs::is_directory(*second));
+        CHECK(stdfs::is_regular_file(planted));
+    }
+    stdfs::remove_all(holder, ec);
+}
+
 TEST_CASE("remove_tree refuses an empty path and touches nothing") {
     const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_rmempty_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::error_code ec;

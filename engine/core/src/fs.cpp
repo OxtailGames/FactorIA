@@ -23,6 +23,13 @@
 
 #ifdef _WIN32
 #include <process.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #else
 #include <sys/stat.h>
 #include <unistd.h>
@@ -338,6 +345,57 @@ stdfs::path cache_dir() {
     return s.cacheDir;
 }
 
+namespace {
+Error temp_error(const stdfs::path& base, const std::string& why) {
+    return Error{"Cannot make a private scratch folder in the temporary folder '" + path_to_utf8(base) + "': " + why,
+                 "Check that the temporary folder (TMPDIR on Linux and macOS, TMP or TEMP on Windows) exists, is a folder, is "
+                 "writable, has free space and is an absolute path. On Linux and macOS it must also be on a file system that "
+                 "keeps file modes: vfat, a WSL drive (/mnt/c) or an SMB share does not, so point TMPDIR at a normal folder, "
+                 "for example `export TMPDIR=$HOME/tmp`."};
+}
+}  // namespace
+
+Result<stdfs::path> temp_base() {
+    stdfs::path base;
+    std::error_code ec;
+#ifdef _WIN32
+    // GetTempPath2W (Windows 11; a service running as SYSTEM gets its private folder) when kernel32 has it, else
+    // GetTempPathW. Both read TMP, TEMP and USERPROFILE and answer in UTF-16, which stays UTF-16 here (no ANSI code page).
+    // Neither checks that the folder exists, and the standard library's temp_directory_path does, on both STLs.
+    using GetTempPathFn = DWORD(WINAPI*)(DWORD, LPWSTR);
+    GetTempPathFn fn = nullptr;
+    if (HMODULE k32 = ::GetModuleHandleW(L"kernel32.dll"))
+        fn = reinterpret_cast<GetTempPathFn>(reinterpret_cast<void*>(::GetProcAddress(k32, "GetTempPath2W")));
+    if (!fn) fn = &::GetTempPathW;
+    std::wstring buf(MAX_PATH + 1, L'\0');
+    DWORD n = fn(static_cast<DWORD>(buf.size()), buf.data());
+    if (n >= buf.size()) {  // longer than MAX_PATH: n is the size needed, with the terminator
+        buf.assign(static_cast<std::size_t>(n) + 1, L'\0');
+        n = fn(static_cast<DWORD>(buf.size()), buf.data());
+    }
+    if (n == 0 || n >= buf.size()) return temp_error(base, "Windows does not name a temporary folder (set TEMP to one)");
+    buf.resize(n);
+    base = stdfs::path(buf);
+#else
+    for (const char* name : {"TMPDIR", "TMP", "TEMP", "TEMPDIR"}) {
+        const char* v = std::getenv(name);
+        if (v && *v) {
+            base = stdfs::path(v);
+            break;
+        }
+    }
+    if (base.empty()) {
+        base = stdfs::temp_directory_path(ec);
+        if (ec) return temp_error(base, ec.message());
+    }
+    if (base.empty()) return temp_error(base, "no temporary folder is known (set TMPDIR to one)");
+#endif
+    // A relative one would mean a different folder after every chdir, and scratch files would land in the working
+    // directory: refused, not guessed.
+    if (!base.is_absolute()) return temp_error(base, "it is a relative path, which would follow the working directory");
+    return base;
+}
+
 Result<stdfs::path> make_temp_dir(std::string_view prefix) {
     static std::atomic<unsigned> counter{0};
 #ifdef _WIN32
@@ -346,42 +404,30 @@ Result<stdfs::path> make_temp_dir(std::string_view prefix) {
     const long long pid = static_cast<long long>(::getpid());
 #endif
     std::error_code ec;
-    // The temporary folder (the standard library refuses one that does not exist yet, which is not our case: it is made).
-    stdfs::path base;
-#ifndef _WIN32
-    for (const char* name : {"TMPDIR", "TMP", "TEMP", "TEMPDIR"}) {
-        const char* v = std::getenv(name);
-        if (v && *v) {
-            base = stdfs::path(v);
-            break;
-        }
-    }
-#endif
-    if (base.empty()) base = stdfs::temp_directory_path(ec);
-    auto fail = [&](const std::string& why) {
-        return make_error("Cannot make a private scratch folder in the temporary folder '" + path_to_utf8(base) + "': " + why,
-                          "Check that the temporary folder (TMPDIR on Linux and macOS, TEMP on Windows) exists, is a folder, is "
-                          "writable and has free space. On Linux and macOS it must also be on a file system that keeps file modes: "
-                          "vfat, a WSL drive (/mnt/c) or an SMB share does not, so point TMPDIR at a normal folder, for example "
-                          "`export TMPDIR=$HOME/tmp`.");
-    };
-    if (ec || base.empty()) return fail(ec ? ec.message() : "no temporary folder is known");
+    auto resolved = temp_base();
+    if (!resolved.ok()) return resolved.error();
+    const stdfs::path base = *resolved;
+    auto fail = [&](const std::string& why) { return temp_error(base, why); };
     if (!stdfs::is_directory(base, ec)) {
         ec.clear();
-        stdfs::create_directories(base, ec);  // a TMPDIR that does not exist yet is made
+        stdfs::create_directories(base, ec);  // a temporary folder that does not exist yet is made
         if (ec) return fail(ec.message());
+        if (!stdfs::is_directory(base, ec)) return fail("it exists and is not a folder");
     }
     const std::string stem = std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++);
     // The folder is created by the call that tests for it (never reused): in a temp folder shared with other users
     // (/tmp), a predictable name could be pre-created by someone else, who would then own what is written inside.
-    // A name that exists gets a random suffix.
+    // A name that exists (a folder or a file) gets a random suffix.
     std::random_device rd;
     for (int attempt = 0; attempt < 64; ++attempt) {
         stdfs::path dir = base / (attempt == 0 ? stem : stem + "_" + std::to_string(rd()));
 #ifdef _WIN32
         ec.clear();
         if (stdfs::create_directory(dir, ec) && !ec) return dir;
-        if (ec) return fail(ec.message());  // (false without an error: it already existed)
+        // Taken: by a folder (false, no error) or by a file (an error on both STLs): either way try another name.
+        std::error_code sec;
+        if (stdfs::symlink_status(dir, sec).type() != stdfs::file_type::not_found) continue;
+        return fail(ec ? ec.message() : "the folder could not be made");
 #else
         if (::mkdir(dir.c_str(), 0700) == 0) {
             struct stat st {};

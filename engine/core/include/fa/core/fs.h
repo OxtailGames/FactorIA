@@ -61,10 +61,17 @@ void flush_user_dir();
 void restore_user_dir(const std::filesystem::path& dir, void (*done)());
 #endif
 
-// Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
+// The system's temporary folder as an absolute path, resolved here and not by std::filesystem::temp_directory_path, which on
+// Windows (both STLs) fails when the folder does not exist yet. Linux and macOS: TMPDIR, TMP, TEMP, TEMPDIR, else the
+// platform's default (/tmp). Windows: GetTempPath2W where it exists, else GetTempPathW (TMP, TEMP, USERPROFILE), kept in
+// UTF-16. The folder may not exist (make_temp_dir makes it). A RELATIVE answer (TMPDIR=tmp) is refused with an error, not
+// resolved against the working directory, which can change.
+Result<std::filesystem::path> temp_base();
+
+// Creates a fresh, empty scratch directory under temp_base(), named <prefix>_<process id>_<n>. Unique per
 // process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
 // share one. The caller removes it when done. The folder is always created by this call (a name that exists is never
-// reused: it gets a random suffix), and on Linux and macOS it is owner-only (0700) and checked to be a real directory
+// reused: it gets a random suffix, also when a FILE has that name), and on Linux and macOS it is owner-only (0700) and checked to be a real directory
 // of this user, so a shared /tmp cannot hand a program a folder someone else prepared. A temporary folder that does not
 // exist yet is made. The error says why (full or read-only temp folder, a file system that ignores modes) and how to fix it.
 Result<std::filesystem::path> make_temp_dir(std::string_view prefix);

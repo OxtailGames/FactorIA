@@ -127,9 +127,9 @@ void sweep_stale_run_files(const fsys::path& aiDir) {
     });
     // and the private folders a run made in the temporary folder when the project refused the owner-only write (a real
     // folder only: a link of that name is left alone)
-    std::error_code ec;
-    const fsys::path tmp = fsys::temp_directory_path(ec);
-    if (ec) return;
+    const auto tmpBase = fs::temp_base();  // where fs::make_temp_dir makes them
+    if (!tmpBase.ok()) return;
+    const fsys::path tmp = *tmpBase;
     sweep_stale_in(tmp, [](const std::string& name, const fsys::path& p) {
         if (name.rfind(kTempRunDirPrefix, 0) != 0) return false;
         std::error_code sec;
