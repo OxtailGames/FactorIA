@@ -88,6 +88,7 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
 struct CommandHookConfig {
     HookSet set;                        // only the command events
     std::vector<ExtensionItem> skipped; // entries not used, each with problem + fix
+    std::vector<std::string> inheritEnv;  // "inheritEnv" of ai.json: variables the hook commands inherit besides the base list
 };
 CommandHookConfig load_command_hooks(const AiConfig& cfg, const ExtensionContext& ctx);
 

@@ -205,7 +205,7 @@ struct SteamGame {
     std::unique_ptr<Mock> mock;
 
     SteamGame(Library library, const std::string& appId) {
-        dir = stdfs::canonical(fs::make_temp_dir("fa_steam_plugin_test"));  // canonical: the plugin and this program must name one file
+        dir = stdfs::canonical(fs::make_temp_dir("fa_steam_plugin_test").value());  // canonical: the plugin and this program must name one file
         const stdfs::path native = dir / "native" / "steam" / kPlatformDir;
         stdfs::create_directories(native);
         stdfs::create_directories(dir / "scenes");
@@ -1177,7 +1177,7 @@ TEST_CASE("steam exit: the plugin stores pending stats and shuts Steam down when
 #if defined(_WIN32)
     MESSAGE("Windows runs a DLL's exit handlers after Steam's own DLL is gone, so the plugin does not call Steam there");
 #else
-    const stdfs::path log = stdfs::canonical(fs::make_temp_dir("fa_steam_exit")) / "exit.log";
+    const stdfs::path log = stdfs::canonical(fs::make_temp_dir("fa_steam_exit").value()) / "exit.log";
     set_environment("FA_STEAM_EXIT_LOG", log.generic_string());
     const std::string command = std::string("\"") + FA_STEAM_TEST_EXE + "\" \"--test-case=steam child*\" > /dev/null 2>&1";
     const int rc = std::system(command.c_str());

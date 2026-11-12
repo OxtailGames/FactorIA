@@ -620,6 +620,9 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
     info.inputSchema = Json::object({{"type", "object"}, {"properties", props}});
     registry.add(info, [&registry, projectDir](const Json& args) {
         if (args.value("entries", false)) {
+            // `reject` changes ENGINE_FEEDBACK.json: refused up front, whatever the file holds (the command is read-only otherwise)
+            if (args.value("reject", false))
+                require_capability(Capability::WriteProject, "feedback.check", "`reject` changes ENGINE_FEEDBACK.json");
             const std::string path = feedback_file_for_project(projectDir);
             auto loaded = load_feedback(path);
             if (!loaded.ok()) return Json::object({{"entries", Json::array()}, {"count", 0}, {"note", "No ENGINE_FEEDBACK.json yet."}});
@@ -648,6 +651,9 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
         in.suggestion = tooling_detail::arg_string(args, "suggestion", false);
         return check_feedback_claim(in, &registry, 4).to_json();
     });
+    // feedback.check only reads; `reject` changes ENGINE_FEEDBACK.json and requires writeProject in the handler.
+    declare_command_capabilities(registry, {
+        {"feedback.check", capability_sets::reads()}});
 }
 
 }  // namespace fa

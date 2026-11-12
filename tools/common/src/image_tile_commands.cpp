@@ -153,18 +153,21 @@ struct RulesWritten {
     Json terrain;
 };
 
+// The project-relative path of a rules file: `rulesArg` (checked: a .json file the caller may write) or the default next to the document.
+std::string rules_rel(const std::string& projectDir, const std::string& docRel, const std::string& layerName, const std::string& rulesArg, const char* cmd) {
+    if (rulesArg.empty()) return default_rules_path(docRel, layerName);
+    auto norm = fs::normalize_checked(rulesArg);
+    if (!norm.ok() || norm->empty()) arg_error(cmd, "/rules", "'" + rulesArg + "' is not a path inside the project.", "Example: \"assets/art/ground.terrains.json\".");
+    if (!ends_with(*norm, ".json") || ends_with(*norm, kImageDocSuffix))
+        arg_error(cmd, "/rules", "'" + *norm + "' is not a rules file name.", "A rules file ends in .json, for example \"assets/art/ground.terrains.json\" (not .image.json).");
+    check_write_target(projectDir, *norm, cmd, "rules");
+    return *norm;
+}
+
 RulesWritten write_rules(const std::string& projectDir, const std::string& docRel, const std::string& layerName, const TilesetSpec& spec, const std::string& rulesArg, bool overwrite,
                          const char* cmd) {
     RulesWritten out;
-    if (rulesArg.empty()) {
-        out.rel = default_rules_path(docRel, layerName);
-    } else {
-        auto norm = fs::normalize_checked(rulesArg);
-        if (!norm.ok() || norm->empty()) arg_error(cmd, "/rules", "'" + rulesArg + "' is not a path inside the project.", "Example: \"assets/art/ground.terrains.json\".");
-        if (!ends_with(*norm, ".json") || ends_with(*norm, kImageDocSuffix))
-            arg_error(cmd, "/rules", "'" + *norm + "' is not a rules file name.", "A rules file ends in .json, for example \"assets/art/ground.terrains.json\" (not .image.json).");
-        out.rel = *norm;
-    }
+    out.rel = rules_rel(projectDir, docRel, layerName, rulesArg, cmd);
     auto path = resolve_project_path(projectDir, out.rel);
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
     require_usable_manifest(projectDir);
@@ -287,7 +290,7 @@ Json seam_problem(const TileSeam& s, const TileSeamReport& r, bool opposite) {
 Json tile_check(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.tile.check";
     check_arg_keys(cmd, a, "", {"path", "tileWidth", "tileHeight", "tolerance", "scale", "tile"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     const ImageDocument doc = parse_or_fail(projectDir, d.rel, d.json);
     const Image img = render_or_fail(projectDir, doc);
     int tw = int_arg(a, cmd, "tileWidth", 1, kImageDocMaxSide, 0), th = int_arg(a, cmd, "tileHeight", 1, kImageDocMaxSide, 0);
@@ -370,8 +373,17 @@ Json tileset_build(const std::string& projectDir, const Json& a) {
     check_arg_keys(cmd, a, "", {"path", "layer", "mode", "tileWidth", "tileHeight", "columns", "variations", "seed", "terrain", "parts", "rules", "writeRules", "palette", "ramps",
                                 "description", "output", "overwrite", "bake"});
     const std::string rel = doc_path_arg(arg_string(a, "path", true), cmd);
+    check_write_target(projectDir, rel, cmd, "path");
     const std::string layerName = a.contains("layer") && !a["layer"].is_null() ? arg_string(a, "layer", true) : "tileset";
     if (layerName.empty()) arg_error(cmd, "/layer", "`layer` is empty.", "A layer name such as \"tileset\".");
+    // everything the caller names is checked before the document is touched: the rules file is written after it
+    const std::string rulesText = a.contains("rules") && a["rules"].is_string() ? a["rules"].get<std::string>() : std::string();
+    if (arg_bool(a, "writeRules", true)) (void)rules_rel(projectDir, rel, layerName, rulesText, cmd);
+    if (a.contains("output") && a["output"].is_string()) {
+        auto outNorm = fs::normalize_checked(a["output"].get<std::string>());
+        if (!outNorm.ok() || outNorm->empty()) arg_error(cmd, "/output", "'" + a["output"].get<std::string>() + "' is not a path inside the project.", "Example: \"assets/art/ground.png\".");
+        check_write_target(projectDir, *outNorm, cmd, "output");
+    }
     auto path = resolve_project_path(projectDir, rel);
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
     require_usable_manifest(projectDir);
@@ -452,7 +464,7 @@ Json tileset_build(const std::string& projectDir, const Json& a) {
                                       }()}});
     result["tileset"] = tilesetInfo;
     if (arg_bool(a, "writeRules", true)) {
-        const RulesWritten rules = write_rules(projectDir, rel, layerName, spec, a.contains("rules") && a["rules"].is_string() ? a["rules"].get<std::string>() : std::string(), arg_bool(a, "overwrite", false), cmd);
+        const RulesWritten rules = write_rules(projectDir, rel, layerName, spec, rulesText, arg_bool(a, "overwrite", false), cmd);
         result["rules"] = Json::object({{"path", rules.rel}, {"changed", rules.changed}});
         result["terrain"] = rules.terrain;
         result["tilemap"] = tilemap_hint(pngRel, lay, rules.rel, rules.terrain.value("name", std::string()));
@@ -473,7 +485,7 @@ Json tileset_build(const std::string& projectDir, const Json& a) {
 Json tileset_rules(const std::string& projectDir, const Json& a) {
     const char* cmd = kRulesCommand;
     check_arg_keys(cmd, a, "", {"path", "layer", "rules", "overwrite"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     const ImageDocument doc = parse_or_fail(projectDir, d.rel, d.json);
     const ImageLayer& layer = pick_tileset_layer(doc, a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string(), cmd);
     const TilesetLayout lay = tileset_layout(layer.tileset);
@@ -526,7 +538,7 @@ Json tileset_info(const std::string& projectDir, const Json& a) {
     std::string docRel, layerName;
     std::vector<std::string> warnings;
     if (a.contains("path") && !a["path"].is_null()) {
-        DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+        DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
         auto parsed = parse_image_document(d.json, d.rel, projectDir);
         if (!parsed.ok()) fail("invalid_argument", parsed.error().message, parsed.error().hint);
         const ImageLayer& layer = pick_tileset_layer(*parsed, a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string(), cmd);
@@ -595,7 +607,7 @@ Json tileset_info(const std::string& projectDir, const Json& a) {
 Json tileset_check(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.tileset.check";
     check_arg_keys(cmd, a, "", {"path", "layer", "tolerance", "scale"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     std::vector<ImageIssue> issues;
     auto parsed = parse_image_document(d.json, d.rel, projectDir, &issues);
     if (!parsed.ok()) {
@@ -737,7 +749,8 @@ void register_tile_commands(CommandRegistry& registry, const std::string& projec
         info.summary = summary;
         info.description = description;
         info.inputSchema = Json::parse(schema);
-        registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
+        // image.tileset.rules only reads the document: it writes the rules file
+        add_image_command(registry, info, [projectDir, fn](const Json& args) { return fn(projectDir, args); }, std::string(name) != "image.tileset.rules");
     };
 
     add("image.tile.set", "Turn tile mode (wrap-around editing) on or off for an image document.",

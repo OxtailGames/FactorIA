@@ -58,7 +58,7 @@ export default class IdleThing extends Behaviour {
 struct Project {
     stdfs::path dir;
     Project() {
-        dir = fs::make_temp_dir("fa_profiler_test");
+        dir = fs::make_temp_dir("fa_profiler_test").value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         write("scripts/busy.js", kBusy);

@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,6 +28,12 @@ struct ProcessOptions {
     std::string workingDir;                      // empty = inherit
     std::map<std::string, std::string> env;      // overrides added to the inherited environment
     std::vector<std::string> unsetEnv;           // variables removed from the child environment
+    // Allow-list mode. nullopt (the default) = the child inherits the whole environment of this process. A list = only the
+    // variables whose names match an entry are inherited (see env_name_matches: exact names, case-insensitive on Windows, a
+    // trailing '*' makes a prefix: "LC_*"); `env` is added to them and `unsetEnv` still removes. Programs that run what an AI
+    // wrote (hooks, agent CLIs) use base_child_env() so signing passwords and other providers' API keys stay out of their
+    // reach.
+    std::optional<std::vector<std::string>> inheritEnv;
     std::string stdinText;                       // the child's standard input (empty = no input)
     std::function<void(std::string_view line)> onStdoutLine;   // complete lines, '\n'/'\r\n' stripped
     std::function<void(std::string_view chunk)> onStdoutChunk; // raw bytes as they arrive (optional)
@@ -40,6 +47,12 @@ struct ProcessOptions {
     // run_process waits for the pipes to close, which for such a descendant is forever. Windows always behaves so
     // (its job object kills the descendants).
     bool endWithChild = false;
+    // POSIX: the program runs in a session of its own (setsid() after fork), so it has no controlling terminal: a program that
+    // would ask /dev/tty for a password (xcrun notarytool) reads its standard input instead, and a background process cannot be
+    // stopped for reading the terminal. Its process group is its own as always, so a cancel, a timeout or the end of
+    // endWithChild still signal the whole tree (SIGTERM, SIGKILL after 2 s). Windows: does nothing (a child has no controlling
+    // terminal there to begin with; its job object already ends the whole tree).
+    bool newSession = false;
     bool captureStdout = true;                   // keep stdout in ProcessResult (capped at maxCapture)
     std::size_t maxCapture = 8u << 20;
 };
@@ -51,6 +64,22 @@ struct ProcessResult {
     std::string stdoutText;  // if captureStdout
     std::string stderrText;  // always captured (capped)
 };
+
+// Does environment variable `name` match `pattern`: the same name, or, when the pattern ends in '*', a name that starts with the
+// rest of it ("LC_*" matches "LC_ALL"). `caseInsensitive` is how Windows compares variable names (ASCII letters only).
+bool env_name_matches(std::string_view pattern, std::string_view name, bool caseInsensitive);
+
+// The variables every child of a hook or an AI tool needs to work and that hold no secret: PATH, HOME/USER/LOGNAME/SHELL, the
+// temp folder (TMPDIR, TEMP, TMP), the locale (LANG, LANGUAGE, LC_*), TERM, TZ, the few FACTORIA_*/FA_* variables a `factoria`
+// started by them reads (FACTORIA_AI_CONFIG, FACTORIA_HOME, FACTORIA_ENGINE_DIR, FACTORIA_CALLER, FACTORIA_CAPABILITIES,
+// FACTORIA_ROLE, FACTORIA_IN_HOOK, FA_CACHE_DIR, FA_LANGUAGE, FA_JOB_THREADS), the paths of the tools it finds by
+// variable (SOKOL_SHDC, FACTORIA_EXPORT_CONFIG, FACTORIA_FFMPEG, FACTORIA_STEAMCMD, FACTORIA_FASTLANE, FACTORIA_XCRUN: paths, not
+// secrets) and, on Windows, what cmd.exe, Node and the compilers need (SystemRoot, ComSpec, PATHEXT,
+// USERPROFILE, APPDATA, LOCALAPPDATA, ProgramData, ProgramFiles*...). Never the signing passwords (FACTORIA_*_PASSWORD) nor API
+// keys. Use it as ProcessOptions::inheritEnv / ChildOptions::inheritEnv, with `extra` names added: see child_env_allow.
+const std::vector<std::string>& base_child_env();
+// base_child_env() followed by `extra` (names or "PREFIX*" patterns), without repeating a name.
+std::vector<std::string> child_env_allow(const std::vector<std::string>& extra);
 
 // Fails (Error) only when the process could not be started (missing executable,
 // bad working dir...). A non-zero exit code is a successful Result. Always fails on iOS and Android.

@@ -61,10 +61,22 @@ void flush_user_dir();
 void restore_user_dir(const std::filesystem::path& dir, void (*done)());
 #endif
 
-// Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
+// The system's temporary folder as an absolute path, resolved here and not by std::filesystem::temp_directory_path, which on
+// Windows (both STLs) fails when the folder does not exist yet. Linux and macOS: TMPDIR, TMP, TEMP, TEMPDIR, else the
+// platform's default (/tmp). Windows: GetTempPath2W where it exists, else GetTempPathW (TMP, TEMP, USERPROFILE), kept in
+// UTF-16. The folder may not exist (make_temp_dir makes it). Linux and macOS: a RELATIVE variable (TMPDIR=tmp) is refused with
+// an error, not resolved against the working directory, which can change. Windows: GetTempPath itself makes a relative TMP
+// absolute, against the working directory of that call, so the answer is always absolute (and follows a later chdir only
+// when the next call is made); an answer that still is not absolute is refused the same way.
+Result<std::filesystem::path> temp_base();
+
+// Creates a fresh, empty scratch directory under temp_base(), named <prefix>_<process id>_<n>. Unique per
 // process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
-// share one. The caller removes it when done.
-std::filesystem::path make_temp_dir(std::string_view prefix);
+// share one. The caller removes it when done. The folder is always created by this call (a name that exists is never
+// reused: it gets a random suffix, also when a FILE has that name), and on Linux and macOS it is owner-only (0700) and checked to be a real directory
+// of this user, so a shared /tmp cannot hand a program a folder someone else prepared. A temporary folder that does not
+// exist yet is made. The error says why (full or read-only temp folder, a file system that ignores modes) and how to fix it.
+Result<std::filesystem::path> make_temp_dir(std::string_view prefix);
 
 // Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE
 // path read_bytes, read_text, exists, is_directory, file_size, modified_time and list are given is answered by the pack
@@ -104,7 +116,8 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
 // (copy_file keeps the attribute) loses the attribute and is deleted too. Same result and error otherwise.
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
-// sharing violation, as remove_all does on Windows.
+// sharing violation, as remove_all does on Windows. An empty path is refused (invalid_argument, nothing is touched): it
+// would be the working directory or, on Windows, the root of the drive.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
 // Whether Windows would refuse to delete `file` because something holds it. On Windows: an open that asks for delete
 // access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion fails (an
@@ -268,7 +281,75 @@ bool is_scratch_path(std::string_view relativePath);  // ".factoria/tmp" or anyt
 bool is_managed_path(std::string_view relativePath);  // the VCS folder, ".factoria" or below, except the scratch folder
 // Ok when a command may write or delete `path` (project-relative, or absolute: then only paths inside the project root
 // are judged). The error names the folder that is allowed (`.factoria/tmp/`).
+// This is the managed-folder rule ONLY: it confines nothing. A path that comes from a caller (a command argument) goes
+// through resolve_for_write first, which keeps it inside a root; check_writable is the second step for a command that lets
+// its caller name any project path.
 Result<void> check_writable(std::string_view path);
+
+// ---- Paths that a caller gives to a command that writes ----------------------------------------------------------
+// A command that writes a file whose path comes from its caller (game.screenshot, input.record, scene.save, fs.write...)
+// resolves that path with resolve_for_write, never with resolve(), which accepts any absolute path. The three roots a
+// write can be confined to:
+//   Project  project_root(), the game's folder.
+//   Save     user_dir(), the game's save folder.
+//   Export   export_dir(), the folder export artifacts go to (set_export_dir; default <project>/build/export).
+enum class WriteRoot { Project, Save, Export };
+// Whether a path that lands in a managed folder of the project (the version-control folder, `.factoria/` except its scratch
+// folder `.factoria/tmp`) is refused. Refuse is the default: a path a caller names does not touch them. Allow is for a
+// command that chooses such a target itself (selections, previews and review files under `.factoria/`).
+enum class ManagedFolders { Refuse, Allow };
+
+// Sets the export folder (absolute); an empty path goes back to the default. Nothing is created: the writer creates the
+// folder when it writes.
+void set_export_dir(const std::filesystem::path& dir);
+// The export folder: set_export_dir's, else <project_root()>/build/export (where project.export puts its output). Returned by value (another thread may set it).
+std::filesystem::path export_dir();
+// Whether set_export_dir named a folder (false: export_dir() is the default <project_root()>/build/export). A tooling command that
+// knows its own project folder asks this instead of comparing paths.
+bool export_dir_is_set();
+
+// Resolves `path` (UTF-8 text; / and \ both separate) for a write below `root`. Gives the absolute, canonical host path to
+// write, or an error that says which form of path was given, what this root accepts, where the root really is, and the fix.
+//  - A relative path is joined to the root. "." segments are dropped and "a/../b" is "b"; a ".." that would leave the root
+//    is `path_outside_root`. Symlinks of the existing part are resolved and the result must still be inside the root: a
+//    link pointing out is `path_outside_root`, and so is a link pointing nowhere (writing through it would create its
+//    target). The result is the canonical spelling: write to it, compare with it.
+//  - An absolute path (/x, C:\x, C:/x, \\server\share, \\?\C:\x, and ~ or ~/x for the home folder) is
+//    `absolute_path_denied` unless `allowAnywhere` (the command-line user, who owns the machine; never an agent or a script
+//    that calls through the engine). When allowed it is normalized (".." cannot climb above the drive or share) and
+//    returned, EXCEPT that the managed folders of the project stay closed to it (`managed_path_denied`: check_writable's
+//    rule, so ".git" and ".factoria/" but not ".factoria/tmp/"), unless the path is inside the Save or Export root itself.
+//    A drive-relative path (C:name), a device path (\\.\) and the ~user form are always `invalid_path`; the Windows forms
+//    are `invalid_path` on other systems.
+//  - Names compare without regard to case on Windows and macOS (their default volumes), never on Linux. A case-sensitive
+//    macOS volume counts as case-insensitive for the "is it inside the root" test.
+//  - With WriteRoot::Project, a path that lands in a managed folder of the project is `managed_path_denied`, judged on the
+//    canonical path AND on the normalized spelling (refused when either is managed; names fold case and lose a trailing
+//    dot or space), unless `managed` is ManagedFolders::Allow. A relative path never CREATES a name Windows cannot
+//    (CON, NUL, COM1-9, COM/LPT with a superscript digit, a trailing dot or space: `invalid_path`); a name that already
+//    exists as a regular file, a folder or a link is left alone on Linux and macOS, so such a file can still be read and
+//    deleted. On Windows nothing is left alone: such a file cannot be there (NUL exists in every folder, `scenes.` is `scenes`).
+//    That holds for a relative path and for an absolute one. The Save and Export roots are what a command writes to on
+//    purpose, so a relative path in them is not judged. A command that lets its caller name any project path keeps calling
+//    check_writable on the result too: that is the same rule, with its error.
+//  - A name with a NUL byte is `invalid_path`, and so is a relative path with a drive in its first segment (`a/../C:/x`) or,
+//    on Windows, a ':' in any segment (an alternate data stream). A network path needs a server and a share (Windows); on
+//    other systems \\server\share and \\?\UNC\... are `invalid_path`.
+// The check and the write are two steps: a link made in between is not seen. Nothing is created or opened here.
+// The error's code is the end of its message, "(code: path_outside_root)"; path_error_code reads it. Codes:
+// path_outside_root, absolute_path_denied, managed_path_denied, invalid_path, path_unresolvable.
+Result<std::filesystem::path> resolve_for_write(std::string_view path, WriteRoot root, bool allowAnywhere,
+                                                ManagedFolders managed = ManagedFolders::Refuse);
+// The same against an explicit root folder (`root` only chooses the wording and the managed-folder exemption). For code that
+// holds its own project folder (the tooling commands get it when they are registered, not from project_root()).
+Result<std::filesystem::path> resolve_for_write_in(const std::filesystem::path& rootDir, WriteRoot root, std::string_view path,
+                                                   bool allowAnywhere, ManagedFolders managed = ManagedFolders::Refuse);
+// The spelling of a path that resolve_for_write returned for the project: relative to the project folder (forward slashes, ""
+// for the folder itself) when it lies inside it, else the absolute path. The form the rest of this API (read_text, exists,
+// write_text...) takes for a project file, so a command keeps its own bookkeeping (watched files, undo records) in it.
+std::string project_spelling(const std::filesystem::path& resolved);
+// The code of an error that resolve_for_write gave ("path_outside_root"...), or "" for any other error.
+std::string_view path_error_code(const Error& error);
 
 // Polling file watcher for hot reload (desktop only; no-op on mobile).
 class Watcher {

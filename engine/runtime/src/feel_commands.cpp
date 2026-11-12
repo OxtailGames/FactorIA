@@ -180,6 +180,20 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
            parse_schema(R"({"type":"object","properties":{}})"),
            true, "feel"},
           [&I](const Json&) { return feel_state_json(I.world); });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"feel.shake", capability_sets::changes_state()},
+        {"feel.flash", capability_sets::changes_state()},
+        {"feel.knockback", capability_sets::changes_state()},
+        {"feel.squash", capability_sets::changes_state()},
+        {"feel.spawn", capability_sets::changes_state()},
+        {"feel.sound", capability_sets::changes_state()},
+        {"feel.cancel", capability_sets::changes_state()},
+        {"feel.hitStop", capability_sets::changes_state()},
+        {"feel.settings", capability_sets::changes_state()},
+        {"feel.state", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

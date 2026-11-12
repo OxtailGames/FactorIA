@@ -34,7 +34,7 @@ fa::Json read(const stdfs::path& p) {
 
 TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German, and nothing else") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_check_layout") / "menus";
+    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_check_layout").value() / "menus";
     stdfs::copy(stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "fixtures" / "menus", dir, stdfs::copy_options::recursive);
 
     // German = English, except the planted key.
@@ -98,7 +98,7 @@ namespace {
 // (the row at the bottom reaches into that button by its whole rectangle, not by the part the list shows), and one scene whose
 // popup (inactive, opened by a click on "open") holds a label that does not fit.
 stdfs::path make_check_project(const char* name) {
-    const stdfs::path dir = fa::fs::make_temp_dir(name) / "proj";
+    const stdfs::path dir = fa::fs::make_temp_dir(name).value() / "proj";
     write(dir / "factoria.json", fa::Json::parse(R"({"format":"factoria.project/1","name":"Check","id":"com.factoria.tests.check","version":"0.1.0",
         "mainScene":"scenes/list.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"confirm":["Enter"]}}})"));

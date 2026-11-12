@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/runtime/engine.h"
@@ -61,7 +63,7 @@ const char* kLevel = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = fs::make_temp_dir("fa_import_test_" + name);
+        dir = fs::make_temp_dir("fa_import_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
@@ -632,7 +634,9 @@ TEST_CASE("import_ascii: unknown glyphs are reported together and warnings point
     CHECK(contains(w, "solidTiles is empty"));
 }
 
-TEST_CASE("import_ascii: callable from a script during a frame (fa.call), re-importing there keeps ids stable") {
+// A game script is granted {read, state} (docs/SCRIPTING.md, "What fa.call can do from a game"): the in-memory twin
+// scene.place_ascii is what it calls; scene.import_ascii can write a file and is refused to it.
+TEST_CASE("place_ascii: callable from a script during a frame (fa.call), re-placing there keeps ids stable") {
     Session s("script");
     s.project.write("scripts/importer.js", R"(
 import { Behaviour, fa } from "factoria";
@@ -641,7 +645,7 @@ export default class Importer extends Behaviour {
   onUpdate(dt) {
     this.frames++;
     if (this.frames === 2 || this.frames === 4) {
-      const r = fa.call("scene.import_ascii", {
+      const r = fa.call("scene.place_ascii", {
         rows: ["o.o", "###"],
         legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json", offset: [0, 2] } },
       });
@@ -1103,8 +1107,13 @@ TEST_CASE("import_ascii path: arguments are checked, and writes follow the same 
     fails(R"({"dryRun":true})", "'dryRun' needs 'path'");
     fails(R"({"path":""})", "'path'");
     fails(R"({"path":"scenes"})", "folder");
+    {
+        // An absolute path is the command-line user's to name; an MCP client or an agent stays inside the project.
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        fails(R"({"path":"../outside.scene.json"})", "escapes");
+        fails(R"({"path":"/tmp/abs.scene.json"})", "absolute");
+    }
     fails(R"({"path":"../outside.scene.json"})", "escapes");
-    fails(R"({"path":"/tmp/abs.scene.json"})", "absolute");
     fails(R"({"path":"scenes/a.scene.json","from":"/etc/x.scene.json"})", "absolute");
     // .factoria/ is managed by the engine: only .factoria/tmp/ is writable (scene.save, fs.write and fs.delete agree).
     for (const char* bad : {".factoria/screenshots/a.scene.json", ".factoria/save/a.scene.json", ".factoria/a.scene.json"}) {
@@ -1119,6 +1128,21 @@ TEST_CASE("import_ascii path: arguments are checked, and writes follow the same 
     // dryRun predicts the real call, so it refuses the same paths.
     auto dry = s.import(level(R"({"path":".factoria/save/a.scene.json","dryRun":true})"));
     CHECK_FALSE(dry.ok);
+    CHECK(dry.error["code"] == "managed_path_denied");
+    {
+        // A dry run writes nothing, so a read-only client (no writeProject) may ask; the real call is refused for it.
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        auto predicted = s.import(level(R"({"path":"scenes/dry.scene.json","dryRun":true})"));
+        CHECK_MESSAGE(predicted.ok, error_text(predicted));
+        auto real = s.import(level(R"({"path":"scenes/dry.scene.json"})"));
+        REQUIRE_FALSE(real.ok);
+        CHECK(real.error["code"] == "capability_denied");
+        auto saved = s.import(level(R"({"save":true})"));
+        REQUIRE_FALSE(saved.ok);
+        CHECK(saved.error["code"] == "capability_denied");
+        CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/dry.scene.json"));
+    }
     auto ok = s.import(level(R"({"path":".factoria/tmp/a.scene.json"})"));
     REQUIRE_MESSAGE(ok.ok, error_text(ok));
     CHECK(stdfs::exists(s.project.dir / ".factoria/tmp/a.scene.json"));
@@ -1132,7 +1156,7 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     Session s("save_rule");
     auto bad = s.call("scene.save", Json{{"path", ".factoria/test/x.scene.json"}});
     REQUIRE_FALSE(bad.ok);
-    CHECK(bad.error["code"] == "invalid_argument");
+    CHECK(bad.error["code"] == "managed_path_denied");
     CHECK(contains(error_text(bad), ".factoria/test/x.scene.json"));
     CHECK(contains(error_text(bad), ".factoria/tmp/"));
     CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/test"));
@@ -1149,7 +1173,7 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     CHECK(contains(info->full_description(), ".factoria/tmp/"));
 }
 
-TEST_CASE("import_ascii path: works inside a frame too (a script can build a scene file)") {
+TEST_CASE("import_ascii path: a game script cannot build a scene file (it is granted {read, state}); a caller with writeProject can") {
     Session s("file_frame");
     s.project.write("scripts/builder.js", R"(
 import { Behaviour, fa } from "factoria";
@@ -1157,12 +1181,14 @@ export default class Builder extends Behaviour {
   frames = 0;
   onUpdate(dt) {
     if (++this.frames !== 2) return;
-    const r = fa.call("scene.import_ascii", {
-      rows: ["o.o", "###"],
-      legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json" } },
-      path: ".factoria/tmp/from_script.scene.json",
-    });
-    this.saved = r.saved;
+    try {
+      fa.call("scene.import_ascii", {
+        rows: ["o.o", "###"],
+        legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json" } },
+        path: ".factoria/tmp/from_script.scene.json",
+      });
+      this.denied = "no";
+    } catch (e) { this.denied = e.code; }
   }
 }
 )");
@@ -1170,7 +1196,12 @@ export default class Builder extends Behaviour {
     s.engine.step(4);
     Json state = s.engine.state();
     CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
-    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.saved"}}).result["value"] == ".factoria/tmp/from_script.scene.json");
+    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.denied"}}).result["value"] == "capability_denied");
+    CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/tmp/from_script.scene.json"));
+    // The same call from the command line (a caller with writeProject) writes it, and the running world has no coins.
+    auto r = s.import(Json::parse(R"({"rows":["o.o","###"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},
+                                      "path":".factoria/tmp/from_script.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(entity_ids(scene_file(s, ".factoria/tmp/from_script.scene.json")) == std::vector<std::string>{"tilemap", "coin_1", "coin_2"});
     CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 0);  // the running world has no coins
 }

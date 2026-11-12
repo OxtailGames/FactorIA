@@ -105,8 +105,7 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     auto table = fs::normalize_checked(tableArg);
     if (!table.ok() || table->empty() || to_lower(fs::extension(*table)) != ".json")
         fail("invalid_argument", "`table` must be a project-relative .json path.", "For example \"data/atlas.json\".");
-    for (const std::string* w : {&*out, &*table})
-        if (auto c = fs::check_writable(*w); !c.ok()) fail("invalid_argument", c.error().message, c.error().hint);
+    for (const std::string* w : {&*out, &*table}) (void)project_write_file(projectDir, *w);  // refused before any work: managed folders, links out
 
     const stdfs::path dir = project_file(projectDir, *folder);
     std::error_code ec;
@@ -115,7 +114,7 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
 
     require_usable_manifest(projectDir);
     // ---- the frames: every image under the folder, named by its path without the extension ----
-    const stdfs::path outFile = project_file(projectDir, *out);
+    const stdfs::path outFile = project_write_file(projectDir, *out);
     std::vector<std::string> files;
     for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (!it->is_regular_file(ec) || !is_image_file(it->path().filename().generic_string())) continue;
@@ -167,7 +166,7 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     }
 
     // ---- the previous table: frames of the same size stay where they were ----
-    const stdfs::path tableFile = project_file(projectDir, *table);
+    const stdfs::path tableFile = project_write_file(projectDir, *table);
     const Json old = read_table(tableFile);
     std::map<std::string, R> oldRects;
     if (old.is_object() && old.value("texture", std::string()) == *out && old.contains("frames") && old["frames"].is_object())
@@ -340,13 +339,15 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["folder","out"],
       "properties":{
-        "folder":{"type":"string","description":"Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots."},
-        "out":{"type":"string","description":"Project-relative .png to write, e.g. \"assets/atlas.png\". Replaced if it exists."},
-        "table":{"type":"string","description":"Project-relative .json for the frame table. Default: out with the .json extension."},
+        "folder":{"type":"string","x-fa-path":"read","description":"Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots."},
+        "out":{"type":"string","x-fa-path":"write","description":"Project-relative .png to write, e.g. \"assets/atlas.png\". Replaced if it exists."},
+        "table":{"type":"string","x-fa-path":"write","description":"Project-relative .json for the frame table. Default: out with the .json extension."},
         "maxSize":{"type":"integer","minimum":64,"maximum":16384,"description":"Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error."},
         "padding":{"type":"integer","minimum":0,"maximum":32,"description":"Pixels of the frame's own edge repeated around each frame. Default 2."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return pack_atlas(projectDir, args); });
+    // Capabilities (capability.h): the atlas PNG, its table and the assets.json entries are project files.
+    declare_command_capabilities(registry, {{"assets.pack_atlas", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

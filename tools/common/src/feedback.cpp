@@ -1865,6 +1865,12 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                                  {"archiveFile", u8text(stdfs::path(feedback_archive_path(path)).filename())}});
         });
     }
+    declare_command_capabilities(registry, {
+        {"feedback.report", capability_sets::writes_project()},
+        {"feedback.list", capability_sets::reads()},
+        {"feedback.update", capability_sets::writes_project()},
+        {"feedback.delete", capability_sets::writes_project()},
+        {"feedback.archive", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

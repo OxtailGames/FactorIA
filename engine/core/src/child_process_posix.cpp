@@ -43,6 +43,7 @@ std::string ChildProcess::stderr_tail() const { return {}; }
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "child_env.h"
 #include "exec_posix.h"
 
 extern char** environ;
@@ -128,9 +129,8 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
     for (char** e = environ; e && *e; ++e) {
         std::string s = *e;
         std::string key = s.substr(0, s.find('='));
-        bool drop = opt.env.count(key) > 0;
-        for (const auto& u : opt.unsetEnv) drop = drop || (u == key);
-        if (!drop) envStore.push_back(std::move(s));
+        if (detail::child_env_keeps(opt.inheritEnv, opt.env, opt.unsetEnv, key, detail::kEnvNamesIgnoreCase))
+            envStore.push_back(std::move(s));
     }
     for (const auto& [k, v] : opt.env) envStore.push_back(k + "=" + v);
     std::vector<char*> envp;

@@ -413,7 +413,7 @@ Json model_bake_command(const std::string& projectDir, const Json& a) {
 
 void write_document(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
 // Checks the whole document; throws invalid_document with every issue (and writes nothing).
@@ -482,6 +482,7 @@ Json written_result(const std::string& projectDir, const std::string& rel, const
 Json model_create_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("model.create", a, "", {"path", "nodes", "materials", "uv", "texturing", "vertexColors", "output", "doc", "overwrite", "bake"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
+    (void)project_write_file(projectDir, rel);  // refuse a path outside the project before anything else
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, rel), ec))
         fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or change its nodes with model.edit.");
@@ -541,6 +542,7 @@ bool erase_tagged(Json& nodes, const char* tag) {
 Json model_edit_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("model.edit", a, "", {"path", "op", "target", "node", "parent", "index", "values", "bake", "overwrite", "doc", "output", "materials", "uv", "texturing", "vertexColors", "gameReady"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
+    (void)project_write_file(projectDir, rel);
     const std::string op = tooling_detail::arg_string(a, "op", false, "");
     const std::vector<std::string> ops = {"add", "set", "remove", "move", "document"};
     if (std::find(ops.begin(), ops.end(), op) == ops.end())
@@ -706,6 +708,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()}, {"document", object_arg("The document itself, as JSON, to check before writing it to a file (format is filled in).")},
                                                              {"evaluate", boolean("Build the mesh in memory for the measurements. Turn it off to only check the document.", true)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -727,6 +730,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"node", str("The node whose mesh is selected on, by id or JSON pointer.")},
                                                              {"faces", Json::object({{"type", "object"}, {"description", "A face query, e.g. {\"by\": \"normal\", \"direction\": \"top\"}. model.info {} lists them."}})},
                                                              {"edges", Json::object({{"type", "object"}, {"description", "An edge query, e.g. {\"by\": \"sharp\", \"angle\": 60}."}})}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_select_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -745,6 +749,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"force", boolean("Bake documents that are fresh too.", false)},
                                                              {"dryRun", boolean("List what would be baked and why, and write nothing.", false)},
                                                              {"overwrite", boolean("Replace a file at the output that no model document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_bake_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -770,6 +775,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"doc", str("A note on what the model is for.")},
                                                              {"overwrite", boolean("Replace the document when it exists (and the .glb when nothing baked it).", false)},
                                                              {"bake", boolean("Bake the .glb after writing.", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_create_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -801,6 +807,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"gameReady", object_arg("document: the whole game-ready settings object (model.game_ready changes single settings); null removes it.")},
                                                              {"bake", boolean("Bake the .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     register_model_uv_command(registry, projectDir);
@@ -846,8 +853,13 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"clear", boolean("Remove every game-ready setting first.", false)},
                                                              {"bake", boolean("Bake after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_game_ready_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): the documents and the .glb files they bake to are project files; info and select only look.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"model.info", reads()}, {"model.select", reads()}, {"model.bake", writes_project()}, {"model.create", writes_project()},
+                                            {"model.edit", writes_project()}, {"model.game_ready", writes_project()}});
 }
 
 }  // namespace fa::assets_detail

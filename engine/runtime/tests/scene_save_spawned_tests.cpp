@@ -46,7 +46,7 @@ struct Session {
     stdfs::path dir;
     Engine engine;
     Session() {
-        dir = fs::make_temp_dir("fa_spawnsave_test");
+        dir = fs::make_temp_dir("fa_spawnsave_test").value();
         stdfs::create_directories(dir / "scenes");
         stdfs::create_directories(dir / "scripts");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <regex>
 
+#include "assets_internal.h"
 #include "export_internal.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -122,6 +123,7 @@ struct Credentials {
     std::vector<std::string> shown;  // the same with the secret replaced
     std::string description;         // "keychain profile 'x'": what the report says
     std::string secret;              // the app-specific password, scrubbed from every output
+    std::string stdinText;           // what notarytool reads on its standard input: the password and a newline (Apple ID form only)
     std::string problem;             // credentials given halfway: what is missing
     bool found() const { return !argv.empty(); }
 };
@@ -164,9 +166,14 @@ Credentials resolve_credentials(const SignMacosOptions& o, const ExportEnvLookup
         c.problem = "the Apple ID credentials are incomplete: " + missing + " is missing";
         return c;
     }
-    c.argv = {"--apple-id", appleId, "--team-id", teamId, "--password", password};
-    c.shown = {"--apple-id", appleId, "--team-id", teamId, "--password", kRedacted};
+    // notarytool has no @env: / @keychain: form for --password (`xcrun notarytool submit --help`; only altool has them: https://help.apple.com/asc/appsaltool/); `--password <pw>`
+    // would put the password in the argument list, readable by every user of the Mac (ps). Without --password, notarytool asks for it
+    // ("Password for <apple id>:"), and a process that has no terminal reads the answer from its standard input: so the password
+    // goes on stdin, and notary_command() starts the tool without a controlling terminal.
+    c.argv = {"--apple-id", appleId, "--team-id", teamId};
+    c.shown = c.argv;
     c.secret = password;
+    c.stdinText = password + "\n";
     c.description = "Apple ID " + appleId + " (team " + teamId + ")";
     return c;
 }
@@ -232,6 +239,34 @@ NotaryAnswer parse_notary(const std::string& output) {
     return a;  // nothing parsed: the answer stays empty and the error quotes what notarytool printed
 }
 
+// ---- the notarytool command line ------------------------------------------------------------------------------------
+
+struct NotaryCommand {
+    std::vector<std::string> argv, shown;
+    std::string stdinText;
+    bool newSession = false;  // start without a controlling terminal (ProcessOptions::newSession)
+};
+
+// `xcrun notarytool <head...> <credentials> <tail...>`. With a password to feed on stdin the command starts in a session of its
+// own (ProcessOptions::newSession), so that notarytool has no controlling terminal (it would ask /dev/tty for the password, and a
+// background process that reads the terminal is stopped for good) and reads the password from stdin instead.
+NotaryCommand notary_command(const Credentials& c, const std::vector<std::string>& head, const std::vector<std::string>& tail) {
+    NotaryCommand n;
+    std::vector<std::string> core = {kXcrun, "notarytool"};
+    core.insert(core.end(), head.begin(), head.end());
+    core.insert(core.end(), c.argv.begin(), c.argv.end());
+    core.insert(core.end(), tail.begin(), tail.end());
+    std::vector<std::string> coreShown = {kXcrun, "notarytool"};
+    coreShown.insert(coreShown.end(), head.begin(), head.end());
+    coreShown.insert(coreShown.end(), c.shown.begin(), c.shown.end());
+    coreShown.insert(coreShown.end(), tail.begin(), tail.end());
+    n.argv = std::move(core);
+    n.shown = std::move(coreShown);
+    n.stdinText = c.stdinText;
+    n.newSession = !c.stdinText.empty();
+    return n;
+}
+
 // ---- running ------------------------------------------------------------------------------------------------------
 
 class Runner {
@@ -241,10 +276,12 @@ public:
 
     // Records the step; unless this is a dry run, runs it. An Error: the program could not start or the run was cancelled. A program
     // that exits with an error is a successful Result: the caller decides what that means.
-    Result<ProcessResult> go(const std::string& title, std::vector<std::string> argv, std::vector<std::string> shown = {}, double timeoutSeconds = 0) {
+    Result<ProcessResult> go(const std::string& title, std::vector<std::string> argv, std::vector<std::string> shown = {}, double timeoutSeconds = 0,
+                             std::string stdinText = {}, bool newSession = false) {
         SignStep step;
         step.title = title;
         step.command = shown.empty() ? argv : std::move(shown);
+        step.stdinSecret = !stdinText.empty();
         if (o_.dryRun) {
             report_.steps.push_back(std::move(step));
             ProcessResult fake;
@@ -256,6 +293,8 @@ public:
         };
         ProcessOptions po;
         po.argv = argv;
+        po.stdinText = std::move(stdinText);
+        po.newSession = newSession;
         po.cancel = o_.cancel;
         po.timeoutSeconds = timeoutSeconds;
         po.onStdoutLine = line;
@@ -472,6 +511,8 @@ Json SignReport::to_json() const {
     Json st = Json::array();
     for (const SignStep& s : steps) {
         Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"ran", s.ran}});
+        if (!s.env.empty()) e["env"] = s.env;
+        if (s.stdinSecret) e["stdinSecret"] = true;
         if (s.ran) e["exitCode"] = s.exitCode;
         st.push_back(e);
     }
@@ -919,12 +960,8 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
             if (!r.ok()) return r.error();
             if (r->exitCode != 0) return runner.failed(title, argv, *r, "Check the free disk space and that the folder of the zip is writable.");
         }
-        std::vector<std::string> submit = {kXcrun, "notarytool", "submit", generic(submitZip)};
-        std::vector<std::string> submitShown = submit;
-        submit.insert(submit.end(), credentials.argv.begin(), credentials.argv.end());
-        submitShown.insert(submitShown.end(), credentials.shown.begin(), credentials.shown.end());
-        for (std::vector<std::string>* v : {&submit, &submitShown}) v->insert(v->end(), {"--wait", "--timeout", "40m", "--output-format", "json"});
-        auto sent = runner.go("Notarize (upload to Apple and wait for the verdict)", submit, submitShown, 45 * 60);
+        const NotaryCommand submit = notary_command(credentials, {"submit", generic(submitZip)}, {"--wait", "--timeout", "40m", "--output-format", "json"});
+        auto sent = runner.go("Notarize (upload to Apple and wait for the verdict)", submit.argv, submit.shown, 45 * 60, submit.stdinText, submit.newSession);
         std::error_code rm;
         stdfs::remove(os_path(submitZip), rm);
         if (!sent.ok()) return sent.error();
@@ -934,11 +971,8 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
             if (answer.status != "Accepted") {
                 std::string detail;
                 if (!answer.id.empty()) {  // the log says why Apple refused (an unsigned library, no hardened runtime...)
-                    std::vector<std::string> log = {kXcrun, "notarytool", "log", answer.id};
-                    std::vector<std::string> logShown = log;
-                    log.insert(log.end(), credentials.argv.begin(), credentials.argv.end());
-                    logShown.insert(logShown.end(), credentials.shown.begin(), credentials.shown.end());
-                    if (auto got = runner.go("Fetch the notarization log", log, logShown, 300); got.ok() && got->exitCode == 0) {
+                    const NotaryCommand log = notary_command(credentials, {"log", answer.id}, {});
+                    if (auto got = runner.go("Fetch the notarization log", log.argv, log.shown, 300, log.stdinText, log.newSession); got.ok() && got->exitCode == 0) {
                         detail = got->stdoutText;
                         if (detail.size() > 3000) detail = detail.substr(0, 3000) + "...";
                     }
@@ -1043,22 +1077,24 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "(FACTORIA_MACOS_INSTALLER_IDENTITY or sign.macos.installerIdentity) and checked with pkgutil "
         "--check-signature; the result adds distribution, pkg, pkgSigned, installerIdentity, profile and the "
         "entitlements read back from the signature. publish.appstore uploads the .pkg. No password is ever "
-        "an argument of this command, in factoria.json, in a result or in a log. `notarize` unset notarizes "
+        "an argument of a program this command starts (the Apple ID password goes to notarytool on stdin), in "
+        "factoria.json, in a result or in a log. `notarize` unset notarizes "
         "when there are credentials and a Developer ID identity (else only signs, with a warning); true "
         "makes missing credentials an error; false only signs. Returns {app, dryRun, identity, identityFrom, "
         "credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, [appStore: "
         "pkg, pkgSigned, installerIdentity, profile, entitlements], steps[{title, command, commandLine, ran, "
-        "exitCode}], warnings[], nextSteps[]}. The export is replaced by the next project.export: sign again "
+        "exitCode, env, stdinSecret}] (env lists the NAMES of the environment variables a step sets, never values; stdinSecret marks a step "
+        "whose password goes on its standard input), warnings[], nextSteps[]}. The export is replaced by the next project.export: sign again "
         "after every export. Details: docs_read {\"name\":\"exporting\"}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
-        "app":{"type":"string","description":"The .app to sign, relative to the project. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
-        "out":{"type":"string","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
+        "app":{"type":"string","x-fa-path":"write","description":"The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game)."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "identity":{"type":"string","description":"The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; \"-\" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json."},
         "distribution":{"type":"string","enum":["developerId","appStore"],"default":"developerId","description":"developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is \"-\")."},
         "installerIdentity":{"type":"string","description":"appStore: the '3rd Party Mac Developer Installer' / 'Mac Installer Distribution' certificate that signs the .pkg. Default: FACTORIA_MACOS_INSTALLER_IDENTITY, else sign.macos.installerIdentity of ~/.factoria/export.json."},
-        "pkg":{"type":"string","description":"appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg."},
+        "pkg":{"type":"string","x-fa-path":"write","description":"appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg."},
         "keychain":{"type":"string","description":"A keychain file that holds the certificate (or the notary profile). Default: FACTORIA_MACOS_KEYCHAIN, else the user's keychains."},
         "provisioningProfile":{"type":"string","description":"A .provisionprofile to embed in the app (needed for the capabilities the plugins ask for: Game Center, iCloud). With it the export's <slug>.entitlements are applied. Absolute path, or relative to the project."},
         "entitlements":{"type":"string","description":"An entitlements file for the app. Default: the export's <slug>.entitlements, used only with a provisioningProfile. Absolute path, or relative to the project."},
@@ -1069,7 +1105,7 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "apiIssuer":{"type":"string","description":"Issuer id of a team API key (not needed for an individual key). Default: FACTORIA_NOTARY_API_ISSUER."},
         "appleId":{"type":"string","description":"Apple ID for notarization. Default: FACTORIA_APPLE_ID (or APPLE_ID). The app-specific password is read from FACTORIA_APPLE_APP_PASSWORD only."},
         "teamId":{"type":"string","description":"Apple Team ID (10 characters) for notarization with an Apple ID. Default: FACTORIA_APPLE_TEAM_ID (or APPLE_TEAM_ID)."},
-        "zip":{"type":"string","description":"Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip."},
+        "zip":{"type":"string","x-fa-path":"write","description":"Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip."},
         "dryRun":{"type":"boolean","default":false,"description":"Check everything and return the exact command lines in steps[]; sign and send nothing. Works on any computer."}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -1082,13 +1118,21 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
             if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
             return dir->string();
         };
+        // What the command writes (the export folder, the zip, the pkg) goes through resolve_write_path: inside the project
+        // for an agent, anywhere for the command-line user, and never into .git or .factoria.
+        auto writable = [&](const std::string& rel, const char* what) {
+            auto dir = resolve_write_path(projectDir, rel);
+            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            return dir->string();
+        };
         auto anywhere = [&](const std::string& path, const char* what) {
             return stdfs::path(path).is_absolute() ? path : inside(path, what);
         };
-        if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = inside(v, "app");
-        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = inside(v, "out");
-        if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = inside(v, "zip");
-        if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = inside(v, "pkg");
+        // `app` is signed where it is, so it is a write: inside the project for every caller (even the command line), never in .git or .factoria
+        if (std::string v = tooling_detail::arg_string(args, "app", false); !v.empty()) o.app = fs::path_to_utf8(assets_detail::project_write_file(projectDir, v));
+        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
+        if (std::string v = tooling_detail::arg_string(args, "zip", false); !v.empty()) o.zip = writable(v, "zip");
+        if (std::string v = tooling_detail::arg_string(args, "pkg", false); !v.empty()) o.pkg = writable(v, "pkg");
         o.distribution = tooling_detail::arg_string(args, "distribution", false);
         o.installerIdentity = tooling_detail::arg_string(args, "installerIdentity", false);
         o.identity = tooling_detail::arg_string(args, "identity", false);
@@ -1111,6 +1155,9 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         return r->to_json();
     });
     register_sign_windows_command(registry, projectDir);
+    // runs codesign/notarytool/stapler/productbuild: signs the app in place and sends it to Apple's notary service.
+    declare_command_capabilities(registry, {
+        {"sign.macos", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

@@ -30,7 +30,7 @@ namespace stdfs = std::filesystem;
 namespace {
 
 struct TempDir {
-    stdfs::path path = fs::make_temp_dir("crash");
+    stdfs::path path = fs::make_temp_dir("crash").value();
     ~TempDir() {
         std::error_code ec;
         stdfs::remove_all(path, ec);

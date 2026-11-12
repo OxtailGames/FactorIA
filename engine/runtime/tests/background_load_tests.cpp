@@ -23,6 +23,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
+// setenv/putenv race with a getenv on another thread (the job pool and the loader threads read FA_JOB_THREADS). Declare it
+// BEFORE any Engine of the test, so the engine and its threads are gone when the destructor restores the variable.
 struct ScopedEnv {
     std::string name;
     std::string old;
@@ -108,7 +110,7 @@ std::string png(int size, std::uint8_t shade) {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const char* name, const std::string& project = kProject) {
-        dir = fs::make_temp_dir(std::string("fa_bgload_") + name);
+        dir = fs::make_temp_dir(std::string("fa_bgload_") + name).value();
         write("factoria.json", project);
         write("scenes/menu.scene.json", kMenu);
         write("scenes/level.scene.json", kLevel);

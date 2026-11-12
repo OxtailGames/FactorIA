@@ -627,4 +627,55 @@ TEST_CASE("ai.hooks and ai.hooks_test: the report, a sample run, and the teachin
     CHECK(has(bad.error.dump(), "Did you mean 'PreToolUse'"));
 }
 
+TEST_CASE("command hooks run with the base environment, their own variables and the user's inheritEnv, not the editor's secrets") {
+    struct Var {
+        std::string name, old;
+        bool had = false;
+        Var(std::string n, const char* value) : name(std::move(n)) {
+            if (const char* o = std::getenv(name.c_str())) {
+                had = true;
+                old = o;
+            }
+            ::setenv(name.c_str(), value, 1);
+        }
+        ~Var() {
+            if (had) ::setenv(name.c_str(), old.c_str(), 1);
+            else ::unsetenv(name.c_str());
+        }
+    };
+    Var secret("FACTORIA_TEST_SECRET", "hunter2");
+    Var pfx("FACTORIA_WINDOWS_PFX_PASSWORD", "pfx-pass");
+    Var key("ANTHROPIC_API_KEY", "sk-ant-secret");
+    Var listed("FACTORIA_TEST_LISTED", "visible");
+    Var prefixed("MYTOOL_TOKEN", "tool-token");
+    Var proxy("HTTPS_PROXY", "http://proxy.example:3128");  // like every program the AI starts, a hook gets proxies and certificates
+    Var cert("SSL_CERT_FILE", "/etc/company-ca.pem");
+
+    HookHarness h;
+    h.cfg.inheritEnv = {"FACTORIA_TEST_LISTED", "MYTOOL_*"};
+    h.add("envdump", command_hook("SessionStart", "startup", R"(env > "$FACTORIA_PROJECT_DIR/env.txt")"));
+    h.provider->script = {text_response("hi")};
+    auto r = h.run("Hello");
+    REQUIRE(r.ok);
+    REQUIRE(fsys::exists(h.proj.path / "env.txt"));
+    const std::string seen = "\n" + read_file((h.proj.path / "env.txt").string());
+    auto line = [&](const std::string& l) { return seen.find("\n" + l + "\n") != std::string::npos; };
+    auto name = [&](const std::string& n) { return seen.find("\n" + n + "=") != std::string::npos; };
+
+    CHECK(name("PATH"));
+    CHECK(name("HOME"));
+    CHECK(line("FACTORIA_HOOK_EVENT=SessionStart"));
+    CHECK(line("FACTORIA_IN_HOOK=1"));
+    CHECK(line("FACTORIA_PROJECT_DIR=" + h.proj.str()));
+    CHECK(line("CLAUDE_PROJECT_DIR=" + h.proj.str()));
+    CHECK(line("FACTORIA_TEST_LISTED=visible"));  // named in inheritEnv
+    CHECK(line("MYTOOL_TOKEN=tool-token"));       // matched by "MYTOOL_*"
+    CHECK(line("HTTPS_PROXY=http://proxy.example:3128"));
+    CHECK(line("SSL_CERT_FILE=/etc/company-ca.pem"));
+    CHECK_FALSE(name("FACTORIA_TEST_SECRET"));
+    CHECK_FALSE(name("FACTORIA_WINDOWS_PFX_PASSWORD"));
+    CHECK_FALSE(name("ANTHROPIC_API_KEY"));
+    CHECK(seen.find("hunter2") == std::string::npos);
+}
+
 #endif  // !_WIN32

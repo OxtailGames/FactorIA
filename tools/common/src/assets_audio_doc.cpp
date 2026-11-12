@@ -220,6 +220,8 @@ Json audio_info_command(const std::string& projectDir, const Json& a) {
 
 Json audio_render_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("audio.render", a, "", {"path", "document", "seed", "stopAfter", "compare", "picture", "pictureOut", "width"});
+    // A kept picture is a file the caller names: refuse it before the render (writeProject, inside the project).
+    check_kept_picture(projectDir, a, "audio.render");
     bool inlineDoc = false;
     const Loaded loaded = document_arg("audio.render", projectDir, a, inlineDoc);
     AudioRenderOptions options;
@@ -242,13 +244,13 @@ Json audio_render_command(const std::string& projectDir, const Json& a) {
             rows.push_back(sheet_row("source", render_or_fail(projectDir, plain, loaded.rel)));
         }
         rows.push_back(sheet_row(options.stopAfter >= 0 ? "after step " + std::to_string(options.stopAfter) : "result", clip));
-        Json pic = audio_mix::spectrogram_sheet(projectDir, loaded.rel.empty() ? "audio document" : loaded.rel, rows, a.value("width", 1000), a.value("pictureOut", std::string()));
+        Json pic = audio_mix::spectrogram_sheet(projectDir, loaded.rel.empty() ? "audio document" : loaded.rel, rows, a.value("width", 1000), a.value("pictureOut", std::string()), "audio.render");
         if (pic.contains("$image")) result["$image"] = pic["$image"];
         if (pic.contains("picture")) result["picture"] = pic["picture"];
     }
     Json steps = Json::array();
     if (clip.peakDb > -0.5) steps.push_back(std::format("It peaks at {:.1f} dBFS: lower a gain or end the chain with {{\"type\":\"normalize\",\"target\":-1}}.", clip.peakDb));
-    steps.push_back("Nothing was written. audio.bake writes the sound next to the document (" + audio_document_output(loaded.doc, loaded.rel.empty() ? "document.audio.json" : loaded.rel) + ") with its recipe, so it is rebuilt when the source changes.");
+    steps.push_back("No sound was written. audio.bake writes the sound next to the document (" + audio_document_output(loaded.doc, loaded.rel.empty() ? "document.audio.json" : loaded.rel) + ") with its recipe, so it is rebuilt when the source changes.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -313,7 +315,7 @@ Json audio_bake_command(const std::string& projectDir, const Json& a) {
 // Writes `json` (already checked) to `rel` as canonical JSON.
 void write_document(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
 Json checked(const Json& json, const std::string& rel) {
@@ -355,6 +357,7 @@ Json audio_create_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("audio.create", a, "", {"path", "source", "steps", "seed", "output", "doc", "overwrite", "bake"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     const std::string source = tooling_detail::arg_string(a, "source", true);
+    (void)project_write_file(projectDir, rel);  // refuse a path outside the project before anything else
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, rel), ec))
         fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or change its steps with audio.edit.");
@@ -373,6 +376,7 @@ Json audio_create_command(const std::string& projectDir, const Json& a) {
 Json audio_edit_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("audio.edit", a, "", {"path", "op", "index", "step", "values", "to", "source", "seed", "output", "bake", "picture", "overwrite"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
+    (void)project_write_file(projectDir, rel);
     const std::string op = tooling_detail::arg_string(a, "op", false, "");
     const std::vector<std::string> ops = {"add", "set", "remove", "move", "document"};
     if (std::find(ops.begin(), ops.end(), op) == ops.end())
@@ -459,14 +463,14 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
                                          {"properties", obj({{"path", pathArg()}, {"document", object_arg("The document itself, as JSON, to check before writing it to a file (format is filled in).")},
                                                              {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Render this take (replaces the document's seed)."}})},
                                                              {"render", boolean("Render the chain in memory for the measurements. Turn it off to only check it.", true)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return audio_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;
         info.name = "audio.render";
         info.category = "assets";
-        info.readOnly = true;
-        info.summary = "Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing.";
+        info.summary = "Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes no sound.";
         info.description =
             "Applies the chain of the document (`path`, or an inline `document`) and returns the measurements (seconds, integrated loudness in LUFS, peak in dBFS, centroidHz, loop points), "
             "the length and peak after every step, and a picture (`$image`): the source and the result, each as a waveform over a spectrogram with its numbers, on one time and level scale. "
@@ -478,8 +482,9 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
                                                              {"stopAfter", integer("Render only steps 0..stopAfter.", 0, 63)},
                                                              {"compare", boolean("Show the unprocessed source above the result in the picture.", true)},
                                                              {"picture", boolean("Return the picture (`$image`).", true)},
-                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png).")},
+                                                             {"pictureOut", path_property("write", "Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Without it the picture is a temporary screenshot.")},
                                                              {"width", integer("Width of the picture in pixels (default 1000).", 400, 2400)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return audio_render_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -498,6 +503,7 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
                                                              {"force", boolean("Bake documents that are fresh too.", false)},
                                                              {"dryRun", boolean("List what would be baked and why, and write nothing.", false)},
                                                              {"overwrite", boolean("Replace a file at the output that no audio document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return audio_bake_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -518,6 +524,8 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
                                                              {"doc", str("A note on what the sound is for.")},
                                                              {"overwrite", boolean("Replace the document when it exists (and the baked sound when nothing baked it).", false)},
                                                              {"bake", boolean("Bake the sound after writing.", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
+        mark_paths(info.inputSchema, "read", {"source"});
         registry.add(info, [projectDir](const Json& args) { return audio_create_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -543,8 +551,14 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
                                                              {"bake", boolean("Bake the sound after writing.", true)},
                                                              {"picture", boolean("Return the waveform/spectrogram picture after baking.", false)},
                                                              {"overwrite", boolean("Replace a sound that no audio document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
+        mark_paths(info.inputSchema, "read", {"source"});
         registry.add(info, [projectDir](const Json& args) { return audio_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): the documents and the sounds they bake to are project files; audio.render keeps a picture only when asked.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"audio.info", reads()}, {"audio.render", changes_state()}, {"audio.bake", writes_project()},
+                                            {"audio.create", writes_project()}, {"audio.edit", writes_project()}});
 }
 
 }  // namespace fa::assets_detail

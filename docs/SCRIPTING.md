@@ -1136,7 +1136,7 @@ job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.p
 ```
 - The handle has `progress` (0..1, never goes down: it follows the solver cell by cell inside an attempt, and a restart after a dead end keeps the bar where it was; 1 only when done), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
   `work`, `promise` (resolves with `result`, rejects with an Error that has `.hint`) and `cancel()`.
-- `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
+- `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`, through its in-memory twin `scene.place_ascii` (a game script may not write files);
   `into` writes only tiles into an existing Tilemap. They exclude each other. `place` is checked when you call
   `tilemap.generate` (allowed keys `entity`, `tilemap`, `position`, `anchor`, `replace`, each with its type), not after the
   generation: a mistake in it throws at once instead of costing a finished level.
@@ -1673,6 +1673,61 @@ On failure `fa.call` throws an `Error` whose message is `<name> failed: <message
 carries `e.code`, `e.hint` and, when the command reported structured details, `e.data`: a project tool that throws
 `ToolError(message, hint, data)` gives the caller `e.code === "tool_error"` and `e.data === data`, so a test can assert
 on the data instead of parsing the message.
+
+#### What `fa.call` can do from a game
+Every `fa.call` runs the command with a **capability set** (`docs/ARCHITECTURE.md`, "Capabilities"); a command that needs
+more fails with code `capability_denied`, before its arguments are looked at, and the error says who may do it.
+
+| Who calls | Set |
+|---|---|
+| A game script (a behaviour's callbacks, events, timers, module top levels; see "Promise continuations" below for promises) in the player (`factoria run`, an exported game) | `{read, state}` |
+| A game script in the editor's Play | `{read, state}` |
+| A test (`factoria test`, `project.test`) | `{read, state}` plus the test's `capabilities` option, never more than whoever runs the tests |
+| A project tool (`tools/*.js`), `script.eval` | the caller's own set: `factoria call` has all, MCP all but `writeAnywhere`, an agent all but `writeAnywhere` and `publish` |
+
+`{read, state}` means a game can read anything and change the running game or the open scene in memory (`scene.spawn`,
+`scene.set_component`, `game.state`, `game.step`, `ui.*`, `vfx.play`, `tilemap.set_tile`...), but cannot write a file
+(`scene.save`, `scene.import_ascii`, `scene.format`, `fs.write`...), reach the network, start a program or spend money:
+a shipped game must not be able to do to a player's machine what a tool does to a project. Do those from the editor,
+from a project tool, with `factoria call`, or from a test that asks for them. A tool a game script calls through
+`fa.call("project.<name>")` runs with the **game's** set (a scope only narrows), so a script cannot widen its permissions
+by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. The callbacks of
+behaviours that a test or a tool triggers (`game.step`) still run with the game's set, and so does the top level of a module
+that a test or a tool imports for the first time, including the modules a test file imports statically and what those import
+(only the test file's own top level is test code).
+
+**Promise continuations and listeners run with the set of whoever pumps the jobs.** The engine runs the pending promise jobs
+(`await` continuations, `.then` callbacks, async `world.on` listeners) in one queue, after a tool, `script.eval` or a test
+call, and after each `game.step`. That queue does not remember which code queued a job, so a continuation or listener of the
+game that is still pending when a tool, an eval or a test pumps the queue runs with **that caller's** set (a test's
+`{read, state}` plus its option; a tool's own, up to everything for `factoria call`), not with the game's. The same
+continuation that runs in the player's own frame loop gets `{read, state}`. So do not rely on the game set to keep a
+continuation from writing: a shipped game is bounded by the player, where nobody else pumps its jobs. A test that must prove a
+game script cannot do something drives it from a behaviour callback (`game.step`), not from a promise.
+
+The engine library asks for no more than that. `tilemap.generate` with `place` places the level with `scene.place_ascii`
+(the in-memory twin of `scene.import_ascii`, `{read, state}`: no `path`, `from`, `save`, `dryRun` or `edits`), and every
+other helper of `factoria` calls only `{read, state}` commands (`game.state` for `game.state()`, `tilemap.generate_start`
+and its steps). A game script that calls `scene.import_ascii` with a `path` itself is refused.
+
+#### A test asking for more: `capabilities`
+A test that writes a project file (a level rebuilt on disk and compared, a screenshot, a scene saved to check it round-trips)
+says so in its options. The names are those of the capabilities (`read`, `state`, `writeProject`, `writeAnywhere`,
+`network`, `process`, `spend`, `publish`), as an array or one string:
+
+```js
+test("the level rebuilds identically", () => {
+  fa.call("scene.import_ascii", { ...args, path: ".factoria/tmp/rebuilt.scene.json" });
+  fa.call("fs.delete", { path: ".factoria/tmp/rebuilt.scene.json" });
+}, { capabilities: ["writeProject"] });
+```
+
+The test gets `{read, state}` plus what it asks for, then **intersected with the set of whoever runs the tests**: an option
+can only narrow from there, so under `factoria mcp` a test never gets `writeAnywhere`, and a read-only run grants nothing.
+The set is back to `{read, state}` for the next test. A name that is not a capability is a load error of the file with
+the JSON pointer (`/options/capabilities/0`) and "did you mean". Game scripts a test runs keep `{read, state}` whatever the
+test asks for. A test that calls a command it was not granted fails with `capability_denied` and a hint with the option
+and an example.
 
 ## Tools (`tools/*.js`)
 

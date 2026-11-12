@@ -292,7 +292,7 @@ void register_resize_command(CommandRegistry& registry, const std::string& proje
       "anchor":{"type":"string","enum":["top-left","top","top-right","left","center","right","bottom-left","bottom","bottom-right"],"default":"center","description":"The part of the old canvas that stays put; the canvas grows or is cropped on the opposite sides."},
       "fill":{"description":"Colour of the area a bigger canvas adds: \"#rrggbb\", \"#rrggbbaa\", a CSS name or [r,g,b,a]. Default transparent."},
       "bake":{"type":"boolean","default":true,"description":"Also draw the PNG (default true). False only writes the document."}}})");
-    registry.add(info, [projectDir](const Json& args) { return image_resize(projectDir, args); });
+    add_image_command(registry, info, [projectDir](const Json& args) { return image_resize(projectDir, args); });
 }
 
 }  // namespace fa::imgedit

@@ -2,7 +2,9 @@
 // elsewhere. Behaviour: fa/tooling/sign.h and docs/EXPORTING.md ("Microsoft Store"). A package for the Store itself is uploaded
 // unsigned: the Store signs it.
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <regex>
 
@@ -189,6 +191,8 @@ struct Step {
     std::vector<std::string> shown;       // the command line the report shows (secrets replaced)
     std::map<std::string, std::string> env;
     std::string stdinText;
+    bool stdinSecret = false;             // stdinText carries a password
+    double timeoutSeconds = 0;            // 0 = none
 };
 
 class Runner {
@@ -199,6 +203,8 @@ public:
         SignStep rec;
         rec.title = title;
         rec.command = step.shown.empty() ? step.argv : step.shown;
+        for (const auto& kv : step.env) rec.env.push_back(kv.first);
+        rec.stdinSecret = step.stdinSecret;
         if (o_.dryRun) {
             if (record) report_.steps.push_back(std::move(rec));
             ProcessResult fake;
@@ -213,6 +219,7 @@ public:
         po.env = step.env;
         po.stdinText = step.stdinText;
         po.cancel = o_.cancel;
+        po.timeoutSeconds = step.timeoutSeconds;
         po.onStdoutLine = line;
         po.onStderrLine = line;
         auto run = o_.run ? o_.run(po) : run_process(po);
@@ -244,16 +251,43 @@ private:
     std::vector<std::string> secrets_;
 };
 
-std::string utf16le_base64(const std::string& ascii) {
+// PowerShell's -EncodedCommand: the script as UTF-16LE, base64. `utf8` is decoded (a path with accents stays one character);
+// a byte sequence that is not UTF-8 becomes U+FFFD.
+std::string utf16le_base64(const std::string& utf8) {
     std::string bytes;
-    for (unsigned char c : ascii) {
-        bytes += static_cast<char>(c);
-        bytes += '\0';
+    const auto put = [&bytes](unsigned unit) {
+        bytes += static_cast<char>(unit & 0xff);
+        bytes += static_cast<char>((unit >> 8) & 0xff);
+    };
+    std::size_t i = 0;
+    while (i < utf8.size()) {
+        const unsigned char c = static_cast<unsigned char>(utf8[i]);
+        unsigned cp = c;
+        std::size_t extra = 0;
+        if (c >= 0xf0 && c < 0xf8) { cp = c & 0x07u; extra = 3; }
+        else if (c >= 0xe0 && c < 0xf0) { cp = c & 0x0fu; extra = 2; }
+        else if (c >= 0xc0 && c < 0xe0) { cp = c & 0x1fu; extra = 1; }
+        else if (c >= 0x80) { put(0xfffd); ++i; continue; }
+        bool good = i + extra < utf8.size();  // the whole sequence is there
+        for (std::size_t k = 1; good && k <= extra; ++k) {
+            const unsigned char cc = static_cast<unsigned char>(utf8[i + k]);
+            if ((cc & 0xc0) != 0x80) good = false;
+            else cp = (cp << 6) | (cc & 0x3fu);
+        }
+        if (!good) { put(0xfffd); ++i; continue; }
+        i += extra + 1;
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            put(0xd800 + (cp >> 10));
+            put(0xdc00 + (cp & 0x3ff));
+        } else {
+            put(cp);
+        }
     }
     return base64_encode(bytes.data(), bytes.size());
 }
 
-std::string ps_quote(const std::string& s) { return "'" + replace_all(s, "'", "''") + "'"; }
+std::string ps_quote(const std::string& s) { return detail::powershell_quote(s); }
 
 // The PowerShell that finds (or creates) a self-signed code-signing certificate whose subject is `publisher`, saves its public
 // part to `cer` and prints THUMBPRINT=<hex>. The private key stays in the user's certificate store.
@@ -265,7 +299,148 @@ std::string test_certificate_script(const std::string& publisher, const std::str
            "Export-Certificate -Cert $c -FilePath " + ps_quote(cer) + " | Out-Null; Write-Output ('THUMBPRINT=' + $c.Thumbprint)";
 }
 
+// Scripts that make the .pfx usable by signtool WITHOUT the password reaching a command line: they read it from the environment
+// variable of their own process ($env:FACTORIA_WINDOWS_PFX_PASSWORD, set by the runner), never from the script text. Three steps, in
+// this order, so that nothing is imported before we know what to take out again:
+//   1. pfx_thumbprint_script: loads the file with UserKeySet only (no PersistKeySet: the key container it needs is temporary and
+//      Reset() deletes it; EphemeralKeySet would be cleaner but it does not exist before .NET Framework 4.7.2 and an ephemeral key
+//      may report HasPrivateKey = false there, which would make every sign fail on Windows PowerShell 5.1). It prints
+//      THUMBPRINT=<hex> of the certificate that has a private key and PRESENT=1 or 0 (is a certificate with that thumbprint AND a
+//      private key in Cert:\CurrentUser\My already). It imports nothing and leaves no key on disk, unless the PowerShell is killed
+//      between the load and Reset(): then a temporary key container of that certificate stays.
+//   2. import_pfx_script, only when PRESENT=0: adds that one certificate (not the chain certificates the file may carry:
+//      Import-PfxCertificate would add them too and Windows would ask to confirm the new root certificates) to CurrentUser\My through
+//      X509Store and prints IMPORTED=1 or 0. Inside the mutex it checks the store first and only then loads the file with
+//      PersistKeySet (which writes the private key to disk at load time), with nothing but the choice of the certificate between that
+//      load and store.Add. If the certificate did not get into the store, its key is deleted again, and so are the keys of the
+//      chain certificates the file carries (they never reach the store).
+//   3. remove_certificate_script: removes the certificate and its key if we are the ones who put it there; it runs after every
+//      outcome of step 2, also when step 2 failed or was cancelled half way (it does nothing when the certificate is not there).
+// Steps 2 and 3 hold a named mutex (the user's SID in the name, so every logon session of the user shares it), so two sign.windows
+// runs of one user do not change the store at the same time. A mutex left by a PowerShell that was killed is "abandoned": the next
+// script gets it all the same. The mutex does not span the signing: two runs with the same .pfx at the same moment can still take the
+// certificate from each other (the first to finish removes it); run them one after the other. A PowerShell that is killed between the
+// load and store.Add (a cancel at that very moment) leaves the key container of that one certificate behind: nothing can run in a
+// killed process.
+constexpr const char* kStoreMutexPrefix = "Global\\FactorIA-sign-windows-store-";
+
+// The start of every script: the file name and the password (a string, as X509Certificate2Collection.Import wants it).
+std::string pfx_prelude(const std::string& pfx, bool withPassword) {
+    std::string s = "$ErrorActionPreference = 'Stop'; $pfx = " + ps_quote(pfx) + "; ";
+    s += withPassword ? "$pw = $env:" + std::string(kPasswordVar) + "; " : "$pw = $null; ";
+    s += "$col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection; ";
+    return s;
+}
+
+// Step 1. Only the certificate with a private key is the one to sign with (a .pfx may carry its chain too).
+std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
+    std::string s = pfx_prelude(pfx, withPassword);
+    s += "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'UserKeySet'); "
+         "try { "
+         "$x = @($col | Where-Object { $_.HasPrivateKey }) | Select-Object -First 1; "
+         "if (-not $x) { throw 'The file has no certificate with a private key.' }; "
+         "$t = $x.Thumbprint "
+         "} finally { foreach ($c in $col) { $c.Reset() } }; "  // deletes the temporary key containers
+         "$c = Get-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $t) -ErrorAction SilentlyContinue; "
+         "Write-Output ('THUMBPRINT=' + $t); Write-Output ('PRESENT=' + [int]([bool]($c -and $c.HasPrivateKey)))";
+    return s;
+}
+
+// `body` runs while the store mutex is held.
+std::string with_store_mutex(const std::string& body) {
+    // A mutex that an elevated PowerShell of the same user created and holds denies the creation with full rights: open it with the
+    // rights the wait and the release need.
+    return "$mn = '" + std::string(kStoreMutexPrefix) + "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; "
+           "try { $m = New-Object System.Threading.Mutex($false, $mn) } catch { "
+           "try { $m = [System.Threading.Mutex]::OpenExisting($mn, 'Synchronize, Modify') } catch { "
+           "throw 'Cannot open the lock that keeps sign.windows runs apart (another PowerShell of this user, started as administrator, may hold it): close it and run again.' } }; "
+           "try { try { $got = $m.WaitOne(120000) } catch { $got = $_.Exception.ToString() -like '*AbandonedMutexException*' }; "
+           "if (-not $got) { throw 'Another sign.windows run is changing the certificate store (waited 2 minutes).' }; " + body +
+           " } finally { try { $m.ReleaseMutex() } catch { } }";
+}
+
+// Step 2. `thumbprint` is the one step 1 printed. A certificate of that thumbprint that is in the store without its private key is
+// completed by the key (store.Add replaces it) and counts as imported by us.
+std::string import_pfx_script(const std::string& pfx, bool withPassword, const std::string& thumbprint) {
+    std::string s = pfx_prelude(pfx, withPassword);
+    s += "$t = " + ps_quote(thumbprint) + "; ";
+    // $drop deletes the key container a certificate of the collection has on disk (CAPI or CNG), then lets go of the certificate.
+    s += "$drop = { param($c) try { "
+         "$k = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($c); "
+         "if ($k -is [System.Security.Cryptography.RSACryptoServiceProvider]) { $k.PersistKeyInCsp = $false; $k.Clear() } "
+         "elseif ($k -is [System.Security.Cryptography.RSACng]) { $k.Key.Delete() } "
+         "else { $e = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($c); "
+         "if ($e -is [System.Security.Cryptography.ECDsaCng]) { $e.Key.Delete() } } "
+         "} catch { }; try { $c.Reset() } catch { } }; ";
+    s += with_store_mutex(
+        "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); "
+        "$store.Open('ReadWrite'); "
+        "try { "
+        "$had = @($store.Certificates | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }).Count -gt 0; "
+        "if ($had) { Write-Output 'IMPORTED=0' } else { "
+        "$x = $null; "
+        "try { "
+        "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'PersistKeySet, UserKeySet'); "
+        "$x = @($col | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }) | Select-Object -First 1; "
+        "$store.Add($x) "
+        "} catch { foreach ($c in $col) { if ($c.HasPrivateKey) { & $drop $c } }; throw }; "  // not added: no key of this file may stay
+        "foreach ($c in $col) { if ($c.HasPrivateKey -and $c.Thumbprint -ne $t) { & $drop $c } }; "  // the chain's keys (by thumbprint: $x may be wrapped by the pipeline)
+        "Write-Output 'IMPORTED=1' } "
+        "} finally { $store.Close() }");
+    return s;
+}
+
+// Step 3. Removes the certificate and its private key from the user's store, if they are there (running it twice, or after an import
+// that never happened, is harmless).
+std::string remove_certificate_script(const std::string& thumbprint) {
+    return "$ErrorActionPreference = 'Stop'; $p = " + ps_quote("Cert:\\CurrentUser\\My\\" + thumbprint) + "; " +
+           with_store_mutex("if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -DeleteKey }");
+}
+
+// The value of `key` (e.g. "THUMBPRINT") in the output of a script: what follows "KEY=" on the first line that holds it, wherever in the
+// line it stands (Windows PowerShell can print a byte order mark before the first line, and its lines end in CRLF), without the
+// blanks around it. "" when no line has it.
+std::string script_output_value(const std::string& output, const std::string& key) {
+    const std::string needle = key + "=";
+    for (const std::string& line : split(output, '\n')) {
+        const std::size_t at = line.find(needle);
+        if (at == std::string::npos) continue;
+        return std::string(trim(std::string_view(line).substr(at + needle.size())));
+    }
+    return {};
+}
+
+// A certificate thumbprint as PowerShell prints it: 40 hexadecimal digits (SHA-1); longer hashes are accepted too.
+bool is_thumbprint(const std::string& t) {
+    if (t.size() < 40 || t.size() > 128) return false;
+    return std::all_of(t.begin(), t.end(), [](unsigned char c) { return std::isxdigit(c) != 0; });
+}
+
 }  // namespace
+
+namespace detail {
+
+// A PowerShell single-quoted string. PowerShell treats the typographic single quotes U+2018..U+201B (UTF-8: E2 80 98..9B) like the
+// ASCII ' (Word and web pages turn ' into them), so each of them is doubled too.
+std::string powershell_quote(const std::string& s) {
+    std::string out = "'";
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c == '\'') {
+            out += "''";
+        } else if (c == 0xE2 && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0x80 &&
+                   static_cast<unsigned char>(s[i + 2]) >= 0x98 && static_cast<unsigned char>(s[i + 2]) <= 0x9B) {
+            out.append(s, i, 3);
+            out.append(s, i, 3);
+            i += 2;
+        } else {
+            out += static_cast<char>(c);
+        }
+    }
+    return out + "'";
+}
+
+}  // namespace detail
 
 Json SignWindowsReport::to_json() const {
     Json j = Json::object();
@@ -284,6 +459,8 @@ Json SignWindowsReport::to_json() const {
     Json st = Json::array();
     for (const SignStep& s : steps) {
         Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"ran", s.ran}});
+        if (!s.env.empty()) e["env"] = s.env;
+        if (s.stdinSecret) e["stdinSecret"] = true;
         if (s.ran) e["exitCode"] = s.exitCode;
         st.push_back(e);
     }
@@ -293,7 +470,9 @@ Json SignWindowsReport::to_json() const {
     return j;
 }
 
-Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
+// `cleanupWarning` is set when the certificate imported for the run could not be removed again: sign_windows() adds it to the hint of
+// an error (the report that carries the warning is not returned then).
+static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& options, std::string& cleanupWarning) {
     const std::string who = "sign.windows: ";
     const ExportEnvLookup env = options.env ? options.env : system_export_env();
     const std::string host = options.host.empty() ? export_detail::host_platform() : options.host;
@@ -457,6 +636,92 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
     const std::string stamp = rep.timestampUrl;
     std::string thumbprint;
     stdfs::path cer;
+
+    // signtool takes a .pfx password only as an argument (/p), which every user of the computer can read in the process list. So on
+    // Windows the .pfx is imported into the user's certificate store for this run (the password travels in the environment of the
+    // PowerShell that imports it), signtool signs with /sha1 <thumbprint>, and the certificate is removed again afterwards, also when
+    // signing fails or is cancelled. The order matters: (1) read the thumbprint of the certificate and whether it is in the store
+    // already, importing nothing; (2) import it, unless it is there (with its key); (3) remove it if it was not in the store before,
+    // whatever became of (2): a cancel can stop the import after the certificate and its private key are in the store. A certificate
+    // that was in the store before the run (with its private key) stays; one that was there WITHOUT its key is completed by the
+    // import and removed with it (docs/EXPORTING.md).
+    const bool importPfx = onWindows && !options.testCertificate && !pfx.empty();
+    SignWindowsOptions cleanupOptions = options;
+    cleanupOptions.cancel = nullptr;  // the removal runs after a cancel too
+    Runner cleaner(cleanupOptions, rep, secrets);
+    bool removalPending = false;
+    const auto remove_imported = [&]() {
+        if (!removalPending) return;
+        removalPending = false;
+        const std::string title = "Remove the imported certificate from the user certificate store";
+        const std::string script = remove_certificate_script(thumbprint);
+        Step s;
+        s.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
+        s.shown = {"powershell.exe", "-NoProfile", "-Command", script};
+        s.timeoutSeconds = 150;  // the script waits 120 s for the mutex at most; a hung PowerShell must not hold the run for ever
+        auto r = cleaner.go(title, s);
+        if (!r.ok() || r->exitCode != 0) {
+            const std::string msg = "The certificate " + thumbprint + " imported for signing could not be removed from the user certificate store: remove it by hand (certmgr.msc > Personal > Certificates).";
+            rep.warnings.push_back(msg);
+            cleanupWarning = msg;
+            if (options.progress) options.progress(msg);
+        }
+    };
+    struct CleanupGuard {  // the error returns below run the removal too
+        std::function<void()> run;
+        ~CleanupGuard() {
+            try {
+                if (run) run();
+            } catch (...) {  // a destructor must not throw (the removal reports its own failure as a warning)
+            }
+        }
+    } cleanupGuard{remove_imported};
+
+    if (importPfx) {
+        // The PowerShell step for `script`; the password, when there is one, only in the environment variable of that process.
+        const auto powershell_step = [&](const std::string& script) {
+            Step st;
+            st.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
+            st.shown = {"powershell.exe", "-NoProfile", "-Command", script};
+            if (!password.empty()) st.env[kPasswordVar] = password;
+            return st;
+        };
+        const std::string pfxHint = "Check that " + std::string(kPasswordVar) + " is the password of " + pfx + " and that the file is a .pfx (PKCS#12) with a private key.";
+
+        {  // 1. the thumbprint and whether the store has the certificate already: imports nothing
+            const std::string title = "Read the thumbprint of the certificate in the .pfx (imports nothing)";
+            const Step s = powershell_step(pfx_thumbprint_script(pfx, !password.empty()));
+            auto r = runner.go(title, s);
+            if (!r.ok()) return r.error();
+            if (r->exitCode != 0) return runner.failed(title, s.shown, *r, pfxHint);
+            if (options.dryRun) {
+                thumbprint = "<thumbprint>";
+                removalPending = true;
+            } else {
+                thumbprint = script_output_value(r->stdoutText, "THUMBPRINT");
+                if (!is_thumbprint(thumbprint)) {
+                    thumbprint.clear();
+                    return err(who + "the step that reads the .pfx did not print the thumbprint of its certificate", "Run the command of the step by hand to see why.");
+                }
+                removalPending = script_output_value(r->stdoutText, "PRESENT") != "1";  // ours to remove, unless it was there with its key
+            }
+        }
+        // 2. the import, unless the store has the certificate with its key already (then there is nothing to load: loading the file would
+        // only write one more copy of the key to disk). The removal is pending already, so a failure or a cancel in the middle of it
+        // still cleans up. A dry run does not know what the store holds: it shows the step.
+        if (options.dryRun || removalPending) {
+            const std::string title = "Import the certificate into the user certificate store (for this run only)";
+            const Step s = powershell_step(import_pfx_script(pfx, !password.empty(), thumbprint));
+            auto r = runner.go(title, s);
+            if (!r.ok()) return r.error();
+            if (r->exitCode != 0) return runner.failed(title, s.shown, *r, pfxHint);
+            if (!options.dryRun) {
+                const std::string imported = script_output_value(r->stdoutText, "IMPORTED");
+                if (imported == "0") removalPending = false;  // it was in the store after all (another run put it there): not ours
+                else if (imported == "1") removalPending = true;
+            }
+        }
+    }
     if (options.testCertificate) {
         cer = msix.parent_path() / (msix.stem().string() + "-test-certificate.cer");
         const std::string script = test_certificate_script(rep.publisher, generic(cer));
@@ -470,9 +735,8 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
         if (options.dryRun) {
             thumbprint = "<thumbprint>";
         } else {
-            for (const std::string& line : split(r->stdoutText, '\n'))
-                if (starts_with(trim(line), "THUMBPRINT=")) thumbprint = std::string(trim(trim(line).substr(11)));
-            if (thumbprint.empty()) return err(who + "the test certificate step did not print a thumbprint", "Run the command of the step by hand to see why.");
+            thumbprint = script_output_value(r->stdoutText, "THUMBPRINT");
+            if (!is_thumbprint(thumbprint)) return err(who + "the test certificate step did not print a thumbprint", "Run the command of the step by hand to see why.");
         }
         rep.testCertificateFile = generic(cer);
     }
@@ -481,24 +745,21 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
         const std::string title = "Sign the " + label;
         Step s;
         if (onWindows) {
-            s.argv = {toolPath, "sign", "/fd", "SHA256"};
-            if (options.testCertificate) s.argv.insert(s.argv.end(), {"/sha1", thumbprint});
-            else {
-                s.argv.insert(s.argv.end(), {"/f", pfx});
-                if (!password.empty()) s.argv.insert(s.argv.end(), {"/p", password});
-            }
-            s.argv.insert(s.argv.end(), {"/tr", stamp, "/td", "SHA256", generic(file)});
+            // The certificate is in the user's store (imported above, or made by testCertificate): no password on the command line.
+            s.argv = {toolPath, "sign", "/fd", "SHA256", "/sha1", thumbprint, "/s", "My", "/tr", stamp, "/td", "SHA256", generic(file)};
             s.shown = s.argv;
-            for (std::size_t i = 0; i + 1 < s.shown.size(); ++i)
-                if (s.shown[i] == "/p") s.shown[i + 1] = kRedacted;
         } else {
             const stdfs::path tmp = file.parent_path() / (file.filename().string() + ".signed");
             s.argv = {toolPath, "sign", "-pkcs12", pfx};
-            if (!password.empty()) s.argv.insert(s.argv.end(), {"-pass", password});
+            // osslsigncode 2.9 and newer read the password from standard input with `-readpass -` (its NEWS for 2.9: "a special - file
+            // name to read the passphrase from stdin"): it is neither in the argument list nor in a file of ours.
+            if (!password.empty()) {
+                s.argv.insert(s.argv.end(), {"-readpass", "-"});
+                s.stdinText = password + "\n";
+                s.stdinSecret = true;
+            }
             s.argv.insert(s.argv.end(), {"-h", "sha256", "-ts", stamp, "-in", generic(file), "-out", generic(tmp)});
             s.shown = s.argv;
-            for (std::size_t i = 0; i + 1 < s.shown.size(); ++i)
-                if (s.shown[i] == "-pass") s.shown[i + 1] = kRedacted;
         }
         auto r = runner.go(title, s);
         if (!r.ok()) return r.error();
@@ -530,6 +791,8 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
         if (signMsix) rep.warnings.push_back("The exe inside the package is the one that was exported: signing the exe here does not change the package. Sign the exe, then pack it into an MSIX with another tool, if you need both.");
     }
 
+    remove_imported();  // the certificate imported for this run leaves the store (the guard does it on every error return)
+
     // ---- what to do next
     if (options.testCertificate) {
         rep.nextSteps.push_back("To try the package on this PC, trust the test certificate once. In PowerShell run as Administrator: Import-Certificate -FilePath '" + generic(cer) +
@@ -544,6 +807,15 @@ Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
     }
     if (options.dryRun) rep.nextSteps.push_back("This was a dry run: nothing was signed. Run it again without dryRun.");
     return rep;
+}
+
+Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
+    std::string cleanupWarning;
+    auto result = sign_windows_impl(options, cleanupWarning);  // the certificate imported for the run is removed before it returns
+    if (result.ok() || cleanupWarning.empty()) return result;
+    Error e = result.error();
+    e.hint += (e.hint.empty() ? "" : " ") + cleanupWarning;
+    return e;
 }
 
 // ---- the command --------------------------------------------------------------------------------------------------------
@@ -561,7 +833,10 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "this is for installing the package on a PC outside the Store (yours, a tester's) or for a game sold "
         "elsewhere. The certificate is a code-signing .pfx: `pfx`, else FACTORIA_WINDOWS_PFX, else "
         "sign.windows.pfx of ~/.factoria/export.json; its password ONLY in FACTORIA_WINDOWS_PFX_PASSWORD "
-        "(never an argument, a file of the game, a result or a log). The subject of the certificate must "
+        "(never an argument of any program, a file of the game, a result or a log: on Windows the .pfx is "
+        "imported into the user's certificate store for the run and removed afterwards, also after a failure "
+        "or a cancel, signtool signs by thumbprint; two runs at once with one .pfx can take the certificate from each other; "
+        "osslsigncode reads the password on stdin). The subject of the certificate must "
         "equal the Publisher of the package (checked with openssl when it is installed). Examples: "
         "{\"dryRun\":true}, {\"pfx\":\"C:/keys/code-signing.pfx\"}, {\"testCertificate\":true}."
         FA_COMMAND_DETAILS
@@ -575,13 +850,15 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "(`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and "
         "returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, "
         "certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, "
-        "testCertificateFile, steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. "
+        "testCertificateFile, steps[{title, command, commandLine, ran, exitCode, env, stdinSecret}] (env lists the NAMES of the "
+        "environment variables a step sets, never values; stdinSecret marks a step whose password goes on its standard input), "
+        "warnings[], nextSteps[]}. "
         "Signing again after every export is needed: the next project.export replaces the package.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
-        "msix":{"type":"string","description":"The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix."},
-        "out":{"type":"string","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
+        "msix":{"type":"string","x-fa-path":"write","description":"The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export."},
         "exe":{"type":"boolean","default":false,"description":"Also sign the game's .exe in build/export/<game-slug>-windows/ (for a game shared as a folder or a zip). The package is not changed by it."},
         "pfx":{"type":"string","description":"The code-signing certificate (.pfx), absolute or relative to the project. Default: FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json. The password is read from FACTORIA_WINDOWS_PFX_PASSWORD only."},
         "testCertificate":{"type":"boolean","default":false,"description":"Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC."},
@@ -596,8 +873,15 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
             if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
             return dir->string();
         };
-        if (std::string v = tooling_detail::arg_string(args, "msix", false); !v.empty()) o.msix = inside(v, "msix");
-        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = inside(v, "out");
+        // The msix and the export folder are written: resolve_write_path keeps an agent inside the project, lets the
+        // command-line user give any folder, and refuses .git and .factoria.
+        auto writable = [&](const std::string& rel, const char* what) {
+            auto dir = resolve_write_path(projectDir, rel);
+            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            return dir->string();
+        };
+        if (std::string v = tooling_detail::arg_string(args, "msix", false); !v.empty()) o.msix = writable(v, "msix");
+        if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
         if (std::string v = tooling_detail::arg_string(args, "pfx", false); !v.empty()) o.pfx = stdfs::path(v).is_absolute() ? v : inside(v, "pfx");
         o.exe = tooling_detail::arg_bool(args, "exe", false);
         o.testCertificate = tooling_detail::arg_bool(args, "testCertificate", false);
@@ -608,6 +892,9 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
+    // runs signtool, which signs the exported files in place and asks a timestamp server.
+    declare_command_capabilities(registry, {
+        {"sign.windows", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

@@ -33,3 +33,6 @@ engine/render/shaders/*.glsl text eol=lf
 engine/core/tests/data/codecs/*.zst binary
 engine/core/tests/data/codecs/*.lz4 binary
 engine/core/tests/data/codecs/*.bin binary
+
+# The CLI contract fixtures are compared with parsed output line by line: LF on every checkout.
+tools/ai/tests/fixtures/cli/** text eol=lf

@@ -16,7 +16,7 @@ namespace {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const std::string& audioSection) {
-        dir = fs::make_temp_dir("fa_audiofx_test_" + name);
+        dir = fs::make_temp_dir("fa_audiofx_test_" + name).value();
         write("factoria.json", std::string(R"({
   "format": "factoria.project/1",
   "name": "Audio Fx Test",

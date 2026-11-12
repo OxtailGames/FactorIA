@@ -49,7 +49,7 @@ struct Rig {
     stdfs::path dir;
     Engine e;
     Rig() {
-        dir = fs::make_temp_dir("fa_camera_tags_pointer");
+        dir = fs::make_temp_dir("fa_camera_tags_pointer").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << kScene;

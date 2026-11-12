@@ -135,6 +135,7 @@ std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
         if (!cfg->set.matching(HookEvent::BeforeCommand, name).empty()) {
             HookGuard guard;
             HookRunContext ctx = st->context();
+            ctx.inheritEnv = cfg->inheritEnv;
             Json input = Json::object({{"command", std::string(name)}, {"args", args}});
             HookOutcome out = run_hooks(cfg->set, HookEvent::BeforeCommand, name, input, ctx);
             for (const HookRunRecord& r : out.runs)
@@ -170,6 +171,7 @@ std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
         if (!cfg->set.matching(HookEvent::AfterCommand, name).empty()) {
             HookGuard guard;
             HookRunContext ctx = st->context();
+            ctx.inheritEnv = cfg->inheritEnv;
             Json input = Json::object({{"command", std::string(name)}, {"args", args}, {"ok", result.ok}, {"durationMs", std::round(ms * 10) / 10}});
             if (result.ok) input["result"] = clipped_result(result.result);
             else input["error"] = result.error;
@@ -285,6 +287,7 @@ Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEv
     HookRunContext hc;
     hc.projectDir = ctx.projectDir;
     hc.sessionId = "hooks-test";
+    hc.inheritEnv = cfg.inheritEnv;
     hc.cancel = cancel;
     const auto groups = set.matching(event, matchValue);
     Json out = Json::object({{"event", hook_event_name(event)}, {"matched", matchValue}, {"groups", groups.size()}});

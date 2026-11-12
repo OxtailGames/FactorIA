@@ -10034,6 +10034,11 @@ declare module "factoria:test" {
      * @since 0.22.0
      */
     expectErrors?: (RegExp | string)[];
+    /**
+     * What fa.call in this test may do besides the default {read, state}: ["writeProject"] lets it call a command that writes a project file (fa.call("scene.save"), fs.write...). An unknown name fails with its JSON pointer and a "did you mean". It cannot get more than whoever runs the tests has (a test run over MCP never gets writeAnywhere), and the game's own scripts keep {read, state}.
+     * @since 0.25.0
+     */
+    capabilities?: ("read" | "state" | "writeProject" | "writeAnywhere" | "network" | "process" | "spend" | "publish")[];
   }
 
   export interface TestFn {

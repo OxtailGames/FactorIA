@@ -320,8 +320,8 @@ TEST_CASE("image: png roundtrip, flip and diff") {
 }
 
 TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
-    const stdfs::path a = fs::make_temp_dir("fa_test_tmp");
-    const stdfs::path b = fs::make_temp_dir("fa_test_tmp");
+    const stdfs::path a = fs::make_temp_dir("fa_test_tmp").value();
+    const stdfs::path b = fs::make_temp_dir("fa_test_tmp").value();
     CHECK(a != b);
     CHECK(stdfs::is_directory(a));
     CHECK(stdfs::is_empty(a));
@@ -570,7 +570,7 @@ TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs 
 TEST_CASE("fs: a path under a folder with accents is found from its UTF-8 text and from path::generic_string()") {
     // generic_string() gives the ANSI code page on Windows: path_from_utf8 (and so resolve and every fs:: function) reads text
     // that is not UTF-8 in that code page instead of throwing, so the many callers that still build paths that way keep working.
-    const stdfs::path root = fs::make_temp_dir("fa_fs_accents");
+    const stdfs::path root = fs::make_temp_dir("fa_fs_accents").value();
     const stdfs::path dir = root / stdfs::path(u8"Cañón niño");
     stdfs::create_directories(dir);
     const stdfs::path file = dir / "a.txt";

@@ -43,16 +43,16 @@ std::vector<std::string> clip_files() {
     return out;
 }
 
-// The project-relative path argument `key`, checked to be a clip file inside the project that a command may write.
-std::string need_clip_path(const Json& a, const char* key = "path") {
+// The path argument `key`, checked to be a clip file inside the project that the caller may write (resolve_caller_project_path:
+// writeProject, not outside the project, not .git or .factoria/ except .factoria/tmp/; absolute only with writeAnywhere).
+// Returned in the project's own spelling. Judged before the clip is read or anything is computed.
+std::string need_clip_path(const Json& a, const char* command, const char* key = "path") {
     if (!a.contains(key) || !a[key].is_string() || a[key].get<std::string>().empty())
         throw CommandError("invalid_argument", std::string("Missing '") + key + "'.", "Pass the clip file, e.g. \"anim/hero_walk.anim.json\". " + clip_files_hint());
-    auto norm = fs::normalize_checked(a[key].get<std::string>());
-    if (!norm.ok()) throw CommandError("invalid_argument", norm.error().message, norm.error().hint);
-    if (!ends_with(to_lower(*norm), ".anim.json"))
-        throw CommandError("invalid_argument", "'" + *norm + "' is not a clip file name.", clip_files_hint());
-    if (auto w = fs::check_writable(*norm); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
-    return *norm;
+    const std::string path = resolve_caller_project_path(a[key].get<std::string>(), command);
+    if (!ends_with(to_lower(path), ".anim.json"))
+        throw CommandError("invalid_argument", "'" + path + "' is not a clip file name.", clip_files_hint());
+    return path;
 }
 
 Json read_doc(const std::string& path) {
@@ -357,7 +357,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "anim.restore. Then add keys with anim.set_keys and play it from an Animator: Animator.clips {\"walk\": path}. Example: "
            "anim.create_clip {\"path\":\"anim/hero_walk.anim.json\",\"duration\":0.8,\"loop\":true}",
            parse_schema(R"({"type":"object","required":["path","duration"],"properties":{
-               "path":{"type":"string","description":"Project-relative file ending in .anim.json."},
+               "path":{"type":"string","x-fa-path":"write","description":"Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere)."},
                "duration":{"type":"number","minimum":0,"description":"Length of the clip in seconds."},
                "loop":{"type":"boolean","default":true,"description":"true repeats the clip, false stops on the last pose (anim.finished)."},
                "doc":{"type":"string","description":"What the clip shows."},
@@ -366,7 +366,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                "overwrite":{"type":"boolean","default":false,"description":"Replace the file if it exists."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.create_clip");
               const double duration = need_time(a.contains("duration") ? a["duration"] : Json(), "duration");
               Json before = nullptr;
               if (fs::exists(path)) {
@@ -394,7 +394,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "anim.set_keys {\"path\":\"anim/hero_walk.anim.json\",\"track\":{\"path\":\"body/arm_l\",\"field\":\"rotation.z\"},"
            "\"keys\":[{\"t\":0,\"value\":-30},{\"t\":0.4,\"value\":30,\"interp\":\"quadInOut\"},{\"t\":0.8,\"value\":-30}]}",
            [] { Json s = parse_schema(R"({"type":"object","required":["path","track","keys"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "keys":{"type":"array","minItems":1,"items":{"type":"object","required":["t","value"],"properties":{
                    "t":{"type":"number","minimum":0,"description":"Seconds from the start of the clip."},
                    "value":{"description":"The value at t, shaped like the field."},
@@ -406,7 +406,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                s["properties"]["track"] = parse_schema(kTrackSchema); return s; }(),
            false, "anim"},
           [&I](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.set_keys");
               Json before = read_doc(path);
               Json doc = before;
               const TrackSpec spec = parse_track_spec(a.contains("track") ? a["track"] : Json());
@@ -439,13 +439,13 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "removes every key, which removes the track (a track needs at least one key). Result: {path, removed, trackRemoved, undo}. "
            "Example: anim.remove_keys {\"path\":\"anim/hero_walk.anim.json\",\"track\":{\"path\":\"body\",\"field\":\"rotation.z\"},\"times\":[0.4]}",
            [] { Json s = parse_schema(R"({"type":"object","required":["path","track"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "times":{"type":"array","items":{"type":"number","minimum":0},"description":"Times of the keys to remove."},
                "all":{"type":"boolean","default":false,"description":"Remove every key (and so the track)."}}})");
                s["properties"]["track"] = parse_schema(R"({"description":"Index in the clip's tracks, or {path, component, field}."})"); return s; }(),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.remove_keys");
               Json before = read_doc(path);
               Json doc = before;
               const int index = resolve_track(doc, a.contains("track") ? a["track"] : Json());
@@ -480,7 +480,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "[{track, from, to}], undo}. Example: slow the swing down by half from its start: anim.move_keys "
            "{\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"track\":0,\"t\":0.2},{\"track\":0,\"t\":0.4}],\"scale\":2,\"extendDuration\":true}",
            parse_schema(R"({"type":"object","required":["path","keys"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "keys":{"type":"array","minItems":1,"items":{"type":"object","required":["track","t"],"properties":{
                    "track":{"description":"Index in the clip's tracks, or {path, component, field}."},
                    "t":{"type":"number","minimum":0,"description":"Time of the key (seconds)."}}}},
@@ -490,7 +490,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                "extendDuration":{"type":"boolean","default":false,"description":"Raise the duration when a key moves past it."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.move_keys");
               Json before = read_doc(path);
               Json doc = before;
               const std::vector<KeyRef> refs = read_key_refs(doc, a);
@@ -546,7 +546,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "second, shaped like the value); without them a bezier key gets a smooth tangent through its neighbours. Result: {path, "
            "changed, undo}. Example: anim.set_interp {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"track\":0,\"t\":0.4}],\"interp\":\"quadOut\"}",
            parse_schema(R"({"type":"object","required":["path","keys","interp"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "keys":{"type":"array","minItems":1,"items":{"type":"object","required":["track","t"],"properties":{
                    "track":{"description":"Index in the clip's tracks, or {path, component, field}."},
                    "t":{"type":"number","minimum":0}}}},
@@ -555,7 +555,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                "out":{"description":"bezier: outgoing slope for every selected key."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.set_interp");
               Json before = read_doc(path);
               Json doc = before;
               const std::vector<KeyRef> refs = read_key_refs(doc, a);
@@ -579,14 +579,14 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "field is refused (use anim.set_keys to edit it); two tracks may not drive the same field channel. Result: {path, track "
            "(index), keys, undo}. Example: anim.add_track {\"path\":\"anim/hero_walk.anim.json\",\"track\":{\"path\":\"body\",\"field\":\"position.y\"},\"entity\":\"hero\"}",
            [] { Json s = parse_schema(R"({"type":"object","required":["path","track"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "keys":{"type":"array","description":"The first keys [{t, value, interp?}]."},
                "entity":{"type":"string","description":"Entity that plays the clip: checks the part and gives the first key its current value."},
                "extendDuration":{"type":"boolean","default":false,"description":"Raise the duration when a key is later than it."}}})");
                s["properties"]["track"] = parse_schema(kTrackSchema); return s; }(),
            false, "anim"},
           [&I](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.add_track");
               Json before = read_doc(path);
               Json doc = before;
               const TrackSpec spec = parse_track_spec(a.contains("track") ? a["track"] : Json());
@@ -618,11 +618,11 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "`track` is the index in the clip's tracks or {path, component, field}. The tracks after it shift down by one. Result: "
            "{path, removed: {path, component, field, keys}, undo}. Example: anim.remove_track {\"path\":\"anim/hero_walk.anim.json\",\"track\":{\"path\":\"body\",\"field\":\"rotation.z\"}}",
            parse_schema(R"({"type":"object","required":["path","track"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "track":{"description":"Index in the clip's tracks, or {path, component, field}."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.remove_track");
               Json before = read_doc(path);
               Json doc = before;
               const int index = resolve_track(doc, a.contains("track") ? a["track"] : Json());
@@ -674,7 +674,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "Example: anim.add_event {\"path\":\"anim/hero_attack.anim.json\",\"t\":0.3,\"feel\":[{\"action\":\"hitStop\",\"duration\":0.06},"
            "{\"action\":\"shake\",\"amount\":0.3}]}",
            parse_schema(R"({"type":"object","required":["path","t"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "t":{"type":"number","minimum":0,"description":"Seconds from the start of the clip."},
                "name":{"type":"string","minLength":1,"description":"The game event name. Optional when `feel` is given."},
                "data":{"type":"object","description":"Extra fields sent with the event."},
@@ -682,7 +682,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                "extendDuration":{"type":"boolean","default":false}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.add_event");
               Json before = read_doc(path);
               Json doc = before;
               const double t = round_time(need_time(a.contains("t") ? a["t"] : Json(), "t"));
@@ -711,13 +711,13 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "sorted, so the index in the result is the new one. Result: {path, event, from, to, undo}. Example: anim.move_event "
            "{\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"},\"to\":0.25}",
            parse_schema(R"({"type":"object","required":["path","event","to"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "event":{"description":"Index of the event, or {t, name?}."},
                "to":{"type":"number","minimum":0,"description":"The new time in seconds."},
                "extendDuration":{"type":"boolean","default":false}}})"),
            false, "anim"},
           [event_index](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.move_event");
               Json before = read_doc(path);
               Json doc = before;
               const int at = event_index(doc, a.contains("event") ? a["event"] : Json());
@@ -739,14 +739,14 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "`feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. "
            "Result: {path, event, undo}. Example: anim.set_event {\"path\":\"anim/hero_walk.anim.json\",\"event\":0,\"name\":\"step\",\"data\":{\"foot\":\"right\"}}",
            parse_schema(R"({"type":"object","required":["path","event"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "event":{"description":"Index of the event, or {t, name?}."},
                "name":{"type":["string","null"],"description":"The new event name; null removes it (the event then needs `feel`)."},
                "data":{"type":"object","description":"The new data object."},
                "feel":{"type":["object","array","null"],"description":"The new game feel action(s); null or [] removes them."}}})"),
            false, "anim"},
           [event_index](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.set_event");
               Json before = read_doc(path);
               Json doc = before;
               if (!a.contains("name") && !a.contains("data") && !a.contains("feel"))
@@ -769,11 +769,11 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event "
            "{\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"}}",
            parse_schema(R"({"type":"object","required":["path","event"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "event":{"description":"Index of the event, or {t, name?}."}}})"),
            false, "anim"},
           [event_index](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.remove_event");
               Json before = read_doc(path);
               Json doc = before;
               const int at = event_index(doc, a.contains("event") ? a["event"] : Json());
@@ -787,13 +787,13 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "key (move it with anim.move_keys first). Result: {path, duration, loop, undo}. Example: anim.set_clip "
            "{\"path\":\"anim/hero_walk.anim.json\",\"duration\":1.2,\"loop\":false}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "duration":{"type":"number","minimum":0,"description":"Length of the clip in seconds."},
                "loop":{"type":"boolean","description":"true repeats the clip, false stops on the last pose."},
                "doc":{"type":"string","description":"What the clip shows."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.set_clip");
               Json before = read_doc(path);
               Json doc = before;
               if (!a.contains("duration") && !a.contains("loop") && !a.contains("doc"))
@@ -812,11 +812,11 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
            "previous document, checked like any clip) or, when `clip` is null, deletes the file (the undo of anim.create_clip). Its own "
            "result carries the `undo` that goes forward again (redo). Example: anim.restore {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}",
            parse_schema(R"({"type":"object","required":["path","clip"],"properties":{
-               "path":{"type":"string","description":"The clip file (.anim.json)."},
+               "path":{"type":"string","x-fa-path":"write","description":"The clip file (.anim.json), inside the project (absolute paths need writeAnywhere)."},
                "clip":{"type":["object","null"],"description":"The whole clip document to write, or null to delete the file."}}})"),
            false, "anim"},
           [](const Json& a) {
-              const std::string path = need_clip_path(a);
+              const std::string path = need_clip_path(a, "anim.restore");
               if (!a.contains("clip")) throw CommandError("invalid_argument", "Missing `clip`.", "Pass the document to write, or null to delete the file.");
               Json before = nullptr;
               if (fs::exists(path)) {
@@ -836,6 +836,23 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
           });
 
     register_anim_view_commands(engine, I);
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"anim.create_clip", capability_sets::writes_project()},
+        {"anim.set_keys", capability_sets::writes_project()},
+        {"anim.remove_keys", capability_sets::writes_project()},
+        {"anim.move_keys", capability_sets::writes_project()},
+        {"anim.set_interp", capability_sets::writes_project()},
+        {"anim.add_track", capability_sets::writes_project()},
+        {"anim.remove_track", capability_sets::writes_project()},
+        {"anim.add_event", capability_sets::writes_project()},
+        {"anim.move_event", capability_sets::writes_project()},
+        {"anim.set_event", capability_sets::writes_project()},
+        {"anim.remove_event", capability_sets::writes_project()},
+        {"anim.set_clip", capability_sets::writes_project()},
+        {"anim.restore", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa

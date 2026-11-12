@@ -37,7 +37,7 @@ const Counter kCounters[] = {
 };
 
 struct FixedStepProject {
-    stdfs::path dir = fs::make_temp_dir("fa_input_fixed");
+    stdfs::path dir = fs::make_temp_dir("fa_input_fixed").value();
     FixedStepProject() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"FixedInput","id":"com.example.fixedinput",
                                    "mainScene":"main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60},

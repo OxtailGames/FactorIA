@@ -139,6 +139,7 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
          {"properties", Json::object({{"path", Json::object({{"type", "string"},
                                                               {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav. "
                                                                               "Omit to analyze every sound of the project."}})}})}});
+    info.inputSchema["properties"]["path"]["x-fa-path"] = "read";
     registry.add(info, [projectDir](const Json& args) {
         const std::string asked = tooling_detail::arg_string(args, "path", false);
         std::vector<std::string> paths;
@@ -189,6 +190,8 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
         if (paths.empty()) result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/.";
         return result;
     });
+    // Capabilities (capability.h): the measurements are stored in assets.json, a project file.
+    declare_command_capabilities(registry, {{"assets.analyze_audio", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

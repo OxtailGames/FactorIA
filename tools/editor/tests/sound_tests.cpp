@@ -30,7 +30,7 @@ struct Project {
     CommandRegistry registry;
     std::unique_ptr<SoundModel> model;
     Project() {
-        dir = fs::make_temp_dir("fa_sound_panel");
+        dir = fs::make_temp_dir("fa_sound_panel").value();
         register_asset_commands(registry, dir.string());
         model = std::make_unique<SoundModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);

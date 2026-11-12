@@ -1,5 +1,6 @@
 #include "fa/core/process.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 
@@ -71,6 +72,60 @@ std::string which(std::string_view name) {
         i = j + 1;
     }
     return {};
+}
+
+namespace {
+char ascii_lower(char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+bool same_name(std::string_view a, std::string_view b, bool ci) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (ci ? ascii_lower(a[i]) != ascii_lower(b[i]) : a[i] != b[i]) return false;
+    return true;
+}
+}  // namespace
+
+bool env_name_matches(std::string_view pattern, std::string_view name, bool caseInsensitive) {
+    if (!pattern.empty() && pattern.back() == '*') {
+        pattern.remove_suffix(1);
+        return name.size() >= pattern.size() && same_name(pattern, name.substr(0, pattern.size()), caseInsensitive);
+    }
+    return same_name(pattern, name, caseInsensitive);
+}
+
+const std::vector<std::string>& base_child_env() {
+    // Each name is here because a program started from a shell breaks or misbehaves without it, and none holds a secret.
+    static const std::vector<std::string> names = {
+        "PATH",  // finds the programs a hook or an agent runs
+        "HOME",  // where tools keep their config and credentials (Claude Code finds its login and, on macOS, the keychain by it)
+        "USER", "LOGNAME",        // who runs it (git, ssh, keychain tools)
+        "SHELL",                  // what a tool starts for its own shell commands
+        "TMPDIR", "TEMP", "TMP",  // the temporary folder (POSIX / Windows)
+        "LANG", "LANGUAGE", "LC_*",  // locale: the encoding of the output
+        "TERM", "TZ",
+        "FACTORIA_AI_CONFIG", "FACTORIA_HOME", "FACTORIA_ENGINE_DIR",  // a `factoria` they run finds the same settings and engine
+        "FACTORIA_CALLER", "FACTORIA_IN_HOOK",  // who is calling, and that hooks must not start hooks (no loop)
+        "FACTORIA_CAPABILITIES", "FACTORIA_ROLE",  // what the role may do and its name: a `factoria` they run keeps the floor
+        "FA_CACHE_DIR", "FA_LANGUAGE", "FA_JOB_THREADS",  // the cache folder, the language and the job threads of that `factoria`
+        "SOKOL_SHDC", "FACTORIA_EXPORT_CONFIG", "FACTORIA_FFMPEG", "FACTORIA_STEAMCMD", "FACTORIA_FASTLANE",
+        "FACTORIA_XCRUN",  // where the tools it starts are (paths, not secrets)
+#ifdef _WIN32
+        "SystemRoot", "SystemDrive", "windir",  // Windows folders: nearly every program needs them (winsock fails without SystemRoot)
+        "ComSpec", "PATHEXT",                   // cmd.exe, and which extensions make a file a program
+        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ALLUSERSPROFILE",  // profile folders
+        "ProgramFiles*", "ProgramW6432", "CommonProgramFiles*", "CommonProgramW6432",  // installed programs (Node, Git, compilers)
+        "USERNAME", "USERDOMAIN", "COMPUTERNAME",  // who and where
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",  // read by build tools and installers
+        "=*",  // per-drive current directories ("=C:"), which cmd.exe and the C runtime keep
+#endif
+    };
+    return names;
+}
+
+std::vector<std::string> child_env_allow(const std::vector<std::string>& extra) {
+    std::vector<std::string> out = base_child_env();
+    for (const std::string& e : extra)
+        if (!e.empty() && std::find(out.begin(), out.end(), e) == out.end()) out.push_back(e);
+    return out;
 }
 
 }  // namespace fa

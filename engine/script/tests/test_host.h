@@ -44,7 +44,7 @@ struct TestHost : ScriptHost {
 
     explicit TestHost(const std::string& tag, const Json& settings = Json::object()) {
         ensure_builtin_components();
-        root = fs::make_temp_dir("fa_script_test_" + tag);
+        root = fs::make_temp_dir("fa_script_test_" + tag).value();
         fs::set_project_root(root);
         fs::set_user_dir(root / "save");
         proj = settings;

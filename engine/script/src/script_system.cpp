@@ -531,8 +531,9 @@ void ScriptSystem::Impl::report_pending_exception(const std::string& entityId, c
 // ---------------------------------------------------------------------------------------------------------------------
 JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& entityId, JSValueConst fn,
                                  JSValueConst thisVal, std::initializer_list<JSValue> args, bool* failed,
-                                 double limitSeconds, bool quiet) {
+                                 double limitSeconds, bool quiet, CapMode mode) {
     if (failed) *failed = false;
+    CapModeScope capMode_(*this, mode);  // fa.call from this callback runs with the set of its kind (script_capabilities.cpp)
     double limit = limitSeconds < 0 ? callbackLimit : limitSeconds;
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard(label, limit);
@@ -694,8 +695,11 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
     }
     std::string path = *norm;
     if (path.find('*') != std::string::npos) {
-        // A glob import of JSON data: `import tables from "../data/dialogue/*.json"`. Only the file name may hold `*`.
-        const std::string dir = fs::parent(path), pattern = fs::filename(path);
+        // A glob import of JSON data: `import tables from "../data/dialogue/*.json"`. Only the file name may hold `*`. The
+        // spec may be a module name this function returned, with its "?v=N" (import_module's pre-pass imports a test's
+        // dependencies by name): the check reads the file part.
+        const std::string file = module_file(path);
+        const std::string dir = fs::parent(file), pattern = fs::filename(file);
         if (dir.find('*') != std::string::npos || pattern.find("**") != std::string::npos ||
             fs::extension(pattern) != ".json") {
             if (err)
@@ -709,6 +713,10 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
         importers[path].insert(basePath);
     }
     std::string name = module_name_for(path);
+    if (baseIsProject && !syntaxBase) {
+        auto& edges = moduleImports[base];
+        if (std::find(edges.begin(), edges.end(), name) == edges.end()) edges.push_back(name);
+    }
     if (!firstImporter.count(name)) firstImporter[name] = baseIsProject ? basePath : std::string();
     return name;
 }
@@ -900,7 +908,7 @@ JSModuleDef* ScriptSystem::Impl::make_builtin_module(const std::string& name) {
     return m;
 }
 
-Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail) {
+Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail, CapMode topLevelMode) {
     std::string err;
     std::string name = normalize_module("<import>", path, &err);
     if (name.empty()) return Error{err, "Use project-relative paths such as \"scripts/player.js\"."};
@@ -909,9 +917,52 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
 
     Json quoted = name;
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
+    if (topLevelMode != CapMode::Game) {
+        // QuickJS evaluates the whole static import graph inside the one JS_Eval below, under `topLevelMode`, so a game module the
+        // test file imports would run its top level as test code. Compile the graph first (nothing runs; normalize_module records
+        // every import in moduleImports, also of modules that were already compiled and not evaluated, e.g. by check_syntax, which
+        // the loader is not called for again), then evaluate the closure of the module's static imports, dependencies first, as
+        // game code; the module itself is then the only one left to run under `topLevelMode`. A load or syntax error is left to
+        // the real evaluation below, which reports it.
+        // Nothing runs, but the loader reads and compiles files: it runs inside a guard and a debug entry like the evaluation.
+        JSValue pre;
+        {
+            auto preEntry = debug_entry(*this);
+            const size_t preDepth = push_guard("compiling " + path, 10.0);
+            pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+            pop_guard(preDepth);
+        }
+        if (JS_IsException(pre)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        } else {
+            JS_FreeValue(ctx, pre);
+            std::vector<std::string> order;  // post-order: a module comes after everything it imports, source order among siblings
+            std::set<std::string> seen{name};
+            std::function<void(const std::string&)> visit = [&](const std::string& from) {
+                auto edges = moduleImports.find(from);
+                if (edges == moduleImports.end()) return;
+                const std::vector<std::string> targets = edges->second;  // a copy: the map may grow while we walk
+                for (const std::string& dep : targets) {
+                    if (dep == "factoria" || dep == "factoria:test" || !seen.insert(dep).second) continue;
+                    visit(dep);
+                    order.push_back(dep);
+                }
+            };
+            visit(name);
+            for (const std::string& dep : order) {
+                auto ns = import_module(module_file(dep), detail);  // Game: the default
+                if (!ns) return ns.error();
+                JS_FreeValue(ctx, *ns);
+            }
+        }
+    }
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
+    // The top level of a module is game code, not the tool, eval or test that happened to import it first (a module is evaluated
+    // once and cached, so what it did at load must not depend on who loaded it): it never runs with a wider set than the game's.
+    // Only the test file run_tests imports asks for Test.
+    CapModeScope topLevel(*this, topLevelMode);
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
     pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<JSValue> {
@@ -978,6 +1029,9 @@ std::vector<std::string> ScriptSystem::Impl::bump_module_versions(const std::str
             for (const auto& imp : it->second) work.push_back(imp);
     }
     for (const auto& p : affected) {
+        // The edges are keyed by the versioned name, which the bump below retires; nothing looks the old name up again (its
+        // importers are in `affected` and lose their entries and namespaces too), so the entry only wastes memory.
+        moduleImports.erase(module_name_for(p));
         namespaces.erase(module_name_for(p));
         versions[p] += 1;
     }
@@ -1159,13 +1213,18 @@ void ScriptSystem::Impl::shutdown() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------------------------------------------------
-ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) { impl_->owner = this; }
+ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) {
+    impl_->owner = this;
+    impl_->set_game_role(GameRole::Player);
+}
 ScriptSystem::~ScriptSystem() {
     if (impl_) impl_->shutdown();
 }
 
 void ScriptSystem::set_debugger(std::shared_ptr<ScriptDebugger> debugger) { impl_->debugger = std::move(debugger); }
 void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = exported; }
+void ScriptSystem::set_game_role(GameRole role) { impl_->set_game_role(role); }
+CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }

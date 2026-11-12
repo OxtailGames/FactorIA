@@ -140,7 +140,7 @@ void write_document(const std::string& projectDir, const Edit& edit) {
     if (!edit.changed()) return;
     require_usable_manifest(projectDir);
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, edit.rel), dump_json(edit.json), &err)) fail("failed", "Cannot write '" + edit.rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, edit.rel), dump_json(edit.json), &err)) fail("failed", "Cannot write '" + edit.rel + "': " + err, "Check that the folder is writable.");
 }
 
 // A model that is textured needs the atlas: add `uv: {method: unwrap}` when the document says nothing about uvs.
@@ -570,6 +570,7 @@ void register_model_texture_commands(CommandRegistry& registry, const std::strin
                    {"bake", prop_default("boolean", "Bake the model and its texture again after a change.", true)},
                    {"overwrite", prop_default("boolean", "Replace a .glb that no model document baked.", false)},
                    {"picture", prop_default("boolean", "Return the baked texture ($image).", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_texture_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -605,6 +606,7 @@ void register_model_texture_commands(CommandRegistry& registry, const std::strin
                    {"bake", prop_default("boolean", "Bake the model and its texture again after a change.", true)},
                    {"overwrite", prop_default("boolean", "Replace a .glb that no model document baked.", false)},
                    {"picture", prop_default("boolean", "Return the baked texture ($image).", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_decal_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -643,6 +645,7 @@ void register_model_texture_commands(CommandRegistry& registry, const std::strin
                    {"bake", prop_default("boolean", "Bake the .glb again after a change.", true)},
                    {"overwrite", prop_default("boolean", "Replace a .glb that no model document baked.", false)},
                    {"picture", prop_default("boolean", "Return the palette swatches ($image) when there is a palette.", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_palette_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -671,8 +674,14 @@ void register_model_texture_commands(CommandRegistry& registry, const std::strin
                    {"edgeAngle", prop("number", "Degrees an edge must turn the surface to count as sharp (1..179).")},
                    {"edgeWidth", prop("number", "Metres wide the band along a sharp edge is; 0 = 3% of the diagonal.")},
                    {"picture", prop_default("boolean", "Return the maps as one picture ($image).", true)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_bake_maps_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): texture, decal and palette change a document (and bake it); bake_maps measures in memory and makes a temporary
+    // picture, so it is declared like the preview commands (model.preview, anim3d.preview): changes_state.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"model.texture", writes_project()}, {"model.decal", writes_project()}, {"model.palette", writes_project()},
+                                            {"model.bake_maps", changes_state()}});
 }
 
 }  // namespace fa::assets_detail

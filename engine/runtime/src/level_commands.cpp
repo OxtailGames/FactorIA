@@ -374,24 +374,41 @@ std::vector<std::string> scene_files() {
     return out;
 }
 
-// `path` / `from`: a project-relative scene file. Absolute paths are refused (the project folder is the sandbox of the
-// file mode); the file that is WRITTEN also has to be somewhere commands may write (fs::check_writable).
-std::string scene_file_arg(const Json& v, const char* key, bool forWrite) {
+// `path` / `from` / `file`: a project-relative file (`kind` says which: a scene file, or the level file that scene.ascii_edit
+// rewrites). A file that is only READ (`from`, and `path` of a dry run) refuses an absolute path (the project folder is the
+// sandbox of the file mode). A file that is WRITTEN goes through resolve_caller_project_path (writeProject, inside the project,
+// not .git or .factoria/ except .factoria/tmp/; an absolute path only for a caller that may write anywhere). `command` is the
+// command whose argument it is: its errors name it.
+// `predictWrite` (a dry run's `path`): nothing is written, so no writeProject is needed, but the path is judged by the same rules
+// as the real call would (resolve_for_write with the caller's right to write anywhere: inside the project, not .git or
+// .factoria/ except .factoria/tmp/, an absolute path only for the command line), so the dry run predicts it.
+std::string scene_file_arg(const Json& v, const char* key, bool forWrite, const char* command, bool predictWrite = false,
+                           const char* kind = "scene file", const char* example = "scenes/level1.scene.json") {
     const std::string k = key;
     if (!v.is_string() || v.get<std::string>().empty())
-        bad_arg("'" + k + "' must be a project-relative scene file path, got " + describe_json_value(v),
-                "Example: \"" + k + "\": \"scenes/level1.scene.json\".");
+        bad_arg("'" + k + "' of " + command + " must be a project-relative " + kind + " path, got " + describe_json_value(v),
+                "Example: \"" + k + "\": \"" + example + "\".");
     const std::string raw = v.get<std::string>();
-    if (fs::is_absolute(raw))
-        bad_arg("'" + k + "' must be project-relative, but '" + raw + "' is an absolute path",
-                "Use the path inside the project, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
-    auto norm = fs::normalize_checked(raw);
-    if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
-    const std::string& path = norm.value();
+    std::string path;
+    if (forWrite) {
+        path = resolve_caller_project_path(raw, command);
+    } else if (predictWrite) {
+        auto judged = fs::resolve_for_write(raw, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+        if (!judged.ok()) {
+            const std::string code(fs::path_error_code(judged.error()));
+            throw CommandError(code.empty() ? "invalid_argument" : code, judged.error().message, judged.error().hint);
+        }
+        path = fs::project_spelling(judged.value());
+    } else {
+        if (fs::is_absolute(raw))
+            bad_arg("'" + k + "' of " + command + " must be project-relative, but '" + raw + "' is an absolute path",
+                    "Use the path inside the project, e.g. \"" + k + "\": \"" + example + "\".");
+        auto norm = fs::normalize_checked(raw);
+        if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
+        path = norm.value();
+    }
     if (path.empty() || fs::is_directory(path))
-        bad_arg("'" + k + "' is '" + raw + "', which is a folder, not a scene file", "Name the file, e.g. \"scenes/level1.scene.json\".");
-    if (forWrite)
-        if (auto w = fs::check_writable(path); !w.ok()) bad_arg("'" + k + "': " + w.error().message, w.error().hint);
+        bad_arg("'" + k + "' of " + command + " is '" + raw + "', which is a folder, not a " + kind, "Name the file, e.g. \"" + k + "\": \"" + example + "\".");
     return path;
 }
 
@@ -406,9 +423,10 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
         if (q.tilemap.contains(k))
             bad_arg(std::string("'tilemap.") + k + "' cannot be set: the grid (tiles, width, height) comes from 'rows' and 'legend'",
                     "Remove it from 'tilemap'; pass only tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer there.");
-    if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", true);
-    if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false);
     q.dryRun = a.value("dryRun", false);
+    // A dry run writes nothing, so it needs no writeProject: its `path` is only read (and judged like `from`).
+    if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", !q.dryRun, "scene.import_ascii", q.dryRun);
+    if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false, "scene.import_ascii");
     if (a.contains("edits")) q.edits = a["edits"];  // {entity: {Component: {fields}}}: the input schema checked the shape
     if (q.path.empty()) {
         if (!q.edits.empty())
@@ -422,6 +440,7 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
                     "Add \"path\": \"scenes/<name>.scene.json\". Without 'path' the import changes the RUNNING scene, which a dry run cannot undo.");
     }
     if (q.path.empty() && q.save) {
+        require_capability(Capability::WriteProject, "scene.import_ascii", "`save` writing the current scene file");
         if (I.currentScene.empty())
             bad_arg("'save' needs a current scene file but none is loaded",
                     "Pass \"path\": \"scenes/x.scene.json\" to build that scene file directly (the running world is not touched), "
@@ -1149,9 +1168,9 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
     if (!a.contains("ops") || !a["ops"].is_array() || a["ops"].empty())
         bad_arg("'ops' must be a non-empty array of operations",
                 "Example: \"ops\": [{\"op\": \"fill\", \"rect\": [0, 5, 3, 1], \"glyph\": \"#\"}]. Ops: fill, replace, insertColumns, deleteColumns, put.");
-    auto norm = fs::normalize_checked(a["file"].get<std::string>());
-    if (!norm.ok()) bad_arg("'file': " + norm.error().message, norm.error().hint);
-    const std::string file = norm.value();
+    // `file` is rewritten (not by a dry run, which needs no writeProject): judged first, before it is read or anything is built.
+    const bool dryRun = a.value("dryRun", false), rebuild = a.value("rebuild", true);
+    const std::string file = scene_file_arg(a["file"], "file", !dryRun, "scene.ascii_edit", dryRun, "level file", "levels/1-1.json");
     if (!fs::exists(file)) {
         std::vector<std::string> jsons = fs::list("", true, ".json");
         throw CommandError("not_found", "'file' '" + file + "' does not exist. " + did_you_mean(file, jsons),
@@ -1165,7 +1184,6 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
     ctx.args = loaded.value();
     ctx.grid = parse_rows(ctx.args);
     ctx.legend = parse_legend(merged_legend(ctx.args));
-    const bool dryRun = a.value("dryRun", false), rebuild = a.value("rebuild", true);
 
     for (std::size_t i = 0; i < a["ops"].size(); ++i) {
         try {
@@ -1316,9 +1334,9 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
                "replace":{"type":"boolean","default":true,
                           "description":"Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them."},
-               "path":{"type":"string","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
+               "path":{"type":"string","x-fa-path":"write","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
                "from":{"type":"string","description":"File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist."},
-               "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`."},
+               "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Needs no writeProject: `path` is only read."},
                "edits":{"type":"object",
                         "description":"File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {\"camera\": {\"Camera\": {\"clearColor\": [0.5, 0.7, 0.9, 1]}}}). Add \"$merge\": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {\"level\": {\"Script\": {\"$merge\": true, \"props\": {\"levelIndex\": 3}}}}. A wrong entity/component/field fails and nothing is written.",
                         "additionalProperties":{"type":"object","additionalProperties":{"type":"object"}}},
@@ -1328,7 +1346,38 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "anchor":{"type":"string","enum":["top-left","bottom-left","center"],
                          "description":"Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin."}}})json"),
          false, "scene"},
-        [&engine, &I](const Json& a) { return import_ascii(I, a); });
+        [&I](const Json& a) { return import_ascii(I, a); });
+
+    // The running-world half of scene.import_ascii as a command of its own: it can never write a file, so it needs only {read, state}
+    // and a game script may call it (tilemap.generate's `place` does). The file half (`path`, `from`, `edits`) and `save` write the
+    // project: scene.import_ascii asks for writeProject itself when a call writes (a dry run writes nothing) and a game script is refused.
+    {
+        CommandInfo twin;
+        twin.name = "scene.place_ascii";
+        twin.summary = "Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file.";
+        twin.description =
+            "scene.import_ascii without its file half: the map and the objects of the legend are created in the running world (like "
+            "scene.spawn), the scene file is never touched, so scripts of a game may call it (tilemap.generate with `place` does). "
+            "It takes the arguments of scene.import_ascii except `path`, `from`, `edits`, `dryRun` and `save`, which are refused "
+            "(use scene.import_ascii for those). `rows` is the map, row 0 = the TOP row, one character per tile; `legend` maps a character "
+            "to a tile index or to an object {tile?, prefab?, id?, overrides?, offset?}; `entity` is the Tilemap entity (default "
+            "\"tilemap\"), `tilemap` its fields, `position` + `anchor` where the map goes, `replace` destroys the objects of earlier "
+            "imports into the same tilemap. Returns what scene.import_ascii returns for the running world. Example: scene.place_ascii "
+            "{\"rows\":[\"....\",\"#oo#\"],\"legend\":{\"#\":0,\"o\":{\"prefab\":\"prefabs/coin.prefab.json\"}}}";
+        twin.readOnly = false;
+        twin.category = "scene";
+        if (const CommandInfo* base = I.commands.info("scene.import_ascii")) {
+            twin.inputSchema = base->inputSchema;
+            if (twin.inputSchema.contains("properties") && twin.inputSchema["properties"].is_object())
+                for (const char* k : {"path", "from", "dryRun", "edits", "save"}) twin.inputSchema["properties"].erase(k);
+            // The schema is closed, so a call with one of those arguments fails in validation, before any handler could explain
+            // it: the explanation lives in the schema, which the "invalid arguments" hint sends the caller to read.
+            twin.inputSchema["description"] =
+                "scene.place_ascii only changes the running world and never writes a file, so `path`, `from`, `dryRun`, `edits` and "
+                "`save` are not arguments of it. Use scene.import_ascii for those (it writes the project, so a game script cannot call it).";
+        }
+        I.commands.add(std::move(twin), [&I](const Json& a) { return import_ascii(I, a); });
+    }
 
     I.commands.add(
         {"scene.ascii_edit",
@@ -1355,7 +1404,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "cells), dryRun, rows? (dryRun)} plus the import result when it ran (its `path` and `saved` name "
          "the scene file).",
          parse_schema(R"json({"type":"object","required":["file","ops"],"properties":{
-               "file":{"type":"string","description":"Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...)."},
+               "file":{"type":"string","x-fa-path":"write","description":"Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere)."},
                "ops":{"type":"array","minItems":1,"description":"Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row | above}. 0-based, row 0 = top.",
                       "items":{"type":"object","required":["op"],"properties":{
                           "op":{"type":"string","enum":["fill","replace","insertColumns","deleteColumns","put"],"description":"Which operation."},
@@ -1369,7 +1418,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                           "row":{"type":"integer","description":"put: absolute row (0 = top)."},
                           "above":{"type":"integer","description":"put: cells above the ground of `col` (1 = standing on it). Instead of `row`."}}}},
                "rebuild":{"type":"boolean","default":true,"description":"Rebuild the level with scene.import_ascii on the edited file when it has a `path`."},
-               "dryRun":{"type":"boolean","default":false,"description":"Write nothing; return the edited rows (and the import's dry run)."}}})json"),
+               "dryRun":{"type":"boolean","default":false,"description":"Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read."}}})json"),
          false, "scene"},
         [&I](const Json& a) { return ascii_edit(I, a); });
 
@@ -1460,6 +1509,18 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             const Vec3 w = I.world.world_matrix(e).transform_point({local.x, local.y, 0.0f});
             return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"x", w.x}, {"y", w.y}});
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        // Declared for what they do by default (the running world, or a dry run); a call that writes a file asks for
+        // writeProject itself (resolve_caller_project_path, require_capability), so `dryRun` needs none.
+        {"scene.import_ascii", capability_sets::changes_state()},
+        {"scene.place_ascii", capability_sets::changes_state()},
+        {"scene.ascii_edit", capability_sets::changes_state()},
+        {"tilemap.set_tile", capability_sets::changes_state()},
+        {"tilemap.cell_at", capability_sets::reads()},
+        {"tilemap.cell_to_world", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

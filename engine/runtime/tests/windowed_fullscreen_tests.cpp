@@ -19,7 +19,7 @@ using namespace fa;
 TEST_CASE("windowed fullscreen: window.setFullscreen(true) in a script toggles the real window and back"
           * doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     namespace stdfs = std::filesystem;
-    stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed_fullscreen");
+    stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed_fullscreen").value();
     stdfs::create_directories(dir / "scenes");
     stdfs::create_directories(dir / "scripts");
     std::ofstream(dir / "factoria.json") << R"({"name":"Windowed","display":{"width":320,"height":180}})";

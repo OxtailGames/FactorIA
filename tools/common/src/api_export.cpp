@@ -9,6 +9,9 @@
 #include <optional>
 #include <sstream>
 
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
 #include "fa/scene/components.h"
@@ -102,6 +105,7 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
     const std::string since = since_line(api_since("commands", c->name));
     if (!since.empty()) o << since << "\n\n";
     o << c->summary << "\n\n";
+    o << "Capabilities: " << capabilities_line(*c) << "\n\n";
     if (!c->description.empty()) o << c->description << "\n\n";
     if (!c->details.empty()) o << c->details << "\n\n";
     const Json& props = c->inputSchema.contains("properties") ? c->inputSchema["properties"] : Json::object();
@@ -117,6 +121,12 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
             bool req = std::find(required.begin(), required.end(), it.key()) != required.end();
             std::string desc = p.value("description", "");
             if (p.contains("default")) desc += " Default " + short_json(p["default"]) + ".";
+            // "x-fa-path" (docs/ARCHITECTURE.md, "Commands"): what the command does with a path argument.
+            if (p.contains("x-fa-path") && p["x-fa-path"].is_string()) {
+                const std::string kind = p["x-fa-path"].get<std::string>();
+                desc += kind == "write" ? " Path the command writes; the write rules apply (docs/CLI.md, \"Paths\")."
+                                        : " Path the command reads.";
+            }
             o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | " << md_escape(desc) << " |\n";
         }
         o << "\n";
@@ -124,6 +134,15 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
 }
 
 }  // namespace
+
+std::string capabilities_line(const CommandInfo& info) {
+    if (!info.capabilitiesDeclared) return "not declared yet";
+    const std::vector<std::string> names = info.capabilities.names();
+    if (names.empty()) return "none";
+    std::string out;
+    for (const std::string& n : names) out += (out.empty() ? "" : ", ") + n;
+    return out;
+}
 
 std::string command_details_pointer(const CommandInfo& info) {
     if (info.details.empty()) return {};
@@ -532,6 +551,9 @@ void register_api_export_commands(CommandRegistry& registry) {
                              tooling_detail::arg_string(args, "filter", false), render);
         });
     }
+    declare_command_capabilities(registry, {
+        {"docs.components", capability_sets::reads()},
+        {"docs.commands", capability_sets::reads()}});
 }
 
 void register_api_reference_command(CommandRegistry& registry, const ScriptSystem& scripts) {
@@ -550,9 +572,18 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
             {"properties", Json::object({{"out", Json::object({{"type", "string"},
-                {"description", "Docs folder to write into (relative to the working directory), usually \"docs\"."}})}})}});
+                {"description", "Docs folder to write into, usually \"docs\". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory."},
+                {"x-fa-path", "write"}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
-            const std::filesystem::path out = std::filesystem::absolute(tooling_detail::arg_string(args, "out", true));
+            // The command-line user names a folder relative to the working directory, or any absolute one. An agent (MCP, the
+            // in-editor assistant) writes inside the project folder, wherever the process was started from.
+            const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+            std::error_code cwdEc;
+            std::filesystem::path root = std::filesystem::current_path(cwdEc);
+            if (!anywhere && !fs::project_root().empty()) root = fs::project_root();
+            auto resolvedOut = fs::resolve_for_write_in(root, fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true), anywhere);
+            if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+            const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
             // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any
@@ -588,6 +619,9 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             return result;
         });
     }
+    // docs.write_reference writes <out>/ (inside the project for an MCP client or agent, any folder for the command line).
+    declare_command_capabilities(registry, {
+        {"docs.write_reference", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

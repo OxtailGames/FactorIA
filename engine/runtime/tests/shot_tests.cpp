@@ -42,7 +42,7 @@ const char* kScene = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* scene = kScene) {
-        dir = fs::make_temp_dir("fa_shot_test_" + name);
+        dir = fs::make_temp_dir("fa_shot_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << scene;
@@ -149,10 +149,10 @@ TEST_CASE("game.screenshot: without path the picture is temporary, with path it 
     REQUIRE(reg.ok);
     CHECK(stdfs::path(reg.result["$image"]["path"].get<std::string>()).filename() == "frame_3_region.png");
     // With a path: kept, `path` in the result, no temporary flag.
-    const std::string mine = (p.dir / ".factoria" / "screenshots" / "mine.png").generic_string();
+    const std::string mine = (p.dir / "shots" / "mine.png").generic_string();  // a caller's path: inside the project, not a managed folder
     auto kept = c.call("game.screenshot", Json{{"path", mine}});
-    REQUIRE(kept.ok);
-    CHECK(kept.result["path"] == mine);
+    REQUIRE_MESSAGE(kept.ok, kept.error.dump());
+    CHECK(stdfs::equivalent(stdfs::path(kept.result["path"].get<std::string>()), stdfs::path(mine)));
     CHECK_FALSE(kept.result.contains("temporary"));
     CHECK_FALSE(kept.result["$image"].contains("temporary"));
     CHECK_FALSE(discard_temporary_image(kept.result["$image"], p.dir));

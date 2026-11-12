@@ -14,7 +14,7 @@ struct TempProject {
     stdfs::path oldRoot;
     TempProject() {
         oldRoot = fs::project_root();
-        dir = fs::make_temp_dir("fa_test_asset_manifest");
+        dir = fs::make_temp_dir("fa_test_asset_manifest").value();
         fs::set_project_root(dir);
     }
     ~TempProject() {

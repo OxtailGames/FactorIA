@@ -40,7 +40,7 @@ std::string logs_since(std::uint64_t seq) {
 struct AppleGame {
     stdfs::path dir;
     AppleGame() {
-        dir = fs::make_temp_dir("fa_apple_backend_test");
+        dir = fs::make_temp_dir("fa_apple_backend_test").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Store","plugins":{"apple":{"path":")" << FA_APPLE_PLUGIN_DIR
                                              << R"(","platforms":["macos"]}},"platform":{

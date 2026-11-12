@@ -480,6 +480,7 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
 
 CommandHookConfig load_command_hooks(const AiConfig& cfg, const ExtensionContext& ctx) {
     CommandHookConfig out;
+    out.inheritEnv = cfg.inheritEnv;
     const ProjectTrustState state = read_project_trust(ctx, false);
     std::vector<const Extension*> all;
     for (const Extension& e : cfg.extensions.entries)

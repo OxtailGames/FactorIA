@@ -388,7 +388,7 @@ void register_frame_commands(CommandRegistry& registry, const std::string& proje
         info.description = description;
         info.inputSchema = Json::parse(std::string("{\"type\":\"object\",\"required\":[") + required + "],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"}," + props +
                                        "\"bake\":{\"type\":\"boolean\",\"default\":true,\"description\":\"" + bakeDoc + "\"}}}");
-        registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
+        add_image_command(registry, info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
     const std::string resultDoc =
         " Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \\\"Frames and tags\\\".";

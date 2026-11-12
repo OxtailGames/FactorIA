@@ -272,7 +272,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             // A thrown step still has to put the game back, so the cleanup is one lambda.
             auto restore = [&] {
                 I.i18n.set_pseudo(false);
-                if (!startLanguage.empty()) I.switch_language(startLanguage);
+                if (!startLanguage.empty()) (void)I.switch_language(startLanguage);  // restoring: nothing to report
                 if (!startScene.empty() && !current) {
                     std::string e;
                     I.load_scene_impl(startScene, &e);
@@ -299,7 +299,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 Json caseList = Json::array();
                 for (const Case& c : cases) {
                     I.i18n.set_pseudo(c.pseudo);
-                    if (!c.language.empty()) I.switch_language(c.language);
+                    if (!c.language.empty()) (void)I.switch_language(c.language);  // an unknown language keeps the current one
                     I.apply_localization();
                     engine.set_text_scale(c.scale);
                     engine.set_ui_scale(c.uiScale);
@@ -381,6 +381,11 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             if (!loadProblems.empty()) result["loadProblems"] = loadProblems;
             return result;
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"ui.check_layout", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

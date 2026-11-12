@@ -16,6 +16,7 @@ export default {
     },
   },
   readOnly: false,
+  capabilities: ["read", "state"], // changes the running game only, writes no file: a game script or a test may call it
   run({ x, y }) {
     const e = world.spawnPrefab("prefabs/coin.prefab.json", { position: [x, y] });
     return { id: e.id };

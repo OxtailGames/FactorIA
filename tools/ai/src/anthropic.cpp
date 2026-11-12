@@ -5,6 +5,7 @@
 #include "fa/ai/process.h"
 #include "fa/core/strings.h"
 #include "provider_util.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai::anthropic {
@@ -313,6 +314,9 @@ std::string fetch_ant_token() {
     if (which("ant").empty()) return {};
     ProcessOptions po;
     po.argv = {"ant", "auth", "print-credentials", "--access-token"};
+    po.inheritEnv = plain_inherit_env();  // the ant CLI also reads its own configuration and login variables
+    po.inheritEnv->push_back("ANTHROPIC_*");
+    po.inheritEnv->push_back("CLAUDE_*");
     po.timeoutSeconds = 20;
     auto r = run_process(po);
     if (!r || r->exitCode != 0) return {};

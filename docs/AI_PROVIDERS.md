@@ -30,13 +30,13 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
    ```json
    { "roles": { "orchestrator": { "provider": "claude-code", "model": "opus" } } }
    ```
-FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
+FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode <mode>` (`<mode>` is `acceptEdits` unless you set another, see [Permission mode](#permission-mode)),
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
-`<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (on Linux and macOS readable by your user only; on Windows it
-has its folder's permissions) and deleted when the run ends (also
-when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
+`<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (readable by your user only: mode 0600, on Windows a protected ACL; when the project's folder refuses that, for example on a
+network share or a NAS, the file goes to a new owner-only folder `factoria-run_*` in your temporary folder instead, never to one that already existed, and the log says why; a folder of a run that crashed is removed by a later run after a day) and
+deleted when the run ends (also when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
 editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
 that cannot be deleted (on Windows, while another program holds it open) is reported in the log and removed by a later run
 once it is a day old. That sweep removes only `fa-run-*` entries of that folder, and the names FactorIA 0.19.0 gave its
@@ -47,7 +47,7 @@ run files there (`mcp-<provider>-<n>-<n>.json`, `settings-<provider>-<n>-<n>.jso
 2. Run `codex` once (or `codex login`) and sign in with ChatGPT.
 3. Use provider `codex`. FactorIA runs
    `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
-   with the prompt on standard input. Codex starts a **fresh session every message**: FactorIA does not resume it,
+   with the prompt on standard input (plus `--sandbox <mode>` when you set a [permission mode](#permission-mode) other than the default). Codex starts a **fresh session every message**: FactorIA does not resume it,
    so a follow-up in the editor chat does not remember the earlier messages (the transcript on screen does).
 
 ### CLI agents in the editor
@@ -105,6 +105,17 @@ A template with `--input-format stream-json` gets standard input as one JSON lin
 `{"type":"user","message":{"role":"user","content":[{"type":"text",...},{"type":"image",...}]}}` (what Claude Code expects).
 Every other CLI gets the pictures as files: the prompt ends with `Attached images (read them): <absolute paths>`.
 
+#### Contract tests for the CLIs (engine developers)
+
+The output formats of the CLIs are not ours and change between their versions. `tools/ai/tests/fixtures/cli/` keeps recorded
+outputs: Claude Code 2.1.318 (`stream-json` runs: a plain answer, a tool use, a tool refused by the permission mode, the turn limit as
+an error result; the model list; `--version`), and, written from the documentation because no Codex is installed on the development
+machines, Codex `exec --json` events and a generic CLI's lines. `test_cli_contract.cpp` replays each file through the code that parses a live
+run (`CliStreamParser`, `list_models`, `detect_providers`) and checks what the engine reads: final text, error or success, session id, tokens and
+cost, tool calls, the refusal. A CLI update that changes its format fails there and names the fixture and the field.
+`tools/ai/tests/fixtures/cli/README.md` has the exact command line of every recording, what was scrubbed from it and how to re-record
+after a CLI update.
+
 ### D) Anthropic API key
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -135,7 +146,10 @@ The model must support tool calling.
 Location: `~/.factoria/ai.json` (Linux/macOS), `%APPDATA%\factoria\ai.json`
 (Windows). Override with the `FACTORIA_AI_CONFIG` environment variable. The
 file is optional; without it the Anthropic defaults below apply. Schema:
-`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix).
+`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix). A save (the editor's AI settings, `ai.settings.set`) takes a lock file (`ai-config.lock`) next to
+`ai.json` for its read-modify-write (the trust file `ai-trust.json` too) and replaces the file atomically (a temporary file, then a rename; on Windows the rename is
+retried for about a second when another program has the file open), so two programs saving at once never mix their changes;
+a save that cannot get the lock in a second changes nothing and says to try again (a lock left by a program that crashed expires after about 10 s).
 
 ```json
 {
@@ -159,9 +173,57 @@ file is optional; without it the Anthropic defaults below apply. Schema:
 Provider fields: `type`, `preset`, `baseUrl`, `apiKeyEnv`, `apiKey`, `headers`,
 `defaultModel`, `useAntCli`, `sendReasoningEffort`, `command`, `argv` (full
 template: **every CLI argument can be overridden**, CLI flags change over time),
-`env`, `unsetEnv`, `factoriaCommand` (default `factoria`), `pricing`
+`env`, `unsetEnv`, `inheritEnv` (see [Environment of the programs the AI starts](#environment-of-the-programs-the-ai-starts)),
+`factoriaCommand` (default `factoria`), `pricing`
 (`inputPerMTok`, `outputPerMTok`, ...), `maxRetries`, `timeoutSeconds`, `license`
 (asset providers, see [Asset providers](#asset-providers)).
+
+### Environment of the programs the AI starts
+
+The editor's environment holds secrets (the API key of every provider, `FACTORIA_*_PASSWORD` for signing), so the programs the AI
+starts do not inherit it whole. Each gets an allow-list:
+
+| Program | Inherits |
+|---|---|
+| Command hooks ([HOOKS.md](HOOKS.md)) | the base list, network and config variables (proxies, certificate files), the hook's own `CLAUDE_PROJECT_DIR`, `FACTORIA_*` variables, and the top-level `inheritEnv` |
+| CLI agents (Claude Code, Codex, `generic-cli`), model listing, plugin installs | the base list, network and config variables (`XDG_*`, `HTTP(S)_PROXY`, `NO_PROXY`, `SSL_CERT_*`, `NODE_EXTRA_CA_CERTS`), the variables of the CLI (`CLAUDE_*` and `ANTHROPIC_*` for Claude Code, `CODEX_*` and `OPENAI_*` for Codex), the provider's own API key variable, the provider's `inheritEnv` and the top-level `inheritEnv` |
+| `asset-command` providers | the same as a CLI agent of that provider |
+| Stdio tool servers (`mcpServers`) | the base list, network and config variables, the server's `apiKeyEnv`, its `inheritEnv` and the top-level `inheritEnv`; the server's `env` is always passed |
+| Version probes (`--version`), `curl` | the base list and the network and config variables |
+
+The base list is `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`/`TEMP`/`TMP`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `TZ`,
+`FACTORIA_HOME`, `FACTORIA_AI_CONFIG`, `FACTORIA_CALLER` and a few more of FactorIA's own, and on Windows `SystemRoot`,
+`ComSpec`, `PATHEXT`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `ProgramFiles*`, `USERNAME` and the like. Claude Code
+on macOS finds its login in the keychain through `HOME`; it needs no other variable. `env` of a provider or server is added on
+top, `unsetEnv` removes names again.
+
+Not inherited, unless listed: the signing passwords (`FACTORIA_*_PASSWORD`), the API keys of other providers, the Amazon Bedrock
+login (`AWS_PROFILE`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`),
+the Google Vertex AI login (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUD_ML_REGION`) and `SSH_AUTH_SOCK`
+(Claude Code's `CLAUDE_CODE_USE_BEDROCK` and `CLAUDE_CODE_USE_VERTEX` are inherited, the variables they need are not). A signed
+export that you run through the stdio `factoria mcp` (an agent's tool server) therefore gets no `FACTORIA_*_PASSWORD`: this is by
+design, signing passwords are set in the environment of the editor or the terminal that runs the export.
+
+This list is a floor against leaking a secret by accident, not a barrier. A program that runs with no sandbox (an agent in
+`bypassPermissions` or `danger-full-access`, a shell the agent starts) runs as you: it can read `~/.factoria/ai.json`, the
+keychain and your files, and start a program that gets the whole environment from another place. For an agent that must not reach
+a secret, use the permission modes below or keep the secret out of the files it can read.
+
+A program that needs another variable (`AWS_PROFILE`, `GIT_SSH_COMMAND`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`, a company proxy
+variable) needs its name listed. Names are exact (`"AWS_PROFILE"`) or a prefix ending in `*` (`"AWS_*"`); on Windows they ignore
+case. Two places, both in `~/.factoria/ai.json` (a project's AI settings file cannot set them):
+
+```json
+{
+  "inheritEnv": ["AWS_PROFILE", "SSH_AUTH_SOCK"],
+  "providers": { "claude-code": { "inheritEnv": ["NODE_OPTIONS"] } },
+  "mcpServers": { "files": { "command": "node", "args": ["server.js"], "inheritEnv": ["FILES_TOKEN"] } }
+}
+```
+
+The top-level list applies to every hook, agent and tool server; the other two to one provider or one server. A name with `=`, a
+space, or a `*` anywhere but the end is refused with its JSON pointer when the file is read. If an agent works in the terminal but
+not in FactorIA and the cause is a missing variable, add its name here (or in the provider's `env`, with the value).
 
 Built-in providers exist without being listed: `anthropic`, `openai`,
 `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`, `claude-code`,
@@ -417,8 +479,8 @@ CLI providers are looked up in `PATH` and then in the folders their installers u
 the npm, bun, volta and nvm bins, Homebrew, `%APPDATA%\npm`): an editor opened from Finder or the Dock gets a shorter
 `PATH` than a terminal, and the CLI would otherwise look missing.
 
-The same lists are available to tools and AIs as the read-only command `ai.models {provider?}` (a CLI call, an MCP
-tool `ai_models`):
+The same lists are available to tools and AIs as the command `ai.models {provider?}` (a CLI call, an MCP tool `ai_models`). It changes no file, but it
+starts a CLI or calls an API, so it needs the Read, Process and Network capabilities and is not offered to a read-only caller:
 
 ```json
 {"providers": [
@@ -466,6 +528,18 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
   `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
   change the project on disk.
+* **Every role has a capability set** (docs/ARCHITECTURE.md, "Capabilities"). Builders (orchestrator, worker, fast, artist,
+  audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
+  `{read, state}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and `play.auto`.
+  Those pictures are returned to the model; a `path` argument (a copy written to the project) needs `writeProject` and is refused
+  to them. The same holds for the other commands that look at an asset or a sound (`model.preview`, `anim3d.preview`,
+  `skin3d.preview`, `assets.contact_sheet`, `assets.preview_sheet`, `assets.preview_in_scene`, `assets.check_art`,
+  `assets.spectrogram`, `assets.check_mix`, `audio.render`, `music.info`, `music.check`, `music.mix`): they are on the roles' tool
+  list by name, they write only an engine-chosen temporary picture, and an output path of their own (`out`, `path`, `pictureOut`)
+  is refused with `capability_denied`. A tool call that falls outside the set fails with `capability_denied` whose hint names the role, what it has and
+  that the user or a builder role must do it. The set also reaches the `factoria mcp` a CLI agent starts
+  (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`), so a CLI builder over MCP cannot publish either: run that command yourself in a
+  terminal (`factoria call <command>`) or in the editor.
 * **The automatic player supports the reviewer, it does not replace playing.** A game reviewer (not the art critic) may run
   `play.auto` (it plays the game headless with a bot and writes only a session under `.factoria/sessions/`; the other tools
   that change something stay refused). Its instructions fix the order: play the first minutes by hand first, without reading
@@ -740,10 +814,57 @@ asks the user, and a per-run or per-day limit refuses it. `ai.providers` lists e
 `factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
 of asset is assigned to.
 
+## Permission mode
+
+FactorIA starts Claude Code and Codex without a terminal, so nothing can answer "may I edit this file?". The **permission mode** of
+a provider says how much its agent may do on its own. It is the `permissionMode` key of the provider in your `ai.json`, in the
+**Agents** tab of the AI settings window (a combo per agent, with one line under it for what each value allows), or through the
+commands `ai.settings.get` (the `permissionModes` field lists every value with what it allows) and `ai.settings.set` with the
+pointer `/providers/claude-code/permissionMode` (scope `user`; value `null` goes back to the default):
+
+```json
+{ "providers": { "claude-code": { "permissionMode": "plan" }, "codex": { "permissionMode": "workspace-write" } } }
+```
+
+Only the `claude-code` and `codex` providers have it, and only **your** `ai.json` can hold it: a project's `.factoria/ai/settings.json`
+that sets it is refused, and `ai.settings.set` refuses scope `user` to an MCP or agent caller, so neither a project you downloaded nor the
+AI can widen what an agent may do. An unknown value is an error that names the pointer and lists the choices.
+
+| Agent | Value | What the agent may do |
+|-------|-------|-----------------------|
+| Claude Code | `manual` | Reads files and uses the FactorIA tools. Every file edit and shell command would need a yes nobody can give in a background run, so it is refused. |
+| Claude Code | `plan` | Reads and plans only: no file is edited and no command runs. |
+| Claude Code | `dontAsk` | Never asks: uses what is already allowed (the FactorIA tools, the sites you listed) and refuses everything else, edits included. |
+| Claude Code | `acceptEdits` | **Default.** Edits and creates files in the project without asking; other shell commands and tools that are not already allowed are refused. |
+| Claude Code | `auto` | A safety check approves the actions it judges safe and blocks the rest. Less strict than `acceptEdits`. |
+| Claude Code | `bypassPermissions` | **Dangerous.** No permission checks: it edits or deletes any file it can reach, runs any shell command and uses the network. |
+| Codex | `read-only` | Reads files; its shell cannot write or use the network. The FactorIA tools still work (they run in FactorIA, not in the sandbox). |
+| Codex | `default` | **Default.** No flag: Codex uses its own `~/.codex/config.toml`, which is a read-only sandbox without one. |
+| Codex | `workspace-write` | Its shell may edit files in the project folder and temporary folders; no network, nothing outside those folders. |
+| Codex | `danger-full-access` | **Dangerous.** No sandbox: its shell edits or deletes any file you can, runs any command and uses the network. |
+
+The Claude Code values are the ones `claude --help` lists for `--permission-mode`; the Codex values are the ones documented for
+`codex exec --sandbox` (they were taken from its documentation: Codex was not installed where this was written, so the exact
+sandbox behaviour of your version is worth a look at `codex exec --help`).
+
+* **Dangerous modes need an explicit choice.** `bypassPermissions` and `danger-full-access` are never a default: they are in the file
+  only when you wrote them (the window asks "Yes, allow it" before it saves one, and `ai.settings.set` answers with `dangerous: true`).
+  They are not forbidden, because an agent in a throwaway folder or a container is a real use and the choice is yours alone to
+  make (see above), but they are labelled dangerous everywhere they appear.
+* **A role that only reads stays read-only.** A reviewer (and any run FactorIA starts read-only) is held to read-only whatever the
+  setting is: for Codex the sandbox is `read-only`; for Claude Code `bypassPermissions` and `auto` become `acceptEdits` for that run
+  and its edit tools stay switched off (`--disallowedTools`), as they were before the setting existed. This is about the setting:
+  a permission or sandbox flag you wrote in your own `argv` template is kept as written (next point), for a read-only role too.
+* **A command line of your own wins.** With the built-in command line the flag is always added (the default when you set none).
+  With your own `argv` template the flag is added only when the provider has a `permissionMode`, and never when the template already
+  has `--permission-mode`, `--dangerously-skip-permissions`, or for Codex `--sandbox`, `-s`, `--full-auto`,
+  `--dangerously-bypass-approvals-and-sandbox`, `--yolo` or `-c sandbox_mode=...`: what you wrote stays, with no second flag.
+* `generic-cli` providers have no permission mode: their command line is yours.
+
 ## The AI settings window
 
 **AI > AI Settings...** (the AI menu of the menu bar) is where the roles and the asset side of `ai.json` are set up. Its
-**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has three sections; the first two share one
+**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Agents** tab sets the [permission mode](#permission-mode) of Claude Code and Codex; the **Assets** tab has three sections; the first two share one
 **Save** button:
 
 * **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only
@@ -1160,7 +1281,7 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 | `codex` | Skills only. Codex reads Agent Skills from `.agents/skills` of the folder it starts in, so FactorIA copies the skills of the run to `<project>/.agents/skills/factoria-r<tag>-<name>/` (and writes `.agents/skills/.gitignore` with `factoria-*/` when there is none) and removes them when the run ends; folders of your own there are not touched. Codex has no plugin folder or hooks file for FactorIA to fill: a plugin or hooks entry for a Codex role is skipped, and the run says so (an Info line in the chat and the CLI output). Codex also keeps the `# Skills` lines in the prompt and `skills_read`, so a Codex version that does not scan `.agents/skills` still reads the skills. Not tested against a real Codex here (no Codex was available): `codex` must be a version with Agent Skills. |
 | `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. A skill folder is not passed (no flag is known for it); the skills reach it as prompt lines and `skills_read`. What cannot be passed is listed in the run output with the placeholder to add. |
 | `anthropic`, `openai-compatible` | **Skills and hooks**: FactorIA's own loop runs the seven events of Claude Code's hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionEnd`) for handlers of type `command` and `js`, with the same JSON on stdin and the same decisions on stdout, so one hook script serves Claude Code and these providers ([HOOKS.md](HOOKS.md)). Handlers of type `http`, `prompt` and `agent` are Claude Code's and are skipped. Skills reach them as one line each in the system prompt, read with `skills_read` ([Skills](#skills-for-every-provider)). Plugins are not used by these providers, and `ai.extensions` and the run say so for each one listed. |
-| every provider | `beforeCommand` and `afterCommand` hooks fire around every command of the engine, whoever calls it (an MCP client, the CLI, the editor, a script, the built-in AI), whatever provider the role has. |
+| every provider | `beforeCommand` and `afterCommand` hooks fire around every command of the engine, whoever calls it (an MCP client, the CLI, the editor, a script, the built-in AI), whatever provider the role has. A call the caller's capabilities refuse (`capability_denied`) is not hooked: no `beforeCommand`, no `afterCommand`. |
 
 ### Skills for every provider
 
@@ -1287,8 +1408,8 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 * Prefer `apiKeyEnv` over `apiKey`; if the file holds a key, `chmod 600` it
   (FactorIA warns when it is world-readable). A key pasted into the editor's
   [AI settings window](#the-ai-settings-window) is stored as `apiKey` in this same
-  user-level file, which the window writes readable only by you (Linux and macOS: the
-  file is created private before the key goes in), and the box never shows a stored key
+  user-level file, which the window writes readable only by you (the file is created private before the key goes in:
+  mode 0600 on Linux and macOS, a protected ACL with your account as the only entry on Windows), and the box never shows a stored key
   again. The key is not written to a game project, a log, a notification or a command
   result, and is forgotten from the window once saved or closed.
 * Keys are sent only to the provider's `baseUrl`, in headers (never in URLs or

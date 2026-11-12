@@ -73,7 +73,7 @@ it are not asked.
 | `Stop` | The model finished its answer. | none | yes: the model is asked to keep going |
 | `SessionEnd` | The run is over (also after a cancel or an error). | the reason | no |
 | `beforeCommand` | **Engine:** a command is about to run, for any caller. | the command name | yes: the command does not run |
-| `afterCommand` | **Engine:** the command ran, whatever the outcome. | the command name | no |
+| `afterCommand` | **Engine:** the command ran, whatever the outcome (a call refused with `capability_denied` is not hooked: neither `beforeCommand` nor `afterCommand` fires). | the command name | no |
 
 In the built-in loop `Stop` is asked only for the top-level run, and at most 8 times in a row: a hook that keeps refusing cannot
 hold the run forever. A delegated worker run does not fire `SessionStart`, `UserPromptSubmit`, `Stop` or `SessionEnd`.
@@ -107,6 +107,14 @@ A program also gets the environment variables `CLAUDE_PROJECT_DIR` and `FACTORIA
 `FACTORIA_HOOK_EVENT`, and `FACTORIA_IN_HOOK=1`. A `factoria` that a hook starts sees that last variable and runs **no hooks of its
 own**, so a hook that calls the engine cannot trigger itself in a loop. For the same reason, commands that a hook makes the registry
 run in the same process are not hooked.
+
+A program does **not** inherit the editor's whole environment: it holds API keys and signing passwords, and a hook that is a
+shell line could print or send them. It gets a short base list (`PATH`, `HOME`, `USER`, the locale, the temporary folders and, on
+Windows, `SystemRoot`, `ComSpec`, `USERPROFILE`, `APPDATA`... so that `cmd.exe` and the system tools work), the variables above,
+and the names the user lists in the top-level `"inheritEnv"` of `~/.factoria/ai.json` (exact names, or a prefix ending in `*`,
+like `"AWS_*"`). A hook that needs `AWS_PROFILE`, a proxy (`HTTPS_PROXY`) or `GIT_SSH_COMMAND` needs the name listed there; a
+project's own AI settings file cannot list names (it could pull a secret into its own hooks). See
+[AI_PROVIDERS.md](AI_PROVIDERS.md#environment-of-the-programs-the-ai-starts).
 
 ## What a hook answers
 

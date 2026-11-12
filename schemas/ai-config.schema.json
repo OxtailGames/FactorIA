@@ -9,6 +9,10 @@
       "type": "string",
       "description": "Provider used by roles that do not set one. Default: anthropic."
     },
+    "inheritEnv": {
+      "$ref": "#/$defs/envNames",
+      "description": "Environment variables of FactorIA's own process that EVERY program the AI starts (hooks, CLI agents, asset-command, stdio tool servers) may inherit, on top of the base list and of what each provider needs. Programs the AI starts see only PATH, HOME, the locale and temp folders, a few FACTORIA_* settings, on Windows the system folders, and, for a CLI agent, its own API key variable, its config folders (CLAUDE_*, ANTHROPIC_*, CODEX_*, OPENAI_*, XDG_*), proxies and certificates: signing passwords (FACTORIA_*_PASSWORD) and the keys of other providers are not inherited (a signed export run through the stdio `factoria mcp` gets no FACTORIA_*_PASSWORD, by design). Cloud logins are not inherited either: Amazon Bedrock (AWS_PROFILE, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_BEARER_TOKEN_BEDROCK), Google Vertex AI (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUD_ML_REGION) and SSH_AUTH_SOCK. This list is a floor against accidental leaks, not a barrier: a program that runs without a sandbox can read the files where the keys are kept (ai.json). List here a variable a tool of yours needs (\"AWS_PROFILE\", \"SSH_AUTH_SOCK\", \"AWS_*\"). Not allowed in a project's AI settings file."
+    },
     "providers": {
       "type": "object",
       "description": "Providers by name. Built-in names (anthropic, openai, openrouter, gemini, groq, deepseek, ollama, lmstudio, claude-code, codex, elevenlabs, meshy, fake) exist without being listed; listing one overrides its fields.",
@@ -98,6 +102,11 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "envNames": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[^=\\s*]+\\*?$" },
+      "description": "Names of environment variables. A name ending in * stands for every variable that starts with the rest (\"AWS_*\"). Windows ignores the case of names; Linux and macOS do not."
+    },
     "toolServer": {
       "type": "object",
       "description": "One external tool server (MCP). type \"http\" (needs url) talks Streamable HTTP to a remote server; type \"stdio\" (needs command) starts a local program and talks to it through its standard input and output. When type is left out it is \"stdio\" if command is set, else \"http\". {key} in a header value, an argument or an env value is replaced by the key (apiKeyEnv's variable, else apiKey); ${NAME} and ${NAME:-default} by an environment variable.",
@@ -108,6 +117,7 @@
         "command": { "type": "string", "minLength": 1, "description": "stdio: the program to start (npx, uvx, node, python, a path)." },
         "args": { "type": "array", "items": { "type": "string" }, "description": "stdio: its arguments. May use {key} and ${ENV}." },
         "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "stdio: environment variables added for the program. Values may use {key} and ${ENV}." },
+        "inheritEnv": { "$ref": "#/$defs/envNames", "description": "stdio: variables of FactorIA's environment the program may inherit besides the base list (PATH, HOME...), proxies, certificates and its apiKeyEnv; added to the top-level inheritEnv." },
         "apiKeyEnv": { "type": "string", "description": "Name of the environment variable that holds the key used for {key}. Preferred over apiKey: the key stays out of this file." },
         "apiKey": { "type": "string", "description": "The key itself, used for {key} when apiKeyEnv is not set or not found. Only this user file can hold it; the file is kept readable by you only." },
         "note": { "type": "string", "description": "Goes to the AI's prompt: what this server is good for and when to use it (\"AI game art: sprites, textures, icons\")." },
@@ -255,8 +265,14 @@
           "items": { "type": "string" },
           "description": "CLI agents: argv template after the command. asset-command uses {prompt} {output} {width} {height} {seconds} {kind} {model} {seed} instead (and {input} {mask} for inpainting: the picture to repaint and a grey mask, white = repaint, both PNG files of the same size): the program writes the asset to {output} (.png for images, .wav for sounds, music and voice, .glb for models). Placeholders of CLI agents: {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria_json}, expanded in one pass (a prompt that contains {model} keeps that text). {mcp_config} is a file written for the run and deleted when it ends. For claude-code and codex a positional {prompt} goes after `--` (added when the template has none), so a prompt that starts with '-' is not read as an option. {session} is the CLI session id of the conversation (an argument whose placeholder is empty, like the first message's {session}, is dropped together with a bare flag before it). Without {prompt} the prompt is sent on standard input; with `--input-format stream-json` it is one JSON user message that can carry images."
         },
+        "permissionMode": {
+          "type": "string",
+          "enum": ["manual", "plan", "dontAsk", "acceptEdits", "auto", "bypassPermissions", "read-only", "default", "workspace-write", "danger-full-access"],
+          "description": "claude-code and codex only: what the agent may do without asking (a background run cannot ask, so what would need a yes is refused). claude-code (`--permission-mode`): manual (reads only), plan (reads and plans), dontAsk (only what is already allowed), acceptEdits (edits files in the project; the default), auto (a safety check decides), bypassPermissions (DANGEROUS: no checks at all). codex (`--sandbox`): read-only, default (no flag: Codex's own config.toml decides; the default), workspace-write (its shell edits the project folder), danger-full-access (DANGEROUS: no sandbox). A value of the other kind is an error. With this setting, a read-only role (artCritic, reviewer) does not run with bypassPermissions or auto (Claude Code) and always runs with the read-only sandbox (Codex). An \"argv\" template of your own that already has a permission or sandbox flag keeps it as you wrote it, also for a read-only role (your command line is yours), and gets no second one; an \"argv\" without one gets the flag only when this key is written. Only honoured in this user-level file: a project's AI settings file cannot hold it. docs/AI_PROVIDERS.md, \"Permission mode\"."
+        },
         "env": { "type": "object", "additionalProperties": { "type": "string" } },
         "unsetEnv": { "type": "array", "items": { "type": "string" } },
+        "inheritEnv": { "$ref": "#/$defs/envNames", "description": "CLI agents and asset-command: variables of FactorIA's environment this provider's program may inherit besides the base list (PATH, HOME...) and what its kind needs (its API key variable, Claude Code's CLAUDE_* and ANTHROPIC_*, Codex's CODEX_* and OPENAI_*, XDG_*, proxies, certificates); added to the top-level inheritEnv. Everything else stays out of its environment." },
         "factoriaCommand": { "type": "string", "description": "Command that starts FactorIA for the MCP server. Default: factoria." },
         "license": { "type": "string", "description": "Asset providers: the license or terms note recorded in assets.json for every asset this provider generates (e.g. \"Commercial use under our ElevenLabs Creator plan\"). Default: a note that says where the provider's terms are." },
         "assetPricing": {

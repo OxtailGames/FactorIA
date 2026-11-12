@@ -70,7 +70,9 @@ struct SignMacosOptions {
 
 struct SignStep {
     std::string title;
-    std::vector<std::string> command;  // the command line, secrets replaced by <redacted>
+    std::vector<std::string> command;  // the command line; a secret is never in it (it travels in `env` or on stdin)
+    std::vector<std::string> env;      // NAMES of the environment variables the step sets for the program (a secret's value is never listed)
+    bool stdinSecret = false;          // the program reads a secret (a password) on its standard input
     bool ran = false;
     int exitCode = -1;
 };
@@ -155,6 +157,12 @@ struct SignWindowsReport {
 
 // Signs the package (and the exe). An Error means it stopped: the message says which step failed and quotes what the tool printed.
 Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options);
+
+namespace detail {
+// A PowerShell single-quoted string for `utf8` (UTF-8 text): the ASCII ' and the typographic single quotes U+2018..U+201B, which
+// PowerShell reads as quotes too, are doubled. Exposed for the tests: a pure function, no file is needed to check it.
+std::string powershell_quote(const std::string& utf8);
+}  // namespace detail
 
 // Registers sign.windows for the project at `projectDir` (called by register_sign_commands).
 void register_sign_windows_command(CommandRegistry& registry, const std::string& projectDir);

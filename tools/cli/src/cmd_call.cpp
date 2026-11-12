@@ -169,7 +169,7 @@ Command make_call_command() {
     c.flags.push_back({"keep-going", "", "Batch: continue after a failed command."});
     c.examples = {"factoria call scene.list_entities",
                   "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform\":{\"position\":[100,50,0]}}}'",
-                  "factoria call game.screenshot '{\"path\":\"/tmp/s.png\"}' --frames-before 60",
+                  "factoria call game.screenshot '{\"path\":\"shots/s.png\"}' --frames-before 60",
                   "factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30",
                   "factoria call --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"time.elapsed\"}}]'",
                   "factoria call docs.search '{\"query\":\"collision\"}'"};
@@ -313,7 +313,7 @@ Command make_commands_command() {
     c.details = "With a prefix (scene) lists that area; with an exact name (scene.spawn) shows its description and argument schema.";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (default: the project containing the current directory)."},
-               {"json", "", "Machine-readable list (name, summary, description, inputSchema, readOnly, category)."}};
+               {"json", "", "Machine-readable list (name, summary, description, inputSchema, readOnly, capabilities, capabilitiesDeclared, category)."}};
     c.examples = {"factoria commands", "factoria commands scene", "factoria commands scene.spawn", "factoria commands --json"};
     c.run = [](Context& ctx) {
         auto session = open_tool_session(ctx, Gfx::None);
@@ -323,11 +323,12 @@ Command make_commands_command() {
             const CommandInfo* info = reg.info(filter);
             if (ctx.args.has("json")) {
                 print_json(ctx.out, Json::object({{"name", info->name}, {"summary", info->summary}, {"description", info->description}, {"details", info->details},
-                                                  {"inputSchema", info->inputSchema}, {"readOnly", info->readOnly}, {"category", info->category}}));
+                                                  {"inputSchema", info->inputSchema}, {"readOnly", info->readOnly}, {"capabilities", info->capabilities.to_json()},
+                                                  {"capabilitiesDeclared", info->capabilitiesDeclared}, {"category", info->category}}));
                 return 0;
             }
             ctx.out << info->name << " - " << info->summary << (info->readOnly ? "" : "  [modifies state]") << "\n\n"
-                    << info->description << (info->details.empty() ? "" : "\n\n" + info->details) << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
+                    << info->description << (info->details.empty() ? "" : "\n\n" + info->details) << "\n\nCapabilities: " << capabilities_line(*info) << "\n\nArguments (JSON schema):\n" << info->inputSchema.dump(2) << "\n";
             return 0;
         }
         Json all = Json::array();
@@ -338,7 +339,8 @@ Command make_commands_command() {
             if (!filter.empty() && !starts_with(i->name, filter) && !starts_with(i->name, filter + ".")) continue;
             byCat[i->category.empty() ? "other" : i->category].push_back(i);
             all.push_back(Json::object({{"name", i->name}, {"summary", i->summary}, {"description", i->description}, {"details", i->details},
-                                        {"inputSchema", i->inputSchema}, {"readOnly", i->readOnly}, {"category", i->category}}));
+                                        {"inputSchema", i->inputSchema}, {"readOnly", i->readOnly}, {"capabilities", i->capabilities.to_json()},
+                                        {"capabilitiesDeclared", i->capabilitiesDeclared}, {"category", i->category}}));
         }
         if (all.empty()) return report_failure(ctx, "No command matches '" + filter + "'.", fa::did_you_mean(filter, names));
         if (ctx.args.has("json")) {

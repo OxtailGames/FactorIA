@@ -39,7 +39,7 @@ struct Anim3DProject {
     CommandRegistry registry;
     std::unique_ptr<Anim3DModel> model;
     Anim3DProject() {
-        dir = fs::make_temp_dir("fa_anim3d_panel");
+        dir = fs::make_temp_dir("fa_anim3d_panel").value();
         register_asset_commands(registry, dir.string());
         model = std::make_unique<Anim3DModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         stdfs::create_directories(dir / "assets/models");

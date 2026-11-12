@@ -14,7 +14,7 @@ import { ApiError, base64url, base64urlDecode, errorResponse, json, nextMidnight
 export const FORMAT = "factoria.feedback-share/1";
 export const MAX_ENTRIES = 20;
 export const MAX_BODY_BYTES = 64 * 1024;
-export const DEFAULT_LIMITS = { install: 30, ip: 100, global: 20000, auth: 20, verdicts: 240 };
+export const DEFAULT_LIMITS = { install: 30, ip: 100, global: 20000, auth: 20, authGlobal: 2000, verdicts: 240, verdictsIp: 960, verdictsGlobal: 100000, noIp: 10 };
 export const MAX_VERDICT_IDS = 100;
 export const MAX_REJECTIONS = 50;
 export const REASON_MAX = 500;
@@ -91,9 +91,30 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
         return { key: `stat:${day}:${name}`, by, expiresAt: ms + STATS_TTL_MS };
     }
 
+    /**
+     * The network of a write request (an IPv6 address counts as its /64, an IPv4-mapped one as the IPv4): its keyed hash and
+     * the prefix of its counters. Cloudflare always sets cf-connecting-ip; a request without it did not come through
+     * Cloudflare, so it is refused (every such request would share one bucket, and the per-network cap is what stops free
+     * installation ids). ALLOW_NO_CLIENT_IP (local `wrangler dev`, tests; only "1" or "true") lets it through into one strict
+     * bucket of caps.noIp units per day, apart from every real network.
+     */
+    async function clientNetwork(ms, request) {
+        const ip = request.headers.get("cf-connecting-ip");
+        if (ip && ip.trim()) return { hash: await keys.ipKey(secret(), utcDay(ms), keys.networkOf(ip)), strict: false };
+        const allow = env && env.ALLOW_NO_CLIENT_IP;
+        if (!allow || !["1", "true"].includes(String(allow).trim().toLowerCase())) {
+            throw new ApiError(400, "missing_client_ip", "The request has no CF-Connecting-IP header, so the server cannot tell which network sent it.", "Reach the server through Cloudflare (its workers.dev or custom domain URL). For local `wrangler dev` or tests the server owner can set ALLOW_NO_CLIENT_IP=1, which puts such requests into one strict shared bucket.");
+        }
+        return { hash: await keys.ipKey(secret(), utcDay(ms), "no-client-ip"), strict: true };
+    }
+
+    /** The counter key `<prefix>:<hash>` of a network (strict bucket: prefix `x`+prefix) and its cap (the strict one is caps.noIp at most). */
+    function networkCounter(net, prefix, cap) {
+        return net.strict ? { key: `${prefix}x:${net.hash}`, cap: Math.min(cap, caps.noIp) } : { key: `${prefix}:${net.hash}`, cap };
+    }
+
     async function ipCounterKey(ms, request) {
-        const ip = request.headers.get("cf-connecting-ip") || "unknown";
-        return "ip:" + (await keys.ipKey(secret(), utcDay(ms), ip));
+        return networkCounter(await clientNetwork(ms, request), "ip", caps.ip);
     }
 
     // ---- POST /v1/reports ------------------------------------------------------------------------------------
@@ -107,6 +128,7 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             throw new ApiError(400, "missing_install", installId ? "X-Factoria-Install is not a UUID v4." : "The X-Factoria-Install header is missing.", "Send the installation id (a random UUID v4) in X-Factoria-Install; the engine creates it on the first send.");
         }
         const install = await keys.installKey(s, installId.toLowerCase());
+        const network = await ipCounterKey(ms, request);
 
         let reporter = null;
         const token = bearer(request);
@@ -147,17 +169,18 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
 
         // Rate limits: counted per entry, accepted or rejected, and checked for the whole request before any is stored.
         const n = body.entries.length;
-        const counterKeys = { install: `inst:${day}:${install}`, ip: await ipCounterKey(ms, request), global: `global:${day}` };
+        const counterKeys = { install: `inst:${day}:${install}`, ip: network.key, global: `global:${day}` };
         const used = await store.getCounters(Object.values(counterKeys), ms);
         const dayEnd = nextMidnight(ms);
         for (const [scope, label] of [["install", "this installation"], ["ip", "this network"], ["global", "the server"]]) {
-            const left = caps[scope] - used[counterKeys[scope]];
+            const cap = scope === "ip" ? network.cap : caps[scope];
+            const left = cap - used[counterKeys[scope]];
             if (n > left) {
                 await store.commit({ counters: [stat(day, "ratelimited", 1, ms)], now: ms });
                 throw new ApiError(
                     429,
                     "rate_limited",
-                    `The daily limit of ${caps[scope]} entries for ${label} is reached${left > 0 ? ` (${left} left, this request has ${n})` : ""}.`,
+                    `The daily limit of ${cap} entries for ${label} is reached${left > 0 ? ` (${left} left, this request has ${n})` : ""}.`,
                     left > 0 && scope !== "global"
                         ? `Send at most ${left} entries now, or wait until midnight UTC (Retry-After seconds).`
                         : "Wait until midnight UTC (Retry-After seconds); the engine retries by itself.",
@@ -245,16 +268,21 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             throw new ApiError(400, "missing_install", installId ? "X-Factoria-Install is not a UUID v4." : "The X-Factoria-Install header is missing.", "Send the installation id (a random UUID v4) in X-Factoria-Install; the engine creates it on the first send.");
         }
         const install = await keys.installKey(s, installId.toLowerCase());
+        const net = networkCounter(await clientNetwork(ms, request), "vqip", caps.verdictsIp);
         const body = parseJson(await readBody(request, 16 * 1024), "POST /v1/verdicts");
         if (!Array.isArray(body.shareIds) || body.shareIds.length === 0 || body.shareIds.length > MAX_VERDICT_IDS || !body.shareIds.every((id) => typeof id === "string" && SHARE_ID.test(id))) {
             throw new ApiError(400, "invalid_request", `shareIds must be an array of 1 to ${MAX_VERDICT_IDS} report ids such as r_8f3k2m.`, "Send the shareId values this installation received when it sent its reports.");
         }
         const counter = `vq:${day}:${install}`;
-        const used = (await store.getCounters([counter], ms))[counter];
-        if (used >= caps.verdicts) {
-            throw new ApiError(429, "rate_limited", `This installation already asked for verdicts ${caps.verdicts} times today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
+        const globalCounter = `vqglobal:${day}`;
+        const used = await store.getCounters([counter, net.key, globalCounter], ms);
+        for (const [key, cap, label] of [[counter, caps.verdicts, "This installation"], [net.key, net.cap, "This network"], [globalCounter, caps.verdictsGlobal, "The server"]]) {
+            if (used[key] >= cap) {
+                throw new ApiError(429, "rate_limited", `${label} already asked for verdicts ${cap} times today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
+            }
         }
-        await store.commit({ counters: [{ key: counter, by: 1, expiresAt: nextMidnight(ms) }], now: ms });
+        const expiresAt = nextMidnight(ms);
+        await store.commit({ counters: [counter, net.key, globalCounter].map((key) => ({ key, by: 1, expiresAt })), now: ms });
         const rows = await store.getVerdicts(install, [...new Set(body.shareIds)]);
         const verdicts = rows.map((r) => r.verdict
             ? { shareId: r.shareId, status: "rejected", reason: r.reason || "", at: r.at || null }
@@ -273,12 +301,18 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             throw new ApiError(400, "invalid_request", "githubToken must be the GitHub access token as a string.", 'Send {"githubToken": "<token from the device flow>"}.');
         }
         // Not in the contract: the endpoint calls GitHub, so one network may not use the server as a proxy without limit.
-        const ipCounter = (await ipCounterKey(ms, request)).replace(/^ip:/, "auth:");
-        const used = (await store.getCounters([ipCounter], ms))[ipCounter];
-        if (used >= caps.auth) {
-            throw new ApiError(429, "rate_limited", `This network already signed in ${caps.auth} times today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
+        // There is no installation id here (a sign-in comes before the first report), so the limits are per network and global.
+        const net = networkCounter(await clientNetwork(ms, request), "auth", caps.auth);
+        const globalCounter = `authglobal:${utcDay(ms)}`;
+        const used = await store.getCounters([net.key, globalCounter], ms);
+        if (used[net.key] >= net.cap) {
+            throw new ApiError(429, "rate_limited", `This network already signed in ${net.cap} times today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
         }
-        await store.commit({ counters: [{ key: ipCounter, by: 1, expiresAt: nextMidnight(ms) }], now: ms });
+        if (used[globalCounter] >= caps.authGlobal) {
+            throw new ApiError(429, "rate_limited", `The server already signed in ${caps.authGlobal} accounts today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
+        }
+        const expiresAt = nextMidnight(ms);
+        await store.commit({ counters: [net.key, globalCounter].map((key) => ({ key, by: 1, expiresAt })), now: ms });
 
         let res;
         try {

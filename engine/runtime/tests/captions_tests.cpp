@@ -39,7 +39,7 @@ const char* kSceneWithout = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* scene = kScene) {
-        dir = fs::make_temp_dir("fa_captions_test_" + name);
+        dir = fs::make_temp_dir("fa_captions_test_" + name).value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", scene);
         write("locales/en.json", R"({ "$name": "English", "intro": "Welcome" })");
