@@ -9,6 +9,9 @@
 #include <optional>
 #include <sstream>
 
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
 #include "fa/scene/components.h"
@@ -550,9 +553,18 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
             {"properties", Json::object({{"out", Json::object({{"type", "string"},
-                {"description", "Docs folder to write into (relative to the working directory), usually \"docs\"."}})}})}});
+                {"description", "Docs folder to write into, usually \"docs\". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory."},
+                {"x-fa-path", "write"}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
-            const std::filesystem::path out = std::filesystem::absolute(tooling_detail::arg_string(args, "out", true));
+            // The command-line user names a folder relative to the working directory, or any absolute one. An agent (MCP, the
+            // in-editor assistant) writes inside the project folder, wherever the process was started from.
+            const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+            std::error_code cwdEc;
+            std::filesystem::path root = std::filesystem::current_path(cwdEc);
+            if (!anywhere && !fs::project_root().empty()) root = fs::project_root();
+            auto resolvedOut = fs::resolve_for_write_in(root, fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true), anywhere);
+            if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+            const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
             // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any
