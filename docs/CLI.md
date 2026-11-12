@@ -31,6 +31,11 @@ Writes made by commands (`scene.save`, `scene.import_ascii` with `path`, `fs.wri
 into `.factoria/` or the version-control folder, except the scratch folder `.factoria/tmp/`, where files can be created
 and deleted.
 
+The path a command writes to (`scene.save`, `scene.import_ascii` `path`, `scene.ascii_edit` `file`, `input.record` `path`,
+`anim.*`, `mesh.save`) is confined to the project for an MCP client or an agent: no `..` out
+of the project, no absolute path (`absolute_path_denied`, `path_outside_root`). From `factoria call` you may name an absolute
+path, except into the project's managed folders (`managed_path_denied`).
+
 ## Projects
 
 ### `factoria new <dir> [--template T] [--name NAME] [--id ID] [--force] [--json]`

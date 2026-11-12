@@ -569,6 +569,7 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
             const std::string scope = str(args, "scope", "project");
             if (scope != "project" && scope != "user")
                 throw CommandError("invalid_scope", "scope '" + scope + "' is not known", "Use \"project\" or \"user\".");
+            if (scope == "user") require_capability(Capability::WriteAnywhere, "skills.new", "writing into ~/.factoria/skills (scope \"user\")");
             const SkillsContext ctx = context();
             const std::string dir = scope == "project" ? project_skills_dir(ctx) : user_skills_dir(ctx);
             if (dir.empty())
@@ -584,6 +585,11 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
             return Json::object({{"path", *path}, {"name", name}, {"scope", scope}});
         });
     }
+    declare_command_capabilities(registry, {
+        {"skills.list", capability_sets::reads()},
+        {"skills.read", capability_sets::reads()},
+        {"skills.new", capability_sets::writes_project()},  // scope "user" writes ~/.factoria/skills and asks for writeAnywhere on top
+    });
 }
 
 }  // namespace fa::ai

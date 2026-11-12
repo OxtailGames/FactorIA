@@ -418,6 +418,10 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
       "placement":{"description":"Where it goes: \"fill\" (the canvas), \"center\" (default with a size), or {\"x\":..,\"y\":..} for the top-left corner."},
       "transparent":{"type":"boolean","default":false,"description":"Ask for a transparent background."})J",
         R"(["path","prompt"])", false);
+    // Both ask an image provider (network, spend, process for a local-program provider) and write the layer into the project's image document. `path` names that
+    // document and is checked as a project path by the image commands (it is not a free output path).
+    const CapabilitySet providerEdit{Capability::Read, Capability::State, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+    declare_command_capabilities(registry, {{"image.inpaint", providerEdit}, {"image.generate_layer", providerEdit}});
 }
 
 }  // namespace fa::ai

@@ -38,6 +38,8 @@ std::vector<std::string> default_tool_groups(std::string_view role);
 struct ToolPlanOptions {
     bool withDelegate = false;          // agent_delegate (the orchestrator)
     bool readOnly = false;              // only is_read_only_tool commands exist for this role
+    // What the role's calls may do (role_capabilities): a command that needs more is not offered, listed or callable.
+    CapabilitySet granted = CapabilitySet::all();
     std::vector<std::string> groups;    // tool groups to load in full: command categories, or exact command names
     bool catalog = true;                // false = every command in full (no tool_describe / tool_call)
     // The catalog is used only when the definitions it leaves out add up to more than this many bytes. A project with few
@@ -73,11 +75,14 @@ ToolDef tool_def_for_command(const CommandInfo& info);
 
 // What `tool_describe` answers: the full definition of each named command (dotted or underscore name), as
 //   {"commands":[{"name","tool","category","summary","description","readOnly","inputSchema"}], "unknown":[{"name","message","hint"}]}
-// `readOnly`: commands a read-only role may not use are unknown to it. `ok` is false when no name matched.
-Json describe_commands(const CommandRegistry& registry, const std::vector<std::string>& names, bool readOnly, bool& ok);
+// `readOnly`: commands a read-only role may not use are unknown to it, and so are those that need a capability `granted` lacks.
+// `ok` is false when no name matched.
+Json describe_commands(const CommandRegistry& registry, const std::vector<std::string>& names, bool readOnly, bool& ok,
+                       CapabilitySet granted = CapabilitySet::all());
 // The registry command a name stands for: "scene.spawn" or "scene_spawn". nullptr when none is usable by the session
-// (excluded, or not read-only for a read-only role); `why` then says which of the two it is. `hint` gets the did-you-mean suggestions.
+// (excluded, not read-only for a read-only role, or needing a capability `granted` lacks); `why` then says which it is. `hint`
+// gets the did-you-mean suggestions.
 const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly, std::string& why,
-                                   std::string& hint);
+                                   std::string& hint, CapabilitySet granted = CapabilitySet::all());
 
 }  // namespace fa::ai

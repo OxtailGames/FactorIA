@@ -204,6 +204,37 @@ bool is_known_role(std::string_view role) {
     return false;
 }
 bool is_review_role(std::string_view role) { return role == kRoleArtCritic || role == kRoleReviewer; }
+CapabilitySet role_capabilities(std::string_view role) {
+    if (is_known_role(role) && !is_review_role(role)) return capability_sets::agent();
+    return capability_sets::mcp_read_only();
+}
+namespace {
+// The words a capability_denied hint uses for a call of an AI role.
+class RoleHint final : public CapabilityHintProvider {
+public:
+    explicit RoleHint(std::string role) : role_(std::move(role)) {}
+    std::string hint(const CapabilityDenial& denial) const override {
+        const std::string name = role_display_name(role_);
+        const std::string command = denial.command.name;
+        const std::string given = "The " + name + " role has " + denial.granted.to_string() + " here, and '" + command + "' needs " +
+                                  denial.command.capabilities.to_string() + ". ";
+        if (is_review_role(role_)) {
+            return given + "It only looks at the game and plays it, so it never changes the project. Say in your report what should "
+                           "change, or ask the user to run `factoria call " + command + "` in a terminal (which has every capability); "
+                           "a builder role (the orchestrator, the worker) makes the change.";
+        }
+        return given + "Writing outside the project (writeAnywhere) and publishing stay with the user: ask them to run `factoria call " +
+               command + "` themselves in a terminal (which has every capability).";
+    }
+
+private:
+    std::string role_;
+};
+}  // namespace
+std::shared_ptr<const CapabilityHintProvider> role_denial_hint(std::string_view role) {
+    if (!is_known_role(role)) return nullptr;  // the registry's generic hint
+    return std::make_shared<RoleHint>(std::string(role));
+}
 bool is_delegable_role(std::string_view role) {
     return role == kRoleWorker || role == kRoleFast || role == kRoleArtist || role == kRoleAudio;
 }

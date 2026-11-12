@@ -200,7 +200,12 @@ A command that declares nothing gets a set derived from `readOnly` when it is ad
 A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
 declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
 calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
-the project (`fs::resolve_for_write`); the schema property carries `"x-fa-path": "write"`.
+the project (`fs::resolve_for_write`; an absolute path needs `writeAnywhere`); the schema property carries `"x-fa-path": "write"`.
+`resolve_caller_project_path` is the same check returning the path in the project's own spelling (relative to the project when
+the file is inside it): the runtime's file commands use it for the path they also read back or report, so `scene.save`,
+`scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `input.record` (`path`), `anim.*` (`path`), `mesh.save`
+(`save_mesh_glb(data, path, allowAnywhere)`; a game script's `mesh.save` is always confined to the project) refuse `..`, absolute paths, `.git/` and `.factoria/` (except `.factoria/tmp/`) for an MCP client
+or an agent and check the path before any other work (`input.record` keeps its recording when the path is refused).
 
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
 `cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state}`: the play commands that the `--read-only` filter serves change the game; the filter
@@ -210,7 +215,27 @@ keeps the editing commands out, and `McpServer::set_capabilities` installs the s
 intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested
 call cannot run with "the tool's own set", a handler that needs more than its caller has is refused. Code that hops threads
 (job queues, the editor's main-thread queue) captures `command_context()` (caller and set) and installs it on the other
-thread with a `CommandContextScope`.
+thread with a `CommandContextScope`; the context also carries the hint provider that words a refusal (below). The editor's main-thread queue
+(`MainThreadQueue`) does this for every command a worker thread queues, so a command an MCP client or an AI role asks for runs
+on the main thread with that caller's set, not with the user's. A job or pool task that runs a command *for a caller* must do the
+same; the editor's background jobs only run the user's own subprocesses, so they need nothing.
+
+**Per AI role** (`fa::ai::role_capabilities`, declared in `tools/ai/include/fa/ai/config.h` next to the role definitions): the
+builder roles (orchestrator, worker, fast, artist, audio) get `capability_sets::agent()`; the critics (`artCritic`, `reviewer`)
+get `{read, state}` (`capability_sets::mcp_read_only()`; an unknown role too) and only the commands of `is_read_only_tool`,
+never `writeProject`, `writeAnywhere`, `network`, `process`, `spend` or `publish`. Two barriers hold: the tool list, and the
+set, which refuses a forced `scene.save` with `capability_denied`. The play tools fit the set (`game.screenshot`,
+`anim.filmstrip`, `vfx.filmstrip` and `play.auto` are `{read, state}`); their optional `path` argument needs `writeProject`
+(`resolve_caller_write_path`), so a critic gets its pictures without a `path` and a `path` is refused. `AgentSession` runs each tool call inside a `CommandCallerScope(Agent)` and a
+`CommandCapabilityScope(role set)`, and does not offer (nor accept) a command the set does not cover. A CLI agent gets the set in
+its environment (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`; also in the `env` of the stdio `factoria` server of its MCP config
+and, for Codex, `-c mcp_servers.factoria.env=...`), and `factoria` installs a `CommandCapabilityFloor` from it: on every
+thread of that process `caller_capabilities()` is never wider than the role's. An unparsable value is the empty set. The
+variables are in `base_child_env()`, so a program an agent starts passes them on. For a review role `factoria call`,
+`session`, `ai` and `mcp` also drop every command that is not an `is_read_only_tool` (`mcp` gets `--read-only`), so a reviewer
+that runs `factoria` from its own shell sees what its tool list shows. The editor's per-run MCP endpoint applies the role's
+set itself (`endpointRole`) and, for a review role, serves only the `is_read_only_tool` commands: the `ai.*` commands it
+registers for builders (`ai.run`, `ai.settings.set`...) are neither listed nor callable.
 
 `CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND): a command whose
 capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability
