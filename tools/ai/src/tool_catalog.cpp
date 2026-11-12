@@ -7,6 +7,7 @@
 #include "fa/ai/session.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
+#include "fa/tooling/tool_groups.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -14,31 +15,6 @@ namespace fa::ai {
 using namespace util;
 
 namespace {
-
-// Commands offered in full whatever the role asks for. The test: nearly every task needs them, or the model needs them to find
-// out how to use the rest (docs_*). Grouped by what they do; each group is one line of the table below.
-const char* const kCore[] = {
-    // files and docs
-    "fs.read", "fs.write", "fs.edit", "fs.list", "fs.search", "fs.delete", "docs.list", "docs.read", "docs.search",
-    "docs.commands", "docs.components",
-    // the scene
-    "scene.spawn", "scene.set_component", "scene.remove_component", "scene.get_entity", "scene.list_entities",
-    "scene.destroy", "scene.set_parent", "scene.save", "scene.load", "scene.reload",
-    // running and looking at the game
-    "game.step", "game.input", "game.click", "game.pause", "game.resume", "game.state", "game.logs", "game.screenshot",
-    // checking the project, scripts, engine gaps
-    "project.validate", "project.info", "project.test", "script.eval", "script.errors", "script.reload",
-    "feedback.report", "assets.list", "assets.import",
-    // topic guides read on demand (skills.list and skills.new stay in the catalog)
-    "skills.read",
-};
-
-bool in_core(std::string_view name) {
-    for (const char* c : kCore) {
-        if (name == c) return true;
-    }
-    return false;
-}
 
 // 60: the JSON around a definition (keys, quotes, braces). The same figure estimate_context uses.
 u64 def_bytes(const ToolDef& t) { return t.name.size() + t.description.size() + dump(t.inputSchema).size() + 60; }
@@ -108,9 +84,9 @@ std::string catalog_text(const std::vector<CatalogEntry>& entries, bool readOnly
 
 }  // namespace
 
-bool is_core_tool(std::string_view commandName) { return in_core(commandName); }
+bool is_core_tool(std::string_view commandName) { return is_core_command(commandName); }
 
-std::vector<std::string> core_tool_names() { return std::vector<std::string>(std::begin(kCore), std::end(kCore)); }
+std::vector<std::string> core_tool_names() { return core_command_names(); }
 
 std::vector<std::string> default_tool_groups(std::string_view role) {
     if (role == kRoleArtist) return {"assets"};
@@ -130,18 +106,15 @@ ToolDef tool_def_for_command(const CommandInfo& info) {
 ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& options) {
     ToolPlan plan;
     std::vector<const CommandInfo*> infos;
-    std::vector<std::string> categories, names;
     for (const CommandInfo* info : registry.list()) {  // sorted by name
         if (!eligible(*info, options.readOnly)) continue;
         infos.push_back(info);
-        names.push_back(info->name);
-        if (std::find(categories.begin(), categories.end(), info->category) == categories.end()) categories.push_back(info->category);
     }
     // A group is a command category, the exact name of a command, or "all".
     std::set<std::string> matched;
     auto in_groups = [&](const CommandInfo& info) {
         for (const std::string& g : options.groups) {
-            if (g == "all" || g == info.category || g == info.name) {
+            if (command_in_tool_group(info, g)) {
                 matched.insert(g);
                 return true;
             }
@@ -156,7 +129,7 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
         ToolDef def = tool_def_for_command(*info);
         const u64 bytes = def_bytes(def);
         plan.fullBytes += bytes;
-        if (in_core(info->name) || in_groups(*info)) {
+        if (is_core_command(info->name) || in_groups(*info)) {
             full.push_back(def);
         } else {
             deferredBytes += bytes;
@@ -175,10 +148,8 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
             plan.loadedGroups.push_back(g);
             continue;
         }
-        std::vector<std::string> candidates = categories;
-        candidates.insert(candidates.end(), names.begin(), names.end());
         plan.notes.push_back("Tool group '" + g + "' matches no command category and no command" +
-                             (options.readOnly ? " this role may use" : "") + ". " + fa::did_you_mean(g, candidates));
+                             (options.readOnly ? " this role may use" : "") + ". " + fa::tool_group_hint(g, infos));
     }
     plan.useCatalog = options.catalog && !listed.empty() && deferredBytes > options.minCatalogSavingBytes;
     if (plan.useCatalog) {

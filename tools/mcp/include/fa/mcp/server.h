@@ -204,6 +204,16 @@ public:
     using CommandFilter = std::function<bool(const CommandInfo&)>;
     void set_command_filter(CommandFilter allow) { filter_ = std::move(allow); }
 
+    // A tool profile: tools/list offers the core commands (fa/tooling/tool_groups.h) plus the commands of `groups` (command
+    // categories, exact command names, "core") and three loader tools: `tool_load` {groups} adds groups to the list and sends
+    // notifications/tools/list_changed, `tool_describe` {commands} returns the full definition of any command and
+    // `tool_call` {command, arguments} runs any command, for clients that ignore list_changed. A group that matches no
+    // command is refused: the result is the error text (with did-you-mean suggestions), "" when the profile is set. A list
+    // with "all" (or no profile) is the default: every command, no loader tools. The command filter and
+    // is_user_only_command still apply to everything loaded or called this way.
+    std::string set_tool_profile(const std::vector<std::string>& groups);
+    bool tool_profile_active() const;
+
     // notifications/tools/list_changed (call when commands were added/removed, e.g. JS tool hot reload).
     void notify_tools_changed();
     void notify_resources_changed();
@@ -240,6 +250,12 @@ private:
     Json call_tool(const Json& params, const std::atomic<bool>* cancel);
     Json run_tool(const Json& params, const std::atomic<bool>* cancel);
     void emit(const Json& message);
+    bool visible(const CommandInfo& c) const;  // not user-only, allowed by the filter
+    bool listed(const CommandInfo& c) const;   // visible and in the current profile
+    Json tool_json(const CommandInfo& c) const;
+    Json loader_tools_json() const;
+    Json run_loader_tool(const std::string& tool, const Json& args, const Json& params, const std::atomic<bool>* cancel);
+    std::string validate_groups(const std::vector<std::string>& groups) const;
 
     McpHost& host_;
     bool initialized_ = false;
@@ -252,6 +268,9 @@ private:
     mutable std::mutex noticeMutex_;
     Sink sink_;
     CommandFilter filter_;
+    bool profile_ = false;                // a profile other than "all" is set
+    std::vector<std::string> loaded_;     // the groups the profile and tool_load added (the core set is always in)
+    mutable std::mutex profileMutex_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};
     std::size_t resultCap_ = kMcpResultCap;
