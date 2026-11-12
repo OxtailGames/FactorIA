@@ -58,7 +58,7 @@ struct PackedGame {
     stdfs::path projectDir;
 
     explicit PackedGame(const std::string& name, bool bytecode = true, const char* counter = kCounterScript) {
-        dir = fs::make_temp_dir("fa_runtime_pack_" + name);
+        dir = fs::make_temp_dir("fa_runtime_pack_" + name).value();
         projectDir = dir / "game";
         Image dot;
         dot.width = dot.height = 2;

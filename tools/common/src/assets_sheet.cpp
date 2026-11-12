@@ -380,10 +380,10 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
         auto out = fs::normalize_checked(tooling_detail::arg_string(a, "out", false, defaultOut));
         if (!out.ok() || out->empty() || to_lower(fs::extension(*out)) != ".png")
             fail("invalid_argument", "`out` must be a project-relative .png path.", "For example \"assets/hero_sheet.png\".");
-        if (auto w = fs::check_writable(*out); !w.ok()) fail("invalid_argument", w.error().message, w.error().hint);
+        (void)project_write_file(projectDir, *out);  // refused before the PNG is encoded: managed folders, links out
         const auto png = encode_png(sheetImage);
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, *out), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, *out), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
             fail("failed", err);
         target = *out;
     }
@@ -480,9 +480,12 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
         "auto":{"type":"boolean","description":"Find the frames (groups of touching pixels separated by transparent gutters) and repack them into a uniform grid. Default false."},
         "align":{"type":"string","enum":["center","bottom"],"description":"auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground."},
         "background":{"type":"string","enum":["none","auto"],"description":"auto: first make the solid background (the four corners the same opaque colour) transparent. Default none."},
-        "out":{"type":"string","description":"PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place."}
+        "out":{"type":"string","x-fa-path":"write","description":"PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place."}
       }})");
+    mark_paths(info.inputSchema, "read", {"path"});
     registry.add(info, [projectDir](const Json& args) { return slice_sheet(projectDir, args); });
+    // Capabilities (capability.h): the sheet PNG and the grid in assets.json are project files.
+    declare_command_capabilities(registry, {{"assets.slice_sheet", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

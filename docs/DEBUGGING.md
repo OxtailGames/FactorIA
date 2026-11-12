@@ -23,7 +23,8 @@ the extension starts exactly that one, and removes older versions of the extensi
 "Developer: Reload Window").
 
 In the editor: File > Set Up This Computer... lists "Visual Studio Code debugger" with an Install button. An AI can do the
-same with `setup_install {"component":"vscode"}` (it only copies files; `setup_status` reports `installed` or `missing`).
+same with `factoria setup vscode` (it only copies files; an AI can call `setup_status` to see `installed` or `missing` and tell
+you to run it: `setup_install` is refused to AIs).
 
 Install it again after updating FactorIA: the extension version is the engine's version, so `factoria setup` shows it as
 missing until you do.

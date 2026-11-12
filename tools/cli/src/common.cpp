@@ -1,6 +1,7 @@
 #include "common.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #if defined(_WIN32)
 #include <process.h>  // _getpid
@@ -9,7 +10,10 @@
 #endif
 
 #include "fa/ai/commands.h"
+#include "fa/ai/config.h"
 #include "fa/ai/progress_file.h"
+#include "fa/ai/session.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -310,6 +314,14 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         ai::append_progress_line(projectDir, info.role + (ok ? ": finished" : ": failed" + (error.empty() ? std::string() : " (" + error.substr(0, 160) + ")")));
     };
     ai::register_ai_commands(registry, ao);
+    // A critic's or reviewer's own shell (FACTORIA_ROLE, set on the CLI agents factoria starts for a role) gets the commands that
+    // observe and play, like its MCP tools: the capability floor alone would leave it every command that fits {read, state}.
+    if (const char* role = std::getenv(kRoleEnvVar); role && ai::is_review_role(role)) {
+        std::vector<std::string> drop;
+        for (const CommandInfo* info : registry.list())
+            if (!ai::is_read_only_tool(*info)) drop.push_back(info->name);
+        for (const std::string& name : drop) registry.remove(name);
+    }
 }
 
 Json run_command_json(CommandRegistry& registry, const Json& request) {

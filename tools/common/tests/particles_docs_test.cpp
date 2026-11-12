@@ -97,7 +97,7 @@ TEST_CASE("docs/PARTICLES.md: the worked effect documents parse without a proble
         if (!doc) FAIL(doc.error().to_string());
         for (const VfxIssue& i : issues) FAIL_CHECK(i.pointer << ": " << i.message);
         // Play it from a file: the parts happen, the sound is asked for once and the entity goes when it is over.
-        const stdfs::path dir = fs::make_temp_dir("fa-vfx-docs-");
+        const stdfs::path dir = fs::make_temp_dir("fa-vfx-docs-").value();
         const std::string file = (dir / "doc.vfx.json").generic_string();
         REQUIRE(fs::write_text(file, ex.text));
         World world;

@@ -721,7 +721,8 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     register_shader_commands(registry, p.str(), shdc.context(p.str()));
     REQUIRE(registry.has("shader.compile"));
     REQUIRE(registry.has("material.info"));
-    CHECK(registry.info("shader.compile")->readOnly);
+    CHECK_FALSE(registry.info("shader.compile")->readOnly);  // it runs sokol-shdc: process
+    CHECK(registry.info("shader.compile")->capabilities.has(Capability::Process));
     CHECK(registry.info("material.info")->readOnly);
     CHECK_FALSE(registry.info("shader.compile")->description.empty());
 

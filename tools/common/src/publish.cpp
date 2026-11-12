@@ -303,6 +303,7 @@ Json PublishReport::to_json() const {
     Json st = Json::array();
     for (const PublishStep& s : steps) {
         Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"files", s.files}, {"ran", s.ran}});
+        if (!s.env.empty()) e["env"] = s.env;
         if (s.ran) e["exitCode"] = s.exitCode;
         st.push_back(e);
     }
@@ -473,6 +474,7 @@ static Result<PublishReport> run_store(const Store* store, Context& c, PublishRe
         PublishStep step;
         step.title = job.title;
         step.command = job.shown;
+        for (const auto& kv : job.env) step.env.push_back(kv.first);
         for (const auto& f : job.files) {
             step.files.push_back(generic(f.first));
             report.files.push_back(generic(f.first));
@@ -553,12 +555,12 @@ CommandInfo store_command(const std::string& store) {
     info.readOnly = false;
     const bool mobile = !find_store(store)->mobile.empty();  // appstore, googleplay: one built file, not export folders
     std::string props = mobile ? R"({
-        "artifact":{"type":"string","description":"@ARTIFACT@"},
+        "artifact":{"type":"string","x-fa-path":"read","description":"@ARTIFACT@"},
         "@PLATFORMS@out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
         "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})" : R"({
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning."},
-        "out":{"type":"string","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
-        "folders":{"type":"object","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
+        "folders":{"type":"object","x-fa-path":"read","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
         "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})";
     if (store == "steam")
         props += R"(,
@@ -595,7 +597,7 @@ CommandInfo store_command(const std::string& store) {
             "steam_appid.txt, factoria.json publish.steam {account, depots: {windows: <id>, ...}}, steamcmd (PATH, FACTORIA_STEAMCMD, or publish.steamcmd of ~/.factoria/export.json), and a "
             "steamcmd login done once by hand (it keeps the password and the Steam Guard approval; this command never takes or stores a password). `branch` sets the build live on a beta branch; "
             "the default branch is never touched. The build description is the game's name and its factoria.json version. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. "
-            "Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
+            "Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed steamcmd is an error whose data is that report. Examples: {\"dryRun\":true}, {\"platforms\":[\"windows\"],\"branch\":\"beta\"}. Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "itch") {
         info.summary = "Upload the desktop exports to itch.io (butler push, one channel per platform).";
@@ -603,7 +605,7 @@ CommandInfo store_command(const std::string& store) {
             "Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version>` once per platform; the user/game comes from factoria.json publish.itch.game, the channel from "
             "publish.itch.channels (default windows, mac, linux) and the version from the game's version. Needs butler (PATH, FACTORIA_BUTLER, or publish.butler of ~/.factoria/export.json) signed in: "
             "run `butler login` once, or set BUTLER_API_KEY (never put it in the project). The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, "
-            "version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed "
+            "version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, warnings[], nextSteps[]}; a failed "
             "butler is an error whose data is that report (platforms before it were uploaded). Examples: {\"dryRun\":true}, {\"platforms\":[\"windows\",\"linux\"]}. Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "epic") {
         info.summary = "Upload the desktop exports to the Epic Games Store (BuildPatchTool UploadBinary, one artifact per platform).";
@@ -611,8 +613,8 @@ CommandInfo store_command(const std::string& store) {
             "Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the export folder, -CloudDir under .factoria/publish/epic/cloud, -BuildVersion the game's version and -AppLaunch the "
             "game's executable. Needs factoria.json publish.epic {organizationId, productId, clientId, artifacts: {windows: <artifact id>, ...}}, BuildPatchTool (PATH, FACTORIA_BUILDPATCHTOOL, or "
             "publish.buildPatchTool of ~/.factoria/export.json) and the client secret in the environment variable FACTORIA_EPIC_CLIENT_SECRET: it is passed by name (-ClientSecretEnvVar), so it is never on a "
-            "command line, in the result or in the log. Epic accepts each BuildVersion once per artifact: raise the version for every upload. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not "
-            "uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
+            "command line, in the result or in the log (steps[].env lists the NAME of the variable, never its value). Epic accepts each BuildVersion once per artifact: raise the version for every upload. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not "
+            "uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed BuildPatchTool is an error whose data is that report. Examples: {\"dryRun\":true}, {\"platforms\":[\"windows\"]}. Details: docs_read {\"name\":\"exporting\"}.";
     } else if (store == "appstore") {
         info.summary = "Upload the iOS build (.ipa) or the Mac App Store package (.pkg) to App Store Connect (xcrun altool, macOS only).";
@@ -634,7 +636,7 @@ CommandInfo store_command(const std::string& store) {
             "The key stays a file outside the project: nothing of it is written, shown or logged. After the "
             "upload App Store Connect processes the build, then it shows in TestFlight. Returns {store, "
             "dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, "
-            "uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
+            "uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed altool is an error whose data is that report. The Mac App "
             "Store works the same way with the signed package sign.macos {\"distribution\":\"appStore\"} "
             "writes (build/export/<game-slug>-macos.pkg): `artifact` ending in .pkg, or `platforms: "
@@ -658,11 +660,12 @@ CommandInfo store_command(const std::string& store) {
             "credentials of an Azure AD application with the Manager role in the environment variables "
             "FACTORIA_MSSTORE_TENANT_ID, FACTORIA_MSSTORE_SELLER_ID, FACTORIA_MSSTORE_CLIENT_ID and "
             "FACTORIA_MSSTORE_CLIENT_SECRET (never factoria.json; the secret is redacted in every result and "
-            "log; msstore keeps the credentials in its own settings after reconfigure). `releaseStatus` "
+            "log, but `msstore reconfigure` takes the secret only as the argument --clientSecret, so it is an argument of that process while it runs; "
+            "steps[].env lists the NAMES of the variables FactorIA sets, never values; msstore keeps the credentials in its own settings after reconfigure). `releaseStatus` "
             "draft (the default) adds --noCommit, so the submission waits in Partner Center; completed "
             "submits it for certification. Every submission needs a higher \"version\" in factoria.json. "
             "Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, "
-            "bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
+            "bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed msstore is an error whose data is that report.";
     } else if (store == "googleplay") {
         info.summary = "Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).";
@@ -684,7 +687,7 @@ CommandInfo store_command(const std::string& store) {
             "{\"name\":\"exporting\"}."
             FA_COMMAND_DETAILS
             "Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, "
-            "bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
+            "bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed fastlane is an error whose data is that report.";
     } else {
         info.summary = "Upload the desktop exports to GOG (Galaxy Pipeline Builder build-game, one project file per platform).";
@@ -694,7 +697,7 @@ CommandInfo store_command(const std::string& store) {
             "FACTORIA_GOG_PIPELINE_BUILDER, or publish.galaxyPipelineBuilder of ~/.factoria/export.json) and a sign-in: the credentials it cached, or FACTORIA_GOG_USERNAME and FACTORIA_GOG_PASSWORD "
             "(the password is then an argument of the process while it runs; it is redacted everywhere FactorIA shows anything). The upload is not published: do that in the GOG Developer Portal. The "
             "export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], "
-            "steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed run is an error whose data is that report. Examples: {\"dryRun\":true}, "
+            "steps[{title, command, commandLine, files, ran, exitCode, env}], exitCode, log, warnings[], nextSteps[]}; a failed run is an error whose data is that report. Examples: {\"dryRun\":true}, "
             "{\"platforms\":[\"windows\"],\"branch\":\"testing\"}. Details: docs_read {\"name\":\"exporting\"}.";
     }
     return info;
@@ -717,7 +720,13 @@ void register_publish_commands(CommandRegistry& registry, const std::string& pro
                 if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
                 return dir->string();
             };
-            if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) o.outDir = inside(out, "out");
+            // `out` is where the exports are written when publish builds them: like project.export's, a folder inside the project
+            // unless the caller may write anywhere. `folders` and `artifact` are what is uploaded (read), so they stay inside it.
+            if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) {
+                auto dir = resolve_write_path(projectDir, out);
+                if (!dir) throw CommandError("invalid_argument", "out: " + dir.error().message, dir.error().hint);
+                o.outDir = dir->string();
+            }
             if (auto it = args.find("folders"); it != args.end() && it->is_object())
                 for (auto f = it->begin(); f != it->end(); ++f) {
                     const std::string platform = normalize_export_platform(f.key());
@@ -740,6 +749,8 @@ void register_publish_commands(CommandRegistry& registry, const std::string& pro
             if (r->failed) throw CommandError("failed", r->failure, r->failureHint, r->to_json());
             return r->to_json();
         });
+        // Uploads the build to a store (publish), with the store's uploader (process) over the network; the builds it makes first go to `out`.
+        registry.declare_capabilities("publish." + store, CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Publish});
     }
 }
 

@@ -10,6 +10,7 @@
 #include "fa/core/i18n.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/translations.h"
 #include "localization_tables.h"
 #include "util.h"
@@ -189,9 +190,12 @@ Json export_translations(const std::string& projectDir, const Json& args) {
     }
 
     const stdfs::path root = stdfs::absolute(stdfs::path(projectDir)).lexically_normal();
-    stdfs::path out = stdfs::path(tooling_detail::arg_string(args, "out", false, kDefaultOut));
-    if (out.is_relative()) out = root / out;
-    out = out.lexically_normal();
+    // The folder this command writes: inside the project (the command-line user may name any folder); canonical.
+    auto resolvedOut = resolve_write_path(projectDir, tooling_detail::arg_string(args, "out", false, kDefaultOut));
+    if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+    const stdfs::path out = resolvedOut.value();
+    std::error_code canonEc;
+    const stdfs::path shownRoot = stdfs::weakly_canonical(root, canonEc);  // the files are shown relative to the canonical project folder
     const std::string outLower = lower_path(out), localesLower = lower_path(root / "locales");
     if (outLower == localesLower || starts_with(outLower, localesLower + "/"))
         throw CommandError("invalid_argument", "The export would be written inside locales/, next to the tables the game reads.",
@@ -201,7 +205,7 @@ Json export_translations(const std::string& projectDir, const Json& args) {
     const auto write = [&](const stdfs::path& path, const std::string& content) {
         if (auto r = fs::write_bytes(path.generic_string(), content.data(), content.size()); !r.ok())
             throw CommandError("failed", r.error().message, r.error().hint);
-        files.push_back(shown(root, path));
+        files.push_back(shown(shownRoot, path));
     };
     if (format == "csv") {
         write(out / "translations.csv", write_csv(sheet, delimiterText[0]));
@@ -590,8 +594,8 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
                        "description": "csv = one spreadsheet file; xliff = one XLIFF 1.2 file per language (Poedit, OmegaT, memoQ...)."},
             "languages": {"type": "array", "items": {"type": "string"},
                           "description": "Languages to translate into, as in localization.languages (e.g. [\"es\", \"pt-BR\"]). Default: all but the default language."},
-            "out": {"type": "string",
-                    "description": "Folder to write into, project-relative or absolute (default build/translations). Not inside locales/."},
+            "out": {"type": "string", "x-fa-path": "write",
+                    "description": "Folder to write into, project-relative and inside the project (an absolute path only from the command line; default build/translations). Not inside locales/."},
             "delimiter": {"type": "string", "enum": [",", ";", "\t"], "default": ",",
                           "description": "CSV only. Use \";\" for Excel set to Spanish, German, French... (decimal comma)."}
         }})");
@@ -616,12 +620,15 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
     importer.inputSchema = Json::parse(R"({
         "type": "object", "required": ["file"],
         "properties": {
-            "file": {"type": "string", "description": "The CSV or XLIFF file to read, project-relative or absolute."},
+            "file": {"type": "string", "x-fa-path": "read", "description": "The CSV or XLIFF file to read, project-relative or absolute."},
             "languages": {"type": "array", "items": {"type": "string"},
                           "description": "Import only these languages of the file (default: all but the default language)."},
             "dryRun": {"type": "boolean", "default": false, "description": "Report what would change without writing anything."}
         }})");
     registry.add(importer, [projectDir](const Json& args) { return import_translations(projectDir, args); });
+    declare_command_capabilities(registry, {
+        {"i18n.export", capability_sets::writes_project()},
+        {"i18n.import", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

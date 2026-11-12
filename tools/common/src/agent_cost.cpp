@@ -389,6 +389,8 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         in.levels = std::clamp(args.value("levels", 3), 1, 50);
         return agent_cost_report(in);
     });
+    declare_command_capabilities(registry, {
+        {"agent.cost", capability_sets::reads()}});
 }
 
 }  // namespace fa

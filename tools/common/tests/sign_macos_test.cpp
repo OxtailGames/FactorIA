@@ -124,14 +124,15 @@ struct FakeMac {
                 if (o.onStdoutLine) o.onStdoutLine(line);
                 if (o.onStderrLine) o.onStderrLine(line);
             }
-            const std::string exe = stdfs::path(o.argv.at(0)).filename().string();
-            if (exe == "codesign" && o.argv.size() > 1 && o.argv[1] == "--force" && codesignExit != 0) {
+            const std::vector<std::string>& argv = o.argv;
+            const std::string exe = stdfs::path(argv.at(0)).filename().string();
+            if (exe == "codesign" && argv.size() > 1 && argv[1] == "--force" && codesignExit != 0) {
                 r.exitCode = codesignExit;
                 r.stderrText = codesignError;
-            } else if (exe == "xcrun" && o.argv.size() > 2 && o.argv[1] == "notarytool" && o.argv[2] == "submit") {
+            } else if (exe == "xcrun" && argv.size() > 2 && argv[1] == "notarytool" && argv[2] == "submit") {
                 r.stdoutText = "Conducting pre-submission checks...\n{\"id\":\"" + notaryId + "\",\"status\":\"" + notaryStatus + "\",\"message\":\"Processing complete\"}\n";
                 r.exitCode = notaryStatus == "Accepted" ? 0 : 1;
-            } else if (exe == "xcrun" && o.argv.size() > 2 && o.argv[1] == "notarytool" && o.argv[2] == "log") {
+            } else if (exe == "xcrun" && argv.size() > 2 && argv[1] == "notarytool" && argv[2] == "log") {
                 r.stdoutText = logText;
             }
             return r;
@@ -432,8 +433,12 @@ TEST_CASE("sign.macos: notarytool credentials, in order, and nothing secret in t
         auto r = sign_macos(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const auto argv = submit_of(*r);
-        const std::vector<std::string> want = {"--apple-id", "ada@example.com", "--team-id", "ABCDE12345", "--password", "<redacted>"};
+        // notarytool has no @env: form: no --password at all, the password goes on its standard input
+        const std::vector<std::string> want = {"--apple-id", "ada@example.com", "--team-id", "ABCDE12345"};
         CHECK(std::search(argv.begin(), argv.end(), want.begin(), want.end()) != argv.end());
+        CHECK_FALSE(contains(argv, "--password"));
+        CHECK(argv.front() == "/usr/bin/xcrun");  // started directly: no wrapper program
+        CHECK(step_named(*r, "Notarize")->stdinSecret);
         CHECK(r->credentials == "Apple ID ada@example.com (team ABCDE12345)");
         CHECK_FALSE(has_text(r->to_json().dump(), kPassword));
 
@@ -694,7 +699,7 @@ TEST_CASE("sign.macos: a program that cannot start, and a cancelled run") {
     }
 }
 
-TEST_CASE("sign.macos: the app-specific password is passed to notarytool and appears nowhere else") {
+TEST_CASE("sign.macos: the app-specific password is passed to notarytool on stdin and appears nowhere else") {
     Game g;
     FakeMac mac;
     mac.echoed = {std::string("notarytool: logging in with password ") + kPassword};  // a tool that repeats what it was given
@@ -709,9 +714,15 @@ TEST_CASE("sign.macos: the app-specific password is passed to notarytool and app
     auto r = sign_macos(o);
     REQUIRE_FALSE(r.ok());
 
-    bool passedToTool = false;
-    for (const std::string& l : mac.command_lines()) passedToTool = passedToTool || has_text(l, std::string("--password ") + kPassword);
-    CHECK(passedToTool);  // notarytool needs it
+    // notarytool needs it: on its standard input, never in the argument list (the process list shows that)
+    bool onStdin = false;
+    for (const ProcessOptions& call : mac.calls) {
+        for (const std::string& a : call.argv) CHECK_FALSE(has_text(a, kPassword));
+        onStdin = onStdin || call.stdinText == std::string(kPassword) + "\n";
+        // the call that feeds a password starts without a controlling terminal; no other call does
+        CHECK(call.newSession == !call.stdinText.empty());
+    }
+    CHECK(onStdin);
     CHECK_FALSE(has_text(r.error().message, kPassword));
     CHECK_FALSE(has_text(r.error().hint, kPassword));
     for (const std::string& line : progress) CHECK_FALSE(has_text(line, kPassword));
@@ -798,3 +809,21 @@ TEST_CASE("sign.macos on a Mac: an ad hoc signature passes codesign --verify --s
     CHECK(stdfs::exists(unpacked / "Demo.app" / "Contents" / "_CodeSignature" / "CodeResources"));
 }
 #endif
+
+TEST_CASE("sign.macos dry run: no step has the app-specific password in its arguments; the Apple ID form feeds it on stdin") {
+    Game g;
+    SignMacosOptions o = g.options("linux");
+    o.appleId = "ada@example.com";
+    o.teamId = "ABCDE12345";
+    o.env = env_of({{"FACTORIA_APPLE_APP_PASSWORD", kPassword}});
+    o.dryRun = true;
+    auto r = sign_macos(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const SignStep* notarize = step_named(*r, "Notarize");
+    REQUIRE(notarize != nullptr);
+    CHECK(notarize->stdinSecret);
+    for (const SignStep& s : r->steps)
+        for (const std::string& a : s.command) CHECK_FALSE(has_text(a, kPassword));
+    CHECK_FALSE(has_text(r->to_json().dump(), kPassword));
+    CHECK(has_text(r->to_json().dump(), "stdinSecret"));
+}

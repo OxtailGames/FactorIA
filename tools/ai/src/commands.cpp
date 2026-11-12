@@ -162,8 +162,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.description =
             "action \"list\" (default) shows providers and the role mapping from ~/.factoria/ai.json. action \"doctor\" "
             "also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset "
-            "(image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: "
-            "{\"action\":\"doctor\"}";
+            "(image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). The list only "
+            "reads the config; the doctor starts the CLIs to ask their version, so it needs the Process capability (a read-only "
+            "caller gets capability_denied). Example: {\"action\":\"doctor\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "action":{"type":"string","enum":["list","doctor"],"default":"list","description":"list or doctor."}},
             "additionalProperties":false})");
@@ -172,6 +173,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             auto cfg = load();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             const bool doctor = str(args, "action", "list") == "doctor";
+            // The listing only reads; doctor runs `<cli> --version` (a program). Declared {read} so a critic or `factoria mcp
+            // --read-only` still gets the listing.
+            if (doctor) require_capability(Capability::Process, "ai.providers", "running each CLI with --version (action \"doctor\")");
             if (doctor) {
                 std::string dir = project_dir();
                 if (!dir.empty()) for (const auto& w : scan_project_for_keys(dir, 500)) cfg->warnings.push_back(w);
@@ -216,7 +220,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "is missing, \"\" when ready) and note. With test:true each enabled, ready server is contacted (initialize + "
             "tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` "
             "[{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. "
-            "Example: {\"test\":true,\"name\":\"scenario\"}";
+            "The plain list only reads the config; test:true starts programs and opens connections, so it needs the Process and "
+            "Network capabilities (a read-only caller gets capability_denied). Example: {\"test\":true,\"name\":\"scenario\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "test":{"type":"boolean","default":false,"description":"Connect to each server and list its tools."},
             "name":{"type":"string","description":"Only this server (a name from the list)."}},
@@ -235,6 +240,12 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                                                  : fa::did_you_mean(only, known));
             }
             const bool test = flag(args, "test", false);
+            // The listing only reads; test:true starts a stdio server or contacts an address. Declared {read} so a critic or
+            // `factoria mcp --read-only` still gets the listing.
+            if (test) {
+                require_capability(Capability::Process, "ai.tool_servers", "starting a stdio tool server (test:true)");
+                require_capability(Capability::Network, "ai.tool_servers", "contacting a tool server (test:true)");
+            }
             Json servers = Json::array();
             for (const auto& st : tool_server_statuses(*cfg, opts->runtime.env)) {
                 if (!only.empty() && st.name != only) continue;
@@ -335,7 +346,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), "
             "timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, "
             "UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around "
-            "every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
+            "every command of the registry; a call refused with capability_denied is not hooked), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
             "recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, "
             "reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {\"recent\":20}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -928,6 +939,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             ToolPlanOptions po;
             po.withDelegate = role == kRoleOrchestrator && cfg->can_delegate_to_anyone();
             po.readOnly = is_review_role(role);
+            po.granted = role_capabilities(role);
             po.groups = roleIt->second.toolGroups ? *roleIt->second.toolGroups : default_tool_groups(role);
             const ToolPlan plan = plan_tools(registry, po);
             Json tools = Json::array();
@@ -937,7 +949,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             }
             std::map<std::string, int> total, inCatalog;
             for (const CommandInfo* info : registry.list()) {
-                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info))) continue;
+                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info)) || !po.granted.has_all(info->capabilities)) continue;
                 ++total[info->category];
             }
             for (const CatalogEntry& e : plan.catalog) ++inCatalog[e.category];
@@ -975,6 +987,37 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel, opts->assetRunKey, opts->assetApprover);
     register_assets_review(registry, load, project_dir, *opts);
     register_vfx_review(registry, load, project_dir, *opts);
+
+    // What each command can do outside the engine's memory (capability.h). The ai.* rows below are the table of the commands
+    // registered in this function; the other files declare their own. An agent() scope (the builder roles) gets all of them but
+    // ai.plugin_install (writeAnywhere: it installs software for the user); the critics' {read, state} none that spawns or bills.
+    {
+        using capability_sets::reads;
+        using capability_sets::writes_project;
+        // Starts a model run (a CLI agent or an API loop) that bills the user and may write files of the project.
+        constexpr CapabilitySet agentRun{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+        // One model call (a CLI agent needs process) that bills the user and writes a file of the project (entries, reviews).
+        constexpr CapabilitySet modelAndFile{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+        declare_command_capabilities(registry, {
+            {"ai.providers", reads()},  // action doctor runs `<cli> --version`: the handler asks for Process only then
+            {"ai.models", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // asks a CLI or an API for its models
+            {"ai.tool_servers", reads()},  // test:true starts or contacts a server: the handler asks for Process and Network only then
+            {"ai.extensions", reads()},
+            {"ai.hooks", reads()},
+            {"ai.hooks_test", CapabilitySet{Capability::Read, Capability::Process, Capability::Network, Capability::Spend}},  // the handlers REALLY run: any effect of a hook (a program, a request, a model call, a command) can happen
+            {"ai.savers", reads()},
+            {"ai.saver_group", writes_project()},  // .factoria/ai/savers.json
+            {"ai.saver_fact", writes_project()},   // the project's AGENTS.md
+            {"ai.plugin_install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}},
+            {"ai.run", agentRun},
+            {"ai.review", agentRun},  // plays the game with reviewer agents; writes the review files
+            {"ai.review_feedback", modelAndFile},  // rewrites ENGINE_FEEDBACK.json
+            {"ai.reviews", reads()},
+            {"ai.session_timeline", reads()},
+            {"ai.retrospective", modelAndFile},  // files entries in ENGINE_FEEDBACK.json
+            {"ai.tool_plan", reads()},
+        });
+    }
 
     // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
     CommandHooksOptions hooksOptions;

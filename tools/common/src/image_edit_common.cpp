@@ -212,9 +212,37 @@ std::string doc_path_arg(const std::string& relArg, const char* command, const c
     return *norm;
 }
 
-DocFile open_doc(const std::string& projectDir, const std::string& relArg, const char* command) {
+void check_write_target(const std::string& projectDir, const std::string& rel, const char* command, const char* key) {
+    auto path = fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+    if (!path.ok())
+        assets_detail::arg_error(command, std::string("/") + key, "'" + rel + "' cannot be written: " + path.error().message,
+                                 path.error().hint.empty() ? "Use a path inside the project that is not in .git or .factoria." : path.error().hint);
+}
+
+void mark_image_paths(CommandInfo& info, bool writes) {
+    if (!info.inputSchema.is_object() || !info.inputSchema.contains("properties") || !info.inputSchema["properties"].is_object()) return;
+    Json& props = info.inputSchema["properties"];
+    auto mark = [&](const char* name, const char* kind) {
+        auto it = props.find(name);
+        if (it != props.end() && it->is_object()) (*it)["x-fa-path"] = kind;
+    };
+    mark("path", writes ? "write" : "read");
+    for (const char* name : {"out", "output", "rules"}) mark(name, "write");
+    mark("png", "read");
+}
+
+void add_image_command(CommandRegistry& registry, CommandInfo info, CommandHandler handler, bool savesDocument) {
+    mark_image_paths(info, !info.readOnly && savesDocument);
+    const std::string name = info.name;
+    const bool readOnly = info.readOnly;
+    registry.add(std::move(info), std::move(handler));
+    registry.declare_capabilities(name, readOnly ? capability_sets::reads() : capability_sets::writes_project());
+}
+
+DocFile open_doc(const std::string& projectDir, const std::string& relArg, const char* command, bool forWrite) {
     DocFile d;
     d.rel = doc_path_arg(relArg, command);
+    if (forWrite) check_write_target(projectDir, d.rel, command, "path");
     auto path = resolve_project_path(projectDir, d.rel);
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
     std::error_code ec;

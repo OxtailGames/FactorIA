@@ -173,13 +173,15 @@ std::vector<std::string> allowed_keys(const Json& props) {
 
 // ---- input and output ----------------------------------------------------------------------------------------------------
 
-std::string svg_path_arg(const std::string& projectDir, const std::string& value, const char* cmd, const char* key, stdfs::path& abs) {
+// A project-relative .svg path. `write`: the file will be written (inside the project for every caller, outside .git and .factoria),
+// checked here so that nothing is computed for a path the command may not write.
+std::string svg_path_arg(const std::string& projectDir, const std::string& value, const char* cmd, const char* key, stdfs::path& abs, bool write = false) {
     std::string rel = value;
     std::replace(rel.begin(), rel.end(), '\\', '/');
     while (rel.rfind("./", 0) == 0) rel = rel.substr(2);
     if (rel.size() < 5 || to_lower(rel.substr(rel.size() - 4)) != ".svg")
         arg_error(cmd, std::string("/") + key, std::format("'{}' is not an .svg file.", value), "Give a project-relative path that ends in .svg, e.g. \"assets/art/crest.svg\".");
-    abs = assets_detail::project_file(projectDir, rel);
+    abs = write ? assets_detail::project_write_file(projectDir, rel) : assets_detail::project_file(projectDir, rel);
     return rel;
 }
 
@@ -214,6 +216,16 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
     if (isDoc && a.contains("out")) arg_error(cmd, "/out", "`out` cannot be used with `document`: the layer is edited inside the document.", "Leave `out` out, or use `source` to edit a .svg file.");
     if (!isDoc && a.contains("layer")) arg_error(cmd, "/layer", "`layer` only goes with `document`.", "Leave `layer` out, or pass `document`.");
 
+    stdfs::path outAbs;
+    std::string outRel;
+    if (a.contains("out")) {
+        // checked before the SVG is read or edited: a path the caller may not write costs nothing
+        outRel = svg_path_arg(projectDir, a["out"].get<std::string>(), cmd, "out", outAbs, !readOnly);
+        std::error_code ec;
+        if (!dryRun && !arg_bool(a, "overwrite", false) && stdfs::exists(outAbs, ec))
+            fail("exists", std::format("'{}' already exists.", outRel), "Pass overwrite: true to replace it, or choose another `out`.");
+    }
+
     // read
     std::string text, rel, what;
     stdfs::path srcAbs;
@@ -224,7 +236,8 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
     stdfs::path layerSourceAbs;
     std::optional<Image> before;
     if (a.contains("source")) {
-        rel = svg_path_arg(projectDir, a["source"].get<std::string>(), cmd, "source", srcAbs);
+        // `source` is rewritten in place when nothing else says where the result goes
+        rel = svg_path_arg(projectDir, a["source"].get<std::string>(), cmd, "source", srcAbs, !readOnly && !dryRun && !a.contains("out"));
         auto t = tooling_detail::read_file(srcAbs);
         if (!t) fail("not_found", std::format("{} /source: '{}' does not exist or cannot be read.", cmd, rel), "Check the path (project-relative), or pass the SVG text in `svg`.");
         text = *t;
@@ -233,7 +246,7 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
         text = a["svg"].get<std::string>();
         what = "the `svg` argument";
     } else {
-        docFile = imgedit::open_doc(projectDir, a["document"].get<std::string>(), cmd);
+        docFile = imgedit::open_doc(projectDir, a["document"].get<std::string>(), cmd, !readOnly && !dryRun);
         rel = docFile.rel;
         Json ref;
         if (a.contains("layer") && !a["layer"].is_null()) ref = a["layer"];
@@ -257,7 +270,7 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
         if (layerInline) text = (*layerRef.layer)["svg"].get<std::string>();
         else {
             layerSourceRel = (*layerRef.layer)["source"].get<std::string>();
-            layerSourceAbs = assets_detail::project_file(projectDir, layerSourceRel);
+            layerSourceAbs = !readOnly && !dryRun ? assets_detail::project_write_file(projectDir, layerSourceRel) : assets_detail::project_file(projectDir, layerSourceRel);
             auto t = tooling_detail::read_file(layerSourceAbs);
             if (!t) fail("not_found", std::format("{} /document: the svg layer's source '{}' does not exist.", cmd, layerSourceRel), "Fix the layer's `source` with image.layer.set.");
             text = *t;
@@ -287,14 +300,6 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
     if (!readOnly) result["changed"] = changed;
 
     // write
-    stdfs::path outAbs;
-    std::string outRel;
-    if (a.contains("out")) {
-        outRel = svg_path_arg(projectDir, a["out"].get<std::string>(), cmd, "out", outAbs);
-        std::error_code ec;
-        if (!dryRun && !arg_bool(a, "overwrite", false) && stdfs::exists(outAbs, ec))
-            fail("exists", std::format("'{}' already exists.", outRel), "Pass overwrite: true to replace it, or choose another `out`.");
-    }
     auto write_svg = [&](const stdfs::path& abs, const std::string& relPath) {
         std::string err;
         if (!tooling_detail::write_file(abs, newText, &err)) fail("failed", err);
@@ -1219,17 +1224,26 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
         info.description = d.description;
         info.category = "assets";
         info.readOnly = d.readOnly;
-        Json schema = Json::object({{"type", "object"}, {"properties", d.props}});
+        // A read-only command (vector.info) writes nothing, so it takes no `out` or `overwrite`: with them in its schema the whole command
+        // would carry a write path (readOnlyHint false) and a caller could think it saves a file.
+        Json props = d.props;
+        if (d.readOnly)
+            for (const char* k : {"out", "overwrite"}) props.erase(k);
+        Json schema = Json::object({{"type", "object"}, {"properties", props}});
         if (!d.required.empty()) schema["required"] = d.required;
+        // `source` and `document` are rewritten by the commands that edit; `out` is always the file to write
+        for (const char* k : {"source", "document"})
+            if (schema["properties"].contains(k)) schema["properties"][k]["x-fa-path"] = d.readOnly ? "read" : "write";
+        if (schema["properties"].contains("out")) schema["properties"]["out"]["x-fa-path"] = "write";
         info.inputSchema = schema;
         const std::string name = d.name;
         auto fn = d.fn;
-        const Json props = d.props;
         const bool ro = d.readOnly;
         registry.add(info, [projectDir, name, fn, props, ro](const Json& args) {
             if (!args.is_object()) fail("invalid_argument", name + ": the arguments must be an object.", "Example: {\"source\": \"assets/art/badge.svg\"}.");
             return fa::vec::run(projectDir, args, name.c_str(), props, ro, [fn](fa::vec::Ctx& c) { return fn(c); });
         });
+        registry.declare_capabilities(name, ro ? capability_sets::reads() : capability_sets::writes_project());
     }
     register_vector_rig_command(registry, projectDir);
     register_vector_edit_commands(registry, projectDir);

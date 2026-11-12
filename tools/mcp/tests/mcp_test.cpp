@@ -33,7 +33,7 @@ namespace {
 struct TempDir {
     stdfs::path path;
     TempDir() {
-        path = fa::fs::make_temp_dir("fa_mcp_test");
+        path = fa::fs::make_temp_dir("fa_mcp_test").value();
     }
     ~TempDir() {
         std::error_code ec;
@@ -304,6 +304,9 @@ TEST_CASE("mcp: tools/list maps command names and describes tools") {
     CHECK((*echo)["annotations"]["readOnlyHint"] == true);
     CHECK((*echo)["annotations"]["destructiveHint"] == false);
     CHECK((*echo)["inputSchema"]["required"][0] == "value");
+    // test.echo_value declares nothing: its _meta says so; the set is the one derived from readOnly.
+    CHECK((*echo)["_meta"]["factoria/capabilitiesDeclared"] == false);
+    CHECK((*echo)["_meta"]["factoria/capabilities"].is_array());
     for (auto& t : toolsCopy)
         if (t["name"] == "test_change_state") {
             CHECK(t["annotations"]["readOnlyHint"] == false);
@@ -595,7 +598,7 @@ TEST_CASE("mcp: $image results add an image content block") {
 
 TEST_CASE("mcp: tool calls through the real tooling commands") {
     // feedback_report takes the lock of the user's sharing files: in a scratch folder, never the real ~/.factoria.
-    const std::filesystem::path scratch = fa::fs::make_temp_dir("fa_mcp_home");
+    const std::filesystem::path scratch = fa::fs::make_temp_dir("fa_mcp_home").value();
     fa::ShareEnv scratchEnv;
     scratchEnv.env = [h = scratch.string()](const std::string& name) -> std::string {
         return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
@@ -1200,4 +1203,199 @@ TEST_CASE("mcp: a session keeps a cancel for a queued request until it begins") 
     CHECK_FALSE(other->load());          // a string id is another request
     CHECK_FALSE(session.end_request("five", other));
     CHECK(session.requests_queued() == 0);
+}
+
+namespace {
+void add_cap_tool(Fixture& f, const char* name, CapabilitySet caps, bool readOnly = false, std::shared_ptr<int> ran = nullptr) {
+    CommandInfo i;
+    i.name = name;
+    i.summary = "Capability test command.";
+    i.readOnly = readOnly;
+    f.registry.add(i, [ran](const Json&) {
+        if (ran) ++*ran;
+        return Json::object({{"ran", true}});
+    });
+    REQUIRE(f.registry.declare_capabilities(name, caps));
+}
+
+Json tool_annotations(Fixture& f, const std::string& tool) {
+    const Json listed = f.rpc("tools/list");  // a named value: a range over a temporary would dangle
+    for (const Json& t : listed["result"]["tools"])
+        if (t["name"] == tool) return t["annotations"];
+    FAIL("tool not listed: " << tool);
+    return Json();
+}
+
+std::string error_text(const Json& response) { return response["result"]["content"][0]["text"].get<std::string>(); }
+}  // namespace
+
+TEST_CASE("mcp: a normal server refuses a writeAnywhere command with capability_denied and a hint that names the CLI") {
+    Fixture f;
+    auto ran = std::make_shared<int>(0);
+    add_cap_tool(f, "test.outside", CapabilitySet{Capability::Read, Capability::WriteAnywhere}, false, ran);
+    f.initialize();
+    CHECK(f.server.capabilities() == capability_sets::mcp());
+    const Json res = f.call("test_outside");
+    CHECK(res["result"]["isError"] == true);
+    const std::string text = error_text(res);
+    CHECK(text.find("capability_denied") != std::string::npos);
+    CHECK(text.find("writeAnywhere") != std::string::npos);
+    CHECK(text.find("factoria call test.outside") != std::string::npos);
+    CHECK(*ran == 0);
+}
+
+TEST_CASE("mcp: the read-only server serves the play commands and refuses the rest, listed or not") {
+    Fixture f;
+    auto stepped = std::make_shared<int>(0), saved = std::make_shared<int>(0), published = std::make_shared<int>(0);
+    add_cap_tool(f, "game.step", capability_sets::changes_state(), false, stepped);
+    {
+        // Like the real game.screenshot: {read, state} by default, and a `path` needs writeProject and stays in the project.
+        CommandInfo i;
+        i.name = "game.screenshot";
+        i.summary = "Screenshot.";
+        i.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string"}}})");
+        f.registry.add(i, [](const Json& a) {
+            if (a.contains("path")) resolve_caller_write_path(a["path"].get<std::string>(), "game.screenshot");
+            return Json::object({{"ok", true}});
+        });
+        REQUIRE(f.registry.declare_capabilities("game.screenshot", capability_sets::changes_state()));
+    }
+    add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
+    add_cap_tool(f, "test.publish", CapabilitySet{Capability::Read, Capability::Publish}, false, published);
+    f.server.set_command_filter([](const CommandInfo& info) {
+        return info.readOnly || info.name == "game.step" || info.name == "game.screenshot" || info.name == "test.publish";
+    });
+    f.server.set_capabilities(capability_sets::mcp_read_only());
+    f.initialize();
+
+    CHECK(f.call("game_step")["result"]["isError"] == false);
+    CHECK(*stepped == 1);
+    CHECK(f.call("game_screenshot")["result"]["isError"] == false);
+    const Json withPath = f.call("game_screenshot", {{"path", "shots/a.png"}});  // a path needs writeProject: not in {read, state}
+    CHECK(withPath["result"]["isError"] == true);
+    CHECK(error_text(withPath).find("capability_denied") != std::string::npos);
+
+    const Json unlisted = f.call("scene_save");  // not served: the filter refuses it before any capability check
+    CHECK(unlisted["result"]["isError"] == true);
+    CHECK(error_text(unlisted).find("tool_not_available") != std::string::npos);
+    CHECK(error_text(unlisted).find("factoria call scene.save") != std::string::npos);
+    CHECK(*saved == 0);
+
+    const Json denied = f.call("test_publish");  // served, but the set lacks publish
+    CHECK(error_text(denied).find("capability_denied") != std::string::npos);
+    CHECK(*published == 0);
+}
+
+TEST_CASE("mcp: the read-only capability set covers the play commands it serves and nothing dangerous") {
+    const CapabilitySet ro = capability_sets::mcp_read_only();
+    CHECK(ro == CapabilitySet{Capability::Read, Capability::State});
+    CHECK(ro.has_all(capability_sets::changes_state()));
+    CHECK_FALSE(ro.has(Capability::WriteProject));
+    CHECK_FALSE(ro.has(Capability::WriteAnywhere));
+    CHECK_FALSE(ro.has(Capability::Network));
+    CHECK_FALSE(ro.has(Capability::Process));
+    CHECK_FALSE(ro.has(Capability::Spend));
+    CHECK_FALSE(ro.has(Capability::Publish));
+}
+
+TEST_CASE("mcp: tool hints come from the capabilities") {
+    Fixture f;
+    add_cap_tool(f, "scene.save", capability_sets::edits_project());
+    add_cap_tool(f, "game.screenshot", capability_sets::changes_state());
+    add_cap_tool(f, "test.look", capability_sets::reads(), true);
+    add_cap_tool(f, "test.net", CapabilitySet{Capability::Read, Capability::Network});
+    add_cap_tool(f, "test.spend", CapabilitySet{Capability::Read, Capability::Spend});
+    add_cap_tool(f, "test.edit_memory", capability_sets::changes_state());
+    f.initialize();
+    auto check = [&](const char* tool, bool readOnly, bool destructive, bool openWorld) {
+        const Json a = tool_annotations(f, tool);
+        INFO(tool);
+        CHECK(a["readOnlyHint"] == readOnly);
+        CHECK(a["destructiveHint"] == destructive);
+        CHECK(a["openWorldHint"] == openWorld);
+    };
+    check("scene_save", false, true, false);
+    check("game_screenshot", false, false, false);  // {read, state}: its picture goes under .factoria/
+    check("test_look", true, false, false);
+    check("test_net", false, false, true);
+    check("test_spend", false, true, true);
+    check("test_edit_memory", false, false, false);
+}
+
+TEST_CASE("mcp: readOnlyHint is false for a {read} command with an optional output path or a run-time write") {
+    Fixture f;
+    auto add = [&](const char* name, const char* schema) {
+        CommandInfo i;
+        i.name = name;
+        i.summary = "Reads.";
+        i.readOnly = true;
+        if (*schema) i.inputSchema = Json::parse(schema);
+        f.registry.add(i, [](const Json&) { return Json::object(); });
+        REQUIRE(f.registry.declare_capabilities(name, capability_sets::reads()));
+    };
+    add("test.plain_read", R"({"type":"object","properties":{"path":{"type":"string","x-fa-path":"read"}}})");
+    add("test.read_out", R"({"type":"object","properties":{"out":{"type":"string","x-fa-path":"write"}}})");
+    add("test.read_nested_out",
+        R"({"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"to":{"type":"string","x-fa-path":"write"}}}}}})");
+    add("feedback.check", "");  // `reject` asks for writeProject at run time, with no path in the schema
+    f.initialize();
+    CHECK(tool_annotations(f, "test_plain_read")["readOnlyHint"] == true);
+    for (const char* n : {"test_read_out", "test_read_nested_out", "feedback_check"}) {
+        const Json a = tool_annotations(f, n);
+        INFO(n);
+        CHECK(a["readOnlyHint"] == false);
+        CHECK(a["destructiveHint"] == false);  // it writes only what the caller names, inside the project
+        CHECK(a["openWorldHint"] == false);
+    }
+    // openWorldHint follows network/publish/spend; `process` starts a local program, which is not the outside world.
+    add_cap_tool(f, "test.proc", CapabilitySet{Capability::Read, Capability::Process});
+    add_cap_tool(f, "test.out", CapabilitySet{Capability::Read, Capability::WriteAnywhere});
+    add_cap_tool(f, "test.pub", CapabilitySet{Capability::Read, Capability::Publish});
+    CHECK(tool_annotations(f, "test_proc")["openWorldHint"] == false);
+    CHECK(tool_annotations(f, "test_out")["destructiveHint"] == true);
+    CHECK(tool_annotations(f, "test_pub")["destructiveHint"] == true);
+    CHECK(tool_annotations(f, "test_pub")["openWorldHint"] == true);
+}
+
+TEST_CASE("mcp: _meta and tool_describe carry the declared capabilities") {
+    Fixture f;
+    add_cap_tool(f, "test.declared", capability_sets::edits_project());
+    f.initialize();
+    const Json listed = f.rpc("tools/list");
+    bool found = false;
+    for (const Json& t : listed["result"]["tools"])
+        if (t["name"] == "test_declared") {
+            found = true;
+            CHECK(t["_meta"]["factoria/capabilitiesDeclared"] == true);
+            CHECK(t["_meta"]["factoria/capabilities"] == capability_sets::edits_project().to_json());
+        }
+    CHECK(found);
+    CHECK(f.server.set_tool_profile({"core"}).empty());  // tool_describe belongs to the tools profile
+    const Json described = result_json(f.call("tool_describe", {{"commands", Json::array({"test.declared"})}})["result"]);
+    REQUIRE(described["commands"].size() == 1);
+    const Json& d = described["commands"][0];
+    CHECK(d["capabilitiesDeclared"] == true);
+    CHECK(d["capabilities"] == capability_sets::edits_project().to_json());
+    CHECK(d["readOnly"] == false);
+    CHECK(d["tool"] == "test_declared");
+}
+
+TEST_CASE("mcp: the tools profile path works on a read-only server") {
+    Fixture f;
+    auto stepped = std::make_shared<int>(0), saved = std::make_shared<int>(0);
+    add_cap_tool(f, "game.step", capability_sets::changes_state(), false, stepped);
+    add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
+    f.server.set_command_filter([](const CommandInfo& info) { return info.readOnly || info.name == "game.step"; });
+    f.server.set_capabilities(capability_sets::mcp_read_only());
+    f.initialize();
+    CHECK(f.server.set_tool_profile({"core"}).empty());
+    const Json ran = f.call("tool_call", {{"command", "game.step"}})["result"];
+    CHECK(ran["isError"] == false);
+    CHECK(*stepped == 1);
+    const Json refused = f.call("tool_call", {{"command", "scene.save"}})["result"];
+    CHECK(refused["isError"] == true);
+    CHECK(*saved == 0);
+    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"scene.save"})}})["result"]).contains("unknown"));
+    const Json tools = f.rpc("tools/list");
+    for (const Json& t : tools["result"]["tools"]) CHECK(t["name"] != "scene_save");
 }

@@ -149,7 +149,10 @@ Json prefab_save(Engine::Impl& I, const Json& a) {
     World& W = I.world;
     const Entity e = need_entity(W, a, "id");
     const std::string rawPath = a.value("path", std::string());
-    std::string path = project_relative(rawPath, "'path'");
+    if (rawPath.empty()) bad_arg("'path' is empty.", "Use a project-relative path such as prefabs/enemy.prefab.json.");
+    // The file is WRITTEN: inside the project, not in .git or .factoria/ (except .factoria/tmp/), and an absolute path only for a
+    // caller that may write anywhere.
+    std::string path = resolve_caller_project_path(rawPath, "prefab.save");
     if (!ends_with(to_lower(path), kPrefabExt) || fs::filename(path).size() <= std::string(kPrefabExt).size()) {
         std::string fallback = W.id_of(e);
         const std::string suggestion = suggest_prefab_path(path, fallback);
@@ -285,6 +288,14 @@ Json scene_format(Engine::Impl& I, const Json& a) {
             "Pass the files or folders you edited, e.g. scene.format {\"paths\":[\"scenes/level1.scene.json\"]}, or \"all\": true to "
             "rewrite every scene and prefab of the project; \"check\": true only lists the files that are not canonical.");
     }
+    // Without `check` the files are WRITTEN: every path the caller names is confined first (inside the project, outside the
+    // managed folders), before any file is touched.
+    if (!check && !all) {
+        const Json& paths = a["paths"];
+        if (paths.is_array())
+            for (const Json& item : paths)
+                if (item.is_string()) (void)resolve_caller_project_path(item.get<std::string>(), "scene.format");
+    }
     const std::set<std::string> files = select_files(all ? Json::object() : a, searched);
 
     Json formatted = Json::array(), notCanonical = Json::array(), errors = Json::array();
@@ -297,6 +308,9 @@ Json scene_format(Engine::Impl& I, const Json& a) {
             ++unchanged;
         } else if (check) {
             notCanonical.push_back(f);
+        } else if (auto target = fs::resolve_for_write(f, fs::WriteRoot::Project, false); !target.ok()) {
+            // Found below a folder the caller named: a link out of the project, or a file in a managed folder.
+            errors.push_back(file_error(f, target.error()));
         } else if (auto written = fs::write_text(f, layout->text); !written.ok()) {
             errors.push_back(file_error(f, written.error()));
         } else {
@@ -363,7 +377,7 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "Errors name the id with did-you-mean suggestions or the path rule with a corrected name.",
          parse_schema(R"({"type":"object","required":["id","path"],"properties":{
                "id":{"type":"string","description":"Id (or name) of the entity to save; its children are saved with it."},
-               "path":{"type":"string","description":"Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json."},
+               "path":{"type":"string","x-fa-path":"write","description":"Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused."},
                "overwrite":{"type":"boolean","default":false,"description":"Replace the file when it already exists. Without it an existing file is an error."}}})"),
          false, "scene"},
         [&I](const Json& a) { return prefab_save(I, a); });
@@ -392,8 +406,8 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "canonical: `factoria call` exits non-zero, so a CI step can gate on it. project.validate lists the "
          "non-canonical ones in one informational note (not a warning).",
          parse_schema(R"({"type":"object","properties":{
-               "paths":{"type":"array","minItems":1,"items":{"type":"string"},
-                        "description":"Scene/prefab files or folders (recursive), project-relative. Needed to write: without it (and without all or check) the command fails and writes nothing."},
+               "paths":{"type":"array","minItems":1,"items":{"type":"string","x-fa-path":"write"},
+                        "description":"Scene/prefab files or folders (recursive), project-relative; without `check` they are written, so they stay inside the project and out of the managed folders (.git, .factoria/ except .factoria/tmp). Needed to write: without it (and without all or check) the command fails and writes nothing."},
                "all":{"type":"boolean","default":false,
                       "description":"true = format every *.scene.json and *.prefab.json of the project (instead of paths). Writing the whole project always takes this or paths."},
                "check":{"type":"boolean","default":false,
@@ -402,6 +416,12 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
                          "description":"With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check."}}})"),
          false, "scene"},
         [&I](const Json& a) { return scene_format(I, a); });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"prefab.save", capability_sets::writes_project()},
+        {"scene.format", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa

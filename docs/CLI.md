@@ -31,6 +31,16 @@ Writes made by commands (`scene.save`, `scene.import_ascii` with `path`, `fs.wri
 into `.factoria/` or the version-control folder, except the scratch folder `.factoria/tmp/`, where files can be created
 and deleted.
 
+The path a command writes to (`scene.save`, `scene.import_ascii` `path`, `scene.ascii_edit` `file`, `input.record` `path`,
+`anim.*`, `mesh.save`) is confined to the project for an MCP client or an agent: no `..` out
+of the project, no absolute path (`absolute_path_denied`, `path_outside_root`). From `factoria call` you may name an absolute
+path, except into the project's managed folders (`managed_path_denied`).
+
+A symbolic link is judged by where it leads, not by its name: a relative path that goes through a link to a folder outside the
+project (a shared asset folder linked into the project, say) is `path_outside_root` for every caller, the command-line user
+included, because the file would land outside the project. The command-line user can name the target with its absolute path
+instead; an MCP client or an agent cannot write there, and keeps the linked folder for reading.
+
 ## Projects
 
 ### `factoria new <dir> [--template T] [--name NAME] [--id ID] [--force] [--json]`
@@ -128,7 +138,8 @@ menu entry). After an update the editor rewrites, at start, a launcher that open
 a launcher that opens another `factoria` is left alone until `factoria setup launcher` points it at this one. `--force`
 installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
-checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
+checked against its publisher's checksum. Details, what is trusted and what an AI may do (`setup.status` checks; `setup.install` is the
+user's call and an AI gets `capability_denied`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
 ```
 factoria setup
@@ -278,6 +289,10 @@ ends the session. Logs go to stderr, so stdout is pure JSON lines.
 
 ### `factoria commands [prefix-or-name] [--project DIR] [--json]`
 Lists commands by category (`*` = modifies state). With an exact name it prints the description and argument schema.
+With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
+command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
+them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/ARCHITECTURE.md, "Capabilities").
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with

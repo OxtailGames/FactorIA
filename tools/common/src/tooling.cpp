@@ -124,7 +124,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["dir"],
           "properties":{
-            "dir":{"type":"string","description":"Target folder (created; must be empty or new)."},
+            "dir":{"type":"string","x-fa-path":"write","description":"Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder."},
             "template":{"type":"string","description":"2d-empty, 2d-platformer or 3d-empty (see project.templates).","default":"2d-empty"},
             "name":{"type":"string","description":"Display name (default: folder name)."},
             "id":{"type":"string","description":"Reverse-DNS id, e.g. com.example.mygame."}
@@ -134,12 +134,21 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
             o.name = a.value("name", std::string());
             o.id = a.value("id", std::string());
             std::error_code ec;
-            std::string dir = std::filesystem::absolute(std::filesystem::path(a.at("dir").get<std::string>()), ec).lexically_normal().string();
+            // With a project open the folder of a caller that may not write anywhere stays inside the project (the same rule as every
+            // path a caller gives to a writer); one that may (the command line) names any folder, relative to the working directory.
+            std::string dir;
+            if (caller_capabilities().has(Capability::WriteAnywhere))
+                dir = fs::path_to_utf8(std::filesystem::absolute(fs::path_from_utf8(a.at("dir").get<std::string>()), ec).lexically_normal());
+            else
+                dir = resolve_caller_write_path(a.at("dir").get<std::string>(), "project.create");
             auto r = create_project(dir, a.value("template", std::string("2d-empty")), o);
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             return r->to_json();
         });
     }
+    // project.create makes a new folder where its caller says (with no project open there is no root to keep it in: the bootstrap flow of
+    // `factoria mcp` without a project calls it with an absolute folder), so it is declared writeProject, not writeAnywhere.
+    declare_command_capabilities(registry, {{"project.templates", capability_sets::reads()}, {"project.create", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

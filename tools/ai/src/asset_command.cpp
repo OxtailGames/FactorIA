@@ -12,6 +12,7 @@
 #include "fa/core/image.h"
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -19,7 +20,9 @@ namespace fa::ai {
 namespace fsys = std::filesystem;
 
 Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest& req, const CancelFlag* cancel) {
-    const fsys::path dir = fs::make_temp_dir("fa_asset");
+    auto tempDir = fs::make_temp_dir("fa_asset");
+    if (!tempDir.ok()) return tempDir.error();
+    const fsys::path dir = *tempDir;
     struct Cleanup {
         fsys::path dir;
         ~Cleanup() { std::error_code ec; fsys::remove_all(dir, ec); }
@@ -69,6 +72,7 @@ Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest&
     for (const std::string& arg : cfg.argv) po.argv.push_back(util::expand_placeholders(arg, subs, std::size(subs)));
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    po.inheritEnv = provider_inherit_env(cfg);  // not the whole environment: no other provider's key, no signing password
     po.timeoutSeconds = cfg.timeoutSeconds;
     po.cancel = cancel;
 

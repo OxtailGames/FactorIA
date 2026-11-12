@@ -145,7 +145,10 @@ public:
     explicit ShareLock(const ShareEnv& env);
     // The same lock in another folder (FeedbackFileLock's project lock). The wait and stale times are those of `env`;
     // `reportedWaitSec` (when not negative) is the wait a busy-lock message names, for a caller whose wait began earlier.
-    ShareLock(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec = -1);
+    // `lockFileName` is another lock in the same folder (the AI settings use "ai-config.lock"): the takeover, probe and leftover
+    // files carry its name, so two locks of two names never wait for each other.
+    ShareLock(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec = -1,
+              std::string_view lockFileName = kFeedbackShareLockFile);
     ~ShareLock();
     ShareLock(const ShareLock&) = delete;
     ShareLock& operator=(const ShareLock&) = delete;
@@ -166,7 +169,7 @@ private:
     void refresh();
     bool held_ = false, nested_ = false, unwritable_ = false;
     double staleSec_ = 10.0;
-    std::string error_, path_, token_;
+    std::string name_, error_, path_, token_;
     std::filesystem::path file_;
 };
 // The lock of a read-modify-write of a project's ENGINE_FEEDBACK.json (or its archive) that the editor, the CLI, an agent and a

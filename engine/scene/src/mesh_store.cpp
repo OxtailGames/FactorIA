@@ -696,19 +696,30 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
     return out;
 }
 
-Result<std::string> save_mesh_glb(const MeshData& data, const std::string& path) {
+Result<std::string> mesh_glb_path(const std::string& path, bool allowAnywhere) {
     if (path.empty())
         return make_error("mesh.save: `path` is empty", "Pass the project-relative file to write, for example \"assets/models/tree.glb\".");
-    auto norm = fs::normalize_checked(path);
-    if (!norm) return norm.error();
-    if (!ends_with(to_lower(*norm), ".glb"))
-        return make_error("mesh.save: '" + *norm + "' does not end in .glb",
+    // The one place that confines a path somebody else gave: inside the project, not in .git or .factoria/ (except .factoria/tmp/).
+    auto resolved = fs::resolve_for_write(path, fs::WriteRoot::Project, allowAnywhere);
+    if (!resolved) return resolved.error();
+    const std::string norm = fs::project_spelling(*resolved);
+    if (!ends_with(to_lower(norm), ".glb"))
+        return make_error("mesh.save: '" + norm + "' does not end in .glb",
                           "Name the file with the .glb extension, for example \"assets/models/tree.glb\"; it loads back as a normal model (MeshRenderer.mesh = \"assets/models/tree.glb\").");
-    if (auto w = fs::check_writable(*norm); !w) return w.error();
-    auto glb = mesh_to_glb(data, *norm);
+    return norm;
+}
+
+Result<std::string> save_mesh_glb_at(const MeshData& data, const std::string& norm) {
+    auto glb = mesh_to_glb(data, norm);
     if (!glb) return glb.error();
-    if (auto w = fs::write_bytes(*norm, glb->data(), glb->size()); !w) return w.error();
-    return *norm;
+    if (auto w = fs::write_bytes(norm, glb->data(), glb->size()); !w) return w.error();
+    return norm;
+}
+
+Result<std::string> save_mesh_glb(const MeshData& data, const std::string& path, bool allowAnywhere) {
+    auto norm = mesh_glb_path(path, allowAnywhere);
+    if (!norm) return norm.error();
+    return save_mesh_glb_at(data, *norm);
 }
 
 }  // namespace fa

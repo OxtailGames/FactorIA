@@ -143,7 +143,7 @@ test("ui.focus on a disabled Button returns false instead of throwing", () => {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject) {
-        dir = fs::make_temp_dir("fa_ui_runtime_test_" + name);
+        dir = fs::make_temp_dir("fa_ui_runtime_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", kMenu);
     }

@@ -249,6 +249,19 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
             return Json::object({{"signedIn", fake.signed_in()}, {"delayFrames", fake.delay_frames()}, {"backend", fake.name()},
                                  {"cloudClock", fake.cloud_clock()}});
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(commands, {
+        {"platform.state", capability_sets::reads()},
+        {"platform.reset", capability_sets::changes_state()},
+        {"platform.respond", capability_sets::changes_state()},
+        {"platform.emit", capability_sets::changes_state()},
+        {"platform.revoke", capability_sets::changes_state()},
+        {"platform.set_ad", capability_sets::changes_state()},
+        {"platform.remote_play_connect", capability_sets::changes_state()},
+        {"platform.remote_play_disconnect", capability_sets::changes_state()},
+        {"platform.set_fake", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

@@ -631,7 +631,7 @@ std::filesystem::path next_picture_file(const std::string& projectDir) {
 
 std::string time_text(double t, double step) { return step < 1.0 ? std::format("{:.2f}s", t) : step < 10.0 ? std::format("{:.1f}s", t) : std::format("{:.0f}s", t); }
 
-Json spectrogram_command(const std::string& projectDir, const Json& args) {
+Json spectrogram_command(const std::string& projectDir, const Json& args, const char* command) {
     assets_detail::check_arg_keys("assets.spectrogram", args, "", {"path", "width", "height", "out", "loop", "channels"});
     const std::string rel = tooling_detail::arg_string(args, "path", true);
     if (!tooling_detail::is_audio_file(rel)) throw CommandError("invalid_argument", "'" + rel + "' is not a sound file.", "Sounds are .wav, .ogg, .mp3 or .qoa files.");
@@ -644,7 +644,7 @@ Json spectrogram_command(const std::string& projectDir, const Json& args) {
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/jump.png\".");
-        outFile = assets_detail::project_file(projectDir, outRel);
+        outFile = assets_detail::caller_output_file(projectDir, outRel, command);
     }
 
     auto analysis = analyze_audio_file(projectDir, rel);
@@ -832,14 +832,17 @@ Json spectrogram_command(const std::string& projectDir, const Json& args) {
 
 }  // namespace
 
-Json audio_mix::spectrogram_picture(const std::string& projectDir, const Json& args) { return spectrogram_command(projectDir, args); }
+Json audio_mix::spectrogram_picture(const std::string& projectDir, const Json& args, const char* command) {
+    return spectrogram_command(projectDir, args, command);
+}
 
-Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int widthArg, const std::string& outRel) {
+Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int widthArg,
+                                  const std::string& outRel, const char* command) {
     if (rows.empty()) throw CommandError("invalid_argument", "A contact sheet needs at least one sound.", "Give it the sounds to compare.");
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/sheet.png\".");
-        outFile = assets_detail::project_file(projectDir, outRel);
+        outFile = assets_detail::caller_output_file(projectDir, outRel, command);
     }
     const int width = std::clamp(widthArg, 400, 2400);
     const int n = int(rows.size());
@@ -926,7 +929,6 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
         CommandInfo info;
         info.name = "assets.spectrogram";
         info.category = "assets";
-        info.readOnly = true;
         info.summary = "See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.";
         info.description =
             "Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, like assets.preview_sheet does for a sprite sheet: the waveform on top (mid, or each channel; red columns are samples at full "
@@ -944,13 +946,13 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
              {"required", Json::array({"path"})},
              {"additionalProperties", false},
              {"properties",
-              Json::object({{"path", Json::object({{"type", "string"}, {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav."}})},
+              Json::object({{"path", Json::object({{"type", "string"}, {"x-fa-path", "read"}, {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav."}})},
                             {"width", integer("Width of the picture in pixels.", 400, 2400, 1000)},
                             {"height", integer("Height of the picture in pixels.", 280, 1600, 640)},
-                            {"out", Json::object({{"type", "string"}, {"description", "Also keep the PNG at this project-relative path (must end in .png). Without it the picture is a temporary screenshot."}})},
+                            {"out", Json::object({{"type", "string"}, {"x-fa-path", "write"}, {"description", "Also keep the PNG at this project-relative path (must end in .png; needs the writeProject capability, never inside .git or .factoria). Without it the picture is a temporary screenshot."}})},
                             {"loop", Json::object({{"type", "boolean"}, {"description", "Mark the loop seam. Default: whether the project plays the sound looping (scenes, prefabs and scripts)."}})},
                             {"channels", Json::object({{"type", "string"}, {"enum", Json::array({"mid", "each"})}, {"default", "mid"}, {"description", "\"mid\": one waveform of the average of the channels; \"each\": one lane per channel of a stereo sound."}})}})}});
-        registry.add(info, [projectDir](const Json& args) { return spectrogram_command(projectDir, args.is_null() ? Json::object() : args); });
+        registry.add(info, [projectDir](const Json& args) { return spectrogram_command(projectDir, args.is_null() ? Json::object() : args, "assets.spectrogram"); });
     }
     {
         CommandInfo info;
@@ -995,6 +997,10 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
                                                       {"description", "Loudness targets in LUFS per bus: {\"music\": -16, \"sfx\": {\"lufs\": -14, \"toleranceLu\": 2}, \"default\": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json."}})},
                             {"includeOk", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Also list the checks that passed."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return check_mix(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        using namespace capability_sets;
+        declare_command_capabilities(registry, {{"assets.spectrogram", changes_state()}, {"assets.check_mix", changes_state()}});
     }
 }
 

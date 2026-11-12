@@ -29,7 +29,7 @@ if(NOT FA_PLATFORM STREQUAL "web")
     target_link_libraries(fa_core PUBLIC Threads::Threads)
 endif()
 if(WIN32)
-    target_link_libraries(fa_core PRIVATE dbghelp)  # crash_win32.cpp: names for the frames of a crash report, minidumps
+    target_link_libraries(fa_core PRIVATE dbghelp advapi32)  # dbghelp: crash_win32.cpp, names for the frames of a crash report, minidumps; advapi32: private_file_win32.cpp, the owner-only DACL
 endif()
 fa_add_tests(core)
 if(FA_BUILD_TESTS AND TARGET fa_test_core)

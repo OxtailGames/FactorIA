@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <initializer_list>
 #include <optional>
 #include <set>
 #include <string>
@@ -245,6 +246,37 @@ Color colour_arg(const char* command, const Json& v, const std::string& pointer)
 
 // The absolute path of the project-relative `rel` (sandboxed: it cannot leave the project), or a CommandError.
 stdfs::path project_file(const std::string& projectDir, const std::string& rel);
+// The same for a file a command WRITES at a path its caller gave: through fs::resolve_for_write_in, so the tools' own folders
+// (`.git`, `.factoria/` except `.factoria/tmp`) are refused judged on the canonical path (a link into them counts). Inside the
+// project for every caller, the command-line user too (these commands record project paths in assets.json). A CommandError.
+stdfs::path project_write_file(const std::string& projectDir, const std::string& rel);
+// The file a command writes ONLY when its caller passes a path (`out`, `pictureOut`: a picture to keep; the command is declared with
+// the capabilities of its default behaviour, which writes nothing or an engine-chosen file under .factoria/): needs the caller to hold
+// writeProject (capability_denied otherwise), then fa::resolve_write_path: inside the project, the tools' folders refused, and an
+// absolute path only for a caller that may write anywhere (the command-line user). A CommandError. Call it BEFORE the expensive work.
+stdfs::path caller_output_file(const std::string& projectDir, const std::string& path, const char* command);
+// For the bakes that return a Result: the file a document says it writes. Inside the project for every caller, never in .git or .factoria.
+inline Result<stdfs::path> project_write_path(const std::string& projectDir, const std::string& rel) {
+    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+}
+// Refuses the picture a caller asks to keep (argument `pictureOut`, a .png) when `command` may not write it, before any work is done,
+// and a `pictureOut` given when the picture is off (`picture` false, or absent where `pictureDefault` is false): it would be ignored.
+void check_kept_picture(const std::string& projectDir, const Json& args, const char* command, bool pictureDefault = true);
+// A string property of an inputSchema that names a project path; `kind` is "read" or "write" (the "x-fa-path" annotation).
+inline Json path_property(const char* kind, const std::string& description) {
+    return Json::object({{"type", "string"}, {"x-fa-path", kind}, {"description", description}});
+}
+// Marks properties of a built inputSchema as project paths ("x-fa-path": kind "read" or "write"); a name the schema lacks is skipped.
+inline void mark_paths(Json& schema, const char* kind, std::initializer_list<const char*> names) {
+    if (!schema.is_object() || !schema.contains("properties") || !schema["properties"].is_object()) return;
+    for (const char* name : names)
+        if (schema["properties"].contains(name) && schema["properties"][name].is_object()) schema["properties"][name]["x-fa-path"] = kind;
+}
+// How a result names an output path its caller gave: normalized when it is project-relative, as given otherwise (an absolute path).
+inline std::string output_spelling(const std::string& path) {
+    auto norm = fs::normalize_checked(path);
+    return norm.ok() && !norm->empty() ? *norm : path;
+}
 
 // fa::assets works on the project of the VFS; this makes `projectDir` that project while it lives.
 struct ProjectRootGuard {

@@ -26,6 +26,8 @@ namespace stdfs = std::filesystem;
 namespace {
 
 // Sets (or, with nullptr, removes) an environment variable for the length of a test, and restores what was there.
+// setenv/putenv race with a getenv on another thread (the job pool and the loader threads read FA_JOB_THREADS). Declare it
+// BEFORE any Engine of the test, so the engine and its threads are gone when the destructor restores the variable.
 struct ScopedEnv {
     std::string name;
     std::string old;
@@ -75,7 +77,7 @@ std::string project_json(const std::string& runtime) {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const std::string& runtime = {}) {
-        dir = fs::make_temp_dir("fa_jobs_engine_test_" + name);
+        dir = fs::make_temp_dir("fa_jobs_engine_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << project_json(runtime);
         std::ofstream(dir / "scenes" / "main.scene.json", std::ios::binary) << kScene;

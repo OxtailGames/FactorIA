@@ -62,7 +62,7 @@ void register_probe_link() {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = fs::make_temp_dir("fa_filecmd_test_" + name);
+        dir = fs::make_temp_dir("fa_filecmd_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
@@ -286,12 +286,22 @@ TEST_CASE("prefab.save: bad paths and unknown ids explain the fix and write noth
 
     auto escape = save("squad", "../elsewhere.prefab.json");
     REQUIRE_FALSE(escape.ok);
-    CHECK(contains(error_text(escape), "escapes the project root"));
+    CHECK(escape.error["code"] == "path_outside_root");
 
-    auto outside = save("squad", (stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json").generic_string());
-    REQUIRE_FALSE(outside.ok);
-    CHECK(contains(error_text(outside), "outside the project"));
-    CHECK_FALSE(stdfs::exists(stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json"));
+    // An absolute path is the command-line user's to name (as for scene.save); an MCP client or an agent stays inside the project.
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        auto outside = save("squad", (stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json").generic_string());
+        REQUIRE_FALSE(outside.ok);
+        CHECK(outside.error["code"] == "absolute_path_denied");
+        CHECK_FALSE(stdfs::exists(stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json"));
+        auto managed = save("squad", ".git/hooks/x.prefab.json");
+        REQUIRE_FALSE(managed.ok);
+        CHECK(managed.error["code"] == "managed_path_denied");
+        auto managedMeta = save("squad", ".factoria/save/x.prefab.json");
+        REQUIRE_FALSE(managedMeta.ok);
+        CHECK(managedMeta.error["code"] == "managed_path_denied");
+    }
 
     auto typo = save("sqad", "prefabs/x.prefab.json");
     REQUIRE_FALSE(typo.ok);
@@ -565,7 +575,17 @@ TEST_CASE("scene.format: bad arguments are refused before any file is written") 
 
     auto escape = s.call("scene.format", Json{{"paths", Json::array({"../elsewhere"})}});
     REQUIRE_FALSE(escape.ok);
-    CHECK(contains(error_text(escape), "escapes the project root"));
+    CHECK(escape.error["code"] == "path_outside_root");
+
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        auto managed = s.call("scene.format", Json{{"paths", Json::array({".factoria/save/a.scene.json"})}});
+        REQUIRE_FALSE(managed.ok);
+        CHECK(managed.error["code"] == "managed_path_denied");
+        auto absolute = s.call("scene.format", Json{{"paths", Json::array({(stdfs::temp_directory_path() / "a.scene.json").generic_string()})}});
+        REQUIRE_FALSE(absolute.ok);
+        CHECK(absolute.error["code"] == "absolute_path_denied");
+    }
 
     auto outside = s.call("scene.format", Json{{"paths", Json::array({stdfs::temp_directory_path().generic_string()})}});
     REQUIRE_FALSE(outside.ok);

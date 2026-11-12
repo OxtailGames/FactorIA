@@ -108,21 +108,29 @@ void register_mesh_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"mesh.save", "Write a procedural mesh as a .glb file that loads back as a normal model.",
            "One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, "
            "blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; "
-           "it may not be inside .factoria/ (except .factoria/tmp/). A material whose texture is a run-time texture cannot be "
+           "it stays inside the project and may not be inside .git or .factoria/ (except .factoria/tmp/); an absolute path needs the writeAnywhere capability (the command line). A material whose texture is a run-time texture cannot be "
            "saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with "
            "the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, "
            "submeshes}. Example: mesh.save {\"id\":\"mesh:1\",\"path\":\"assets/models/tree.glb\"}",
            parse_schema(R"({"type":"object","required":["id","path"],"properties":{
                "id":{"type":"string","description":"The mesh (\"mesh:N\")."},
-               "path":{"type":"string","description":"Project-relative file ending in .glb."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere)."}}})"),
            false, "render"},
           [&I](const Json& a) {
               const std::string id = need_id(a);
               if (!a.contains("path") || !a["path"].is_string())
                   throw CommandError("invalid_argument", "Missing 'path'.", "Pass the file to write, e.g. \"assets/models/tree.glb\".");
+              // Judged before anything is built, once: the capability, then the path (inside the project, not a managed folder, a .glb;
+              // its errors keep their codes).
+              require_capability(Capability::WriteProject, "mesh.save", "writing to the `path` you gave");
+              auto path = mesh_glb_path(a["path"].get<std::string>(), caller_capabilities().has(Capability::WriteAnywhere));
+              if (!path.ok()) {
+                  const std::string code(fs::path_error_code(path.error()));
+                  throw CommandError(code.empty() ? "invalid_argument" : code, path.error().message, path.error().hint);
+              }
               auto got = I.world.meshes().get(id);
               if (!got.ok()) fail(got.error());
-              auto saved = save_mesh_glb((*got)->data, a["path"].get<std::string>());
+              auto saved = save_mesh_glb_at((*got)->data, *path);
               if (!saved.ok()) fail(saved.error());
               return Json::object({{"saved", *saved}, {"submeshes", (*got)->data.submeshes.size()}});
           });
@@ -148,6 +156,16 @@ void register_mesh_commands(Engine& engine, Engine::Impl& I) {
               if (!got.ok()) fail(got.error());
               return mesh_info_json(**got);
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"mesh.create", capability_sets::changes_state()},
+        {"mesh.update", capability_sets::changes_state()},
+        {"mesh.destroy", capability_sets::changes_state()},
+        {"mesh.save", capability_sets::writes_project()},
+        {"mesh.list", capability_sets::reads()},
+        {"mesh.info", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

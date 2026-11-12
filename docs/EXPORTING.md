@@ -417,15 +417,18 @@ player has to match the factoria that copies it into a game, which is why the fo
 toolchain is read from `export.json` (below) and CMake is `fa::find_cmake`: `PATH`, Homebrew, `/Applications/CMake.app`, then
 `tools/cmake` (`build_ios.sh` runs `FACTORIA_CMAKE` when it is set, else the CMake the export found, else `cmake` from `PATH`).
 
-**From an AI.** The commands `setup.status` (read-only) and `setup.install` (MCP tools `setup_status`, `setup_install`) do
-the same. `setup.status {"component":"android"}` returns each component's `state` (`installed`, `missing`, `partial`,
-`unsupported`), `problems[]`, `installSizeMb` and, while the Android license is not accepted, `licenses[]` with its full
-text. `setup.install {"component":"android","acceptLicenses":true}` installs and returns the `steps[]` (each `installed`,
-`skipped` or `guidance`), `paths`, `nextSteps` and `warnings`; errors carry a `code` (`license_required`, `checksum_mismatch`,
-`network`, `no_release`, `cancelled`, `unsupported`, `invalid_argument`, `failed`) and the steps done before the failure. An
-install downloads hundreds of megabytes: ask the user first, and set `acceptLicenses` only after the user has read the
-license text and said yes, never on your own. C++: `fa/tooling/setup.h` (`fa::setup_status`, `fa::setup_install`); the
-editor's Export window builds its buttons on it.
+**From an AI.** An AI checks, the user installs. `setup.status {"component":"android"}` (MCP tool `setup_status`; it runs
+the tools it probes and may fetch the Android license text, so it is not a pure read) returns each component's `state`
+(`installed`, `missing`, `partial`, `unsupported`), `problems[]`, `installSizeMb` and, while the Android license is not
+accepted, `licenses[]` with its full text. An AI reads that and tells the user what to do: press the editor's **File > Set Up
+This Computer...** button for the component or run `factoria setup <component>`. `setup.install` installs software outside the
+project and accepts licenses, which is the user's call: it needs `writeAnywhere`, so an MCP client or an AI agent gets
+`capability_denied`; only the command line (`factoria setup`, `factoria call setup.install`) and the editor's buttons run it. Its
+result is the `steps[]` (each `installed`, `skipped` or `guidance`), `paths`, `nextSteps` and `warnings`; errors carry a `code`
+(`license_required`, `checksum_mismatch`, `network`, `no_release`, `cancelled`, `unsupported`, `invalid_argument`, `failed`) and the
+steps done before the failure. An install downloads hundreds of megabytes, and `acceptLicenses` is set only by the user who has
+read the license text. C++: `fa/tooling/setup.h` (`fa::setup_status`, `fa::setup_install`); the editor's Export window builds its
+buttons on it.
 
 Tests: `FACTORIA_SETUP_ONLINE_TESTS=1 ctest -R tooling` also reads the real Google, Adoptium and GitHub listings (a few
 hundred KB, nothing is installed) to catch a changed format, or Google dropping the pinned command-line tools revision.
@@ -556,7 +559,8 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 
 The file is written with owner-only permissions on macOS and Linux because it can hold passwords (loading it warns when
 other users can read it). Passwords never go in `factoria.json` or in the files of an export. The Apple ID password of
-notarization is the one secret `sign.macos` takes, and only from the environment (`FACTORIA_APPLE_APP_PASSWORD`), never from this file.
+notarization is the one secret `sign.macos` takes, and only from the environment (`FACTORIA_APPLE_APP_PASSWORD`), never from this file. A secret is also never an
+argument of a program FactorIA starts (the process list shows those): see [Secrets and the process list](#secrets-and-the-process-list).
 
 ### Finding the Android toolchain
 
@@ -780,8 +784,8 @@ anywhere):
 The login for notarytool is the first of: a keychain profile, an API key, an Apple ID. The result is `{app, dryRun,
 identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, pkg,
 steps[], warnings[], nextSteps[]}` (`distribution: "appStore"` adds `installerIdentity`, `pkgSigned`, `entitlements` and `profile`); each step is `{title, command, commandLine, ran, exitCode}`. Nothing secret is ever an argument, is in
-`factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment
-and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
+`factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment,
+goes to `notarytool` on its standard input (a step with `stdinSecret: true`; `env` lists the NAMES of the variables a step sets) and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
 where Apple's tools keep it.
 
 `~/.factoria/export.json` (this computer only, [Machine settings](#machine-settings-factoriaexportjson)) may carry the
@@ -1404,7 +1408,8 @@ library, calling Java from C, `hasCode` and the details: [MOBILE.md](MOBILE.md#n
 
 **Signing**. A debug build is signed with the debug key of the machine (fine for trying the app). `--release` signs with the
 keystore of `export.android.signing` (`keystore`, `alias`; a project-relative path is resolved against the project and the
-file is never copied into the app). The passwords are never written to a project, a file of the export or a command line:
+file is never copied into the app). The passwords are never written to a project, a file of the export or a command line
+(the only passwords on a command line are the GOG and Microsoft Store ones, see "Secrets and the process list"):
 they come from `FACTORIA_ANDROID_KEYSTORE_PASSWORD` and `FACTORIA_ANDROID_KEY_PASSWORD` (or `android.keystorePassword` /
 `keyPassword` of `~/.factoria/export.json`; the key password defaults to the keystore password) and are given to the Gradle
 process as environment variables only. `plan_export` and `--release` check that the keystore exists and that the passwords
@@ -1607,10 +1612,23 @@ warning with a "did you mean".
 Store ids are copied from the partner sites as text or numbers. Unknown platforms are rejected with a "did you mean"
 (`windws` -> `windows`), and `android` and `ios` with the reason.
 
+### Secrets and the process list
+
+The command line of a running program is readable by every user of the computer (`ps`, Task Manager). So FactorIA gives each
+tool its secret by the safest route the tool has: the environment of the process (Gradle, `butler`, BuildPatchTool, `openssl
+-passin env:`, `keytool -storepass:env`, `signtool` through the certificate store), a file or key path (altool, `notarytool --key`, fastlane
+`--json_key`, `notarytool --keychain-profile`) or its standard input (`osslsigncode -readpass -`, `notarytool` for an Apple ID
+password: with no `--password` and no terminal it reads the password from stdin, and `sign.macos` starts it in a session of its own, so
+without a controlling terminal: `ProcessOptions::newSession`; a cancel still stops notarytool and everything it started). Reports and `dryRun` list only the NAMES of the environment variables a step sets (`env`) and say
+when a secret goes on stdin (`stdinSecret`). Two uploaders leave no other way, and FactorIA warns about them in the plan: GOG Pipeline
+Builder (`--password`) and the Microsoft Store CLI (`msstore reconfigure --clientSecret`).
+
 ### Secrets: environment variables and `~/.factoria/`
 
 A secret is never read from `factoria.json`, never written to a file of the project, never shown in a result, a progress line
-or a log (the value is replaced by `<redacted>`), and never placed on a command line unless the uploader leaves no other way.
+or a log (the value is replaced by `<redacted>`), and never placed on a command line unless the uploader leaves no other way. Two
+uploaders leave none: the GOG password (`GOGGalaxyPipelineBuilder --password`) and the Microsoft Store client secret (`msstore
+reconfigure --clientSecret`) are arguments while that program runs, whatever the other lines of this section say.
 
 | Store | Secret | Where it comes from |
 |---|---|---|
@@ -1619,7 +1637,7 @@ or a log (the value is replaced by `<redacted>`), and never placed on a command 
 | Epic | the client secret | the environment variable `FACTORIA_EPIC_CLIENT_SECRET`. It reaches the tool in its environment and the command line only names the variable (`-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET`). |
 | App Store Connect | the API key | a `.p8` file outside the project: `FACTORIA_APPSTORE_API_KEY` is its path, `FACTORIA_APPSTORE_API_KEY_ID` its Key ID and `FACTORIA_APPSTORE_API_ISSUER` the Issuer ID (`FACTORIA_NOTARY_API_KEY`, `_KEY_ID`, `_ISSUER` of [`sign.macos`](#signing-and-notarizing-for-macos) work too). The file is never read, copied or shown: altool finds it in the folder named by its own `API_PRIVATE_KEYS_DIR`. |
 | Google Play | the service account key | a JSON file outside the project: `FACTORIA_GOOGLEPLAY_JSON_KEY` (or fastlane's `SUPPLY_JSON_KEY`) is its path. FactorIA checks that it is a service account key and passes the path to fastlane; the content is never shown. |
-| GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as an argument, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>`. |
+| GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand: then no password is on any command line), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as the argument `--password`, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>` and the plan carries a warning saying so. |
 
 ### Finding the tools
 
@@ -1809,10 +1827,23 @@ manifest `Publisher`.
 
 - With a certificate: `sign.windows {"pfx":"signing.pfx"}` signs the package (`signtool` on Windows, `osslsigncode` on the
   other computers; `FACTORIA_SIGNTOOL` and `FACTORIA_OSSLSIGNCODE` point at the tool). The password is only read from
-  `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument. The pfx can also be `FACTORIA_WINDOWS_PFX` or
+  `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument, and no program gets it on its command line:
+  on Windows `signtool` has no other way to read a `.pfx` password than `/p`, so the `.pfx` is imported into your user
+  certificate store (`Cert:\CurrentUser\My`) by PowerShell, which reads the password from its environment, `signtool` signs with
+  `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails or is cancelled; a
+  certificate that was in the store before, with its private key, is left alone, and then the file is not even loaded a second
+  time; one that was there WITHOUT its private key is completed by the import and removed with it afterwards). Up to three
+  PowerShell steps: read the thumbprint of the certificate that has a private key (imports nothing and leaves no key on disk; only a PowerShell killed while it holds the file open can leave a temporary key container),
+  import only that certificate (not the chain certificates of the file, which would bring up Windows' root-store question; the
+  keys of the chain certificates are deleted again), skipped when the store has the certificate with its key, and remove it.
+  The import looks in the store first and loads the file only right before adding the certificate, and it deletes the key it
+  loaded when the certificate does not get into the store (a PowerShell killed at that very moment cannot clean up). Steps two and three hold a named mutex (per Windows user, shared by
+  all the user's logon sessions; when a PowerShell run as administrator created it and this run cannot open it, the error says to close that PowerShell and run again), so two `sign.windows` runs of one user do not change the store at the same time; the mutex
+  does not span the signing, so do not sign with the same `.pfx` in two runs at once (the first to finish removes the
+  certificate). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
   `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
   against the manifest `Publisher` and refuses when they differ. `exe: true` also signs the game's exe, for a game shared
-  as a folder or a zip. `dryRun` shows the command lines with the password as `<redacted>`.
+  as a folder or a zip. `dryRun` shows the four steps (read the thumbprint, import, sign, remove; a real run skips the import when the store has the certificate already) and the NAMES of the variables each one sets, never a value.
 - Without one, on Windows: `sign.windows {"testCertificate":true}` creates a self-signed certificate with the right subject,
   signs the package and writes its public part (`<slug>-windows-test-certificate.cer`) next to it. Install the certificate once, in an
   administrator PowerShell: `Import-Certificate -FilePath <slug>-windows-test-certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`;
@@ -1830,7 +1861,7 @@ and then `msstore publish <folder> --inputFile <msix> --appId <productId> --noCo
 `factoria.json` is the 12-character Store ID (Partner Center > your app > Product identity). The credentials come from an Azure AD
 application you associate with Partner Center (Account settings > Tenants > Azure AD applications) and only from the environment:
 `FACTORIA_MSSTORE_TENANT_ID`, `FACTORIA_MSSTORE_SELLER_ID`, `FACTORIA_MSSTORE_CLIENT_ID` and `FACTORIA_MSSTORE_CLIENT_SECRET`
-(the secret is never shown: `<redacted>`). `releaseStatus: "draft"` (default) leaves the submission waiting in Partner
+(the secret is never shown: `<redacted>`). `msstore reconfigure` takes the client secret only as the argument `--clientSecret`, so it is visible in the process list for a few seconds; the plan carries a warning saying so (use an Azure AD application whose secret you can revoke). `releaseStatus: "draft"` (default) leaves the submission waiting in Partner
 Center (`--noCommit`); `completed` sends it to certification. The first submission of a new app is always by hand.
 FactorIA ran `msstore` only against a fake in its tests; a real upload needs a Partner Center account.
 
@@ -1994,7 +2025,7 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
   `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, `PATH`,
   then the copy `factoria setup ffmpeg` installs under `$FACTORIA_HOME/tools/ffmpeg/` (`setup.status` lists the `ffmpeg`
-  component and `setup.install {"component": "ffmpeg"}` installs it, one download of 19-28 MB). FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
+  component; the user installs it with `factoria setup ffmpeg` or the editor's setup window, one download of 19-28 MB). FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
   before the replay runs, with this advice: run `factoria setup ffmpeg`, install ffmpeg yourself, or record `.avi` and convert it yourself:
   `ffmpeg -i trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4`.
 - Stores want the video at their own sizes and rates (Microsoft: 1920x1080 MP4, under 2 GB, 60 s or less recommended);

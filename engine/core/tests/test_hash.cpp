@@ -48,7 +48,7 @@ TEST_CASE("hash: updating in odd-sized pieces equals hashing the whole buffer") 
 }
 
 TEST_CASE("hash: files are hashed in chunks and a missing file is an error that names it") {
-    const std::filesystem::path dir = fs::make_temp_dir("fa_hash_test");
+    const std::filesystem::path dir = fs::make_temp_dir("fa_hash_test").value();
     const std::filesystem::path file = dir / "data.bin";
     {
         std::ofstream out(file, std::ios::binary);

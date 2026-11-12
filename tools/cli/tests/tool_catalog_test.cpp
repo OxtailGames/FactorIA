@@ -68,7 +68,7 @@ ChatResponse done() {
 
 std::unique_ptr<cli::Session> open_game(const char* tag, stdfs::path& oldRoot) {
     oldRoot = fs::project_root();
-    const stdfs::path root = fs::make_temp_dir(std::string("fa_tool_catalog_") + tag);
+    const stdfs::path root = fs::make_temp_dir(std::string("fa_tool_catalog_") + tag).value();
     ScaffoldOptions opt;
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
@@ -153,18 +153,15 @@ TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction o
     REQUIRE(withCatalog.splits.size() == 6);
     REQUIRE(full.splits.size() == 5);
 
-    u64 catalogTotal = 0, fullTotal = 0;
     std::printf("tool catalog, scripted task on the real registry (estimated bytes per step: system / tools / conversation)\n");
     for (std::size_t i = 0; i < withCatalog.splits.size(); ++i) {
         const ContextSplit& c = withCatalog.splits[i];
-        catalogTotal += c.totalBytes();
         std::printf("  with catalog  step %zu: %6llu / %6llu / %6llu  (%d tools, %d catalog lines)\n", i + 1,
                     static_cast<unsigned long long>(c.systemBytes), static_cast<unsigned long long>(c.toolBytes),
                     static_cast<unsigned long long>(c.conversationBytes), c.toolCount, c.catalogCount);
     }
     for (std::size_t i = 0; i < full.splits.size(); ++i) {
         const ContextSplit& c = full.splits[i];
-        fullTotal += c.totalBytes();
         std::printf("  every tool    step %zu: %6llu / %6llu / %6llu  (%d tools)\n", i + 1, static_cast<unsigned long long>(c.systemBytes),
                     static_cast<unsigned long long>(c.toolBytes), static_cast<unsigned long long>(c.conversationBytes), c.toolCount);
     }

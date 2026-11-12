@@ -1159,7 +1159,7 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
       "type":"object",
       "additionalProperties":false,
       "properties":{
-        "lan":{"type":"boolean","description":"Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer.","default":false},
+        "lan":{"type":"boolean","description":"Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. true needs the publish capability (the editor's AI agent does not have it: it asks the user to run the command).","default":false},
         "stop":{"type":"boolean","description":"Stop the server and close its connections (instead of starting it). Cannot be combined with the other arguments. The server also stops when the process ends.","default":false},
         "player":{"type":"string","description":"The folder with factoria_player.js and factoria_player.wasm to serve instead of the installed web player, relative to the project folder or absolute (like project.export).","default":""},
         "allowPlayerMismatch":{"type":"boolean","description":"Serve a web player built from another commit than this factoria (like project.export).","default":false}
@@ -1184,6 +1184,8 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         ServeWebOptions o;
         o.projectDir = projectDir;
         o.lan = tooling_detail::arg_bool(args, "lan", false);
+        // Listening on every network interface hands the game to whoever is on the network: that is publishing it.
+        if (o.lan) require_capability(Capability::Publish, "project.serve_web", "`lan: true` (serving the game to the network)");
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
         if (std::string player = tooling_detail::arg_string(args, "player", false); !player.empty()) {
             const stdfs::path p(player);
@@ -1204,6 +1206,9 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         if (st.state == "failed") throw CommandError("failed", st.error + " (the previous build is still served at " + st.localUrl + ")", st.hint);
         return st.to_json();
     });
+    // exports the web build into the project and listens on a TCP port.
+    declare_command_capabilities(registry, {
+        {"project.serve_web", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}}});
 }
 
 }  // namespace fa

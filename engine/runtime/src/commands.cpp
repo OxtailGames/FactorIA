@@ -191,7 +191,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "Returns {engineVersion, platform, graphics, headless, frame, paused, fixedHz, components, commands}. "
            "Example: engine.info {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "engine"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               Json j = Json::object();
               j["engineVersion"] = FA_ENGINE_VERSION;
               j["platform"] = FA_PLATFORM_NAME;
@@ -211,7 +211,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. "
            "Example: project.info {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "project"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               Json j = Json::object();
               j["project"] = I.project.to_json();
               j["currentScene"] = I.currentScene;
@@ -239,7 +239,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "component":{"type":"string","description":"Only entities having this component, e.g. RigidBody2D."},
                "limit":{"type":"integer","default":100,"minimum":1,"description":"Maximum entities returned."}}})"),
            true, "scene"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               std::string nameF = to_lower(a.value("name", std::string()));
               std::string tagF = a.value("tag", std::string());
               const TypeInfo* compT = nullptr;
@@ -279,7 +279,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name)."}}})"),
            true, "scene"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               Entity e = need_entity(I.world, a);
               EntityJsonOptions o;
               o.includeDefaults = true;
@@ -306,7 +306,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "tags":{"type":"array","items":{"type":"string"}},
                "components":{"type":"object","description":"Component name -> field object."}}})"),
            false, "scene"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               Entity parent = kNullEntity;
               if (a.contains("parent")) parent = need_entity(I.world, a, "parent");
               int index = -1;
@@ -360,7 +360,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "Destruction is applied immediately when called outside a frame. Example: scene.destroy {\"id\":\"coin_3\"}",
            parse_schema(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"Entity id (or name)."}}})"),
            false, "scene"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               Entity e = need_entity(I.world, a);
               std::string id = I.world.id_of(e);
               I.world.destroy(e);
@@ -438,7 +438,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            parse_schema(R"({"type":"object","required":["id","component"],"properties":{
                "id":{"type":"string"},"component":{"type":"string"}}})"),
            false, "scene"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               Entity e = need_entity(I.world, a);
               const std::string cname = a["component"].get<std::string>();
               const TypeInfo& t = need_component_type(cname);
@@ -504,14 +504,20 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "differences that form cannot express (a part of the prefab removed, a child added under a part of it) is "
            "written inline and listed under `expandedPrefabs` with the reason.",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."},
+               "path":{"type":"string","x-fa-path":"write","description":"Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene."},
                "includeSpawned":{"type":"boolean","default":false,"description":"Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load."}}})"),
            false, "scene"},
-          [&engine, &I](const Json& a) {
-              std::string path = a.value("path", I.currentScene);
-              if (path.empty())
-                  throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
-              if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+          [&I](const Json& a) {
+              std::string path;
+              if (a.contains("path") && a["path"].is_string()) {
+                  // A path the caller names stays inside the project (an absolute one only for a caller that may write anywhere).
+                  path = resolve_caller_project_path(a["path"].get<std::string>(), "scene.save");
+              } else {
+                  path = I.currentScene;
+                  if (path.empty())
+                      throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+              }
               SpawnedSkip skip;
               std::vector<PrefabExpanded> expanded;
               auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded);
@@ -542,7 +548,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing "
            "them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}",
            parse_schema(R"({"type":"object","properties":{}})"), false, "scene"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               if (I.currentScene.empty()) throw CommandError("unavailable", "No scene is loaded.", "Use scene.load first.");
               std::string err;
               bool ok = I.load_scene_impl(I.currentScene, &err, true);  // the same scene starts again with its props
@@ -596,7 +602,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "input.record {\"action\":\"stop\",\"path\":\"replays/run1.json\"}",
            parse_schema(R"({"type":"object","required":["action"],"properties":{
                "action":{"type":"string","enum":["start","stop"],"description":"start: begin recording now. stop: end it and return the replay."},
-               "path":{"type":"string","description":"stop only: also write the replay to this project-relative file (e.g. replays/run1.json)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               const std::string action = a["action"].get<std::string>();
@@ -607,13 +613,20 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               }
               if (!engine.input_recording())
                   throw CommandError("unavailable", "Nothing is being recorded.", "Start with input.record {\"action\":\"start\"}.");
+              // The path is judged before the recording stops: a refused path must not throw the recording away.
+              std::string path;
+              const bool writeReplay = a.contains("path") && a["path"].is_string();
+              if (writeReplay) path = resolve_caller_project_path(a["path"].get<std::string>(), "input.record");
               const std::size_t frames = engine.input_recording_frames();
               Json replay = engine.stop_input_recording();
               Json out = Json::object({{"recording", false}, {"frames", frames}, {"replay", replay}});
-              if (a.contains("path") && a["path"].is_string()) {
-                  const std::string path = a["path"].get<std::string>();
-                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
-                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+              if (writeReplay) {
+                  // The recording is already stopped: a failed write must not lose the replay, so the error carries it (and the path tried).
+                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok())
+                      throw CommandError("failed", "The replay could not be written to '" + path + "': " + r.error().message +
+                                                       " The recording is stopped; the replay is in this error's `data.replay`.",
+                                         "Save `data.replay` with fs.write to a path that works, or record again. " + r.error().hint,
+                                         Json::object({{"path", path}, {"frames", frames}, {"replay", replay}}));
                   out["path"] = path;
               }
               return out;
@@ -819,7 +832,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "includeDefaults":{"type":"boolean","default":false},
                "maxEntities":{"type":"integer","default":200,"minimum":0}}})"),
            true, "game"},
-          [&engine, &I](const Json& a) { return engine.state(a); });
+          [&engine](const Json& a) { return engine.state(a); });
 
     I.commands.add({"game.state_hash", "One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator.",
            "Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra "
@@ -921,7 +934,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "after":{"type":"integer","default":0,"description":"Only entries with seq greater than this."},
                "max":{"type":"integer","default":100,"minimum":1}}})"),
            true, "game"},
-          [&engine, &I](const Json& a) {
+          [](const Json& a) {
               LogLevel lv = LogLevel::Info;
               if (!parse_log_level(a.value("minLevel", std::string("info")), lv))
                   throw CommandError("invalid_argument", "Unknown log level.", "Use trace, debug, info, warn or error.");
@@ -1263,13 +1276,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"game.pause", "Pause the simulation (frame() stops simulating; game.step still works).",
            "Example: game.pause {}", parse_schema(R"({"type":"object","properties":{}})"), false, "game"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               I.paused = true;
               return Json::object({{"paused", true}});
           });
     I.commands.add({"game.resume", "Resume the simulation after game.pause.", "Example: game.resume {}",
            parse_schema(R"({"type":"object","properties":{}})"), false, "game"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               I.paused = false;
               return Json::object({{"paused", false}});
           });
@@ -1289,7 +1302,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "call":{"type":"string","description":"Name of the exported function of `module` to call (\"default\" for the default export)."},
                "args":{"type":"array","description":"Arguments (JSON values) for the call.","items":{}}}})"),
            false, "script"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               std::string code;
               if (a.contains("module")) {
                   if (a.contains("code"))
@@ -1378,7 +1391,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            parse_schema(R"({"type":"object","properties":{
                "force":{"type":"boolean","default":false,"description":"Re-import all modules, not only the changed ones."}}})"),
            false, "script"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               std::vector<std::string> files = I.scripts.refresh_modules(a.value("force", false));
               I.scripts.on_scene_loaded();
               return Json::object({{"reloaded", files}, {"errors", I.scripts.errors().size()}});
@@ -1387,7 +1400,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"script.errors", "List script errors (load/runtime) and scene load problems.",
            "Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
-          [&engine, &I](const Json&) {
+          [&I](const Json&) {
               Json errs = Json::array();
               for (const ScriptError& e : I.scripts.errors())
                   errs.push_back(Json::object({{"file", e.file}, {"line", e.line}, {"column", e.column}, {"message", e.message},
@@ -1403,7 +1416,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "filter":{"type":"string","description":"Only run test cases whose name contains this."},
                "files":{"type":"array","items":{"type":"string"},"description":"Test files, folders or globs, project-relative (default: every tests/**/*.test.js)."}}})"),
            false, "project"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               I.refresh_from_disk();  // factoria.json input actions and edited scripts, like a scene load
               std::vector<std::string> wanted;
               if (a.contains("files") && a["files"].is_array())
@@ -1436,7 +1449,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "origin":{"type":"array","description":"3D origin [x,y,z]."},"direction":{"type":"array","description":"3D direction."},
                "maxDistance":{"type":"number","default":1000}}})")),
            true, "physics"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               std::string err;
               std::optional<RaycastHit> hit;
               auto need = [&](const char* key, auto& out) {
@@ -1518,7 +1531,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "from":{"type":"array","items":{"type":"number"},"description":"Start of the shape's centre, [x,y] (2D) or [x,y,z] (3D)."},
                "to":{"type":"array","items":{"type":"number"},"description":"End of the shape's centre, same dimension as from."}}})")),
            true, "physics"},
-          [&engine, &I](const Json& a) {
+          [&I](const Json& a) {
               auto point = [&](const char* key, std::size_t& n) {
                   if (!a.contains(key))
                       throw CommandError("invalid_argument", std::string("Missing '") + key + "'.",
@@ -1741,13 +1754,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"api.components", "Describe every component type: fields, kinds, defaults, docs.",
            "Read this before writing scene JSON. Example: api.components {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "api"},
-          [&engine, &I](const Json&) { return TypeRegistry::global().describe_all(); });
+          [](const Json&) { return TypeRegistry::global().describe_all(); });
     I.commands.add({"api.commands", "Describe every registered command (name, summary, schema).",
            "Example: api.commands {}", parse_schema(R"({"type":"object","properties":{}})"), true, "api"},
-          [&engine, &I](const Json&) { return I.commands.describe(); });
+          [&I](const Json&) { return I.commands.describe(); });
     I.commands.add({"api.scripting", "Machine-readable JavaScript API (modules, classes, functions) for gameplay scripts.",
            "Example: api.scripting {}", parse_schema(R"({"type":"object","properties":{}})"), true, "api"},
-          [&engine, &I](const Json&) { return I.scripts.api_manifest(); });
+          [&I](const Json&) { return I.scripts.api_manifest(); });
 
     // ------------------------------------------------------------------- assets
     I.commands.add({"assets.list", "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).",
@@ -1756,7 +1769,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "folder":{"type":"string","default":"assets","description":"Project-relative folder."},
                "extension":{"type":"string","description":"Only files with this extension, e.g. .png"}}})"),
            true, "assets"},
-          [&engine, &I](const Json& a) {
+          [](const Json& a) {
               std::string folder = a.value("folder", std::string("assets"));
               auto files = fs::list(folder, true, a.value("extension", std::string()));
               Json list = Json::array();
@@ -1767,6 +1780,67 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               }
               return Json::object({{"folder", folder}, {"count", list.size()}, {"files", list}});
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"engine.info", capability_sets::reads()},
+        {"project.info", capability_sets::reads()},
+        {"scene.list_entities", capability_sets::reads()},
+        {"scene.get_entity", capability_sets::reads()},
+        {"game.state", capability_sets::reads()},
+        {"game.state_hash", capability_sets::reads()},
+        {"jobs.info", capability_sets::reads()},
+        {"game.render_stats", capability_sets::reads()},
+        {"game.logs", capability_sets::reads()},
+        {"ui.state", capability_sets::reads()},
+        {"audio.log", capability_sets::reads()},
+        {"storage.list", capability_sets::reads()},
+        {"script.errors", capability_sets::reads()},
+        {"physics.raycast", capability_sets::reads()},
+        {"physics.raycast_all", capability_sets::reads()},
+        {"physics.shape_cast", capability_sets::reads()},
+        {"nav.bake", capability_sets::reads()},
+        {"nav.find_path", capability_sets::reads()},
+        {"nav.find_paths", capability_sets::reads()},
+        {"nav.find_tile_paths", capability_sets::reads()},
+        {"nav.find_tile_path", capability_sets::reads()},
+        {"nav.flow_field", capability_sets::reads()},
+        {"nav.info", capability_sets::reads()},
+        {"api.components", capability_sets::reads()},
+        {"api.commands", capability_sets::reads()},
+        {"api.scripting", capability_sets::reads()},
+        {"assets.list", capability_sets::reads()},
+        {"scene.spawn", capability_sets::changes_state()},
+        {"scene.destroy", capability_sets::changes_state()},
+        {"scene.set_parent", capability_sets::changes_state()},
+        {"scene.set_component", capability_sets::changes_state()},
+        {"scene.remove_component", capability_sets::changes_state()},
+        {"scene.load", capability_sets::changes_state()},
+        {"scene.reload", capability_sets::changes_state()},
+        {"game.step", capability_sets::changes_state()},
+        {"game.input", capability_sets::changes_state()},
+        {"game.click", capability_sets::changes_state()},
+        {"ui.set_slider", capability_sets::changes_state()},
+        {"ui.set_text_scale", capability_sets::changes_state()},
+        {"ui.force_touch", capability_sets::changes_state()},
+        {"ui.set_scale", capability_sets::changes_state()},
+        {"ui.set_mirror_rtl", capability_sets::changes_state()},
+        {"ui.speak", capability_sets::changes_state()},
+        {"ui.caption", capability_sets::changes_state()},
+        {"ui.clear_captions", capability_sets::changes_state()},
+        {"ui.stop_speaking", capability_sets::changes_state()},
+        {"screen.set_safe_area", capability_sets::changes_state()},
+        {"audio.bus", capability_sets::changes_state()},
+        {"audio.snapshot", capability_sets::changes_state()},
+        {"game.pause", capability_sets::changes_state()},
+        {"game.resume", capability_sets::changes_state()},
+        {"script.eval", capability_sets::changes_state()},
+        {"script.reload", capability_sets::changes_state()},
+        {"project.test", capability_sets::changes_state()},
+        {"scene.save", capability_sets::writes_project()},
+        {"input.record", capability_sets::edits_project()},
+        {"storage.clear", capability_sets::edits_project()},  // the game's own save files: an agent resets a game with it
+    });
 }
 
 }  // namespace fa

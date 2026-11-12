@@ -425,15 +425,15 @@ TEST_CASE("sign.windows dry run: signtool on Windows, osslsigncode elsewhere, th
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         CHECK(r->tool == "signtool");
         CHECK(r->publisher == "CN=0123ABCD-4567-89EF-0123-456789ABCDEF");
-        REQUIRE(r->steps.size() == 1);
-        const std::string line = joined(r->steps[0].command);
-        CHECK(has_text(line, "sign /fd SHA256 /f "));
-        CHECK(has_text(line, "/p <redacted>"));
+        // read the thumbprint, import the .pfx into the user's store, sign by thumbprint, remove it again (sign_windows_test.cpp has the details)
+        REQUIRE(r->steps.size() == 4);
+        const std::string line = joined(r->steps[2].command);
+        CHECK(has_text(line, "sign /fd SHA256 /sha1 <thumbprint> /s My"));
         CHECK(has_text(line, "/tr http://timestamp.digicert.com /td SHA256"));
         CHECK(has_text(line, "space-dodge-windows.msix"));
         CHECK_FALSE(has_text(line, kPfxPassword));
         CHECK_FALSE(has_text(r->to_json().dump(), kPfxPassword));
-        CHECK(r->steps[0].ran == false);
+        CHECK(r->steps[2].ran == false);
     }
     {
         SignWindowsOptions o = g.sign_options("linux");
@@ -445,7 +445,8 @@ TEST_CASE("sign.windows dry run: signtool on Windows, osslsigncode elsewhere, th
         REQUIRE_FALSE(r->steps.empty());
         const std::string line = joined(r->steps.back().command);
         CHECK(has_text(line, "sign -pkcs12 "));
-        CHECK(has_text(line, "-pass <redacted>"));
+        CHECK(has_text(line, "-readpass -"));
+        CHECK(r->steps.back().stdinSecret);
         CHECK(has_text(line, "-h sha256 -ts http://ts.example.com"));
         CHECK_FALSE(has_text(r->to_json().dump(), kPfxPassword));
     }

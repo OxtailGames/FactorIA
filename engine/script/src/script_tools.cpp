@@ -109,6 +109,27 @@ void Impl::reload_tools() {
         info.category = "project";
         JsVal ro(ctx, JS_GetPropertyStr(ctx, def.get(), "readOnly"));
         info.readOnly = JS_IsUndefined(ro.get()) ? false : JS_ToBool(ctx, ro.get()) > 0;
+        // Optional `capabilities: ["read", "state"]`: what the tool can do outside the engine's memory (capability.h). Without
+        // it the registry derives the set from readOnly. A tool with a typo in a name is not registered (its error teaches).
+        JsVal capsV(ctx, JS_GetPropertyStr(ctx, def.get(), "capabilities"));
+        if (!JS_IsUndefined(capsV.get())) {
+            auto caps = CapabilitySet::parse_declaration(to_json(capsV.get()), "/capabilities");
+            if (!caps.ok()) {
+                ScriptError e;
+                e.file = file;
+                e.message = "tool '" + name + "': `capabilities` of the default export: " + caps.error().message + " " + caps.error().hint;
+                record_error(std::move(e), file);
+                continue;
+            }
+            info.capabilities = *caps;
+            info.capabilitiesDeclared = true;
+            info.readOnly = caps->without(Capability::Read).empty();
+            // readOnly is derived from the set, so a `readOnly: true` next to more than {read} is overridden: say so once.
+            if (JS_ToBool(ctx, ro.get()) > 0 && !info.readOnly)
+                FA_WARN("script", "tool '{}' ({}): `readOnly: true` is ignored because `capabilities` is {}; readOnly is derived from the "
+                                  "capabilities (true only for [\"read\"]). Drop `readOnly` or `capabilities`.",
+                        name, file, caps->to_string());
+        }
         JsVal inputV(ctx, JS_GetPropertyStr(ctx, def.get(), "input"));
         if (JS_IsObject(inputV.get())) {
             Json schema = to_json(inputV.get());
@@ -128,6 +149,13 @@ void Impl::reload_tools() {
         host->commands().add(std::move(info), [this, cname](const Json& args) -> Json {
             auto it = tools.find(cname);
             if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
+            // A tool's fa.call runs with the set of whoever called the tool: it is already the thread's, and no scope here widens or
+            // narrows it (a game script that called the tool is bounded by the scope that call was made in). The mode covers the
+            // jobs this call pumps itself while the tool is running (an async tool continues there). run_jobs runs EVERY pending
+            // job in that mode, so a game promise continuation or event listener that is pending then also runs with the caller's
+            // set (docs/SCRIPTING.md, "Command capabilities"); a job pumped after the call returns runs in the mode of whoever
+            // pumps it. Game code the tool triggers directly (game.step, a behaviour callback) is back to Game.
+            CapModeScope callerSet(*this, CapMode::Caller);
             const std::string toolFile = it->second.file;
             // Which version of the tool file ran, so a stale tool is visible: added to an object result.
             const Json version = Json::object({{"file", toolFile}, {"hash", it->second.hash}, {"loadedAt", it->second.loadedAt}});
@@ -164,7 +192,7 @@ void Impl::reload_tools() {
             JsVal run(ctx, JS_GetPropertyStr(ctx, defv, "run"));
             JsVal a(ctx, from_json(args.is_null() ? Json::object() : args));
             bool failed = false;
-            JSValue r = call(cname, "", run.get(), defv, {a.get(), factoria.get()}, &failed, 10.0, true);
+            JSValue r = call(cname, "", run.get(), defv, {a.get(), factoria.get()}, &failed, 10.0, true, CapMode::Caller);
             if (JS_IsException(r)) {
                 JSValue exc = JS_GetException(ctx);
                 JsVal guard(ctx, exc);
@@ -205,6 +233,7 @@ Result<Json> Impl::eval(std::string_view code) {
     static const char kWrapper[] = "(function(__fa_code){ with (globalThis.factoria) { return eval(__fa_code); } })";
     JsVal fn(ctx, JS_Eval(ctx, kWrapper, sizeof(kWrapper) - 1, "<eval>", JS_EVAL_TYPE_GLOBAL));
     JsVal codeV(ctx, JS_NewStringLen(ctx, code.data(), code.size()));
+    CapModeScope callerSet(*this, CapMode::Caller);  // the code typed into script.eval acts for whoever called it, like a tool
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("eval", 5.0);
     timedOut = false;
@@ -511,6 +540,10 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         auto norm = fs::normalize_checked(f);
         std::string path = norm ? *norm : f;
         reset_for_test_file();
+        // The test file's own code (its top level, the test bodies, hooks) acts with test_script() plus what each test asks for
+        // (`capabilities`, set per test by testRun); the game's scripts it steps keep the game's set (call() puts them back to Game).
+        testCaps = capability_sets::test_script();
+        CapModeScope testMode(*this, CapMode::Test);
         bump_module_versions(path);
         {
             JSValue pv = JS_NewString(ctx, path.c_str());
@@ -519,7 +552,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             JS_FreeValue(ctx, pv);
         }
         ScriptError detail;
-        auto ns = import_module(path, &detail);
+        auto ns = import_module(path, &detail, CapMode::Test);  // the test file's own top level is test code
         if (!ns) {
             if (detail.message.empty()) { detail.file = path; detail.message = ns.error().message; }
             if (detail.file.empty()) detail.file = path;
@@ -603,6 +636,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         if (!placed) rep.otherLogs.push_back(line);
     }
     reset_for_test_file();
+    testCaps = capability_sets::test_script();
     set_scales_quietly(savedUiScale, savedTextScale);
     inTestRun = false;
     testErrors.reset();

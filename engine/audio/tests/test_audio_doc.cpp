@@ -22,7 +22,7 @@ constexpr int kRate = 44100;
 struct DocProject {
     std::filesystem::path dir;
     DocProject() {
-        dir = fs::make_temp_dir("factoria_audio_doc_test");
+        dir = fs::make_temp_dir("factoria_audio_doc_test").value();
         fs::set_project_root(dir);
     }
     ~DocProject() { std::filesystem::remove_all(dir); }

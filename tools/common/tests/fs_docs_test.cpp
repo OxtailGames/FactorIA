@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
@@ -53,6 +54,40 @@ TEST_CASE("fs: sandbox rejects escapes with helpful errors") {
     }
     CHECK_FALSE(f.reg.call("fs.delete", {{"path", "."}}).ok);
     CHECK(resolve_project_path(f.tmp.str(), "scripts/a.js").ok());
+}
+
+TEST_CASE("resolve_project_path: a thin wrapper over fa::fs::resolve_for_write with the project's own folder") {
+    FsFixture f;
+    std::error_code ec;
+    const stdfs::path root = stdfs::weakly_canonical(f.tmp.path, ec);
+    // Relative paths come back canonical, below the folder given at registration (not fs::project_root()).
+    CHECK(resolve_project_path(f.tmp.str(), "scripts/a.js").value() == root / "scripts" / "a.js");
+    CHECK(resolve_project_path(f.tmp.str(), "scripts\\a.js").value() == root / "scripts" / "a.js");
+    CHECK(resolve_project_path(f.tmp.str(), "").value() == root);
+    CHECK(resolve_project_path(f.tmp.str(), ".").value() == root);
+    CHECK(resolve_project_path(f.tmp.str(), "new/dir/x.txt").value() == root / "new" / "dir" / "x.txt");
+    CHECK(resolve_project_path(f.tmp.str(), "scripts/../dup.txt").value() == root / "dup.txt");  // inside: fine since M92.2a
+    CHECK_FALSE(stdfs::exists(f.tmp.path / "new"));
+    // The tools' own folders are readable and resolvable here: the managed-folder rule is the commands' (check_writable).
+    CHECK(resolve_project_path(f.tmp.str(), ".factoria/log.txt").value() == root / ".factoria" / "log.txt");
+    // Every absolute or escaping form is refused, with a message and a hint.
+    for (const char* bad : {"/etc/passwd", "C:/x", "C:\\x", "C:x", "~", "~/x", "\\\\server\\share\\x", "\\\\?\\C:\\x", "../x", "a/../../x", ".."}) {
+        CAPTURE(bad);
+        auto r = resolve_project_path(f.tmp.str(), bad);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find(bad) != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    CHECK(fs::path_error_code(resolve_project_path(f.tmp.str(), "/etc/passwd").error()) == "absolute_path_denied");
+    CHECK(fs::path_error_code(resolve_project_path(f.tmp.str(), "../x").error()) == "path_outside_root");
+    // A symlink that leaves the project is refused.
+    if (stdfs::is_symlink(f.tmp.path / "link")) {
+        auto r = resolve_project_path(f.tmp.str(), "link/secret.txt");
+        REQUIRE_FALSE(r.ok());
+        CHECK(fs::path_error_code(r.error()) == "path_outside_root");
+    } else {
+        MESSAGE("symlinks cannot be created here: the link case is skipped");
+    }
 }
 
 TEST_CASE("fs.write: base64 encoding writes binary files") {
@@ -300,6 +335,22 @@ TEST_CASE("docs: commands") {
     CHECK(cmds.result["markdown"].get<std::string>().find("docs.search") != std::string::npos);
 }
 
+TEST_CASE("api export: the argument table shows what a path argument is used for (x-fa-path)") {
+    CommandRegistry reg;
+    CommandInfo info;
+    info.name = "t.paths";
+    info.summary = "Reads one file and writes another.";
+    info.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "src":{"type":"string","x-fa-path":"read","description":"Input."},
+        "out":{"type":"string","x-fa-path":"write","description":"Output."},
+        "name":{"type":"string","description":"Not a path."}}})");
+    reg.add(info, [](const Json&) { return Json::object(); });
+    const std::string md = export_commands_markdown(reg);
+    CHECK(md.find("| `src` | string | no | Input. Path the command reads. |") != std::string::npos);
+    CHECK(md.find("| `out` | string | no | Output. Path the command writes; the write rules apply (docs/CLI.md, \"Paths\"). |") != std::string::npos);
+    CHECK(md.find("| `name` | string | no | Not a path. |") != std::string::npos);
+}
+
 TEST_CASE("api export: markdown for components and commands") {
     std::string comps = export_components_markdown();
     CHECK(comps.find("# Components reference") != std::string::npos);
@@ -314,6 +365,28 @@ TEST_CASE("api export: markdown for components and commands") {
     CHECK(md.find("### `docs.read`") != std::string::npos);
     CHECK(md.find("| `name` |") != std::string::npos);
     CHECK(export_commands_json(reg).size() == 3);
+    // Every command page has a Capabilities line: the docs.* declare theirs, a command that does not says so.
+    CHECK(md.find("Capabilities: read") != std::string::npos);
+    CHECK(md.find("Capabilities: not declared yet") == std::string::npos);
+    CommandInfo undeclared;
+    undeclared.name = "t.undeclared";
+    undeclared.summary = "Declares nothing.";
+    undeclared.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
+    reg.add(undeclared, [](const Json&) { return Json::object(); });
+    CHECK(export_commands_markdown(reg).find("Capabilities: not declared yet") != std::string::npos);
+    CommandInfo spendy;
+    spendy.name = "t.spendy";
+    spendy.summary = "Calls a paid API.";
+    spendy.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
+    reg.add(spendy, [](const Json&) { return Json::object(); });
+    reg.declare_capabilities("t.spendy", CapabilitySet{Capability::Read, Capability::Network, Capability::Spend});
+    md = export_commands_markdown(reg);
+    CHECK(md.find("Capabilities: read, network, spend") != std::string::npos);
+    for (const Json& c : export_commands_json(reg))
+        if (c["name"] == "t.spendy") {
+            CHECK(c["capabilities"] == Json::parse(R"(["read","network","spend"])"));
+            CHECK(c["capabilitiesDeclared"] == true);
+        }
 }
 
 TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read ends with contents and the call that continues") {

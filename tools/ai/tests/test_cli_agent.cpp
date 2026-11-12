@@ -3,6 +3,7 @@
 #include <fstream>
 #include <optional>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 
 #include "fa/ai/cli_agent.h"
@@ -65,6 +66,103 @@ TEST_CASE("cli agents are started with FACTORIA_CALLER=agent (a factoria they ru
     CHECK(po->env.at(kCallerEnvVar) == "mcp");
 }
 
+namespace {
+// Sets a variable of this process for one test and puts back what was there.
+struct ScopedEnv {
+    std::string name, old;
+    bool had = false;
+    ScopedEnv(std::string n, const char* value) : name(std::move(n)) {
+        if (const char* o = std::getenv(name.c_str())) {
+            had = true;
+            old = o;
+        }
+        ::setenv(name.c_str(), value, 1);
+    }
+    ~ScopedEnv() {
+        if (had) ::setenv(name.c_str(), old.c_str(), 1);
+        else ::unsetenv(name.c_str());
+    }
+};
+
+// NAME=value lines of a file written by `env`.
+bool env_has(const std::string& text, const std::string& line) {
+    return ("\n" + text).find("\n" + line + "\n") != std::string::npos;
+}
+bool env_names(const std::string& text, const std::string& name) {
+    return ("\n" + text).find("\n" + name + "=") != std::string::npos;
+}
+}  // namespace
+
+TEST_CASE("cli agents do not inherit the editor's environment: the provider's key and its inheritEnv names reach them, signing passwords and other providers' keys do not") {
+    ScopedEnv secret("FACTORIA_TEST_SECRET", "hunter2");
+    ScopedEnv pfx("FACTORIA_WINDOWS_PFX_PASSWORD", "pfx-pass");
+    ScopedEnv openai("OPENAI_API_KEY", "sk-other-provider");
+    ScopedEnv mine("FAKE_PROVIDER_KEY", "sk-mine");
+    ScopedEnv global("FAKE_GLOBAL_NAME", "from-global");
+    ScopedEnv listed("FAKE_LISTED_NAME", "from-provider");
+    ScopedEnv prefixed("FAKE_PREFIX_ONE", "one");
+    ScopedEnv proxy("HTTPS_PROXY", "http://proxy.example:3128");
+    ScopedEnv claudeDir("CLAUDE_CONFIG_DIR", "/somewhere/claude");
+
+    TempDir scratch;
+    const std::string envFile = (scratch.path / "env.txt").string();
+    ProviderConfig cfg = claude_cfg();
+    cfg.apiKeyEnv = "FAKE_PROVIDER_KEY";
+    cfg.env["FAKE_ENV_FILE"] = envFile;
+    cfg.env["FROM_PROVIDER_ENV"] = "set-by-config";
+    cfg.inheritEnv = {"FAKE_LISTED_NAME", "FAKE_PREFIX_*"};
+    cfg.inheritEnvGlobal = {"FAKE_GLOBAL_NAME"};
+
+    TempDir dir;
+    CliAgent agent(cfg);
+    auto r = agent.run({"Make a game", "sonnet", dir.str()}, [](const AgentEvent&) {}, nullptr);
+    REQUIRE(r);
+    const std::string seen = read_file(envFile);
+    REQUIRE_FALSE(seen.empty());
+
+    // what the CLI needs to start and to stay logged in
+    CHECK(env_names(seen, "PATH"));
+    CHECK(env_names(seen, "HOME"));  // Claude Code finds its login (the macOS keychain, ~/.claude) through it
+    CHECK(env_has(seen, "CLAUDE_CONFIG_DIR=/somewhere/claude"));
+    CHECK(env_has(seen, "HTTPS_PROXY=http://proxy.example:3128"));
+    CHECK(env_has(seen, "FROM_PROVIDER_ENV=set-by-config"));
+    CHECK(env_has(seen, "FACTORIA_CALLER=agent"));
+    CHECK(env_has(seen, "FAKE_PROVIDER_KEY=sk-mine"));  // this provider's own key
+    // what the user listed
+    CHECK(env_has(seen, "FAKE_LISTED_NAME=from-provider"));
+    CHECK(env_has(seen, "FAKE_PREFIX_ONE=one"));
+    CHECK(env_has(seen, "FAKE_GLOBAL_NAME=from-global"));
+    // what it must never get unasked
+    CHECK_FALSE(env_names(seen, "FACTORIA_TEST_SECRET"));
+    CHECK_FALSE(env_names(seen, "FACTORIA_WINDOWS_PFX_PASSWORD"));
+    CHECK_FALSE(env_names(seen, "OPENAI_API_KEY"));
+    CHECK_FALSE(seen.find("hunter2") != std::string::npos);
+    CHECK_FALSE(seen.find("sk-other-provider") != std::string::npos);
+
+    // the same options serve model listing, plugin installs and the other CLI calls
+    auto po = cli_process_options(cfg);
+    REQUIRE(po);
+    REQUIRE(po->inheritEnv.has_value());
+    CHECK(std::find(po->inheritEnv->begin(), po->inheritEnv->end(), "FAKE_PROVIDER_KEY") != po->inheritEnv->end());
+    CHECK(std::find(po->inheritEnv->begin(), po->inheritEnv->end(), "OPENAI_API_KEY") == po->inheritEnv->end());
+}
+
+TEST_CASE("provider_inherit_env: Codex gets OPENAI_* and CODEX_*, not Anthropic's variables; nothing else is added") {
+    ProviderConfig codex = default_config().providers["codex"];
+    codex.command = script("fake_codex.sh");
+    auto po = cli_process_options(codex);
+    REQUIRE(po);
+    REQUIRE(po->inheritEnv.has_value());
+    const auto& names = *po->inheritEnv;
+    auto has_name = [&](const char* n) { return std::find(names.begin(), names.end(), n) != names.end(); };
+    CHECK(has_name("OPENAI_*"));
+    CHECK(has_name("CODEX_*"));
+    CHECK(has_name("PATH"));
+    CHECK_FALSE(has_name("ANTHROPIC_*"));
+    CHECK_FALSE(has_name("ANTHROPIC_API_KEY"));
+    CHECK_FALSE(has_name("NODE_OPTIONS"));
+}
+
 TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     TempDir dir;
     TempDir scratch;
@@ -125,6 +223,61 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK(mcp["mcpServers"]["factoria"]["command"] == "factoria");
     CHECK(mcp["mcpServers"]["factoria"]["timeout"] == kMcpToolTimeoutMs);  // Claude Code's per-call ceiling: ai_run runs long
     CHECK(mcp["mcpServers"]["factoria"]["args"] == Json::parse(R"(["mcp","--project",")" + dir.str() + R"("])"));
+}
+
+TEST_CASE("claude-code agent: when the owner-only write in the project fails, the MCP config goes to the user's temporary folder") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = claude_cfg();
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+    // The failure, injected: .factoria/ai is a plain file, so no run file can be created in it (as on a share that refuses the
+    // owner-only ACL).
+    std::filesystem::create_directories(dir.path / ".factoria");
+    std::ofstream(dir.path / ".factoria" / "ai") << "not a folder";
+    CliRunRequest req{"x", "", dir.str()};
+    auto r = CliAgent(cfg).run(req, nullptr, nullptr);
+    REQUIRE(r);
+    CHECK(r->ok);
+    const std::string argv = read_file(argvFile);
+    const std::size_t at = argv.find("--mcp-config\n");
+    REQUIRE(at != std::string::npos);
+    const std::filesystem::path mcpPath =
+        fa::fs::path_from_utf8(argv.substr(at + 13, argv.find('\n', at + 13) - (at + 13)));
+    CHECK(mcpPath.filename().string().rfind("fa-run-mcp-claude-code-", 0) == 0);
+    // (the temporary folder may be spelled with or without a trailing separator)
+    CHECK(std::filesystem::equivalent(mcpPath.parent_path().parent_path(), std::filesystem::temp_directory_path()));
+    CHECK(mcpPath.parent_path().filename().string().rfind("factoria-run", 0) == 0);
+    CHECK(Json::parse(read_file(argvFile + ".mcpconfig"))["mcpServers"]["factoria"]["command"] == "factoria");  // the CLI read it
+    CHECK_FALSE(std::filesystem::exists(mcpPath));                    // removed with the run,
+    CHECK_FALSE(std::filesystem::exists(mcpPath.parent_path()));      // and its folder with it
+}
+
+TEST_CASE("sweep_stale_temp_run_dirs: takes a crashed run's folder, spares a run in progress (own folder, not the real /tmp)") {
+    TempDir base;
+    namespace fsys = std::filesystem;
+    const auto longAgo = fsys::file_time_type::clock::now() - std::chrono::hours(48);
+    const auto make = [&](const char* name, bool recentFile) {
+        const fsys::path d = base.path / name;
+        fsys::create_directories(d / "fa-run-mcp-x");
+        std::ofstream(d / "fa-run-mcp-x" / "cfg.json") << "{}";
+        if (!recentFile) fsys::last_write_time(d / "fa-run-mcp-x" / "cfg.json", longAgo);
+        fsys::last_write_time(d / "fa-run-mcp-x", longAgo);
+        fsys::last_write_time(d, longAgo);
+        return d;
+    };
+    const fsys::path crashed = make("factoria-run_crashed", false);
+    // Old folder, but its newest file is recent: the run is still writing there. The rule is the newest file, not the folder.
+    const fsys::path active = make("factoria-run_active", true);
+    const fsys::path young = base.path / "factoria-run_young";
+    fsys::create_directories(young);
+    const fsys::path foreign = base.path / "other-folder";
+    fsys::create_directories(foreign);
+    fsys::last_write_time(foreign, longAgo);
+    sweep_stale_temp_run_dirs(base.path);
+    CHECK_FALSE(fsys::exists(crashed));
+    CHECK(fsys::exists(active));
+    CHECK(fsys::exists(young));
+    CHECK(fsys::exists(foreign));  // not a run's name: never touched
 }
 
 TEST_CASE("claude-code agent: argv template is overridable from the config") {
@@ -305,7 +458,8 @@ TEST_CASE("claude-code agent: an MCP config another program holds open at the en
     std::filesystem::create_directories(oldSkills / "skills");
     std::ofstream(oldSkills / "skills" / "SKILL.md") << "x";
     for (const auto& p : {oldMcp, oldSettings, youngLegacy, lookalike, userSettings}) std::ofstream(p) << "{}";
-    for (const auto& p : {oldMcp, oldSettings, oldSkills, lookalike, userSettings})
+    for (const auto& p : {oldMcp, oldSettings, oldSkills / "skills" / "SKILL.md", oldSkills / "skills", oldSkills, lookalike,
+                          userSettings})
         std::filesystem::last_write_time(p, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
     req.onStart = nullptr;
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));

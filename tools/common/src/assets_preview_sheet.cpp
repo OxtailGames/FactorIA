@@ -327,7 +327,6 @@ void register_preview_sheet_command(CommandRegistry& registry, const std::string
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.readOnly = true;
     info.summary = "Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.";
     info.description =
         "Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in assets.json (columns, rows, frameWidth, frameHeight, padding, frames; or the grid you pass), and returns a picture: every frame in a tile with its number "
@@ -355,7 +354,11 @@ void register_preview_sheet_command(CommandRegistry& registry, const std::string
                {"frameWidth", integer("Width of one frame in pixels, when it is not recorded. Default: the image divided by the grid.", 1, 8192)},
                {"frameHeight", integer("Height of one frame in pixels, when it is not recorded. Default: the image divided by the grid.", 1, 8192)},
                {"padding", integer("Transparent gutter around each cell, in pixels (cell i starts at padding + column * (frameWidth + 2 * padding)). Default: the sheet entry's, else 0.", 0, 64)}})}});
+    mark_paths(info.inputSchema, "read", {"path"});
     registry.add(info, [projectDir](const Json& args) { return preview(projectDir, args); });
+    // Capabilities (capability.h): the picture is a temporary screenshot the engine names in .factoria/screenshots (state); the
+    // caller gives no output path.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::changes_state()}});
 }
 
 }  // namespace fa::assets_detail

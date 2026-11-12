@@ -168,6 +168,11 @@ struct ScriptSystem::Impl {
     std::map<std::string, int> versions;  // project path -> reload counter (0 = pristine)
     std::map<std::string, std::set<std::string>> importers;  // path -> modules that import it
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
+    // Static imports of every project module that was compiled, in source order: module name (with ?v=) -> names it imports.
+    // Filled by normalize_module for every import it resolves, whether the loader then loads the target or finds it already
+    // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated, and the imports of
+    // a dynamic import() that ran (it resolves its specifier the same way). bump_module_versions erases the entries it retires.
+    std::map<std::string, std::vector<std::string>> moduleImports;
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;
     std::map<std::string, std::int64_t> moduleMtime;  // file mtime when each module was last read
@@ -268,6 +273,30 @@ struct ScriptSystem::Impl {
     // ---- test runner state
     bool inTestRun = false;
 
+    // ---- command capabilities (script_capabilities.cpp): whose set `fa.call` runs a command with.
+    // Game: a behaviour or any other game code (the default: the safe one); Test: a test file's code (inside run_tests);
+    // Caller: a project tool or an eval, which run with the set of whoever called them (the thread's), never widened or narrowed here.
+    // call() puts every JS entry it makes back to Game unless told otherwise, so game code a tool triggers (game.step inside a tool)
+    // is still game code, and a tool run by a game script (fa.call("project.x")) keeps the game's set because scopes only narrow.
+    enum class CapMode { Game, Caller, Test };
+    CapMode capMode = CapMode::Game;
+    ScriptSystem::GameRole gameRole = ScriptSystem::GameRole::Player;
+    CapabilitySet gameCaps = capability_sets::game_player();
+    CapabilitySet testCaps = capability_sets::test_script();  // test_script() + what the running test asked for
+    std::shared_ptr<const CapabilityHintProvider> gameHint, testHint;
+    void set_game_role(ScriptSystem::GameRole role);
+    // Runs a command the way the current CapMode says (inside a CommandCapabilityScope of the game's or the test's set, or as is).
+    CommandResult run_command(const std::string& name, const Json& args);
+    // Switches capMode for a stretch of code and puts it back.
+    struct CapModeScope {
+        Impl& impl;
+        CapMode previous;
+        CapModeScope(Impl& i, CapMode mode) : impl(i), previous(i.capMode) { i.capMode = mode; }
+        ~CapModeScope() { impl.capMode = previous; }
+        CapModeScope(const CapModeScope&) = delete;
+        CapModeScope& operator=(const CapModeScope&) = delete;
+    };
+
     // ================= lifecycle
     bool init(ScriptHost& h, std::string* error);
     void shutdown();
@@ -282,7 +311,7 @@ struct ScriptSystem::Impl {
     // sets *failed. Result must be freed by the caller.
     JSValue call(const std::string& label, const std::string& entityId, JSValueConst fn, JSValueConst thisVal,
                  std::initializer_list<JSValue> args, bool* failed = nullptr, double limitSeconds = -1,
-                 bool quiet = false);
+                 bool quiet = false, CapMode mode = CapMode::Game);
     JSValue call_method(const std::string& label, const std::string& entityId, JSValueConst obj, const char* method,
                         std::initializer_list<JSValue> args, bool* failed = nullptr, const Behaviour* profile = nullptr);
     // push_guard returns the depth of the guard stack before the push; pop_guard(depth) drops every frame above it. A
@@ -305,7 +334,9 @@ struct ScriptSystem::Impl {
     std::string module_name_for(const std::string& path) const;    // adds ?v= when reloaded
     // Imports a project module (project-relative path). Returns namespace (valid until module cache is cleared).
     void explain_missing_api(ScriptError& e);  // adds which module/export or method the player lacks
-    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr);  // returned value is DUPLICATED, caller frees
+    // Returned value is DUPLICATED, caller frees. The top level of the module runs with `topLevel`'s set: Game for every module (a
+    // module first imported while a test or a tool runs is still game code), Test only for the test file run_tests imports.
+    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr, CapMode topLevel = CapMode::Game);
     std::vector<std::string> bump_module_versions(const std::string& path);  // returns affected paths
 
     // ================= conversion

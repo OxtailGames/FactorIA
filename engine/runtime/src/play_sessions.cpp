@@ -323,6 +323,12 @@ void register_play_session_commands(Engine&, Engine::Impl& I) {
               if (exists(picture)) out["$image"] = Json::object({{"path", picture}, {"mimeType", "image/png"}});
               return out;
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"play.sessions", capability_sets::reads()},
+        {"play.report", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

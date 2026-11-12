@@ -71,7 +71,7 @@ TEST_CASE("menus fixture at 200 % text: widgets grow to their labels, the menu s
         fa::fs::set_project_root(oldRoot);
         return;
     }
-    const stdfs::path shot = fa::fs::make_temp_dir("fa_cli_menus_text200") / "menus.png";
+    const stdfs::path shot = fa::fs::make_temp_dir("fa_cli_menus_text200").value() / "menus.png";
     std::string err;
     REQUIRE_MESSAGE(engine.screenshot(shot.generic_string(), &err), err);
     auto img = fa::load_image(shot.generic_string());

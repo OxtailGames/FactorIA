@@ -804,7 +804,7 @@ Json bake_in_child(const std::string& projectDir, const Json& args) {
 
 Json bake_sheet(const std::string& projectDir, const Json& a) {
     const Spec spec = parse_spec(a, 60);
-    const stdfs::path file = project_file(projectDir, spec.path);
+    const stdfs::path file = project_write_file(projectDir, spec.path);
     std::error_code ec;
     if (!spec.overwrite && stdfs::exists(file, ec)) fail("exists", "'" + spec.path + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     ProjectRootGuard root(projectDir);
@@ -1069,7 +1069,13 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
                {"ai", Json::object({{"type", "boolean"}, {"description", "Override the AI disclosure. Default: true when the prefab/scene or a texture it draws is recorded as AI-made in assets.json."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
                {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the sheet for the provenance record."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
+    mark_paths(info.inputSchema, "read", {"prefab", "scene"});
     registry.add(info, [projectDir](const Json& args) { return bake_sheet(projectDir, args); });
+    // Capabilities (capability.h): a PNG and its assets.json entry in the project. When this process already holds the graphics
+    // device the same bake runs in a `factoria call` child process: that is this command again, not another program, so it needs
+    // no process capability.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

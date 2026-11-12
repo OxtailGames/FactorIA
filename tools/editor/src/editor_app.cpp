@@ -147,7 +147,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (closed_) return fail("editor main thread is not accepting commands");
-        jobs_.push_back(Job{name, tag, args, command_caller(), promise, abandoned});
+        jobs_.push_back(Job{name, tag, args, command_context(), promise, abandoned});
     }
     for (;;) {
         if (fut.wait_for(std::chrono::milliseconds(25)) == std::future_status::ready) return fut.get();
@@ -182,7 +182,7 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
         currentTag_ = j.tag;
         std::optional<CommandResult> r;
         {
-            CommandCallerScope caller(j.caller);  // a command an AI queued is still an AI's on the main thread
+            CommandContextScope context(j.context);  // a command an AI queued is still an AI's, with its set, on the main thread
             r = run(j.name, j.args);
         }
         const bool taken = !current_;
@@ -725,13 +725,19 @@ void Editor::install_command_overrides() {
     if (const CommandInfo* ci = reg.info("scene.save")) {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
-            const std::string path = a.value("path", scenePath_);
-            if (auto w = fs::check_writable(path); !w.ok())  // same write rule as the engine's scene.save
-                throw CommandError("invalid_argument", w.error().message, w.error().hint);
+            const std::string requested = a.value("path", scenePath_);
+            if (requested.empty()) throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+            // The same rules as the engine's scene.save: writeProject, inside the project (an absolute path only for a caller that
+            // may write anywhere), not in the managed folders (.git, .factoria/ except .factoria/tmp); the error codes are those of
+            // fs::resolve_for_write. `path` is the project-relative spelling.
+            const std::string path = resolve_caller_project_path(requested, "scene.save");
             std::vector<PrefabExpanded> expanded;
             auto r = save_scene_file(world(), path, false, nullptr, &expanded);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
-            if (path == scenePath_) dirty_ = false;
+            // Same scene or not is a question about the file, not the text: `path` is the resolved spelling (normalized, symlinks
+            // followed), so the scene's own path ("./scenes/a.scene.json", a link) is brought to that spelling to compare.
+            auto current = fs::resolve_for_write(scenePath_, fs::WriteRoot::Project, true, fs::ManagedFolders::Allow);
+            if (path == scenePath_ || (current.ok() && fs::project_spelling(*current) == path)) dirty_ = false;
             Json out = Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
             if (!expanded.empty()) {
                 Json list = Json::array();

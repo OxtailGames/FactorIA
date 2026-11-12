@@ -12,7 +12,10 @@
 #include <curl/curl.h>
 #endif
 
+#include "ai_env.h"
 #include "fa/ai/process.h"
+#include "fa/core/fs.h"
+#include "fa/core/private_file.h"
 #include "fa/core/strings.h"
 
 namespace fa::ai {
@@ -197,20 +200,24 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
         return o + "\"";
     };
     {
-        std::ofstream f(cfg, std::ios::binary);
-        f << "url = " << quote(req.url) << "\n";
-        for (const auto& [k, v] : req.headers) f << "header = " << quote(k + ": " + v) << "\n";
-        f << "header = \"Expect:\"\n";
-        f << "request = " << quote(req.method) << "\n";
-        f << "user-agent = \"factoria-ai/0.1\"\n";
-        if (!f) { resp.error = "cannot write temp curl config"; cleanup(); return resp; }
+        // The file holds the Authorization header: written private from the first byte (no window between create and chmod).
+        std::string text = "url = " + quote(req.url) + "\n";
+        for (const auto& [k, v] : req.headers) text += "header = " + quote(k + ": " + v) + "\n";
+        text += "header = \"Expect:\"\n";
+        text += "request = " + quote(req.method) + "\n";
+        text += "user-agent = \"factoria-ai/0.1\"\n";
+        if (auto ok = fa::fs::write_private(fa::fs::path_to_utf8(cfg), text); !ok) {
+            resp.error = "cannot write the private temp curl config: " + ok.error().message;
+            cleanup();
+            return resp;
+        }
     }
-    fsys::permissions(cfg, fsys::perms::owner_read | fsys::perms::owner_write, ec);
     if (req.method != "GET") {
         std::ofstream f(bodyFile, std::ios::binary);
         f.write(req.body.data(), static_cast<std::streamsize>(req.body.size()));
     }
     ProcessOptions po;
+    po.inheritEnv = plain_inherit_env();  // proxies and certificate files yes, the other providers' keys no
     po.argv = {"curl", "--silent", "--show-error", "--no-buffer", "--include", "--config", cfg.string(),
                "--connect-timeout", std::to_string(static_cast<int>(req.connectTimeoutSeconds)),
                "--location", "--max-redirs", "5"};  // follow redirects, as the libcurl backend does

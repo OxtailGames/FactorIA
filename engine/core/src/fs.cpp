@@ -3,21 +3,35 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <exception>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <random>
 #include <string>
 #include <system_error>
 #include <thread>
+#include <type_traits>
 #include <unordered_map>
 
 #ifdef _WIN32
 #include <process.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 #ifdef __APPLE__
@@ -27,6 +41,7 @@
 #include "fa/core/load_trace.h"
 #include "fa/core/pack.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 #include "fs_internal.h"
 
 namespace stdfs = std::filesystem;
@@ -42,6 +57,8 @@ struct FsState {
     bool userDirSet = false;
     stdfs::path cacheDir;
     bool cacheDirSet = false;
+    stdfs::path exportDir;
+    bool exportDirSet = false;
     std::shared_ptr<const PackReader> pack;  // mount_pack
     struct Warm {
         std::shared_ptr<const std::vector<std::uint8_t>> bytes;  // shared with the FileViews read_view gave out
@@ -281,6 +298,27 @@ void reset_cache_dir() {
     state().cacheDirSet = false;
 }
 
+void set_export_dir(const stdfs::path& dir) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().exportDir = dir;
+    state().exportDirSet = !dir.empty();
+}
+
+bool export_dir_is_set() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().exportDirSet;
+}
+
+stdfs::path export_dir() {
+    stdfs::path configured;
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        if (state().exportDirSet) configured = state().exportDir;
+    }
+    if (!configured.empty()) return configured;
+    return project_root() / "build" / "export";  // project_root() takes the lock itself
+}
+
 stdfs::path cache_dir() {
     FsState& s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
@@ -312,19 +350,88 @@ stdfs::path cache_dir() {
     return s.cacheDir;
 }
 
-stdfs::path make_temp_dir(std::string_view prefix) {
+namespace {
+Error temp_error(const stdfs::path& base, const std::string& why) {
+    return Error{"Cannot make a private scratch folder in the temporary folder '" + path_to_utf8(base) + "': " + why,
+                 "Check that the temporary folder (TMPDIR on Linux and macOS, TMP or TEMP on Windows) exists, is a folder, is "
+                 "writable, has free space and is an absolute path. On Linux and macOS it must also be on a file system that "
+                 "keeps file modes: vfat, a WSL drive (/mnt/c) or an SMB share does not, so point TMPDIR at a normal folder, "
+                 "for example `export TMPDIR=$HOME/tmp`."};
+}
+}  // namespace
+
+Result<stdfs::path> temp_base() {
+    stdfs::path base;
+    std::error_code ec;
+#ifdef _WIN32
+    const std::wstring named = detail::windows_temp_path();  // fs_win32.cpp
+    if (named.empty()) return temp_error(base, "Windows does not name a temporary folder (set TEMP to one)");
+    base = stdfs::path(named);
+#else
+    for (const char* name : {"TMPDIR", "TMP", "TEMP", "TEMPDIR"}) {
+        const char* v = std::getenv(name);
+        if (v && *v) {
+            base = stdfs::path(v);
+            break;
+        }
+    }
+    if (base.empty()) {
+        base = stdfs::temp_directory_path(ec);
+        if (ec) return temp_error(base, ec.message());
+    }
+    if (base.empty()) return temp_error(base, "no temporary folder is known (set TMPDIR to one)");
+#endif
+    // A relative one would mean a different folder after every chdir, and scratch files would land in the working
+    // directory: refused, not guessed.
+    if (!base.is_absolute()) return temp_error(base, "it is a relative path, which would follow the working directory");
+    return base;
+}
+
+Result<stdfs::path> make_temp_dir(std::string_view prefix) {
     static std::atomic<unsigned> counter{0};
 #ifdef _WIN32
     const long long pid = _getpid();
 #else
     const long long pid = static_cast<long long>(::getpid());
 #endif
-    stdfs::path dir = stdfs::temp_directory_path() /
-                      (std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++));
     std::error_code ec;
-    remove_tree(dir, ec);  // a leftover of an earlier process that had the same id
-    stdfs::create_directories(dir, ec);
-    return dir;
+    auto resolved = temp_base();
+    if (!resolved.ok()) return resolved.error();
+    const stdfs::path base = *resolved;
+    auto fail = [&](const std::string& why) { return temp_error(base, why); };
+    if (!stdfs::is_directory(base, ec)) {
+        ec.clear();
+        stdfs::create_directories(base, ec);  // a temporary folder that does not exist yet is made
+        if (ec) return fail(ec.message());
+        if (!stdfs::is_directory(base, ec)) return fail("it exists and is not a folder");
+    }
+    const std::string stem = std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++);
+    // The folder is created by the call that tests for it (never reused): in a temp folder shared with other users
+    // (/tmp), a predictable name could be pre-created by someone else, who would then own what is written inside.
+    // A name that exists (a folder or a file) gets a random suffix.
+    std::random_device rd;
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        stdfs::path dir = base / (attempt == 0 ? stem : stem + "_" + std::to_string(rd()));
+#ifdef _WIN32
+        ec.clear();
+        if (stdfs::create_directory(dir, ec) && !ec) return dir;
+        // Taken: by a folder (false, no error) or by a file (an error on both STLs): either way try another name.
+        std::error_code sec;
+        if (stdfs::symlink_status(dir, sec).type() != stdfs::file_type::not_found) continue;
+        return fail(ec ? ec.message() : "the folder could not be made");
+#else
+        if (::mkdir(dir.c_str(), 0700) == 0) {
+            struct stat st {};
+            if (::lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == ::geteuid() &&
+                (st.st_mode & 0777) == 0700)
+                return dir;
+            ::rmdir(dir.c_str());  // not what was asked for (a file system that ignores modes): do not use it
+            return fail("the folder made there is not owner-only (mode 0700, owned by you), so it is not private");
+        }
+        if (errno != EEXIST) return fail(std::strerror(errno));
+#endif
+    }
+    return fail("every name tried was taken");
 }
 
 const stdfs::path& user_dir() {
@@ -394,8 +501,31 @@ stdfs::path resolve(std::string_view path) {
 }
 
 std::string path_to_utf8(const stdfs::path& p) {
+#ifdef _WIN32
+    // A Windows name may hold a lone surrogate, which is not text: generic_u8string throws for it. This function answers
+    // from Result-returning code, so it never throws; a lone surrogate becomes U+FFFD.
+    try {
+        const std::u8string u = p.generic_u8string();
+        return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+    } catch (const std::exception&) {
+        const std::wstring w = p.generic_wstring();
+        std::string out;
+        for (std::size_t i = 0; i < w.size(); ++i) {
+            char32_t c = static_cast<char32_t>(w[i]);
+            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < w.size() && w[i + 1] >= 0xDC00 && w[i + 1] <= 0xDFFF) {
+                c = 0x10000 + ((c - 0xD800) << 10) + (static_cast<char32_t>(w[i + 1]) - 0xDC00);
+                ++i;
+            } else if (c >= 0xD800 && c <= 0xDFFF) {
+                c = 0xFFFD;
+            }
+            utf8_append(out, c);
+        }
+        return out;
+    }
+#else
     const std::u8string u = p.generic_u8string();
     return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+#endif
 }
 
 #ifdef _WIN32
@@ -427,6 +557,10 @@ stdfs::path os_path(const stdfs::path& p) {
 }
 
 std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
+    if (dir.empty()) {  // never the working directory (an empty path made by a caller that did not check)
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return 0;
+    }
     if (emulating() && open_conflict(dir, Change::Delete)) {
         // Windows deletes what it can and leaves the open files (and the folders around them), then reports the failure.
         std::error_code lec;
@@ -674,6 +808,449 @@ Result<void> check_writable(std::string_view path) {
                           ", which is managed by the engine and its tools",
                       std::string("Write scratch files to '") + kScratchDir + "/' (commands may create and delete files there), "
                       "or to a normal project folder such as scenes/ or assets/.");
+}
+
+// ---- resolve_for_write: the one place where a path a caller gives to a command that writes is confined ------------------
+namespace {
+
+#if defined(_WIN32) || (defined(__APPLE__) && !TARGET_OS_IPHONE)
+constexpr bool kCaseInsensitiveVolumes = true;  // the default volumes of Windows and macOS ignore case
+#else
+constexpr bool kCaseInsensitiveVolumes = false;
+#endif
+
+// A simple case fold: ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic, which covers the names of game folders.
+char32_t fold_code_point(char32_t c) {
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c < 0xC0) return c;
+    if (c <= 0xDE) return c == 0xD7 ? c : c + 32;
+    if (c >= 0x100 && c <= 0x17F) {
+        if (c == 0x130 || c == 0x131 || c == 0x138 || c == 0x149 || c == 0x178 || c == 0x17F) return c;
+        const bool evenUpper = (c >= 0x100 && c <= 0x137) || (c >= 0x14A && c <= 0x177);
+        const bool oddUpper = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+        if (evenUpper && (c & 1) == 0) return c + 1;
+        if (oddUpper && (c & 1) == 1) return c + 1;
+        return c;
+    }
+    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) return c + 32;
+    if (c >= 0x410 && c <= 0x42F) return c + 32;
+    if (c >= 0x400 && c <= 0x40F) return c + 80;
+    return c;
+}
+
+// UTF-8 text, decoded and case-folded (the comparison of names on Windows and macOS).
+std::u32string name_key(const std::string& utf8) {
+    std::u32string out = utf8_decode(utf8);
+    for (char32_t& c : out) c = fold_code_point(c);
+    return out;
+}
+
+// What a path element is compared by. Where volumes ignore case: its text, decoded and folded. Where they do not (Linux): its
+// bytes as they are, one code each, because a name need not be UTF-8 and decoding would turn every invalid byte into the
+// same U+FFFD (so two different folders would compare equal).
+std::u32string element_key(const stdfs::path& part) {
+    if constexpr (kCaseInsensitiveVolumes) {
+        return name_key(path_to_utf8(part));
+    } else {
+        std::u32string out;
+        for (const auto ch : part.native())
+            out.push_back(static_cast<char32_t>(static_cast<std::make_unsigned_t<std::decay_t<decltype(ch)>>>(ch)));
+        return out;
+    }
+}
+
+std::vector<std::u32string> element_keys(const stdfs::path& p) {
+    std::vector<std::u32string> keys;
+    for (const stdfs::path& part : p) {
+        std::u32string key = element_key(part);
+        if (!key.empty()) keys.push_back(std::move(key));
+    }
+    return keys;
+}
+
+// A symbolic link, or on MSVC a junction (a directory link that is_symlink does not report).
+bool is_link_status(const stdfs::file_status& st) {
+#ifdef _MSC_VER
+    if (st.type() == stdfs::file_type::junction) return true;
+#endif
+    return stdfs::is_symlink(st);
+}
+
+// True when `p` is `root` or below it, element by element (so "/a/bc" is not under "/a/b"). `rootElements` receives how many
+// elements of `p` the root takes.
+bool is_under_root(const stdfs::path& root, const stdfs::path& p, std::size_t* rootElements = nullptr) {
+    const auto r = element_keys(root);
+    const auto q = element_keys(p);
+    if (rootElements) *rootElements = r.size();
+    if (q.size() < r.size()) return false;
+    return std::equal(r.begin(), r.end(), q.begin());
+}
+
+// The elements of `p` after the first `rootCount` (as is_under_root counts them; empty elements, such as the root name of a
+// path or a trailing separator, are not elements).
+std::vector<stdfs::path> elements_after_root(const stdfs::path& p, std::size_t rootCount) {
+    std::vector<stdfs::path> below;
+    std::size_t index = 0;
+    for (const stdfs::path& part : p) {
+        if (part.empty() || index++ < rootCount) continue;
+        below.push_back(part);
+    }
+    return below;
+}
+
+// The same, as one UTF-8 string with forward slashes: the spelling of `p` relative to its root ("" for the root itself).
+std::string relative_below_root(const stdfs::path& p, std::size_t rootCount) {
+    std::string rel;
+    for (const stdfs::path& part : elements_after_root(p, rootCount)) rel += (rel.empty() ? "" : "/") + path_to_utf8(part);
+    return rel;
+}
+
+// The path without the \\?\ (or \\?\UNC\) prefix that weakly_canonical and os_path may give a long Windows path.
+stdfs::path plain_path(const stdfs::path& p) {
+#ifdef _WIN32
+    const std::wstring& n = p.native();
+    if (n.rfind(LR"(\\?\UNC\)", 0) == 0) return stdfs::path(L"\\\\" + n.substr(8));
+    if (n.rfind(LR"(\\?\)", 0) == 0 && n.size() > 6 && n[5] == L':') return stdfs::path(n.substr(4));
+#endif
+    return p;
+}
+
+// Absolute and canonical (symlinks of the existing part resolved), without the \\?\ prefix. `ec` is set when it cannot be done.
+stdfs::path canonical_of(const stdfs::path& p, std::error_code& ec) {
+    stdfs::path abs = stdfs::absolute(os_path(p), ec);
+    if (ec) return {};
+    return plain_path(stdfs::weakly_canonical(os_path(abs), ec));
+}
+
+enum class PathForm { Relative, Rooted, Drive, DriveRelative, Unc, LongPath, DevicePath, Home };
+
+// `g` has forward slashes only.
+PathForm classify_path(const std::string& g) {
+    if (g.empty()) return PathForm::Relative;
+    if (g[0] == '~') return PathForm::Home;
+    if (g.compare(0, 4, "//?/") == 0) return PathForm::LongPath;
+    if (g.compare(0, 4, "//./") == 0) return PathForm::DevicePath;
+#ifdef _WIN32
+    if (g.compare(0, 4, "/??/") == 0) return PathForm::DevicePath;  // \??\C:\x, the NT object path: not a file location either
+#endif
+    if (g.compare(0, 2, "//") == 0) return PathForm::Unc;
+    if (g[0] == '/') return PathForm::Rooted;
+    if (g.size() >= 2 && g[1] == ':') return g.size() >= 3 && g[2] == '/' ? PathForm::Drive : PathForm::DriveRelative;
+    return PathForm::Relative;
+}
+
+const char* form_name(PathForm f) {
+    switch (f) {
+        case PathForm::Relative: return "a relative path";
+        case PathForm::Rooted: return "an absolute path";
+        case PathForm::Drive: return "an absolute Windows path with a drive letter";
+        case PathForm::DriveRelative: return "a drive-relative Windows path (C:name)";
+        case PathForm::Unc: return "a network (UNC) path";
+        case PathForm::LongPath: return "a Windows long path (\\\\?\\)";
+        case PathForm::DevicePath: return "a Windows device or NT object path (\\\\.\\ or \\??\\)";
+        case PathForm::Home: return "a path starting with ~";
+    }
+    return "a path";
+}
+
+const char* root_label(WriteRoot r) {
+    switch (r) {
+        case WriteRoot::Project: return "project folder";
+        case WriteRoot::Save: return "save folder";
+        case WriteRoot::Export: return "export folder";
+    }
+    return "folder";
+}
+
+Error write_error(const char* code, const std::string& message, const std::string& hint) {
+    return Error{message + " (code: " + code + ")", hint};
+}
+
+stdfs::path write_root_dir(WriteRoot r) {
+    switch (r) {
+        case WriteRoot::Project: return project_root();
+        case WriteRoot::Save: return user_dir();
+        case WriteRoot::Export: return export_dir();
+    }
+    return project_root();
+}
+
+// The error for a path inside a managed folder of the project (the version-control folder, `.factoria/` except its scratch
+// folder), or nullopt. `p` is judged by its elements below `projectCanon`; it is the canonical path or the normalized spelling
+// the caller gave, and a caller's path is refused when EITHER form is managed (a link `meta -> .factoria` and a link
+// `.factoria -> data` are both caught). A path that is not below the project is not judged. Windows strips a trailing dot or
+// space from every name, so ".git." and ".git " are the version-control folder too.
+std::optional<Error> managed_denial(const stdfs::path& projectCanon, const stdfs::path& p) {
+    std::size_t projectCount = 0;
+    if (!is_under_root(projectCanon, p, &projectCount)) return std::nullopt;
+    std::string rel;
+    for (const stdfs::path& part : elements_after_root(p, projectCount)) {
+        std::string t = path_to_utf8(part);
+        while (t.size() > 1 && (t.back() == '.' || t.back() == ' ')) t.pop_back();
+        rel += (rel.empty() ? "" : "/") + t;
+    }
+    if (rel.empty()) return std::nullopt;
+    // Judged with case folded on every platform: a Linux folder can sit on a volume that ignores case (WSL's /mnt/c, ext4
+    // casefold, SMB), where ".GIT" is the version-control folder too.
+    std::string folded;
+    for (char32_t c : name_key(rel)) utf8_append(folded, c);
+    if (auto w = check_writable(folded); !w.ok())
+        return write_error("managed_path_denied",
+                           replace_all(w.error().message, folded, rel) + " (the project folder is " + path_to_utf8(projectCanon) + ")",
+                           w.error().hint);
+    return std::nullopt;
+}
+
+// Why a name cannot be part of a path that is written into a project, or empty. A project must stay portable: Windows cannot
+// create a file named like a device (CON, NUL, COM1... with or without an extension) or ending in a dot or a space, and strips
+// that dot or space, so the file would land under another name. Refused on every platform.
+std::string unportable_name(const std::string& seg) {
+    if (seg.empty()) return {};
+    if (seg.back() == '.' || seg.back() == ' ') return "ends in a '" + std::string(1, seg.back()) + "'";
+    std::string stem = to_lower(seg.substr(0, seg.find('.')));
+    while (!stem.empty() && stem.back() == ' ') stem.pop_back();
+    static const char* const devices[] = {"con", "prn", "aux", "nul"};
+    for (const char* d : devices)
+        if (stem == d) return "is the name of a Windows device";
+    if (stem == "conin$" || stem == "conout$") return "is the name of a Windows device";
+    if (stem.size() == 4 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) && stem[3] >= '1' && stem[3] <= '9')
+        return "is the name of a Windows device";
+    // COM1-3 and LPT1-3 also exist with a superscript digit (U+00B9, U+00B2, U+00B3: UTF-8 C2 B9, C2 B2, C2 B3).
+    if (stem.size() == 5 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) && static_cast<unsigned char>(stem[3]) == 0xC2 &&
+        (static_cast<unsigned char>(stem[4]) == 0xB9 || static_cast<unsigned char>(stem[4]) == 0xB2 || static_cast<unsigned char>(stem[4]) == 0xB3))
+        return "is the name of a Windows device";
+    return {};
+}
+
+}  // namespace
+
+std::string_view path_error_code(const Error& error) {
+    const std::string& m = error.message;
+    constexpr std::string_view tag = " (code: ";
+    const std::size_t at = m.rfind(tag);
+    if (at == std::string::npos || m.back() != ')') return {};
+    return std::string_view(m).substr(at + tag.size(), m.size() - at - tag.size() - 1);
+}
+
+Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot root, std::string_view path, bool allowAnywhere,
+                                         ManagedFolders managed) {
+    const std::string given(path);
+    if (given.find('\0') != std::string::npos)
+        return write_error("invalid_path", "The path '" + replace_all(given, std::string(1, '\0'), "\\0") + "' contains a NUL character",
+                           "A path is text without NUL characters; check where the path was built.");
+    const std::string label = root_label(root);
+    std::string g = replace_all(given, "\\", "/");
+    if (g.empty()) g = ".";
+
+    std::error_code ec;
+    const stdfs::path rootCanon = canonical_of(rootDir, ec);
+    if (ec) {
+        return write_error("path_unresolvable", "Cannot resolve the " + label + " '" + path_to_utf8(rootDir) + "': " + ec.message(),
+                           "Check that the folder is reachable.");
+    }
+    const std::string rootText = path_to_utf8(rootCanon);
+    const std::string where = " (" + label + ": " + rootText + ")";
+
+    PathForm form = classify_path(g);
+    if (form != PathForm::Relative && !allowAnywhere) {
+        std::string hint = "Give a path relative to the " + label + " (" + rootText + "), such as \"" +
+                           (root == WriteRoot::Project ? "assets/out.png" : "out.png") +
+                           "\". An absolute path is only accepted from a caller that may write anywhere, such as the command line.";
+        // An absolute path that points into the folder: say its relative spelling.
+#ifdef _WIN32
+        if (form == PathForm::Rooted || form == PathForm::Drive) {
+#else
+        if (form == PathForm::Rooted) {
+#endif
+            std::error_code aec;
+            const stdfs::path abs = canonical_of(path_from_utf8(g), aec);
+            std::size_t n = 0;
+            if (!aec && is_under_root(rootCanon, abs, &n) && n < element_keys(abs).size()) {
+                const std::string rel = relative_below_root(abs, n);
+                hint = "This path is inside the " + label + "; write it relative to it: \"" + rel + "\".";
+            }
+        }
+        return write_error("absolute_path_denied",
+                           "Path '" + given + "' is " + form_name(form) + ", which this command does not accept" + where,
+                           hint);
+    }
+
+    // ---- relative: confined to the root -------------------------------------------------------------------------------
+    if (form == PathForm::Relative) {
+        std::vector<std::string> out;
+        for (const std::string& seg : split(g, '/')) {
+            if (seg == ".") continue;
+            if (seg == "..") {
+                if (!out.empty()) { out.pop_back(); continue; }
+                return write_error("path_outside_root", "Path '" + given + "' is " + form_name(form) + " that escapes the " + label + where,
+                                   "Remove the leading \"..\" segments: the path must stay inside the " + label +
+                                   " (\"a/../b\" is fine, \"../b\" is not).");
+            }
+            out.push_back(seg);
+        }
+        // What is left of "a/../C:/x" must not name a drive, and on Windows no segment may hold a ':' (a drive, or an
+        // alternate data stream "name:stream"): the path would leave the root or write somewhere that is not a file.
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            const std::string& seg = out[i];
+            const bool drive = i == 0 && seg.size() >= 2 && seg[1] == ':' && std::isalpha(static_cast<unsigned char>(seg[0]));
+            bool colon = false;
+#ifdef _WIN32
+            colon = seg.find(':') != std::string::npos;
+#endif
+            if (drive || colon)
+                return write_error("invalid_path", "Path '" + given + "' has the segment '" + seg + "', which names a drive or a stream" + where,
+                                   "Remove the ':' from the name: a relative path is a list of folder and file names.");
+        }
+        stdfs::path full = rootCanon;
+        if (!out.empty()) full /= path_from_utf8(fa::join(out, "/"));
+        // The managed folders of the project, judged on the spelling the caller gave (a link `.factoria -> data` would hide it
+        // from the canonical form) and below on the canonical path (a link `meta -> .factoria` would hide it from this one).
+        if (root == WriteRoot::Project && managed == ManagedFolders::Refuse) {
+            if (auto denied = managed_denial(rootCanon, full)) return *denied;
+        }
+        // A name that Windows cannot create is refused when this call would CREATE it, never when it is already there: a
+        // project that holds such a file (made on Linux) can still read it and delete it. "Already there" means a regular file,
+        // a folder or a link that was statted without error; anything else (not found, an error, a FIFO, a device) does not
+        // count. On Windows the exemption does not exist: such a file cannot be there (NUL, CON, COM1... "exist" in every
+        // folder, with or without an extension, and a trailing dot or space is stripped, so `scenes.` would be `scenes`).
+        {
+            stdfs::path walkName = rootCanon;
+            for (const std::string& seg : out) {
+                walkName /= path_from_utf8(seg);
+#ifndef _WIN32
+                std::error_code nec;
+                const stdfs::file_type kind = stdfs::symlink_status(os_path(walkName), nec).type();
+                if (!nec && (kind == stdfs::file_type::regular || kind == stdfs::file_type::directory || kind == stdfs::file_type::symlink))
+                    continue;
+#endif
+                if (std::string why = unportable_name(seg); !why.empty())
+                    return write_error("invalid_path", "Path '" + given + "' has the name '" + seg + "', which " + why + where,
+                                       "Rename it: the project has to work on Windows too (no CON, PRN, AUX, NUL, COM1-9, LPT1-9, and no name ending in a dot or a space).");
+            }
+        }
+        stdfs::path canon = canonical_of(full, ec);
+        if (ec) return write_error("path_unresolvable", "Cannot resolve path '" + given + "': " + ec.message(), "Check the path for invalid characters.");
+        std::size_t rootCount = 0;
+        if (!is_under_root(rootCanon, canon, &rootCount)) {
+            return write_error("path_outside_root", "Path '" + given + "' resolves outside the " + label + " (a symbolic link leads out of it?)" + where,
+                               "Only files physically inside the " + label + " can be written; remove or replace the link.");
+        }
+        // The managed folders of the project, judged on the canonical path (so a link into them counts).
+        if (root == WriteRoot::Project && managed == ManagedFolders::Refuse) {
+            if (auto denied = managed_denial(rootCanon, canon)) return *denied;
+        }
+        // A symbolic link that points nowhere is not resolved by weakly_canonical, but writing through it would create the
+        // file at its target: refuse every link left in the part below the root.
+        stdfs::path walk = rootCanon;
+        for (const stdfs::path& part : elements_after_root(canon, rootCount)) {
+            walk /= part;
+            std::error_code sec;
+            if (is_link_status(stdfs::symlink_status(os_path(walk), sec)))
+                return write_error("path_outside_root", "Path '" + given + "' goes through a symbolic link that points nowhere" + where,
+                                   "Delete the broken link '" + path_to_utf8(walk) + "' or write to another path.");
+        }
+        return canon;
+    }
+
+    // ---- absolute, from a caller that may write anywhere ----------------------------------------------------------------
+    if (form == PathForm::Home) {
+#ifdef _WIN32
+        const stdfs::path home = env_path("USERPROFILE", L"USERPROFILE");
+#else
+        const stdfs::path home = env_path("HOME", L"HOME");
+#endif
+        if (!(g.size() == 1 || g[1] == '/'))
+            return write_error("invalid_path", "Path '" + given + "' uses the ~user form, which is not supported",
+                               "Write ~/name for your own home folder, or the full path.");
+        if (home.empty())
+            return write_error("path_unresolvable", "Path '" + given + "' starts with ~ but this process has no home folder",
+                               "Write the full absolute path.");
+        g = path_to_utf8(home) + g.substr(1);
+        form = classify_path(g);
+        if (form == PathForm::Relative || form == PathForm::Home)
+            return write_error("path_unresolvable", "The home folder of this process is not an absolute path", "Write the full absolute path.");
+    }
+    if (form == PathForm::DriveRelative)
+        return write_error("invalid_path", "Path '" + given + "' is " + form_name(form) + ", which depends on the current folder of that drive",
+                           "Write the drive's full path, such as C:\\folder\\name.");
+    if (form == PathForm::DevicePath)
+        return write_error("invalid_path", "Path '" + given + "' is " + form_name(form) + ", which is not a file location",
+                           "Write a normal path to a folder, such as C:\\folder\\name.");
+    std::size_t keep = 0;  // path segments that belong to the root and no ".." may remove (server and share of a UNC path)
+    std::string prefix;
+    std::string body;
+    if (form == PathForm::LongPath) {
+        const std::string rest = g.substr(4);
+        if (rest.compare(0, 4, "UNC/") == 0) { g = "//" + rest.substr(4); form = PathForm::Unc; }
+        else if (rest.size() >= 3 && rest[1] == ':' && rest[2] == '/') { g = rest; form = PathForm::Drive; }
+        else
+            return write_error("invalid_path", "Path '" + given + "' is a Windows long path that names no drive or share",
+                               "Write \\\\?\\C:\\folder\\name or an ordinary path.");
+    }
+#ifdef _WIN32
+    if (form == PathForm::Unc) {
+        // \\server\share needs both names: without a share it is not a place a file can be written to.
+        const std::vector<std::string> names = split(g.substr(2), '/');
+        if (names.size() < 2 || names[0].empty() || names[1].empty() || names[0] == "." || names[0] == ".." || names[1] == "." || names[1] == "..")
+            return write_error("invalid_path", "Path '" + given + "' is a network (UNC) path without a share",
+                               "Write \\\\server\\share\\folder\\name.");
+        prefix = "//"; body = g.substr(2); keep = 2;
+    }
+    else if (form == PathForm::Drive) { prefix = g.substr(0, 2) + "/"; body = g.substr(2); }
+    else { prefix = "/"; body = g; }
+#else
+    if (form == PathForm::Drive || form == PathForm::Unc)
+        return write_error("invalid_path", "Path '" + given + "' is " + form_name(form) + ", which this system does not have",
+                           "Write a path that starts with /.");
+    prefix = "/";
+    body = g;
+#endif
+    std::vector<std::string> out;
+    for (const std::string& seg : split(body, '/')) {
+        if (seg == ".") continue;
+        if (seg == "..") {
+            if (out.size() > keep) out.pop_back();  // ".." at the top stays there
+            continue;
+        }
+        out.push_back(seg);
+    }
+#ifdef _WIN32
+    // A ':' in any segment after the drive (already in `prefix`) is an alternate data stream ("a.png:x"), not a file.
+    for (const std::string& seg : out) {
+        if (seg.find(':') != std::string::npos)
+            return write_error("invalid_path", "Path '" + given + "' has the segment '" + seg + "', which names a stream",
+                               "Remove the ':' from the name: only the drive letter has one (C:\\folder\\name).");
+    }
+#endif
+    const stdfs::path canon = canonical_of(path_from_utf8(prefix + fa::join(out, "/")), ec);
+    if (ec) return write_error("path_unresolvable", "Cannot resolve path '" + given + "': " + ec.message(), "Check the path for invalid characters.");
+
+    // The managed folders of the project (the version-control folder and `.factoria/` except its scratch folder) stay closed
+    // even to this caller. The save and export folders are exempt when they are inside them: they are what this call is for.
+    if (managed == ManagedFolders::Refuse) {
+        const stdfs::path projectCanon = root == WriteRoot::Project ? rootCanon : canonical_of(project_root(), ec);
+        if (!ec && (root == WriteRoot::Project || !is_under_root(rootCanon, canon))) {
+            if (auto denied = managed_denial(projectCanon, canon)) return *denied;
+            // The spelling too (normalized, links not resolved): a link `.factoria -> data` is still `.factoria`. It is judged
+            // against the project folder as the canonical form spells it and as the caller may have (a project below a link).
+            const stdfs::path spelled = path_from_utf8(prefix + fa::join(out, "/"));
+            if (auto denied = managed_denial(projectCanon, spelled)) return *denied;
+            if (auto denied = managed_denial(root == WriteRoot::Project ? rootDir : project_root(), spelled)) return *denied;
+        }
+    }
+    return canon;
+}
+
+Result<stdfs::path> resolve_for_write(std::string_view path, WriteRoot root, bool allowAnywhere, ManagedFolders managed) {
+    return resolve_for_write_in(write_root_dir(root), root, path, allowAnywhere, managed);
+}
+
+std::string project_spelling(const stdfs::path& resolved) {
+    std::error_code ec;
+    const stdfs::path rootCanon = canonical_of(project_root(), ec);
+    std::size_t n = 0;
+    if (ec || !is_under_root(rootCanon, resolved, &n)) return path_to_utf8(resolved);
+    return relative_below_root(resolved, n);
 }
 
 namespace {

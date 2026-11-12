@@ -247,13 +247,15 @@ Json model_preview_command(const std::string& projectDir, const Json& a) {
     }
     const bool figure = tooling_detail::arg_bool(a, "figure", true), ground = tooling_detail::arg_bool(a, "ground", true);
     std::string outRel;
+    stdfs::path outFile;
     if (a.contains("out") && !a["out"].is_null()) {
-        auto norm = a["out"].is_string() ? fs::normalize_checked(a["out"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
-        if (!norm.ok() || norm->empty() || to_lower(fs::extension(*norm)) != ".png")
+        if (!a["out"].is_string() || a["out"].get<std::string>().empty() || to_lower(fs::extension(a["out"].get<std::string>())) != ".png")
             fail("invalid_argument", "model.preview: `out` must be a project-relative path ending in .png.", "Example: \"docs/review/crate.png\". Leave it out to only look at the picture (nothing is written to the project).");
-        outRel = *norm;
+        // The caller names a file: it needs writeProject and must stay inside the project (never .git or .factoria).
+        outFile = caller_output_file(projectDir, a["out"].get<std::string>(), "model.preview");
+        outRel = output_spelling(a["out"].get<std::string>());
         std::error_code ec;
-        if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, outRel), ec))
+        if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(outFile, ec))
             fail("exists", "'" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another `out`.");
     }
 
@@ -349,7 +351,7 @@ Json model_preview_command(const std::string& projectDir, const Json& a) {
     if (!outRel.empty()) {
         const std::vector<std::uint8_t> png = encode_png(canvas.img);
         std::string err;
-        const stdfs::path out = project_file(projectDir, outRel);
+        const stdfs::path& out = outFile;
         if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
         result["written"] = outRel;
         result["$image"] = image_member(out, false);
@@ -374,7 +376,6 @@ void register_model_eyes_commands(CommandRegistry& registry, const std::string& 
         CommandInfo info;
         info.name = "model.preview";
         info.category = "assets";
-        info.readOnly = true;
         info.summary = "Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG.";
         info.description =
             "The way to SEE a model. It builds the document in memory and draws it with a software renderer (no graphics device, the same pixels on every machine): one picture with `views` sides evenly spaced around the model, starting at `yaw`, "
@@ -382,7 +383,7 @@ void register_model_eyes_commands(CommandRegistry& registry, const std::string& 
             "origin's axes brighter, so scale, how it stands and where its origin is can be read at once. The header gives the triangle count, the size in metres and the number of parts. A dark red surface is one seen from inside "
             "(a flipped triangle). `mode` is \"shaded\", \"wireframe\" (the triangle edges; hidden ones stay hidden) or \"shaded_wireframe\"; `part` draws one part in orange. "
             "It draws the mesh the game gets: with `gameReady` settings in the document, their origin and merge are applied. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. "
-            "Nothing in the project changes otherwise. Example: {\"path\":\"assets/models/crate.model.json\",\"views\":4,\"mode\":\"shaded_wireframe\"}";
+            "Nothing in the project changes otherwise (a caller that may not write the project cannot use `out`). Example: {\"path\":\"assets/models/crate.model.json\",\"views\":4,\"mode\":\"shaded_wireframe\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathProp},
                                                              {"document", docProp},
@@ -394,8 +395,9 @@ void register_model_eyes_commands(CommandRegistry& registry, const std::string& 
                                                              {"figure", bool_prop("Draw the 1.8 m reference figure beside the model.", true)},
                                                              {"ground", bool_prop("Draw the grid on y = 0.", true)},
                                                              {"part", str_prop("A part of the model to draw in orange.")},
-                                                             {"out", str_prop("Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file.")},
+                                                             {"out", Json::object({{"type", "string"}, {"x-fa-path", "write"}, {"description", "Keep the picture as a PNG at this project-relative path (ending in .png; needs the writeProject capability, never inside .git or .factoria). Left out, it is a temporary file."}})},
                                                              {"overwrite", bool_prop("Replace the file at `out` if it exists.", false)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_preview_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -432,8 +434,12 @@ void register_model_eyes_commands(CommandRegistry& registry, const std::string& 
                                                              {"platforms", list_prop("Platforms whose triangle and draw call budgets to check: desktop, mobile, web. Default all.")},
                                                              {"ignore", list_prop("Check codes not to report, e.g. [\"open_edges\"] for a surface that is meant to be open.")},
                                                              {"samples", num_prop("Sample positions listed per finding.", 6, 0, 50)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_check_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): model.preview keeps its picture only when asked; model.check writes nothing.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"model.preview", changes_state()}, {"model.check", reads()}});
 }
 
 }  // namespace fa::assets_detail

@@ -98,8 +98,26 @@ that.)
   is dropped and logged.
 - **Read-only mode**: `factoria mcp --read-only` serves only the commands that look and play (reading, `game_step`,
   `game_input`, `game_click`, `game_screenshot`, `scene_load`, UI scale checks, ...). The others are not listed and a call
-  to one is refused. `ai_run`, `ai_review` and everything that edits the project are among the hidden ones. FactorIA starts
-  Codex's server this way for the `artCritic` and `reviewer` roles (`docs/AI_PROVIDERS.md`, Reviews).
+  to one is refused (`tool_not_available`, with a hint to run it yourself with `factoria call`). `ai_run`, `ai_review` and
+  everything that edits the project are among the hidden ones. FactorIA starts Codex's server this way for the `artCritic`
+  and `reviewer` roles (`docs/AI_PROVIDERS.md`, Reviews). The server also runs every call with the capability set
+  `{read, state}` (`capability_sets::mcp_read_only`), so a served command that needs more is refused with
+  `capability_denied`; in particular `game_screenshot`, `anim_filmstrip` and `vfx_filmstrip` work without `path` (the
+  picture goes under `.factoria/`) and are refused with a `path`, which needs `writeProject`. A server without
+  `--read-only` grants every capability but `writeAnywhere`: a command that writes outside the project is refused over MCP
+  (`capability_denied`; the user runs it with `factoria call`), and a `path` argument of those commands must be inside the
+  project (`absolute_path_denied`, `path_outside_root`, `managed_path_denied`).
+- **Tool hints**: the `annotations` of each tool come from the command's capabilities: `readOnlyHint` when it needs only
+  `read` and no argument can write (a schema property marked `"x-fa-path": "write"`, like the `out` of `checkpoint_read`,
+  makes it false; `feedback_check` is the one exception by name, its `reject` edits ENGINE_FEEDBACK.json);
+  `openWorldHint` when it needs `network`, `publish` or `spend` (`process` starts a program on this computer, which is not the
+  outside world, so it does not count); `destructiveHint` when it is not read-only and needs `writeAnywhere`, `publish`,
+  `spend` or `writeProject`. A command that only writes the file its optional path argument names is not read-only and not
+  destructive. `game_screenshot`, `anim_filmstrip` and `vfx_filmstrip` declare `{read, state}` (their default output is under
+  `.factoria/`), so a client does not ask before each screenshot. Each tool also has `_meta`:
+  `factoria/capabilities` (the capability names the command needs) and `factoria/capabilitiesDeclared` (false when the
+  command did not declare them and the set was derived from `readOnly`); `tool_describe` returns the same two as
+  `capabilities` and `capabilitiesDeclared`, next to `readOnly` and the input schema.
 - **User-only commands**: `ai_plugin_install` (it installs a Claude Code plugin on the user's computer) is never listed or run by any MCP
   server, read-only or not: the user starts it from the editor's AI settings or the CLI (`docs/AI_PROVIDERS.md`, "Installing a plugin").
 - **Roles of `ai_run`**: `ai_run {role, task}` runs the `worker`, `fast`, `artist` or `audio` role (and `orchestrator`, the default of the

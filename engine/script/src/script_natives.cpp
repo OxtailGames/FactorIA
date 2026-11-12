@@ -3895,7 +3895,8 @@ NATIVE(callCommand) {
     std::string name = arg_str(ctx, argc, argv, 0);
     Json args = argc > 1 ? I->to_json(argv[1]) : Json::object();
     if (args.is_null()) args = Json::object();
-    CommandResult r = I->host->commands().call(name, args);
+    // Runs with the set of whoever runs this code (a game script, a test, or a tool's caller): script_capabilities.cpp.
+    CommandResult r = I->run_command(name, args);
     if (r.ok && name == "tilemap.generate_start" && r.result.is_object() && r.result.contains("job") && r.result["job"].is_number_integer())
         I->wfcJobIds.push_back(r.result["job"].get<int>());   // this context owns the job: it is dropped with it
     JSValue o = JS_NewObject(ctx);
@@ -3908,6 +3909,27 @@ NATIVE(callCommand) {
 NATIVE(commands) {
     SETUP;
     return I->from_json(I->host->commands().describe());
+}
+
+// The `capabilities` option of a test (test(name, fn, { capabilities: ["writeProject"] })): (names, jsonPointer) -> "" when every
+// name is a capability, else the teaching error (the unknown name, its pointer inside the option, "did you mean").
+NATIVE(capabilitiesCheck) {
+    SETUP;
+    Json names = argc > 0 ? I->to_json(argv[0]) : Json::array();
+    auto set = CapabilitySet::parse(names, arg_str(ctx, argc, argv, 1));
+    if (set.ok()) return JS_NewString(ctx, "");
+    const std::string text = set.error().message + (set.error().hint.empty() ? "" : " " + set.error().hint);
+    return JS_NewString(ctx, text.c_str());
+}
+
+// The running test's set: test_script() plus the names the test asked for (already checked by capabilitiesCheck). Whoever runs the
+// tests bounds it, because the thread's own set is still intersected when the command is called.
+NATIVE(testCapabilities) {
+    SETUP;
+    Json names = argc > 0 ? I->to_json(argv[0]) : Json::array();
+    auto set = CapabilitySet::parse(names);
+    I->testCaps = capability_sets::test_script().unite(set.ok() ? *set : CapabilitySet::none());
+    return JS_UNDEFINED;
 }
 
 // ---- native plugins (ScriptSystem::set_plugins) -------------------------------------------------------------------
@@ -4252,7 +4274,7 @@ NATIVE(testScreenshot) {
 
 NATIVE(testState) {
     SETUP;
-    CommandResult r = I->host->commands().call("game.state", Json::object());
+    CommandResult r = I->run_command("game.state", Json::object());  // {read}: every set has it
     if (r.ok) return I->from_json(r.result);
     Json j = Json::object();
     j["scene"] = W.scene_path();
@@ -4320,7 +4342,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navFindPaths, 1), R(navBake, 1), R(navFindTilePath, 1), R(navFindTilePaths, 1), R(navGridPaths, 3), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(autoplayPhase, 2), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 3), R(preloadRelease, 1), R(generateActive, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(capabilitiesCheck, 2), R(testCapabilities, 1), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 3), R(preloadRelease, 1), R(generateActive, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

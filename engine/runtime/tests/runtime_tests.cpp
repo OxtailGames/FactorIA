@@ -52,7 +52,7 @@ const char* kScene = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject, const char* scene = kScene) {
-        dir = fs::make_temp_dir("fa_runtime_test_" + name);
+        dir = fs::make_temp_dir("fa_runtime_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", project);
         if (scene) write("scenes/main.scene.json", scene);
@@ -403,7 +403,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     r = c.call("game.screenshot", Json{{"path", shot}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["$image"]["mimeType"] == "image/png");
-    CHECK(r.result["$image"]["path"] == shot);
+    CHECK(stdfs::equivalent(stdfs::path(r.result["$image"]["path"].get<std::string>()), stdfs::path(shot)));  // the resolved (canonical) spelling
     CHECK(r.result["width"] == 320);
     auto img = load_image(shot);
     REQUIRE(img.ok());

@@ -10,9 +10,11 @@
 #include <mutex>
 #include <set>
 
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/project_fs.h"
 #include "util.h"
 
 namespace fa {
@@ -577,12 +579,21 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
         c.inputSchema = Json::parse(R"({"type":"object","required":["id","path"],"properties":{
             "id":{"type":"string","description":"A checkpoint id from checkpoint.list."},
             "path":{"type":"string","description":"File to read, relative to the project folder, forward slashes: scripts/player.js."},
-            "out":{"type":"string","description":"Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit."}}})");
+            "out":{"type":"string","x-fa-path":"write","description":"Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit."}}})");
         registry.add(c, [projectDir](const Json& a) {
             const std::string id = arg_string(a, "id", true), path = arg_string(a, "path", true), out = arg_string(a, "out", false);
             if (!out.empty() && (!safe_rel(out) || out.rfind('.', 0) == 0 || out.find("/.") != std::string::npos))
                 throw CommandError("invalid_argument", "`out` '" + out + "' is not a usable project-relative path.",
                                    "Use a path like exports/old_player.js: relative, forward slashes, no '..', no folder starting with '.'.");
+            // `out` is a write: the caller needs writeProject, the target is judged on its real path (a link into .git or .factoria is refused)
+            // and all of it is checked before the checkpoint is read
+            stdfs::path outPath;
+            if (!out.empty()) {
+                require_capability(Capability::WriteProject, "checkpoint.read", "`out` writes the file into the project");
+                auto resolved = resolve_write_path(projectDir, out);
+                if (!resolved.ok()) throw CommandError(std::string(fs::path_error_code(resolved.error())), "`out` '" + out + "': " + resolved.error().message, resolved.error().hint);
+                outPath = *resolved;
+            }
             auto r = checkpoint_read(projectDir, id, path);
             if (!r.ok()) fail(r.error(), "not_found");
             const std::string& bytes = r.value();
@@ -593,7 +604,7 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
                     throw CommandError("too_large", "'" + path + "' is " + std::to_string(bytes.size()) + " bytes, over the inline limit of " + std::to_string(kReadInlineLimit) + ".",
                                        "Pass `out` (a project-relative path) and the file is written there.");
                 std::string err;
-                if (!write_atomic(root_dir(projectDir) / out, bytes.data(), bytes.size(), &err))
+                if (!write_atomic(outPath, bytes.data(), bytes.size(), &err))
                     throw CommandError("failed", "Cannot write '" + out + "': " + err + ".", "Check the path and the permissions.");
                 j["out"] = out;
             } else if (binary) {
@@ -652,6 +663,13 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             return j;
         });
     }
+    // checkpoint.read only reads; its `out` needs writeProject, which the handler requires (require_capability).
+    declare_command_capabilities(registry, {
+        {"checkpoint.create", capability_sets::writes_project()},
+        {"checkpoint.diff", capability_sets::reads()},
+        {"checkpoint.list", capability_sets::reads()},
+        {"checkpoint.read", capability_sets::reads()},
+        {"checkpoint.restore", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

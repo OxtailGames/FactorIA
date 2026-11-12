@@ -146,6 +146,11 @@ struct HookRunContext {
     std::string transcriptPath;
     std::string permissionMode = "default";
     std::string agentType;       // a delegated run: its role
+    // Names (or "PREFIX*") of the variables a command hook inherits besides fa::base_child_env() and the proxy and certificate
+    // variables every AI-started program gets (HTTP_PROXY, SSL_CERT_FILE...): "inheritEnv" of ai.json. The hook
+    // gets CLAUDE_PROJECT_DIR, FACTORIA_PROJECT_DIR, FACTORIA_HOOK_EVENT, FACTORIA_IN_HOOK and these; the editor's other variables (API
+    // keys, signing passwords) do not reach it.
+    std::vector<std::string> inheritEnv;
     const CancelFlag* cancel = nullptr;
     // Called after each handler ran (also when it failed), on the calling thread: the session log, the editor.
     std::function<void(const HookRunRecord&)> onRun;

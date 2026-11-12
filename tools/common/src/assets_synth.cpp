@@ -69,7 +69,7 @@ Json synth_sound(const std::string& projectDir, const Json& a) {
         seconds = a["seconds"].get<double>();
     }
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
-    const stdfs::path file = project_file(projectDir, *norm);
+    const stdfs::path file = project_write_file(projectDir, *norm);
     std::error_code ec;
     if (!overwrite && stdfs::exists(file, ec)) fail("exists", "'" + *norm + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
@@ -144,7 +144,10 @@ void register_synth_sound_command(CommandRegistry& registry, const std::string& 
                {"seed", Json::object({{"type", "integer"}, {"default", 0}, {"description", "Chooses the take: the same preset and seed always give the same file; change it for a variation (the noise changes and the pitch shifts up to 10 percent)."}})},
                {"seconds", Json::object({{"type", "number"}, {"minimum", 0.02}, {"maximum", 10}, {"description", "Length in seconds: the whole sound (envelopes, sweeps) is stretched to it. Default: the preset's own length."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [projectDir](const Json& args) { return synth_sound(projectDir, args); });
+    // Capabilities (capability.h): a WAV and its assets.json entry in the project.
+    declare_command_capabilities(registry, {{"assets.synth_sound", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

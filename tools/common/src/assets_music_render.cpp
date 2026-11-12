@@ -122,7 +122,7 @@ Json music_render_command(const std::string& projectDir, const Json& a) {
     targets.insert(targets.end(), stemFiles.begin(), stemFiles.end());
     for (const std::string& t : targets) {
         std::error_code ec;
-        if (!overwrite && stdfs::exists(project_file(projectDir, t), ec) && !made_by_render(projectDir, t))
+        if (!overwrite && stdfs::exists(project_write_file(projectDir, t), ec) && !made_by_render(projectDir, t))
             fail("exists", "'" + t + "' already exists and was not made by music.render.", "Pass overwrite: true to replace it, or choose another `out`.");
     }
     require_usable_manifest(projectDir);
@@ -141,7 +141,7 @@ Json music_render_command(const std::string& projectDir, const Json& a) {
     for (std::size_t i = 0; i < render->stems.size(); ++i) blobs.push_back(encode_clip(render->stems[i].clip, ext, stemFiles[i]));
     for (std::size_t i = 0; i < targets.size(); ++i) {
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, targets[i]), std::string_view(reinterpret_cast<const char*>(blobs[i].data()), blobs[i].size()), &err)) fail("failed", err);
+        if (!tooling_detail::write_file(project_write_file(projectDir, targets[i]), std::string_view(reinterpret_cast<const char*>(blobs[i].data()), blobs[i].size()), &err)) fail("failed", err);
     }
 
     // The recipe: the same one for the mix and every stem (assets.regenerate makes the group once).
@@ -212,7 +212,7 @@ Json music_render_command(const std::string& projectDir, const Json& a) {
     for (const std::string& old : oldStems) {
         if (std::find(stemFiles.begin(), stemFiles.end(), old) != stemFiles.end() || !made_by_render(projectDir, old)) continue;
         std::error_code ec;
-        stdfs::remove(project_file(projectDir, old), ec);
+        stdfs::remove(project_write_file(projectDir, old), ec);
         ProjectRootGuard root(projectDir);
         (void)assets::update_entry(old, [](Json& e) { e = Json::object(); });
         removed.push_back(old);
@@ -305,7 +305,11 @@ void register_music_render_commands(CommandRegistry& registry, const std::string
                                                          {"loop", boolean("Find the song's loop sections, fold their tail onto the start and write the loop points. False: render once, no points.", true)},
                                                          {"stems", Json::object({{"description", "One file per stem: \"layers\" (the song's `layers`), \"tracks\" or \"buses\"; true = \"layers\"; false or absent: only the mix."}, {"oneOf", Json::array({Json::object({{"type", "boolean"}}), Json::object({{"type", "string"}, {"enum", Json::array({"layers", "tracks", "buses"})}})})}})},
                                                          {"overwrite", boolean("Replace files that exist and were not made by music.render (the ones it made are always replaced).", false)}})}});
+    mark_paths(info.inputSchema, "read", {"path"});
+    mark_paths(info.inputSchema, "write", {"out"});
     registry.add(info, [projectDir](const Json& args) { return music_render_command(projectDir, args.is_null() ? Json::object() : args); });
+    using namespace capability_sets;  // capability.h: writes the sound(s) and their records in the project
+    declare_command_capabilities(registry, {{"music.render", writes_project()}});
 }
 
 }  // namespace fa::assets_detail::music

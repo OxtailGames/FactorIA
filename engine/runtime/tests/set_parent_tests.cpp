@@ -33,7 +33,7 @@ struct Session {
     stdfs::path dir;
     Engine engine;
     Session() {
-        dir = fs::make_temp_dir("fa_setparent_test");
+        dir = fs::make_temp_dir("fa_setparent_test").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << kScene;

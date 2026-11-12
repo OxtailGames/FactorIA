@@ -230,6 +230,14 @@ void register_terrain_commands(Engine&, Engine::Impl& I) {
             for (const Terrain& t : *parsed) names.push_back(t.name);
             return Json::object({{"id", I.world.id_of(e)}, {"terrains", names}, {"retiled", retiled}});
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"tilemap.paint_terrain", capability_sets::changes_state()},
+        {"tilemap.retile", capability_sets::changes_state()},
+        {"tilemap.set_terrains", capability_sets::changes_state()},
+        {"tilemap.terrains", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

@@ -249,7 +249,7 @@ test("mistakes in the API explain themselves", () => {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject, const char* scene = kScene) {
-        dir = fs::make_temp_dir("fa_drag_test_" + name);
+        dir = fs::make_temp_dir("fa_drag_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", scene);
     }

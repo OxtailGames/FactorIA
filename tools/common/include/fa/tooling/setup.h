@@ -319,7 +319,9 @@ bool refresh_launcher(const SetupContext& context = {});
 std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir,
                                                long long quittingPid = 0);
 
-// Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
+// Registers "setup.status" ({read, process, network}: it runs the tools it probes and may fetch the Android license text) and
+// "setup.install" ({read, writeAnywhere, process, network}: the user's call, an MCP client or an agent gets
+// capability_denied; category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.
 void register_setup_commands(CommandRegistry& registry);
 

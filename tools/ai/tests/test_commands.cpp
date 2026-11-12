@@ -85,7 +85,7 @@ TEST_CASE("ai.models lists the models of every available provider; one failure s
     register_ai_commands(registry, opt);
     const CommandInfo* info = registry.info("ai.models");
     REQUIRE(info);
-    CHECK(info->readOnly);
+    CHECK_FALSE(info->readOnly);  // it starts a CLI or calls an API for the list: process and network (M92.1b3)
     CHECK(info->category == "ai");
     CHECK_FALSE(info->description.empty());
     CHECK(info->inputSchema["properties"]["provider"]["description"].get<std::string>().size() > 10);

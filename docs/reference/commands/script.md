@@ -6,11 +6,15 @@
 
 List script errors (load/runtime) and scene load problems.
 
+Capabilities: read
+
 Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
 
 ## `script.eval` (modifies state)
 
 Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
+
+Capabilities: read, state
 
 The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}. With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, "default" for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is awaited if it settles without time passing. Before the import, every loaded module whose file changed on disk is re-imported (like script.reload), so an edit shows at once. Example: script.eval {"module":"scripts/game/rules.js","call":"price","args":["wood",3]}
 
@@ -25,6 +29,8 @@ The last expression is returned as JSON. Example: script.eval {"code":"world.fin
 
 Re-import script modules edited on disk and restart the behaviours (the world is kept).
 
+Capabilities: read, state
+
 scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs again), or with `force` to re-import every module even if no file changed. Example: script.reload {}
 
 | Argument | Type | Required | Description |
@@ -36,6 +42,8 @@ scene.load and scene.reload already re-import every module whose file changed (b
 Since 0.2.0.
 
 Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.
+
+Capabilities: read
 
 The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same input gives the same answer) with the scripts instrumented, and at each traced line records what is there instead of stopping. A point is {file, line, condition?, watch?, log?}: `file` a project-relative script, `line` a line that starts a statement (an error names the nearest ones when it does not), `condition` a JavaScript expression that must be true for the point to record, `watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). Example: {"points":[{"file":"scripts/player.js","line":17,"condition":"dt > 0","watch":["this.body.velocity"]}],"frames":120,"maxHits":5}.
 
@@ -56,6 +64,8 @@ Since 0.4.0.
 
 Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder.
 
+Capabilities: read, state, writeProject
+
 Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .factoria/). `key` is the key as the game wrote it ("run.current", see storage.list); `all: true` removes every key and every key file, including damaged ones. Give exactly one of them. The key files in the save folder go whatever the storage mode is. Returns the removed keys. A scene that already read the key keeps its own copy: scene.reload afterwards. During project.test it only clears the test's in-memory storage. Example: storage.clear {"key":"run.current"}
 
 | Argument | Type | Required | Description |
@@ -68,6 +78,8 @@ Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .f
 Since 0.4.0.
 
 List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder.
+
+Capabilities: read
 
 Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse. Example: storage.list {}
 

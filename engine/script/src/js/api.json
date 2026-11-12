@@ -5471,6 +5471,10 @@
       {
        "sig": "expectErrors?: (RegExp | string)[]",
        "doc": "Errors this test expects the game to log, each a RegExp or a part of the text. They do not fail the test; an expected error that is never logged does. Any other script error or engine ERROR logged while the test runs fails it (console.error is not an error). Same as calling game.expectErrors() inside the test."
+      },
+      {
+       "sig": "capabilities?: (\"read\" | \"state\" | \"writeProject\" | \"writeAnywhere\" | \"network\" | \"process\" | \"spend\" | \"publish\")[]",
+       "doc": "What fa.call in this test may do besides the default {read, state}: [\"writeProject\"] lets it call a command that writes a project file (fa.call(\"scene.save\"), fs.write...). An unknown name fails with its JSON pointer and a \"did you mean\". It cannot get more than whoever runs the tests has (a test run over MCP never gets writeAnywhere), and the game's own scripts keep {read, state}."
       }
      ]
     },

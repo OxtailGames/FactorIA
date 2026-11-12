@@ -249,7 +249,7 @@ TEST_CASE("ktx2_size: reads the first level from the header, rejects anything el
 TEST_CASE("texture_size: the file, else the packed rectangle, else the header of the .ktx2 twin") {
     namespace stdfs = std::filesystem;
     const stdfs::path oldRoot = fs::project_root();
-    const stdfs::path dir = fs::make_temp_dir("fa_test_texture_size");
+    const stdfs::path dir = fs::make_temp_dir("fa_test_texture_size").value();
     fs::set_project_root(dir);
     const auto write = [&](const char* rel, const std::string& data) {
         REQUIRE(fs::write_bytes(rel, data.data(), data.size()).ok());

@@ -2,6 +2,7 @@
 // platforms/plugin/ plus fa_plugin.h, declared in factoria.json.
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
@@ -9,6 +10,7 @@
 #include "fa/runtime/project.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/json_patch.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/tooling.h"
 #include "util.h"
 
@@ -62,7 +64,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
       "properties":{
         "name":{"type":"string","description":"The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>."},
         "template":{"type":"string","default":"basic","description":"What to start from: \"basic\" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones."},
-        "path":{"type":"string","description":"Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts."},
+        "path":{"type":"string","x-fa-path":"write","description":"Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts."},
         "platforms":{"type":"array","items":{"type":"string","enum":["windows","macos","linux","ios","android"]},
                      "description":"The platforms it will be built for (default: this computer's)."},
         "optional":{"type":"boolean","default":true,"description":"Written as \"optional\" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it."},
@@ -87,6 +89,20 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
             throw CommandError("invalid_argument", "factoria.json#/plugins/" + name + " is already declared",
                                "Choose another name, or remove the declaration first.");
         const bool dryRun = a.value("dryRun", false);
+        // The folder is written to: a caller that may not write outside the project (MCP, the built-in agent) gets a path inside it, and
+        // no ${VARIABLE} (which expands to wherever the environment says); the command-line user names any folder.
+        std::optional<stdfs::path> resolvedFolder;
+        if (a.contains("path") && a["path"].is_string()) {
+            const std::string given = a["path"].get<std::string>();
+            const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+            if (!anywhere && given.find("${") != std::string::npos)
+                throw CommandError("invalid_argument", "path '" + given + "' uses a ${VARIABLE}, which can lead outside the project",
+                                   "Give a folder inside the project, such as plugins/" + name + ".");
+            auto r = resolve_write_path(projectDir, given);
+            if (r.ok() && given.find("${") == std::string::npos) resolvedFolder = r.value();  // ${VARIABLE} parts expand in plugin_folder
+            else if (!anywhere || given.find("${") == std::string::npos)
+                throw CommandError("invalid_argument", "path: " + r.error().message, r.error().hint);
+        }
 
         // The declaration, patched into the text of factoria.json (only plugins.<name> changes; the other keys, their order and
         // the layout stay as they are). Nothing is written yet: load_project checks the name and the platforms on a copy.
@@ -95,7 +111,9 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         if (a.value("optional", true)) entry["optional"] = true;
         auto patched = patch_json_text(*original, {{{"plugins", name}, entry}}, kProjectFileName);
         if (!patched.ok()) throw CommandError("invalid_argument", patched.error().message, patched.error().hint);
-        const std::string scratch = fs::make_temp_dir("fa_new_plugin").generic_string();
+        auto scratchDir = fs::make_temp_dir("fa_new_plugin");
+        if (!scratchDir.ok()) throw CommandError("failed", scratchDir.error().message, scratchDir.error().hint);
+        const std::string scratch = scratchDir->generic_string();
         const bool scratchOk = tooling_detail::write_file(stdfs::path(scratch) / kProjectFileName, patched.value());
         auto settings = scratchOk ? load_project(scratch) : Result<ProjectSettings>(Error{"cannot write a scratch copy of factoria.json", ""});
         std::error_code rmEc;
@@ -107,15 +125,17 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         auto folder = plugin_folder(projectDir, *plugin);
         std::error_code ec;
         if (!folder.ok()) throw CommandError("invalid_argument", folder.error().message, folder.error().hint);
-        if (stdfs::exists(folder.value(), ec) && !stdfs::is_empty(folder.value(), ec))
-            throw CommandError("invalid_argument", folder.value() + " is not empty", "Pass another `path`, or empty that folder.");
+        // The folder that is written is the one resolve_write_path checked above, not a second computation of it.
+        const std::string folderPath = resolvedFolder ? fs::path_to_utf8(*resolvedFolder) : folder.value();
+        if (stdfs::exists(fs::path_from_utf8(folderPath), ec) && !stdfs::is_empty(fs::path_from_utf8(folderPath), ec))
+            throw CommandError("invalid_argument", folderPath + " is not empty", "Pass another `path`, or empty that folder.");
 
         // The files: the template with {{NAME}} replaced (in paths too), and the API header.
         Json files = Json::array();
         auto write = [&](const std::string& rel, const std::string& text) {
             if (!dryRun) {
                 std::string err;
-                if (!tooling_detail::write_file(stdfs::path(folder.value()) / rel, text, &err)) throw CommandError("failed", err);
+                if (!tooling_detail::write_file(fs::path_from_utf8(folderPath) / rel, text, &err)) throw CommandError("failed", err);
             }
             files.push_back(rel);
         };
@@ -137,7 +157,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
             if (!tooling_detail::write_file(projectFile, patched.value(), &err)) throw CommandError("failed", err);
         }
 
-        const std::string f = folder.value();
+        const std::string f = folderPath;
         const std::string build = "Build it: cmake -S \"" + f + "\" -B \"" + f + "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" +
                                   f + "/build\" --config Release (it copies the library into " + f + "/" + runtime_platform() + "/)";
         Json nextSteps = Json::array({build});
@@ -155,6 +175,8 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         if (dryRun) out["dryRun"] = true;
         return out;
     });
+    declare_command_capabilities(registry, {
+        {"project.new_plugin", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

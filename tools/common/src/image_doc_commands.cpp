@@ -74,7 +74,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
             "path":{"type":"string","description":"The image document, project-relative, ending in .image.json, e.g. \"assets/art/hero.image.json\"."},
             "onlyIfNeeded":{"type":"boolean","default":false,"description":"Skip the drawing when the PNG already matches the document and every file it reads (what the export does)."}
           }})");
-        registry.add(info, [projectDir](const Json& args) { return image_bake(projectDir, args); });
+        imgedit::add_image_command(registry, info, [projectDir](const Json& args) { return image_bake(projectDir, args); }, false);
     }
     {
         CommandInfo info;
@@ -96,7 +96,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
             "document":{"type":"object","description":"The image document: {\"width\", \"height\", \"background\"?, \"output\"?, \"layers\": [...]}. See docs.read IMAGES for the layer kinds."},
             "bake":{"type":"boolean","default":true,"description":"Also draw the PNG. False only checks and writes the document."}
           }})");
-        registry.add(info, [projectDir](const Json& args) { return image_save(projectDir, args); });
+        imgedit::add_image_command(registry, info, [projectDir](const Json& args) { return image_save(projectDir, args); });
     }
 }
 

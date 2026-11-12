@@ -800,7 +800,7 @@ void write_png_asset(const std::string& projectDir, const std::string& rel, cons
     for (std::size_t i = 3; i < img.rgba.size(); i += 4) opaque = opaque && img.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
         fail("failed", err);
     ProjectRootGuard root(projectDir);
     auto r = assets::update_entry(rel, [&](Json& e) {
@@ -949,10 +949,13 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
         const std::string stem = rel.substr(0, rel.size() - 4);
         normalRel = checked_png_path(stem + "_n.png");
     }
+    // The places it writes are judged before the picture is painted (and also with overwrite): managed folders and links out are refused.
+    for (const std::string& f : {rel, normalRel})
+        if (!f.empty()) (void)project_write_file(projectDir, f);
     if (!overwrite) {
         for (const std::string& f : {rel, normalRel}) {
             std::error_code ec;
-            if (!f.empty() && stdfs::exists(project_file(projectDir, f), ec)) fail("exists", "'" + f + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+            if (!f.empty() && stdfs::exists(project_write_file(projectDir, f), ec)) fail("exists", "'" + f + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
         }
     }
     require_usable_manifest(projectDir);
@@ -1052,7 +1055,10 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
                {"gapDarkness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "planks only (default 0.55): how dark the gaps are. 0 leaves them the colour of the wood (only the bevel shows), 1 makes them nearly as dark as `accent` allows."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record. Default: \"factoria\"."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [projectDir](const Json& args) { return generate_texture(projectDir, args); });
+    // Capabilities (capability.h): a PNG (and its normal map) with their assets.json entries, in the project.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

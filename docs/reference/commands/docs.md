@@ -6,6 +6,8 @@
 
 Reference of the available commands (tools) with arguments: a list of names, or one command in full.
 
+Capabilities: read
+
 Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command with its summary. {"name":"game.click"} returns that command with its arguments, {"filter":"ui"} the commands whose name, category or summary contains the text, {"full":true} every command in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; a plugin or tools/*.js loaded between two pages can make a page skip or repeat commands).
 
 | Argument | Type | Required | Description |
@@ -20,6 +22,8 @@ Lists the commands of this session, including project tools from tools/*.js. Wit
 ## `docs.components`
 
 Reference of components and fields (types, defaults, docs): a list of names, or one component in full.
+
+Capabilities: read
 
 Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. With no argument it lists every component with a one-line summary. {"name":"Sprite"} returns that component with all its fields, {"filter":"physics"} the components whose name, category or summary contains the text, {"full":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; entries loaded between two pages can shift the pages).
 
@@ -36,6 +40,8 @@ Generated from the engine's reflection data; always accurate for this build. Use
 
 List the engine documentation available offline.
 
+Capabilities: read
+
 Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
 
 | Argument | Type | Required | Description |
@@ -45,6 +51,8 @@ Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `s
 ## `docs.read`
 
 Read a documentation page (Markdown), a section or a line range; long pages come in parts.
+
+Capabilities: read
 
 Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
 
@@ -60,6 +68,8 @@ Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, ab
 
 Search the documentation by keywords.
 
+Capabilities: read
+
 Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. Example: {"query":"input actions"}
 
 | Argument | Type | Required | Description |
@@ -73,9 +83,11 @@ Since 0.2.0.
 
 Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.
 
+Capabilities: read, writeProject
+
 Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `out` | string | yes | Docs folder to write into (relative to the working directory), usually "docs". |
+| `out` | string | yes | Docs folder to write into, usually "docs". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 

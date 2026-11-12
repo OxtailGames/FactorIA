@@ -26,7 +26,7 @@ struct Project {
     CommandRegistry registry;
     std::unique_ptr<ImageModel> model;
     Project() {
-        dir = fs::make_temp_dir("fa_image_panel");
+        dir = fs::make_temp_dir("fa_image_panel").value();
         register_asset_commands(registry, dir.string());
         model = std::make_unique<ImageModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
     }

@@ -6,6 +6,9 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <map>
 #include <thread>
 #include <ctime>
 #include <filesystem>
@@ -18,6 +21,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -60,6 +64,8 @@ constexpr auto kStaleRunFileAge = std::chrono::hours(24);
 // Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else (but the names
 // 0.19.0 used, legacy_run_file).
 constexpr const char* kRunFilePrefix = "fa-run-";
+// The prefix fs::make_temp_dir gets for the folder that holds the run files when the project refuses an owner-only write.
+constexpr const char* kTempRunDirPrefix = "factoria-run_";
 
 // The run files of FactorIA 0.19.0, which had no prefix yet: mcp-<provider>-<stamp>-<n>.json (the MCP config with the
 // tool servers' keys), settings-<provider>-<stamp>-<n>.json (hook commands) and the folder ext-skills-<provider>-<stamp>-<n>.
@@ -92,27 +98,70 @@ bool legacy_run_file(const std::string& name) {
     return take_number() && take_number() && !rest.empty();
 }
 
-void sweep_stale_run_files(const fsys::path& aiDir) {
+// True when something inside the folder `dir` was written within the stale age: a run still using its folder (it writes its
+// MCP config and settings there as it goes) must not lose it just because the folder itself, whose time only changes when an
+// entry is added or removed, is old. Only the first kMaxSweptEntries entries are looked at (a count, never a time).
+bool has_recent_content(const fsys::path& dir, fsys::file_time_type now) {
     std::error_code ec;
-    fsys::directory_iterator it(aiDir, ec), end;
+    fsys::recursive_directory_iterator it(dir, ec), end;
+    if (ec) return false;
+    for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
+        if (ec) break;
+        std::error_code tec;
+        const auto when = it->last_write_time(tec);
+        if (!tec && now - when <= kStaleRunFileAge) return true;
+    }
+    return false;
+}
+
+// Entries of `dir` (the first kMaxSweptEntries) that `wanted` accepts and that are a day old, deleted. A folder is spared
+// while anything inside it is younger than a day (has_recent_content): that is the rule for "a run may still be using it".
+template <class Wanted>
+void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
+    std::error_code ec;
+    fsys::directory_iterator it(dir, ec), end;
     if (ec) return;
     const auto now = fsys::file_time_type::clock::now();
     std::vector<fsys::path> stale;
     for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
-        // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
-        if (name.rfind(kRunFilePrefix, 0) != 0 && !legacy_run_file(name)) continue;
+        if (!wanted(name, it->path())) continue;
         std::error_code tec;
         const auto when = it->last_write_time(tec);
-        if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
+        if (tec || now - when <= kStaleRunFileAge) continue;
+        std::error_code sec;
+        if (fsys::symlink_status(it->path(), sec).type() == fsys::file_type::directory && has_recent_content(it->path(), now))
+            continue;
+        stale.push_back(it->path());
     }
     for (const fsys::path& p : stale) {
         std::error_code rec;
         fs::remove_tree(p, rec);  // one held open stays for a later sweep
     }
 }
+
+void sweep_stale_run_files(const fsys::path& aiDir) {
+    // (sweep_stale_temp_run_dirs is declared in cli_agent.h)
+    // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
+    sweep_stale_in(aiDir, [](const std::string& name, const fsys::path&) {
+        return name.rfind(kRunFilePrefix, 0) == 0 || legacy_run_file(name);
+    });
+    // and the private folders a run made in the temporary folder when the project refused the owner-only write
+    const auto tmpBase = fs::temp_base();  // where fs::make_temp_dir makes them
+    if (!tmpBase.ok()) return;
+    sweep_stale_temp_run_dirs(*tmpBase);
+}
 }  // namespace
+
+void sweep_stale_temp_run_dirs(const std::filesystem::path& tmpBase) {
+    // a real folder only: a link of that name is left alone
+    sweep_stale_in(tmpBase, [](const std::string& name, const fsys::path& p) {
+        if (name.rfind(kTempRunDirPrefix, 0) != 0) return false;
+        std::error_code sec;
+        return fsys::symlink_status(p, sec).type() == fsys::file_type::directory;
+    });
+}
 
 std::string find_cli(const std::string& command, const EnvLookup& env) {
     if (std::string onPath = which(command); !onPath.empty() || command.find_first_of("/\\") != std::string::npos) {
@@ -191,6 +240,7 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     ProcessOptions po;
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    po.inheritEnv = provider_inherit_env(cfg);  // not the whole environment: no other provider's key, no signing password
     // A `factoria` this agent runs from its shell (`factoria call ai.settings.set ...`) is the agent's call, not the user's:
     // it reads this variable (CommandCallerFloor). A value the user already put in the environment stays (it can only be a
     // stricter or equal one: the CLI maps any value to Agent or Mcp), and so does one in the provider's own "env".
@@ -205,10 +255,43 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     return po;
 }
 
+std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, const std::map<std::string, std::string>& providerEnv,
+                                                      CapabilitySet calling) {
+    CapabilitySet set = req.capabilities.intersect(calling);
+    // A set the user's environment or the provider's "env" already holds is kept when it is narrower: the child never gets more.
+    if (const auto fromEnv = command_capabilities_from_env()) set = set.intersect(*fromEnv);
+    if (const auto it = providerEnv.find(kCapabilitiesEnvVar); it != providerEnv.end()) {
+        if (const auto own = command_capabilities_from_env_value(it->second.c_str())) set = set.intersect(*own);
+    }
+    std::map<std::string, std::string> out;
+    out[kCapabilitiesEnvVar] = capabilities_env_value(set);
+    if (!req.role.empty()) out[kRoleEnvVar] = req.role;
+    if (const auto it = providerEnv.find(kCallerEnvVar); it != providerEnv.end()) {
+        out[kCallerEnvVar] = it->second;
+    } else if (const char* fromProcess = std::getenv(kCallerEnvVar); fromProcess && *fromProcess) {
+        out[kCallerEnvVar] = fromProcess;
+    } else {
+        out[kCallerEnvVar] = "agent";
+    }
+    return out;
+}
+
+std::vector<std::string> codex_factoria_env_args(const std::map<std::string, std::string>& factoriaEnv) {
+    if (factoriaEnv.empty()) return {};
+    std::string table = "{";
+    for (const auto& [k, v] : factoriaEnv) table += (table.size() > 1 ? "," : "") + k + "=" + dump(Json(v));  // a JSON string is a TOML basic string
+    return {"-c", "mcp_servers.factoria.env=" + table + "}"};
+}
+
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl,
-                     const std::vector<ResolvedToolServer>& servers) {
+                     const std::vector<ResolvedToolServer>& servers, const std::map<std::string, std::string>& factoriaEnv) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
+    if (mcpUrl.empty() && !factoriaEnv.empty()) {
+        Json env = Json::object();
+        for (const auto& [k, v] : factoriaEnv) env[k] = v;
+        server["env"] = std::move(env);
+    }
     server["timeout"] = kMcpToolTimeoutMs;  // Claude Code: milliseconds a tool call may take at most
     Json all = Json::object({{"factoria", server}});
     for (const ResolvedToolServer& s : servers) {
@@ -302,6 +385,51 @@ std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains
     return rules;
 }
 
+namespace {
+
+bool argv_has(const std::vector<std::string>& argv, std::initializer_list<const char*> flags) {
+    for (const std::string& a : argv) {
+        for (const char* f : flags) {
+            const std::size_t n = std::strlen(f);
+            if (a == f || (a.size() > n && a.compare(0, n, f) == 0 && a[n] == '=')) return true;
+        }
+    }
+    return false;
+}
+
+// Codex also takes the sandbox as a config override: `-c sandbox_mode="read-only"`.
+bool argv_has_codex_sandbox_override(const std::vector<std::string>& argv) {
+    return std::any_of(argv.begin(), argv.end(), [](const std::string& a) { return a.rfind("sandbox_mode=", 0) == 0; });
+}
+
+}  // namespace
+
+void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::string& permissionMode, bool readOnly,
+                           std::vector<std::string>& argv) {
+    if (kind != ProviderKind::ClaudeCode && kind != ProviderKind::Codex) return;
+    // The built-in argv always carries the mode (the default when none is set); a template of the user's only when the provider
+    // names one, and a flag the template already has wins over both.
+    std::string mode = permissionMode;
+    if (mode.empty() && builtInArgv) mode = default_permission_mode(kind);
+    if (mode.empty()) return;
+    if (kind == ProviderKind::ClaudeCode) {
+        if (argv_has(argv, {"--permission-mode", "--dangerously-skip-permissions"})) return;
+        // A read-only role is never run with the modes that skip or loosen the checks (its edit tools are switched off too).
+        if (readOnly && (mode == "bypassPermissions" || mode == "auto")) mode = "acceptEdits";
+        argv.push_back("--permission-mode");
+        argv.push_back(mode);
+        return;
+    }
+    if (argv_has(argv, {"--sandbox", "-s", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--yolo"}) ||
+        argv_has_codex_sandbox_override(argv)) {
+        return;
+    }
+    if (readOnly) mode = "read-only";
+    if (mode == "default") return;  // no flag: Codex's own configuration decides
+    const auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+    argv.insert(stdinMarker, {"--sandbox", mode});
+}
+
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
     if (kind == ProviderKind::ClaudeCode) {
         std::vector<std::string> disallowed = req.disallowedTools;
@@ -336,8 +464,11 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
             const std::string from = "[\"mcp\",\"--project\",";
             if (a.rfind("mcp_servers.factoria.args=", 0) == 0) a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
         }
-        auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
-        argv.insert(stdinMarker, {"--sandbox", "read-only"});
+        // apply_permission_mode normally put the read-only sandbox there already.
+        if (!argv_has(argv, {"--sandbox", "-s"}) && !argv_has_codex_sandbox_override(argv)) {
+            auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+            argv.insert(stdinMarker, {"--sandbox", "read-only"});
+        }
     }
 }
 
@@ -828,8 +959,16 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = str(*item, "tool");
             if (const Json* a = child(*item, "arguments")) e.toolInput = *a;
             if (completed) {
-                e.isError = str(*item, "status") == "failed";
-                if (const Json* r = child(*item, "result")) e.toolResult = clip(dump(*r));
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined";
+                const Json* err = child(*item, "error");
+                const std::string errMsg = err ? str(*err, "message") : std::string();
+                if (!errMsg.empty()) {  // a failed call: `error.message`, `result` is null
+                    e.isError = true;
+                    e.toolResult = clip(errMsg);
+                } else if (const Json* r = child(*item, "result"); r && !r->is_null()) {
+                    e.toolResult = clip(dump(*r));
+                }
             }
             out.push_back(e);
         } else if (it == "command_execution") {
@@ -838,7 +977,9 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = "shell";
             e.toolInput = Json::object({{"command", str(*item, "command")}});
             if (completed) {
-                e.isError = num(*item, "exit_code") != 0;
+                // A declined command has status "declined" and exit_code null.
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined" || num(*item, "exit_code") != 0;
                 e.toolResult = clip(str(*item, "aggregated_output"));
             }
             out.push_back(e);
@@ -876,6 +1017,10 @@ static std::string tail(const std::string& s, std::size_t n = 800) {
 Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler& onEvent, const CancelFlag* cancel) const {
     auto base = cli_process_options(cfg_);
     if (!base) return base.error();
+    // What the role may do reaches every `factoria` the agent starts (MCP server or shell): a read-only role's CLI cannot do more
+    // over MCP than the role. The caller kind stays what cli_process_options decided.
+    const std::map<std::string, std::string> factoriaEnv = cli_capability_env(req, base->env, caller_capabilities());
+    for (const auto& [k, v] : factoriaEnv) base->env[k] = v;
     const std::string command = cfg_.command.empty() ? default_cli_command(cfg_.kind) : cfg_.command;
     std::vector<std::string> tmpl = cfg_.argv.empty() ? default_cli_argv(cfg_.kind) : cfg_.argv;
     if (tmpl.empty()) {
@@ -903,6 +1048,36 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         }
     } removeRunFiles{runFiles};
 
+    // A run file that holds a secret goes to the project's .factoria/ai. When the owner-only write fails there (a project on SMB
+    // or a NAS: the Windows ACL with the local user's SID can be refused, or the folder cannot be made), the file goes to a
+    // private folder in the user's temporary folder instead, and the log says why. The folder is removed with the run files.
+    fsys::path fallbackDir;
+    auto write_run_file = [&](const fsys::path& file, const std::string& text) -> Result<fsys::path> {
+        auto first = write_private_file(fs::path_to_utf8(file), text);
+        if (first) return file;
+        FA_WARN("ai", "Could not write the private run file {}: {}. Using the temporary folder of this user instead.",
+                fs::path_to_utf8(file), first.error().message);
+        if (fallbackDir.empty()) {
+            // (owner-only on Linux and macOS and never a folder that existed before: fs::make_temp_dir)
+            auto made = fs::make_temp_dir("factoria-run");
+            if (!made.ok())
+                return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                      "; no private folder could be made in the temporary folder either: " + made.error().message,
+                                  made.error().hint);
+            fallbackDir = *made;
+            runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
+        }
+        const fsys::path moved = fallbackDir / file.filename();
+        if (auto second = write_private_file(fs::path_to_utf8(moved), text); !second) {
+            return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                  "; the fallback " + fs::path_to_utf8(moved) + " failed too: " + second.error().message,
+                              "Check that the project folder and the temporary folder are writable by your account.");
+        }
+        // the file in the project was never made: do not try to delete it (and warn) at the end of the run
+        runFiles.erase(std::remove(runFiles.begin(), runFiles.end(), file), runFiles.end());
+        return moved;
+    };
+
     // MCP config file for CLIs that take one (Claude Code). A file of this run only: runs of other chats and roles start at
     // the same time with other endpoints and tool servers, and the user's tool servers put keys in it. The editor's endpoint
     // URL carries a per-session token for a loopback port; the file is readable by its owner only and sits in the project's
@@ -917,10 +1092,10 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         const fsys::path file =
             aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
-        const Json config = req.toolServers.empty() ? make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)
-                                                    : make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers);
-        if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(config) + "\n"); !ok) return ok.error();
-        mcpPath = host_utf8(file);
+        const Json config = make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers, factoriaEnv);
+        auto written = write_run_file(file, dump_pretty(config) + "\n");
+        if (!written) return written.error();
+        mcpPath = host_utf8(*written);
     }
 
     // Extensions: hooks go to a private settings file, skills to a plugin written for the run (Claude Code only; a generic
@@ -947,9 +1122,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
                 const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
                 runFiles.push_back(file);
-                if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n"); !ok)
-                    return ok.error();
-                settingsPath = host_utf8(file);
+                auto written = write_run_file(file, dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n");
+                if (!written) return written.error();
+                settingsPath = host_utf8(*written);
             }
             if (wantsSkills) {
                 const fsys::path skills = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "ext-skills-" + tag);
@@ -982,6 +1157,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);  // {prompt} carries the paths too
     }
     const std::size_t templateArgs = expanded.size();
+    apply_permission_mode(cfg_.kind, cfg_.argv.empty(), cfg_.permissionMode, req.readOnly, expanded);
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
     apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath, expanded);
     // The flags added above go before the "--" that ends the template's options (with_end_of_options puts one right before
@@ -997,6 +1173,11 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 break;
             }
         }
+    }
+    if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty()) {  // the built-in argv starts `factoria mcp` itself (never the editor's endpoint)
+        auto env = codex_factoria_env_args(factoriaEnv);
+        auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
+        expanded.insert(stdinMarker, env.begin(), env.end());
     }
     if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
         auto extra = codex_tool_server_args(req.toolServers, po.env);
