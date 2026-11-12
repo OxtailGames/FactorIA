@@ -553,3 +553,192 @@ TEST_CASE("command: FA_COMMAND_DETAILS in a description that has details too is 
     CHECK(warnings[0].find("test.both") != std::string::npos);
     CHECK(warnings[0].find("FA_COMMAND_DETAILS") != std::string::npos);
 }
+
+namespace {
+void add_cap_command(CommandRegistry& reg, const char* name, bool readOnly, CapabilitySet caps = {}) {
+    CommandInfo info;
+    info.name = name;
+    info.summary = "A command for the capability tests.";
+    info.readOnly = readOnly;
+    info.capabilities = caps;
+    reg.add(info, [](const Json&) { return Json::object({{"ran", true}}); });
+}
+}  // namespace
+
+TEST_CASE("capabilities: a command that declares none gets a set derived from readOnly") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.reader", true);
+    add_cap_command(reg, "t.writer", false);
+    CHECK(reg.info("t.reader")->capabilities == CapabilitySet{Capability::Read});
+    CHECK_FALSE(reg.info("t.reader")->capabilitiesDeclared);
+    CHECK(reg.info("t.writer")->capabilities == CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+    CHECK_FALSE(reg.info("t.writer")->capabilitiesDeclared);
+    // The derived set is conservative: never one of the dangerous capabilities.
+    for (Capability c : {Capability::WriteAnywhere, Capability::Network, Capability::Process, Capability::Spend, Capability::Publish})
+        CHECK_FALSE(reg.info("t.writer")->capabilities.has(c));
+}
+
+TEST_CASE("capabilities: an explicit declaration is kept, flagged, and described") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.upload", false, CapabilitySet{Capability::Read, Capability::Network, Capability::Publish});
+    const CommandInfo* info = reg.info("t.upload");
+    REQUIRE(info != nullptr);
+    CHECK(info->capabilitiesDeclared);
+    CHECK(info->capabilities == CapabilitySet{Capability::Read, Capability::Network, Capability::Publish});
+    // Re-adding a copy of a registered info (the editor wraps handlers like this) changes nothing.
+    const CommandInfo copy = *info;
+    reg.add(copy, [](const Json&) { return Json::object(); });
+    CHECK(reg.info("t.upload")->capabilities == copy.capabilities);
+    const Json d = reg.describe();
+    REQUIRE(d.size() == 1);
+    CHECK(d[0]["capabilities"] == Json::parse(R"(["read","network","publish"])"));
+    CHECK(d[0]["readOnly"] == false);
+}
+
+TEST_CASE("capabilities: a call needing a capability the caller lacks is denied with a teaching error") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.upload", false, CapabilitySet{Capability::Read, Capability::Publish});
+    add_cap_command(reg, "t.local", false, CapabilitySet{Capability::Read, Capability::State});
+    CHECK(reg.call("t.upload").ok);  // the user has everything
+    {
+        CommandCapabilityScope scope(capability_sets::game_player());
+        CHECK(reg.call("t.local").ok);
+        const CommandResult r = reg.call("t.upload", Json::object({{"nonsense", 1}}));  // denied before the arguments are validated
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "capability_denied");
+        const std::string message = r.error["message"].get<std::string>();
+        CHECK(message.find("t.upload") != std::string::npos);
+        CHECK(message.find("'publish'") != std::string::npos);
+        CHECK(message.find("makes something public") != std::string::npos);  // the one-line meaning
+        CHECK(message.find("the user") != std::string::npos);                // the caller
+        CHECK(message.find("{read, state}") != std::string::npos);           // the granted set
+        CHECK(message.find("capability 'read'") == std::string::npos);       // only what is missing is named
+        const std::string hint = r.error["hint"].get<std::string>();
+        CHECK(hint.find("factoria mcp") != std::string::npos);
+        CHECK(hint.find("--read-only") != std::string::npos);
+        CHECK(hint.find("`capabilities` in its test options") != std::string::npos);
+        CHECK(r.error["data"]["missing"] == Json::parse(R"(["publish"])"));
+    }
+    CHECK(reg.call("t.upload").ok);  // the scope ended
+}
+
+TEST_CASE("capabilities: the caller kinds grant their named sets") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.outside", false, CapabilitySet{Capability::WriteAnywhere});
+    add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Publish});
+    add_cap_command(reg, "t.project", false);
+    CHECK(caller_capabilities() == capability_sets::cli_user());
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        CHECK(caller_capabilities() == capability_sets::mcp());
+        CHECK(reg.call("t.project").ok);
+        CHECK(reg.call("t.publish").ok);
+        CHECK(reg.call("t.outside").error["code"] == "capability_denied");
+        CHECK(reg.call("t.outside").error["message"].get<std::string>().find("an MCP client") != std::string::npos);
+        {
+            CommandCallerScope agent(CommandCaller::Agent);  // inside an MCP call: the narrower of the two
+            CHECK(caller_capabilities() == capability_sets::agent());
+            CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+        }
+        CHECK(reg.call("t.publish").ok);
+    }
+    {
+        CommandCallerScope agent(CommandCaller::Agent);
+        CHECK(reg.call("t.project").ok);
+        CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+    }
+    {
+        CommandCapabilityScope ro(capability_sets::mcp_read_only());
+        CHECK_FALSE(reg.call("t.project").ok);
+    }
+    CHECK(capability_sets::game_player() == CapabilitySet{Capability::Read, Capability::State});
+    CHECK(capability_sets::editor_play() == capability_sets::game_player());
+    CHECK(capability_sets::test_script() == capability_sets::game_player());
+    CHECK(capability_sets::mcp().has(Capability::Publish));
+    CHECK_FALSE(capability_sets::mcp().has(Capability::WriteAnywhere));
+    CHECK_FALSE(capability_sets::agent().has(Capability::Publish));
+    CHECK_FALSE(capability_sets::agent().has(Capability::WriteAnywhere));
+}
+
+TEST_CASE("capabilities: a nested scope can narrow but never widen") {
+    const CapabilitySet rs{Capability::Read, Capability::State};
+    CommandCapabilityScope outer(rs);
+    CHECK(caller_capabilities() == rs);
+    {
+        CommandCapabilityScope wider(CapabilitySet::all());
+        CHECK(caller_capabilities() == rs);
+    }
+    {
+        CommandCapabilityScope narrower(CapabilitySet{Capability::Read, Capability::Network});
+        CHECK(caller_capabilities() == CapabilitySet{Capability::Read});
+    }
+    CHECK(caller_capabilities() == rs);
+}
+
+TEST_CASE("capabilities: a context captured on one thread is restored on another") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.net", false, CapabilitySet{Capability::Network});
+    CommandContext captured;
+    {
+        CommandCallerScope agent(CommandCaller::Agent);
+        CommandCapabilityScope narrow(CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+        captured = command_context();
+    }
+    CHECK(captured.caller == CommandCaller::Agent);
+    CHECK(captured.capabilities == CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+    std::string codeWith, outcomeWithout;
+    bool startedWide = false;
+    CommandCaller callerInThread = CommandCaller::Mcp;
+    CapabilitySet capsInThread;
+    std::thread t([&] {
+        startedWide = caller_capabilities() == CapabilitySet::all();  // a new thread starts with nothing narrowed
+        {
+            CommandContextScope scope(captured);
+            callerInThread = command_caller();
+            capsInThread = caller_capabilities();
+            codeWith = reg.call("t.net").error["code"].get<std::string>();
+        }
+        outcomeWithout = reg.call("t.net").ok ? "ok" : "failed";
+    });
+    t.join();
+    CHECK(startedWide);
+    CHECK(callerInThread == CommandCaller::Agent);
+    CHECK(capsInThread == captured.capabilities);
+    CHECK(codeWith == "capability_denied");
+    CHECK(outcomeWithout == "ok");
+}
+
+TEST_CASE("capabilities: names, JSON and parsing, with did-you-mean on an unknown name") {
+    const CapabilitySet set{Capability::State, Capability::Read, Capability::Publish};
+    CHECK(set.names() == std::vector<std::string>{"read", "state", "publish"});
+    CHECK(set.to_json() == Json::parse(R"(["read","state","publish"])"));
+    CHECK(set.to_string() == "{read, state, publish}");
+    CHECK(CapabilitySet().to_string() == "{}");
+    CHECK(set.has(Capability::Read));
+    CHECK_FALSE(set.has(Capability::Spend));
+    CHECK(set.without(Capability::Read).with(Capability::Spend) == CapabilitySet{Capability::State, Capability::Publish, Capability::Spend});
+    CHECK(set.intersect(CapabilitySet{Capability::State, Capability::Network}) == CapabilitySet{Capability::State});
+    CHECK(CapabilitySet::all().names().size() == static_cast<std::size_t>(kCapabilityCount));
+    for (const std::string& n : capability_names()) {  // names round-trip and every one is documented
+        const std::optional<Capability> c = capability_from_name(n);
+        REQUIRE(c.has_value());
+        CHECK(n == capability_name(*c));
+        CHECK(std::string(capability_doc(*c)).size() > 10);
+    }
+
+    const Result<CapabilitySet> ok = CapabilitySet::parse(Json::parse(R"(["read","writeProject"])"));
+    REQUIRE(ok.ok());
+    CHECK(*ok == CapabilitySet{Capability::Read, Capability::WriteProject});
+    CHECK(*CapabilitySet::parse(Json("network")) == CapabilitySet{Capability::Network});
+    CHECK(*CapabilitySet::parse_list("read, state network") == CapabilitySet{Capability::Read, Capability::State, Capability::Network});
+
+    const Result<CapabilitySet> bad = CapabilitySet::parse(Json::parse(R"(["read","wirteProject"])"), "/capabilities");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("'wirteProject'") != std::string::npos);
+    CHECK(bad.error().message.find("/capabilities/1") != std::string::npos);
+    CHECK(bad.error().hint.find("Did you mean 'writeProject'?") != std::string::npos);
+    CHECK(bad.error().hint.find("Valid: read, state") != std::string::npos);
+    CHECK_FALSE(CapabilitySet::parse(Json::parse("[1]")).ok());
+    CHECK_FALSE(CapabilitySet::parse(Json::parse("{}")).ok());
+    CHECK_FALSE(CapabilitySet::parse_list("read, writ").ok());
+}

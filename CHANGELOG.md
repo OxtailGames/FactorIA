@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- Command capabilities (M92): `fa::Capability` / `CapabilitySet` (core/capability.h), `CommandInfo::capabilities` (derived from `readOnly` until a command declares it), named caller sets, `CommandCapabilityScope` / `command_context()`, and the `capability_denied` error from `CommandRegistry::call`; `describe()` lists `capabilities`.
+
 ## 0.24.0
 
 FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB
