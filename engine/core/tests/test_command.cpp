@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -825,6 +826,103 @@ TEST_CASE("capabilities: a thread's hint provider beats the floor's, a nested sc
         CommandCapabilityScope ro(CapabilitySet{Capability::Read});  // no provider on the thread: the floor's words
         CHECK(hint_of() == "floor [t.project]");
     }
+}
+
+TEST_CASE("capabilities: an exception inside a scope restores the outer scope") {
+    CommandCapabilityScope outer(CapabilitySet{Capability::Read, Capability::State, Capability::Network});
+    const CapabilitySet before = caller_capabilities();
+    try {
+        CommandCapabilityScope inner(CapabilitySet{Capability::Read});
+        CHECK(caller_capabilities() == CapabilitySet{Capability::Read});
+        throw std::runtime_error("boom");
+    } catch (const std::runtime_error&) {
+    }
+    CHECK(caller_capabilities() == before);
+    CHECK(before == CapabilitySet({Capability::Read, Capability::State, Capability::Network}));
+}
+
+TEST_CASE("capabilities: a process floor and a scope intersect") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.net", false, CapabilitySet{Capability::Read, Capability::Network});
+    add_cap_command(reg, "t.state", false, CapabilitySet{Capability::Read, Capability::State});
+    CommandCapabilityFloor floor(CapabilitySet{Capability::Read, Capability::State});
+    CommandCapabilityScope scope(CapabilitySet{Capability::Read, Capability::Network});  // each is wider than the other in one bit
+    CHECK(caller_capabilities() == CapabilitySet{Capability::Read});
+    CHECK(reg.call("t.net").error["code"] == "capability_denied");    // the floor lacks network
+    CHECK(reg.call("t.state").error["code"] == "capability_denied");  // the scope lacks state
+}
+
+TEST_CASE("capabilities: a denied call never reaches an interceptor, a granted one does") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Read, Capability::Publish});
+    add_cap_command(reg, "t.reader", true);
+    int befores = 0, afters = 0;
+    auto icp = std::make_shared<CommandInterceptor>();
+    icp->wants = [](std::string_view) { return true; };
+    icp->before = [&](std::string_view, Json&) -> std::optional<CommandResult> {
+        ++befores;
+        return std::nullopt;
+    };
+    icp->after = [&](std::string_view, const Json&, CommandResult&, double) { ++afters; };
+    reg.set_interceptor(icp);
+    {
+        CommandCapabilityScope scope(capability_sets::game_player());
+        const CommandResult denied = reg.call("t.publish");
+        REQUIRE_FALSE(denied.ok);
+        CHECK(denied.error["code"] == "capability_denied");
+        CHECK(befores == 0);
+        CHECK(afters == 0);
+        CHECK(reg.call("t.reader").ok);
+        CHECK(befores == 1);
+        CHECK(afters == 1);
+    }
+    CHECK(reg.call("t.publish").ok);  // the user has everything: the interceptor sees it
+    CHECK(befores == 2);
+    CHECK(afters == 2);
+}
+
+TEST_CASE("capabilities: capability_denied lists each missing capability once, in declaration order") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.big", false, CapabilitySet{Capability::Publish, Capability::Read, Capability::Network, Capability::Spend});
+    CommandCapabilityScope scope(CapabilitySet{Capability::Read});
+    const CommandResult r = reg.call("t.big");
+    REQUIRE_FALSE(r.ok);
+    const std::string message = r.error["message"].get<std::string>();
+    std::size_t last = 0;
+    for (const char* name : {"capability 'network'", "capability 'spend'", "capability 'publish'"}) {
+        const std::size_t at = message.find(name);
+        REQUIRE(at != std::string::npos);
+        CHECK(at > last);                                        // in declaration order
+        CHECK(message.find(name, at + 1) == std::string::npos);  // once
+        last = at;
+    }
+    CHECK(r.error["data"]["missing"] == Json::parse(R"(["network","spend","publish"])"));
+}
+
+TEST_CASE("capabilities: an empty declaration is refused and teaches, from core and from the parser") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.writer", false);
+    const CapabilitySet before = reg.info("t.writer")->capabilities;
+    // declare_capabilities / declare_command_capabilities: the command keeps what it had.
+    CHECK_FALSE(reg.declare_capabilities("t.writer", CapabilitySet{}));
+    declare_command_capabilities(reg, {{"t.writer", CapabilitySet{}}});
+    CHECK(reg.info("t.writer")->capabilities == before);
+    CHECK_FALSE(reg.info("t.writer")->capabilitiesDeclared);
+    // The parser every JSON entry point shares (a JS tool, a plugin).
+    const Result<CapabilitySet> empty = CapabilitySet::parse_declaration(Json::array(), "/capabilities");
+    REQUIRE_FALSE(empty.ok());
+    CHECK(empty.error().message.find("at least \"read\"") != std::string::npos);
+    CHECK(empty.error().message.find("/capabilities") != std::string::npos);
+    CHECK(empty.error().hint.find("[\"read\"]") != std::string::npos);
+    CHECK(CapabilitySet::parse_declaration(Json::parse(R"(["read"])")).ok());
+    CHECK(CapabilitySet::parse(Json::array()).ok());  // a plain parse (a test's `capabilities` option) still accepts none
+    // The root is named properly, not as "at /".
+    const Result<CapabilitySet> badRoot = CapabilitySet::parse(Json::parse("{}"));
+    REQUIRE_FALSE(badRoot.ok());
+    CHECK(badRoot.error().message.find("at /") == std::string::npos);
+    const Result<CapabilitySet> badName = CapabilitySet::parse(Json("wirteProject"));
+    REQUIRE_FALSE(badName.ok());
+    CHECK(badName.error().message.find("at /") == std::string::npos);
 }
 
 TEST_CASE("capabilities: names, JSON and parsing, with did-you-mean on an unknown name") {

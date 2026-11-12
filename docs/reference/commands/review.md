@@ -8,6 +8,8 @@ Since 0.18.0.
 
 Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.
 
+Capabilities: read, writeProject
+
 review.sheet runs it by itself after each new sheet; call it to see what it would do (dryRun) or to use other ages. Two things only: (1) the files review.pick MOVED to a sheet's drop folder are deleted `droppedDays` days after the pick (the clock against the pick's time in the manifest); the manifest entry becomes status "expired" ("gone" when the file was already moved back or removed) and the empty folder goes. Nothing else is ever deleted there: only the files named `<NN>_<name>` that the pick put in <dropDir>/<sheet id>/. (2) a sheet folder with no manifest.json (the process died between starting the sheet and writing it; review.list shows these as `orphans`) is removed once nothing in it changed for `orphanMinutes` minutes. A sheet nobody has answered, the files of the picked item and every chosen file are never touched. At most 200 sheets are changed per call (`more` says there are others: call again). A file that is open in another program is kept and tried again next time. Runs under the project's review lock; busy when another process holds it (nothing changed). Result: {droppedExpired: [{sheet, files}], orphansRemoved: [ids], skipped: [{sheet, reason}], examined, more, dryRun, droppedDays, orphanMinutes}. Example: review.cleanup {"dryRun":true}.
 
 | Argument | Type | Required | Description |
@@ -22,6 +24,8 @@ Since 0.18.0.
 
 The manifest of one review sheet (items, facts, the choice) and its picture.
 
+Capabilities: read
+
 Result: the manifest of the sheet (format factoria.review/1: id, label, createdAt, columns, rows, thumbSize, picture, dropDir, items [{n, type, label, source, candidate, ok, info, numbers, thumb, cell, picture, spec}], picked ({n, label, at, atUnix, who, note, drop, dropped [{n, label, from, to, status: moved | expired | gone}], spec}), meta, warnings) plus `dir` and the picture as `$image`. `picked` is null until review.pick answers it. Example: review.info {"sheet":"sheet-0002"}.
 
 | Argument | Type | Required | Description |
@@ -34,6 +38,8 @@ Since 0.18.0.
 
 List the review sheets of the project, newest first, with what was picked.
 
+Capabilities: read
+
 Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, picked (the number, or null while unanswered), pickedLabel, picture, meta, dir}], unreadable?, orphans?}. `orphans` are sheet folders with no manifest: a sheet being made right now, or one whose process died (review.cleanup removes the old ones). Use it to find a sheet that is still waiting for an answer (picked null) or to see what was chosen before. Example: review.list {"limit":5}.
 
 | Argument | Type | Required | Description |
@@ -45,6 +51,8 @@ Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, 
 Since 0.18.0.
 
 Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0).
+
+Capabilities: read, writeProject
 
 Call it with the number THE PERSON gave you for a sheet that review.sheet made; never pick for them (over MCP and the CLI nothing asks them, so the number must be theirs: show the sheet, ask, wait). The choice is written into the sheet's manifest (who, when, the note and the exact spec of the item: a level's seed and arguments) and is final: a sheet is picked once. With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): the pick deletes nothing (review.cleanup deletes the dropped files after
 
@@ -62,6 +70,8 @@ Call it with the number THE PERSON gave you for a sheet that review.sheet made; 
 Since 0.18.0.
 
 Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number.
+
+Capabilities: read, writeProject
 
 Make the candidates, call review.sheet, show the picture to the person, ask for ONE number, then review.pick. Do not choose for them and do not show candidates one by one. Each item is an object with exactly one of image (a PNG/JPG/BMP/TGA), scene, prefab, level (the arguments of tilemap.generate, with `seeds` next to it for one thumbnail per seed), vector (an .svg) or vfx (a .vfx.json), plus an optional label and candidate. Every thumbnail carries its number (1..N, in the item order), its label and one line of facts: an image its size, colors and how much is clear; a scene its entity count; a prefab its entities and size; a level its size, seed and tries; vector art its size, shapes and colors (counted from the file's text); an effect its peak particles and length. Only files marked `candidate: true` are ever moved by review.pick; a file not marked is never touched.
 
