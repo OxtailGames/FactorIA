@@ -168,7 +168,10 @@ struct ScriptSystem::Impl {
     std::map<std::string, int> versions;  // project path -> reload counter (0 = pristine)
     std::map<std::string, std::set<std::string>> importers;  // path -> modules that import it
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
-    std::vector<std::string>* loadTrace = nullptr;           // when set, every module the loader loads is appended (post-order)
+    // Static imports of every project module that was compiled, in source order: module name (with ?v=) -> names it imports.
+    // Filled by normalize_module for every import it resolves, whether the loader then loads the target or finds it already
+    // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated.
+    std::map<std::string, std::vector<std::string>> moduleImports;
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;
     std::map<std::string, std::int64_t> moduleMtime;  // file mtime when each module was last read

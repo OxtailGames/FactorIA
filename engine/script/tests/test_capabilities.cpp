@@ -406,3 +406,33 @@ test("a behaviour module first loaded here runs its top level as game code", () 
     CHECK(rep.ok());
     CHECK(rep.passed == 3);
 }
+
+TEST_CASE("capabilities: a module compiled by check_syntax and first evaluated by a test still runs its top level as game code") {
+    TestHost h("cap_import_after_syntax_check");
+    int ran = 0;
+    add_fake_commands(h, ran);
+    // scripts/a.js imports scripts/b.js: check_syntax compiles b.js without evaluating it, so when the test file imports b.js
+    // later the loader is not called for it again, and only the recorded import edges still lead to it.
+    h.file("scripts/b.js", R"JS(
+import { fa } from "factoria";
+let r = "ok";
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
+globalThis.B = r;
+export const b = 1;
+)JS");
+    h.file("scripts/a.js", "import { b } from \"scripts/b.js\";\nexport const a = b + 1;\n");
+    h.file("tests/b.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { b } from "scripts/b.js";
+test("a module compiled earlier by check_syntax runs its top level as game code", () => {
+  expect(b).toBe(1);
+  expect(globalThis.B).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+)JS");
+    REQUIRE(h.start());
+    REQUIRE(h.scripts.check_syntax("scripts/a.js").ok());
+    TestReport rep = h.scripts.run_tests({"tests/b.test.js"});
+    for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
+    CHECK(rep.ok());
+    CHECK(rep.passed == 1);
+}
