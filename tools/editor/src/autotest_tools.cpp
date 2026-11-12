@@ -1714,7 +1714,7 @@ void Editor::at_build_tools_script() {
         });
         step(8, [] {});
         grab(&MatShots::undone, ms);
-        step(2, [this, ms, diff_check] {
+        step(2, [ms, diff_check] {
             if (ms->skip) return;
             diff_check(ms->base, ms->undone, true, "Undo brings the previous viewport picture back");
             ms->seq = log_last_seq();
@@ -8164,7 +8164,7 @@ void Editor::at_build_tools_script() {
             at_check(int(redo_.size()) == ps->count, "...and the step stays on the Redo stack");
         });
         // The panel polls the file every 20 frames: it must not take the change by itself while the warning is up (Reload decides).
-        step(45, [this] {});
+        step(45, [] {});
         step(2, [this, ps] {
             at_check(particle_.model->conflict(), "...and the warning is still there after the panel polled the file");
             at_check(int(redo_.size()) == ps->count, "...with the step on the Redo stack");

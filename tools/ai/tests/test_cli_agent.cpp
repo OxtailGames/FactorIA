@@ -234,20 +234,8 @@ TEST_CASE("claude-code agent: when the owner-only write in the project fails, th
     // owner-only ACL).
     std::filesystem::create_directories(dir.path / ".factoria");
     std::ofstream(dir.path / ".factoria" / "ai") << "not a folder";
-    // A private folder of an earlier run that crashed (two days old) and one of a run in progress (new): the sweep takes
-    // only the old one.
-    const std::filesystem::path oldDir = fa::fs::make_temp_dir("factoria-run").value();
-    const std::filesystem::path newDir = fa::fs::make_temp_dir("factoria-run").value();
-    REQUIRE_FALSE(oldDir.empty());
-    REQUIRE_FALSE(newDir.empty());
-    std::error_code tec;
-    std::filesystem::last_write_time(oldDir, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48), tec);
-    REQUIRE_FALSE(tec);
     CliRunRequest req{"x", "", dir.str()};
     auto r = CliAgent(cfg).run(req, nullptr, nullptr);
-    CHECK_FALSE(std::filesystem::exists(oldDir));
-    CHECK(std::filesystem::exists(newDir));
-    std::filesystem::remove_all(newDir, tec);
     REQUIRE(r);
     CHECK(r->ok);
     const std::string argv = read_file(argvFile);
@@ -262,6 +250,34 @@ TEST_CASE("claude-code agent: when the owner-only write in the project fails, th
     CHECK(Json::parse(read_file(argvFile + ".mcpconfig"))["mcpServers"]["factoria"]["command"] == "factoria");  // the CLI read it
     CHECK_FALSE(std::filesystem::exists(mcpPath));                    // removed with the run,
     CHECK_FALSE(std::filesystem::exists(mcpPath.parent_path()));      // and its folder with it
+}
+
+TEST_CASE("sweep_stale_temp_run_dirs: takes a crashed run's folder, spares a run in progress (own folder, not the real /tmp)") {
+    TempDir base;
+    namespace fsys = std::filesystem;
+    const auto longAgo = fsys::file_time_type::clock::now() - std::chrono::hours(48);
+    const auto make = [&](const char* name, bool recentFile) {
+        const fsys::path d = base.path / name;
+        fsys::create_directories(d / "fa-run-mcp-x");
+        std::ofstream(d / "fa-run-mcp-x" / "cfg.json") << "{}";
+        if (!recentFile) fsys::last_write_time(d / "fa-run-mcp-x" / "cfg.json", longAgo);
+        fsys::last_write_time(d / "fa-run-mcp-x", longAgo);
+        fsys::last_write_time(d, longAgo);
+        return d;
+    };
+    const fsys::path crashed = make("factoria-run_crashed", false);
+    // Old folder, but its newest file is recent: the run is still writing there. The rule is the newest file, not the folder.
+    const fsys::path active = make("factoria-run_active", true);
+    const fsys::path young = base.path / "factoria-run_young";
+    fsys::create_directories(young);
+    const fsys::path foreign = base.path / "other-folder";
+    fsys::create_directories(foreign);
+    fsys::last_write_time(foreign, longAgo);
+    sweep_stale_temp_run_dirs(base.path);
+    CHECK_FALSE(fsys::exists(crashed));
+    CHECK(fsys::exists(active));
+    CHECK(fsys::exists(young));
+    CHECK(fsys::exists(foreign));  // not a run's name: never touched
 }
 
 TEST_CASE("claude-code agent: argv template is overridable from the config") {
@@ -442,7 +458,8 @@ TEST_CASE("claude-code agent: an MCP config another program holds open at the en
     std::filesystem::create_directories(oldSkills / "skills");
     std::ofstream(oldSkills / "skills" / "SKILL.md") << "x";
     for (const auto& p : {oldMcp, oldSettings, youngLegacy, lookalike, userSettings}) std::ofstream(p) << "{}";
-    for (const auto& p : {oldMcp, oldSettings, oldSkills, lookalike, userSettings})
+    for (const auto& p : {oldMcp, oldSettings, oldSkills / "skills" / "SKILL.md", oldSkills / "skills", oldSkills, lookalike,
+                          userSettings})
         std::filesystem::last_write_time(p, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
     req.onStart = nullptr;
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));

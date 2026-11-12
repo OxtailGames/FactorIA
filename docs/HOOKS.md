@@ -73,7 +73,7 @@ it are not asked.
 | `Stop` | The model finished its answer. | none | yes: the model is asked to keep going |
 | `SessionEnd` | The run is over (also after a cancel or an error). | the reason | no |
 | `beforeCommand` | **Engine:** a command is about to run, for any caller. | the command name | yes: the command does not run |
-| `afterCommand` | **Engine:** the command ran, whatever the outcome. | the command name | no |
+| `afterCommand` | **Engine:** the command ran, whatever the outcome (a call refused with `capability_denied` is not hooked: neither `beforeCommand` nor `afterCommand` fires). | the command name | no |
 
 In the built-in loop `Stop` is asked only for the top-level run, and at most 8 times in a row: a hook that keeps refusing cannot
 hold the run forever. A delegated worker run does not fire `SessionStart`, `UserPromptSubmit`, `Stop` or `SessionEnd`.

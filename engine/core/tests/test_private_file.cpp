@@ -261,7 +261,8 @@ struct ScopedTempEnv {
     }
 };
 
-// The working directory for one test.
+// The working directory for one test. The cwd is process-wide: nothing that runs a thread of its own (a watcher, a job) may
+// be alive in the scope. These tests start none; declare the guard before any object that does, so it is gone first.
 struct ScopedCwd {
     stdfs::path before = stdfs::current_path();
     explicit ScopedCwd(const stdfs::path& to) { stdfs::current_path(to); }
