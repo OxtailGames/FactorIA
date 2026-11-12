@@ -54,9 +54,13 @@ stdfs::path caller_output_file(const std::string& projectDir, const std::string&
     return *resolved;
 }
 
-void check_kept_picture(const std::string& projectDir, const Json& args, const char* command) {
+void check_kept_picture(const std::string& projectDir, const Json& args, const char* command, bool pictureDefault) {
     const std::string out = arg_string(args, "pictureOut", false);
     if (out.empty()) return;
+    if (!tooling_detail::arg_bool(args, "picture", pictureDefault))
+        fail("invalid_argument", "`pictureOut` asks to keep the picture, but no picture is made " +
+                                     std::string(args.contains("picture") ? "(`picture` is false)." : "(`picture` defaults to false for this command)."),
+             "Add \"picture\": true to keep the picture at pictureOut, or drop `pictureOut`.");
     if (to_lower(fs::extension(out)) != ".png") fail("invalid_argument", "`pictureOut` must end in .png.", "Example: \"pictureOut\": \"assets/music/theme.png\".");
     (void)caller_output_file(projectDir, out, command);
 }

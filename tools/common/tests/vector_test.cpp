@@ -697,6 +697,21 @@ TEST_CASE("vector.*: an svg layer of an image document, inline or from a source 
     CHECK_FALSE(noDoc.ok);
 }
 
+TEST_CASE("vector.info is read-only: its schema has no `out` (a write path) and the argument is refused") {
+    AssetsProject p;
+    const CommandInfo* info = p.registry.info("vector.info");
+    REQUIRE(info != nullptr);
+    CHECK(info->readOnly);
+    CHECK_FALSE(info->inputSchema["properties"].contains("out"));
+    CHECK(info->inputSchema.dump().find("\"x-fa-path\":\"write\"") == std::string::npos);
+    CommandResult r = p.call("vector.info", Json{{"svg", svg_of("<rect width=\"4\" height=\"4\"/>")}, {"out", "assets/art/x.svg"}});
+    CHECK_FALSE(r.ok);
+    // A command that writes keeps it.
+    const CommandInfo* add = p.registry.info("vector.add");
+    REQUIRE(add != nullptr);
+    CHECK(add->inputSchema["properties"].contains("out"));
+}
+
 TEST_CASE("vector.info: lists shapes with ids, bounds in the drawing space and node counts") {
     AssetsProject p;
     const std::string svg = svg_of("<g id=\"g\" transform=\"translate(10 20)\"><path id=\"p\" d=\"M0 0 C10 0 10 10 0 10 Z\" fill=\"#123\"/></g><rect x=\"1\" y=\"2\" width=\"3\" height=\"4\" class=\"k\"/>");

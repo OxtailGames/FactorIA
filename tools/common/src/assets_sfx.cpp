@@ -322,7 +322,7 @@ Json loudness_json(const std::vector<double>& lufs) {
 Json sfx_render_command(const std::string& projectDir, const Json& a) {
     check_arg_keys(kRender, a, "", {"path", "out", "seed", "freq", "note", "length", "tail", "macros", "variant", "variants", "picture", "pictureOut", "width", "height", "overwrite"});
     const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
-    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, kRender);
+    check_kept_picture(projectDir, a, kRender);
     const std::string outArg = tooling_detail::arg_string(a, "out", false);
     RenderArgs args = render_args(kRender, a);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
@@ -504,7 +504,7 @@ void set_macro_value(Json& patchJson, const std::string& name, double value) {
 Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("sfx.tweak", a, "", {"path", "macros", "absolute", "render", "seed", "picture", "pictureOut", "width", "height"});
     const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
-    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, "sfx.tweak");
+    check_kept_picture(projectDir, a, "sfx.tweak");
     if (!a.contains("macros") || !a["macros"].is_object() || a["macros"].empty())
         fail("invalid_argument", "sfx.tweak: `macros` must say what to turn, e.g. {\"brightness\": 0.2, \"tail\": -0.3}.",
              "Each value is added to the macro the patch declares (so +0.2 is a little brighter than now); with absolute: true it is the new value itself. Macros: " + join([] { std::vector<std::string> n; for (const SfxMacroInfo& m : sfx_macros()) n.push_back(m.name); return n; }(), ", ") + ".");
@@ -702,7 +702,7 @@ Json family_member(const Json& base, const FamilyRole& role, const std::string& 
 
 Json sfx_family_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("sfx.family", a, "", {"from", "names", "preset", "out", "overwrite", "render", "picture", "pictureOut", "width", "height"});
-    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, "sfx.family");
+    check_kept_picture(projectDir, a, "sfx.family");
     const std::string baseRel = patch_path(tooling_detail::arg_string(a, "from", true), "from");
     std::vector<std::string> roleNames;
     for (const FamilyRole& r : family_roles()) roleNames.push_back(r.name);

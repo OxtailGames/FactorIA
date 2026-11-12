@@ -2332,6 +2332,15 @@ void Editor::at_build_tools_script() {
                      "the scene file holds the position the gizmo set");
             at_check(!dirty_, "...and the scene is clean after saving");
         });
+        step(2, [this] {
+            // The open scene's path spelled another way ("./scenes/..."): scene.save of the same file still leaves it clean.
+            const std::string spelled = scenePath_;
+            scenePath_ = "./" + spelled;
+            dirty_ = true;
+            const CommandResult saved = engine_->commands().call("scene.save", Json::object({{"path", spelled}}));
+            at_check(saved.ok && !dirty_, "scene.save of the open file clears the dirty flag whatever the spelling of the scene path");
+            scenePath_ = spelled;
+        });
         step(2, [this, project_file] {  // back to the fixture the next sections expect
             gizmoMode_ = GizmoMode::Move;
             write_file(project_file(scenePath_), kFixtureScene);

@@ -340,6 +340,19 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
         const CommandResult good = e.commands().call("input.record", Json::object({{"action", "stop"}, {"path", "replays/r.json"}}));
         CHECK_MESSAGE(good.ok, good.error.dump());
         CHECK(stdfs::exists(p.dir / "replays" / "r.json"));
+
+        // A path that passes the rules but cannot be written (a folder is there): the recording is stopped, and the error carries the
+        // replay and the path tried, so the take is not lost.
+        REQUIRE(e.commands().call("input.record", Json::object({{"action", "start"}})).ok);
+        stdfs::create_directories(p.dir / "blocked.json");
+        const CommandResult failed = e.commands().call("input.record", Json::object({{"action", "stop"}, {"path", "blocked.json"}}));
+        REQUIRE_FALSE(failed.ok);
+        CHECK(error_code(failed) == "failed");
+        CHECK_FALSE(e.input_recording());
+        REQUIRE(failed.error.contains("data"));
+        CHECK(failed.error["data"].value("path", std::string()) == "blocked.json");
+        CHECK(failed.error["data"].contains("replay"));
+        CHECK(failed.error.value("message", std::string()).find("blocked.json") != std::string::npos);
     }
     CHECK_FALSE(stdfs::exists(outside.dir / "x.scene.json"));
     CHECK_FALSE(stdfs::exists(p.dir / ".git"));

@@ -899,6 +899,32 @@ TEST_CASE("capabilities: capability_denied lists each missing capability once, i
     CHECK(r.error["data"]["missing"] == Json::parse(R"(["network","spend","publish"])"));
 }
 
+TEST_CASE("capabilities: require_capability(WriteProject) tells a command with dryRun that a dry run needs no writeProject") {
+    CommandRegistry reg;
+    for (const bool withDryRun : {true, false}) {
+        CommandInfo info;
+        info.name = withDryRun ? "t.dry" : "t.plain";
+        info.summary = "Asks for writeProject itself.";
+        info.capabilities = CapabilitySet{Capability::Read};
+        info.capabilitiesDeclared = true;
+        info.inputSchema = Json::parse(withDryRun ? R"({"type":"object","properties":{"dryRun":{"type":"boolean"}}})"
+                                                  : R"({"type":"object","properties":{"path":{"type":"string"}}})");
+        const std::string name = info.name;
+        reg.add(info, [name](const Json&) -> Json {
+            require_capability(Capability::WriteProject, name, "writing the file");
+            return Json::object();
+        });
+    }
+    CommandCapabilityScope scope(CapabilitySet{Capability::Read});
+    const CommandResult dry = reg.call("t.dry");
+    REQUIRE_FALSE(dry.ok);
+    CHECK(dry.error["code"] == "capability_denied");
+    CHECK(dry.error["hint"].get<std::string>().find("dryRun: true") != std::string::npos);
+    const CommandResult plain = reg.call("t.plain");
+    REQUIRE_FALSE(plain.ok);
+    CHECK(plain.error["hint"].get<std::string>().find("dryRun") == std::string::npos);
+}
+
 TEST_CASE("capabilities: an empty declaration is refused and teaches, from core and from the parser") {
     CommandRegistry reg;
     add_cap_command(reg, "t.writer", false);

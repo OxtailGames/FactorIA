@@ -587,4 +587,20 @@ TEST_CASE("resolve_for_write: Windows long paths and drive paths") {
     // Denied forms never touch the network.
     CHECK(code_of(fs::resolve_for_write("\\\\no-such-server\\share\\x", fs::WriteRoot::Project, false)) == "absolute_path_denied");
 }
+
+TEST_CASE("resolve_for_write: Windows alternate data streams and NT object paths are invalid_path, absolute too") {
+    Confined c;
+    const std::string outside = fs::path_to_utf8(c.outside);
+    // A ':' in any segment after the drive names a stream ("a.png:x"), for an absolute path as for a relative one.
+    CHECK(code_of(fs::resolve_for_write(outside + "/a.png:x", fs::WriteRoot::Project, true)) == "invalid_path");
+    CHECK(code_of(fs::resolve_for_write(outside + "/dir:s/a.png", fs::WriteRoot::Project, true)) == "invalid_path");
+    CHECK(code_of(fs::resolve_for_write("\\\\?\\" + outside + "\\a.png:x", fs::WriteRoot::Project, true)) == "invalid_path");
+    CHECK(fs::resolve_for_write(outside + "/a.png", fs::WriteRoot::Project, true).ok());
+    // The NT object path form \??\C:\x is not a file location, and a caller that may not write anywhere is told it is absolute.
+    CHECK(code_of(fs::resolve_for_write("\\??\\" + outside, fs::WriteRoot::Project, true)) == "invalid_path");
+    CHECK(code_of(fs::resolve_for_write("\\??\\" + outside, fs::WriteRoot::Project, false)) == "absolute_path_denied");
+    // The 8.3 short name of .git (GIT~1) is not tested: whether a volume has short names at all is a setting of the volume
+    // (often off), MSVC's weakly_canonical expands one that exists to the long name and so the managed check sees ".git" on the
+    // canonical form, and MinGW's does not expand it. A test could only pass or skip depending on the machine.
+}
 #endif

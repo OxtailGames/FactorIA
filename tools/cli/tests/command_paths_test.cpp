@@ -26,9 +26,33 @@ using namespace fa;
 namespace {
 
 // A temporary folder holding the project (`game`) and nothing else: whatever else appears in it was written outside the project.
+// A scratch folder that is removed when it goes.
+struct ScratchFolder {
+    stdfs::path path = fs::make_temp_dir("fa_command_paths").value();
+    ~ScratchFolder() {
+        std::error_code ec;
+        stdfs::remove_all(path, ec);
+    }
+};
+// Restores the project root and the working directory when it goes, also when a REQUIRE in the Sandbox's constructor throws (the
+// destructor of a half-built object does not run, those of its members do).
+struct EnvironmentGuard {
+    stdfs::path root = fs::project_root();
+    stdfs::path cwd = [] {
+        std::error_code ec;
+        return stdfs::current_path(ec);
+    }();
+    ~EnvironmentGuard() {
+        fs::set_project_root(root);
+        std::error_code ec;
+        if (!cwd.empty()) stdfs::current_path(cwd, ec);
+    }
+};
+
 struct Sandbox {
-    stdfs::path oldRoot = fs::project_root();
-    stdfs::path root = fs::make_temp_dir("fa_command_paths").value();
+    ScratchFolder scratch;
+    stdfs::path root = scratch.path;
+    EnvironmentGuard environment;  // after `scratch`: it goes first, so the folder is no longer the working directory when removed
     std::string dir;
     Sandbox() {
         ScaffoldOptions opt;
@@ -50,11 +74,6 @@ struct Sandbox {
         REQUIRE(fs::write_text(dir + "/assets/art/hero.svg",
                                R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><g id="body"><rect width="10" height="10" fill="#f00"/></g></svg>)")
                     .ok());
-    }
-    ~Sandbox() {
-        fs::set_project_root(oldRoot);
-        std::error_code ec;
-        stdfs::remove_all(root, ec);
     }
     // The names inside `root` other than the project.
     std::set<std::string> strangers() const {
@@ -159,11 +178,9 @@ std::string way_text(const Way& way) {
 const std::map<std::string, std::string>& skipped_commands() {
     static const std::map<std::string, std::string> skip = {
         {"input.record", "`path` is only judged by `stop`, which needs a recording started first: command_capabilities_tests calls it."},
-        {"vfx.filmstrip", "the project runs without a renderer here, so it answers `unavailable` before it reads `path`."},
         {"music.drums /pictureOut", "only used when `path` names a song, which the project here has none of; add_piano_roll judges it as music.info does."},
         {"music.arpeggio /pictureOut", "as music.drums /pictureOut."},
         {"music.bassline /pictureOut", "as music.drums /pictureOut."},
-        {"anim.filmstrip", "needs a renderer and an animated entity, so it answers `unavailable` or `invalid_argument` before `path`."},
     };
     return skip;
 }
@@ -192,8 +209,7 @@ Json extra_arguments(const std::string& name) {
 }
 
 bool refused_by_path_rules(const std::string& code) {
-    return code == "path_outside_root" || code == "absolute_path_denied" || code == "invalid_path" || code == "managed_path_denied" ||
-           code == "capability_denied";
+    return code == "path_outside_root" || code == "absolute_path_denied" || code == "invalid_path" || code == "managed_path_denied";
 }
 
 std::vector<const CommandInfo*> all_commands(CommandRegistry& session, CommandRegistry& bootstrap) {
@@ -241,6 +257,9 @@ struct Outcome {
 // first before it gets to the second.
 Outcome call_with(CommandRegistry& reg, const CommandInfo& info, const Way& target, const std::vector<Way>& others, const std::string& bad,
                   const Json& extra) {
+    std::string argument;  // the name of the tested argument: the last property on the way to it
+    for (const std::string& w : target)
+        if (w.rfind("p:", 0) == 0) argument = w.substr(2);
     Json args = sample_value(info.inputSchema);
     if (!args.is_object()) args = Json::object();
     for (auto it = extra.begin(); it != extra.end(); ++it) {
@@ -259,6 +278,9 @@ Outcome call_with(CommandRegistry& reg, const CommandInfo& info, const Way& targ
     if (!r.ok) {
         o.code = r.error.value("code", std::string());
         o.message = r.error.value("message", std::string());
+        // A path rule's own code, or an error that quotes the bad path. (capability_denied is not a path rule: the sandbox grants writeProject,
+        // so a call refused for a capability was not judged by the path rules at all.) Most commands' messages quote the path but do not name
+        // the argument, so the tested argument cannot be required in the message.
         o.aboutPath = refused_by_path_rules(o.code) || contains(o.message, bad);
     }
     return o;

@@ -335,6 +335,22 @@ TEST_CASE("docs: commands") {
     CHECK(cmds.result["markdown"].get<std::string>().find("docs.search") != std::string::npos);
 }
 
+TEST_CASE("api export: the argument table shows what a path argument is used for (x-fa-path)") {
+    CommandRegistry reg;
+    CommandInfo info;
+    info.name = "t.paths";
+    info.summary = "Reads one file and writes another.";
+    info.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "src":{"type":"string","x-fa-path":"read","description":"Input."},
+        "out":{"type":"string","x-fa-path":"write","description":"Output."},
+        "name":{"type":"string","description":"Not a path."}}})");
+    reg.add(info, [](const Json&) { return Json::object(); });
+    const std::string md = export_commands_markdown(reg);
+    CHECK(md.find("| `src` | string | no | Input. Path the command reads. |") != std::string::npos);
+    CHECK(md.find("| `out` | string | no | Output. Path the command writes (confined: project only, unless the caller may write anywhere). |") != std::string::npos);
+    CHECK(md.find("| `name` | string | no | Not a path. |") != std::string::npos);
+}
+
 TEST_CASE("api export: markdown for components and commands") {
     std::string comps = export_components_markdown();
     CHECK(comps.find("# Components reference") != std::string::npos);

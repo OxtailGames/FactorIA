@@ -304,6 +304,11 @@ void set_export_dir(const stdfs::path& dir) {
     state().exportDirSet = !dir.empty();
 }
 
+bool export_dir_is_set() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().exportDirSet;
+}
+
 stdfs::path export_dir() {
     stdfs::path configured;
     {
@@ -359,23 +364,9 @@ Result<stdfs::path> temp_base() {
     stdfs::path base;
     std::error_code ec;
 #ifdef _WIN32
-    // GetTempPath2W (Windows 11; a service running as SYSTEM gets its private folder) when kernel32 has it, else
-    // GetTempPathW. Both read TMP, TEMP and USERPROFILE and answer in UTF-16, which stays UTF-16 here (no ANSI code page).
-    // Neither checks that the folder exists, and the standard library's temp_directory_path does, on both STLs.
-    using GetTempPathFn = DWORD(WINAPI*)(DWORD, LPWSTR);
-    GetTempPathFn fn = nullptr;
-    if (HMODULE k32 = ::GetModuleHandleW(L"kernel32.dll"))
-        fn = reinterpret_cast<GetTempPathFn>(reinterpret_cast<void*>(::GetProcAddress(k32, "GetTempPath2W")));
-    if (!fn) fn = &::GetTempPathW;
-    std::wstring buf(MAX_PATH + 1, L'\0');
-    DWORD n = fn(static_cast<DWORD>(buf.size()), buf.data());
-    if (n >= buf.size()) {  // longer than MAX_PATH: n is the size needed, with the terminator
-        buf.assign(static_cast<std::size_t>(n) + 1, L'\0');
-        n = fn(static_cast<DWORD>(buf.size()), buf.data());
-    }
-    if (n == 0 || n >= buf.size()) return temp_error(base, "Windows does not name a temporary folder (set TEMP to one)");
-    buf.resize(n);
-    base = stdfs::path(buf);
+    const std::wstring named = detail::windows_temp_path();  // fs_win32.cpp
+    if (named.empty()) return temp_error(base, "Windows does not name a temporary folder (set TEMP to one)");
+    base = stdfs::path(named);
 #else
     for (const char* name : {"TMPDIR", "TMP", "TEMP", "TEMPDIR"}) {
         const char* v = std::getenv(name);
@@ -895,6 +886,25 @@ bool is_under_root(const stdfs::path& root, const stdfs::path& p, std::size_t* r
     return std::equal(r.begin(), r.end(), q.begin());
 }
 
+// The elements of `p` after the first `rootCount` (as is_under_root counts them; empty elements, such as the root name of a
+// path or a trailing separator, are not elements).
+std::vector<stdfs::path> elements_after_root(const stdfs::path& p, std::size_t rootCount) {
+    std::vector<stdfs::path> below;
+    std::size_t index = 0;
+    for (const stdfs::path& part : p) {
+        if (part.empty() || index++ < rootCount) continue;
+        below.push_back(part);
+    }
+    return below;
+}
+
+// The same, as one UTF-8 string with forward slashes: the spelling of `p` relative to its root ("" for the root itself).
+std::string relative_below_root(const stdfs::path& p, std::size_t rootCount) {
+    std::string rel;
+    for (const stdfs::path& part : elements_after_root(p, rootCount)) rel += (rel.empty() ? "" : "/") + path_to_utf8(part);
+    return rel;
+}
+
 // The path without the \\?\ (or \\?\UNC\) prefix that weakly_canonical and os_path may give a long Windows path.
 stdfs::path plain_path(const stdfs::path& p) {
 #ifdef _WIN32
@@ -920,6 +930,9 @@ PathForm classify_path(const std::string& g) {
     if (g[0] == '~') return PathForm::Home;
     if (g.compare(0, 4, "//?/") == 0) return PathForm::LongPath;
     if (g.compare(0, 4, "//./") == 0) return PathForm::DevicePath;
+#ifdef _WIN32
+    if (g.compare(0, 4, "/??/") == 0) return PathForm::DevicePath;  // \??\C:\x, the NT object path: not a file location either
+#endif
     if (g.compare(0, 2, "//") == 0) return PathForm::Unc;
     if (g[0] == '/') return PathForm::Rooted;
     if (g.size() >= 2 && g[1] == ':') return g.size() >= 3 && g[2] == '/' ? PathForm::Drive : PathForm::DriveRelative;
@@ -971,10 +984,8 @@ std::optional<Error> managed_denial(const stdfs::path& projectCanon, const stdfs
     std::size_t projectCount = 0;
     if (!is_under_root(projectCanon, p, &projectCount)) return std::nullopt;
     std::string rel;
-    std::size_t index = 0;
-    for (const stdfs::path& part : p) {
+    for (const stdfs::path& part : elements_after_root(p, projectCount)) {
         std::string t = path_to_utf8(part);
-        if (t.empty() || index++ < projectCount) continue;
         while (t.size() > 1 && (t.back() == '.' || t.back() == ' ')) t.pop_back();
         rel += (rel.empty() ? "" : "/") + t;
     }
@@ -1055,14 +1066,8 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
             const stdfs::path abs = canonical_of(path_from_utf8(g), aec);
             std::size_t n = 0;
             if (!aec && is_under_root(rootCanon, abs, &n) && n < element_keys(abs).size()) {
-                std::string rel;
-                std::size_t i = 0;
-                for (const stdfs::path& part : abs) {
-                    const std::string t = path_to_utf8(part);
-                    if (t.empty() || i++ < n) continue;
-                    rel += (rel.empty() ? "" : "/") + t;
-                }
-                hint = "This path is inside the " + label + "; write it relative to it: \"" + rel + "\".";
+                const std::string rel = relative_below_root(abs, n);
+                hint ="This path is inside the " + label + "; write it relative to it: \"" + rel + "\".";
             }
         }
         return write_error("absolute_path_denied",
@@ -1137,9 +1142,7 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
         // A symbolic link that points nowhere is not resolved by weakly_canonical, but writing through it would create the
         // file at its target: refuse every link left in the part below the root.
         stdfs::path walk = rootCanon;
-        std::size_t index = 0;
-        for (const stdfs::path& part : canon) {
-            if (part.empty() || index++ < rootCount) continue;
+        for (const stdfs::path& part : elements_after_root(canon, rootCount)) {
             walk /= part;
             std::error_code sec;
             if (is_link_status(stdfs::symlink_status(os_path(walk), sec)))
@@ -1211,6 +1214,14 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
         }
         out.push_back(seg);
     }
+#ifdef _WIN32
+    // A ':' in any segment after the drive (already in `prefix`) is an alternate data stream ("a.png:x"), not a file.
+    for (const std::string& seg : out) {
+        if (seg.find(':') != std::string::npos)
+            return write_error("invalid_path", "Path '" + given + "' has the segment '" + seg + "', which names a stream",
+                               "Remove the ':' from the name: only the drive letter has one (C:\\folder\\name).");
+    }
+#endif
     const stdfs::path canon = canonical_of(path_from_utf8(prefix + fa::join(out, "/")), ec);
     if (ec) return write_error("path_unresolvable", "Cannot resolve path '" + given + "': " + ec.message(), "Check the path for invalid characters.");
 
@@ -1239,14 +1250,7 @@ std::string project_spelling(const stdfs::path& resolved) {
     const stdfs::path rootCanon = canonical_of(project_root(), ec);
     std::size_t n = 0;
     if (ec || !is_under_root(rootCanon, resolved, &n)) return path_to_utf8(resolved);
-    std::string rel;
-    std::size_t i = 0;
-    for (const stdfs::path& part : resolved) {
-        const std::string t = path_to_utf8(part);
-        if (t.empty() || i++ < n) continue;
-        rel += (rel.empty() ? "" : "/") + t;
-    }
-    return rel;
+    return relative_below_root(resolved, n);
 }
 
 namespace {
