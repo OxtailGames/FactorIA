@@ -92,15 +92,16 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
     }
 
     /**
-     * The network of a write request: its keyed hash and the prefix of its counters. Cloudflare always sets
+     * The network of a write request (an IPv6 address counts as its /64, an IPv4-mapped one as the IPv4): its keyed hash and the prefix of its counters. Cloudflare always sets
      * cf-connecting-ip; a request without it did not come through Cloudflare, so it is refused (every such request would
      * share one bucket, and the per-network cap is what stops free installation ids). ALLOW_NO_CLIENT_IP (local
-     * `wrangler dev`, tests) lets it through into one strict bucket of caps.noIp units per day, apart from every real network.
+     * `wrangler dev`, tests; only "1" or "true") lets it through into one strict bucket of caps.noIp units per day, apart from every real network.
      */
     async function clientNetwork(ms, request) {
         const ip = request.headers.get("cf-connecting-ip");
-        if (ip && ip.trim()) return { hash: await keys.ipKey(secret(), utcDay(ms), ip.trim()), strict: false };
-        if (!env || !env.ALLOW_NO_CLIENT_IP || env.ALLOW_NO_CLIENT_IP === "0" || env.ALLOW_NO_CLIENT_IP === "false") {
+        if (ip && ip.trim()) return { hash: await keys.ipKey(secret(), utcDay(ms), keys.networkOf(ip)), strict: false };
+        const allow = env && env.ALLOW_NO_CLIENT_IP;
+        if (!allow || !["1", "true"].includes(String(allow).trim().toLowerCase())) {
             throw new ApiError(400, "missing_client_ip", "The request has no CF-Connecting-IP header, so the server cannot tell which network sent it.", "Reach the server through Cloudflare (its workers.dev or custom domain URL). For local `wrangler dev` or tests the server owner can set ALLOW_NO_CLIENT_IP=1, which puts such requests into one strict shared bucket.");
         }
         return { hash: await keys.ipKey(secret(), utcDay(ms), "no-client-ip"), strict: true };
