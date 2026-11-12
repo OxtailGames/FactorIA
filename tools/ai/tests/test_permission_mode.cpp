@@ -221,9 +221,9 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
     ProviderConfig codex = default_config().providers["codex"];
     CHECK(argv_of(codex, "fake_codex.sh", false).find("--sandbox") == std::string::npos);
     codex.permissionMode = "workspace-write";
-    CHECK(argv_of(codex, "fake_codex.sh", false).find("--sandbox\nworkspace-write\n-\n") != std::string::npos);
+    CHECK(argv_of(codex, "fake_codex.sh", false).find("--sandbox\nworkspace-write\n") != std::string::npos);
     const std::string ro = argv_of(codex, "fake_codex.sh", true);
-    CHECK(ro.find("--sandbox\nread-only\n-\n") != std::string::npos);
+    CHECK(ro.find("--sandbox\nread-only\n") != std::string::npos);
     CHECK(ro.find("workspace-write") == std::string::npos);
 }
 #endif

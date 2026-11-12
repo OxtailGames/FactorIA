@@ -928,6 +928,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             ToolPlanOptions po;
             po.withDelegate = role == kRoleOrchestrator && cfg->can_delegate_to_anyone();
             po.readOnly = is_review_role(role);
+            po.granted = role_capabilities(role);
             po.groups = roleIt->second.toolGroups ? *roleIt->second.toolGroups : default_tool_groups(role);
             const ToolPlan plan = plan_tools(registry, po);
             Json tools = Json::array();
@@ -937,7 +938,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             }
             std::map<std::string, int> total, inCatalog;
             for (const CommandInfo* info : registry.list()) {
-                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info))) continue;
+                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info)) || !po.granted.has_all(info->capabilities)) continue;
                 ++total[info->category];
             }
             for (const CatalogEntry& e : plan.catalog) ++inCatalog[e.category];

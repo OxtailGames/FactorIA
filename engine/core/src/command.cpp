@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -29,6 +30,16 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 }
 
 thread_local std::shared_ptr<const CapabilityHintProvider> t_hint;  // CommandCapabilityScope: who words capability_denied hints
+std::atomic<std::uint32_t> g_capability_floor{CapabilitySet::all().bits()};  // CommandCapabilityFloor: the process-wide maximum
+std::mutex g_floor_words_mutex;                                                // guards the hint below (read on a refusal only)
+std::shared_ptr<const CapabilityHintProvider> g_floor_hint;                    // the floor's hint provider (null = none)
+
+CapabilitySet set_from_bits(std::uint32_t bits) {
+    CapabilitySet s = CapabilitySet::all();
+    for (int i = 0; i < kCapabilityCount; ++i)
+        if ((bits & (1u << i)) == 0) s = s.without(static_cast<Capability>(i));
+    return s;
+}
 
 // The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
 CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
@@ -43,7 +54,12 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
     message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
                "; the command needs " + info.capabilities.to_string() + ".";
     std::string hint;
-    if (t_hint) hint = t_hint->hint(CapabilityDenial{info, missing, granted});
+    std::shared_ptr<const CapabilityHintProvider> provider = t_hint;
+    if (!provider) {
+        std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+        provider = g_floor_hint;
+    }
+    if (provider) hint = provider->hint(CapabilityDenial{info, missing, granted});
     if (hint.empty())
         hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
                "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
@@ -103,9 +119,42 @@ CommandCapabilityScope::~CommandCapabilityScope() {
     t_hint = std::move(previousHint_);
 }
 
-CapabilitySet caller_capabilities() { return t_granted.intersect(capabilities_for_caller(command_caller())); }
+CapabilitySet caller_capabilities() {
+    return t_granted.intersect(capabilities_for_caller(command_caller())).intersect(set_from_bits(g_capability_floor.load()));
+}
 
 CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_hint}; }
+
+CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint) {
+    std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+    previous_ = set_from_bits(g_capability_floor.load());
+    previousHint_ = g_floor_hint;
+    g_capability_floor.store(previous_.intersect(granted).bits());
+    if (hint) g_floor_hint = std::move(hint);
+}
+
+CommandCapabilityFloor::~CommandCapabilityFloor() {
+    std::lock_guard<std::mutex> lock(g_floor_words_mutex);
+    g_capability_floor.store(previous_.bits());
+    g_floor_hint = std::move(previousHint_);
+}
+
+std::optional<CapabilitySet> command_capabilities_from_env_value(const char* value) {
+    if (!value || !*value) return std::nullopt;
+    if (std::string_view(value) == "none") return CapabilitySet::none();
+    auto parsed = CapabilitySet::parse_list(value);
+    if (!parsed) return CapabilitySet::none();  // a restriction nobody can read is kept as the strictest one
+    return *parsed;
+}
+
+std::optional<CapabilitySet> command_capabilities_from_env() { return command_capabilities_from_env_value(std::getenv(kCapabilitiesEnvVar)); }
+
+std::string capabilities_env_value(CapabilitySet set) {
+    if (set.empty()) return "none";
+    std::string out;
+    for (const std::string& n : set.names()) out += (out.empty() ? "" : ",") + n;
+    return out;
+}
 
 CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
     if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));

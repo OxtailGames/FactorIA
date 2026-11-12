@@ -46,6 +46,50 @@ TEST_CASE("MainThreadQueue runs worker-thread calls on the pumping thread") {
     CHECK(runId != workerId);
 }
 
+namespace {
+struct FixedHint final : CapabilityHintProvider {
+    std::string hint(const CapabilityDenial&) const override { return "Ask the user."; }
+};
+}  // namespace
+
+TEST_CASE("MainThreadQueue: a queued command keeps the caller, the capability set and the hint words of the thread that asked") {
+    MainThreadQueue q;
+    const CapabilitySet roleSet{Capability::Read, Capability::State};
+    std::atomic<bool> done{false};
+    CommandCaller callerSeen = CommandCaller::User;
+    CapabilitySet setSeen = CapabilitySet::all();
+    bool hintSeen = false;
+    std::thread worker([&] {
+        CommandCallerScope caller(CommandCaller::Mcp);
+        CommandCapabilityScope caps(roleSet, std::make_shared<FixedHint>());
+        q.call("x.y", Json::object(), nullptr);
+        done = true;
+    });
+    // A loaded VM may take long to start the worker: wait up to 30 s, and close the queue before joining so nothing can hang.
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!done && std::chrono::steady_clock::now() < limit) {
+        q.pump([&](const std::string&, const Json&) {
+            callerSeen = command_caller();
+            setSeen = caller_capabilities();
+            hintSeen = command_context().hint != nullptr;
+            CommandResult r;
+            r.ok = true;
+            return r;
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    q.close();
+    worker.join();
+    CHECK(done);
+    CHECK(callerSeen == CommandCaller::Mcp);
+    CHECK(setSeen == roleSet);  // not the main thread's own set (a user's: everything)
+    CHECK(hintSeen);
+    // and the pumping thread is back to its own afterwards
+    CHECK(command_caller() == CommandCaller::User);
+    CHECK(caller_capabilities() == capability_sets::cli_user());
+    CHECK(command_context().hint == nullptr);
+}
+
 TEST_CASE("MainThreadQueue pump stops at its time budget and keeps the rest queued") {
     MainThreadQueue q;
     std::atomic<int> done{0};
