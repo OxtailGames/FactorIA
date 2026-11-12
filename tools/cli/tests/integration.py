@@ -382,8 +382,8 @@ def test_template(tmp, template):
         try:
             step = m.call("game_step", {"frames": 3})
             check(not step.get("isError"), "mcp: game_step")
-            png = os.path.join(tmp, template + "-mcp.png")
-            res = m.call("game_screenshot", {"path": png})
+            png = os.path.join(proj, "shots", template + "-mcp.png")  # an MCP client writes only inside the project
+            res = m.call("game_screenshot", {"path": "shots/" + template + "-mcp.png"})
             kinds = [c.get("type") for c in res.get("content", [])]
             check(not res.get("isError") and "image" in kinds and is_png(png), "mcp: game_screenshot returns an image block (%s)" % kinds)
             res = m.call("feedback_report", {"category": "other", "severity": "nice-to-have", "title": "integration probe",

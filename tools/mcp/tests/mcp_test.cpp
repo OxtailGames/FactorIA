@@ -1245,7 +1245,18 @@ TEST_CASE("mcp: the read-only server serves the play commands and refuses the re
     Fixture f;
     auto stepped = std::make_shared<int>(0), saved = std::make_shared<int>(0), published = std::make_shared<int>(0);
     add_cap_tool(f, "game.step", capability_sets::changes_state(), false, stepped);
-    add_cap_tool(f, "game.screenshot", capability_sets::edits_project());
+    {
+        // Like the real game.screenshot: {read, state} by default, and a `path` needs writeProject and stays in the project.
+        CommandInfo i;
+        i.name = "game.screenshot";
+        i.summary = "Screenshot.";
+        i.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string"}}})");
+        f.registry.add(i, [](const Json& a) {
+            if (a.contains("path")) resolve_caller_write_path(a["path"].get<std::string>(), "game.screenshot");
+            return Json::object({{"ok", true}});
+        });
+        REQUIRE(f.registry.declare_capabilities("game.screenshot", capability_sets::changes_state()));
+    }
     add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
     add_cap_tool(f, "test.publish", CapabilitySet{Capability::Read, Capability::Publish}, false, published);
     f.server.set_command_filter([](const CommandInfo& info) {
@@ -1257,6 +1268,9 @@ TEST_CASE("mcp: the read-only server serves the play commands and refuses the re
     CHECK(f.call("game_step")["result"]["isError"] == false);
     CHECK(*stepped == 1);
     CHECK(f.call("game_screenshot")["result"]["isError"] == false);
+    const Json withPath = f.call("game_screenshot", {{"path", "shots/a.png"}});  // a path needs writeProject: not in {read, state}
+    CHECK(withPath["result"]["isError"] == true);
+    CHECK(error_text(withPath).find("capability_denied") != std::string::npos);
 
     const Json unlisted = f.call("scene_save");  // not served: the filter refuses it before any capability check
     CHECK(unlisted["result"]["isError"] == true);
@@ -1271,8 +1285,9 @@ TEST_CASE("mcp: the read-only server serves the play commands and refuses the re
 
 TEST_CASE("mcp: the read-only capability set covers the play commands it serves and nothing dangerous") {
     const CapabilitySet ro = capability_sets::mcp_read_only();
+    CHECK(ro == CapabilitySet{Capability::Read, Capability::State});
     CHECK(ro.has_all(capability_sets::changes_state()));
-    CHECK(ro.has_all(capability_sets::edits_project()));
+    CHECK_FALSE(ro.has(Capability::WriteProject));
     CHECK_FALSE(ro.has(Capability::WriteAnywhere));
     CHECK_FALSE(ro.has(Capability::Network));
     CHECK_FALSE(ro.has(Capability::Process));
@@ -1283,7 +1298,7 @@ TEST_CASE("mcp: the read-only capability set covers the play commands it serves 
 TEST_CASE("mcp: tool hints come from the capabilities") {
     Fixture f;
     add_cap_tool(f, "scene.save", capability_sets::edits_project());
-    add_cap_tool(f, "game.screenshot", capability_sets::edits_project());
+    add_cap_tool(f, "game.screenshot", capability_sets::changes_state());
     add_cap_tool(f, "test.look", capability_sets::reads(), true);
     add_cap_tool(f, "test.net", CapabilitySet{Capability::Read, Capability::Network});
     add_cap_tool(f, "test.spend", CapabilitySet{Capability::Read, Capability::Spend});
@@ -1297,7 +1312,7 @@ TEST_CASE("mcp: tool hints come from the capabilities") {
         CHECK(a["openWorldHint"] == openWorld);
     };
     check("scene_save", false, true, false);
-    check("game_screenshot", false, false, false);  // writes a new PNG under .factoria/ only
+    check("game_screenshot", false, false, false);  // {read, state}: its picture goes under .factoria/
     check("test_look", true, false, false);
     check("test_net", false, false, true);
     check("test_spend", false, true, true);

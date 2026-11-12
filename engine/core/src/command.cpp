@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
@@ -42,8 +43,8 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
     CommandResult r = fail("capability_denied", std::move(message),
                            "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
                            "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-                           "(docs/SCRIPTING.md). Ask the user to run this command themselves (`factoria call " + info.name +
-                               "` in a terminal, which has every capability), or to start the tool with that capability.");
+                           "(docs/SCRIPTING.md). Ask the user to run `factoria call " + info.name +
+                               "` in their own terminal, or to start the tool with that capability.");
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
                                     {"needs", info.capabilities.to_json()},
@@ -314,6 +315,42 @@ Json CommandRegistry::describe() const {
                                     {"category", i.category}}));
     }
     return arr;
+}
+
+}  // namespace fa
+
+namespace fa {
+
+void require_capability(Capability needed, std::string_view command, std::string_view reason) {
+    const CapabilitySet granted = caller_capabilities();
+    if (granted.has(needed)) return;
+    const std::string name = capability_name(needed);
+    throw CommandError("capability_denied",
+                       "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" + name + "' (" +
+                           capability_doc(needed) + "), which " + command_caller_name(command_caller()) +
+                           " is not granted here. Granted: " + granted.to_string() + ".",
+                       "Call it without that argument, or ask the user to run `factoria call " + std::string(command) +
+                           "` in their own terminal, or to start the tool with that capability.",
+                       Json::object({{"command", std::string(command)},
+                                     {"missing", CapabilitySet{needed}.to_json()},
+                                     {"granted", granted.to_json()}}));
+}
+
+std::string resolve_caller_write_path(std::string_view path, std::string_view command) {
+    require_capability(Capability::WriteProject, command, "writing to the `path` you gave");
+    auto resolved = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+    if (!resolved.ok()) {
+        const std::string code(fs::path_error_code(resolved.error()));
+        throw CommandError(code.empty() ? "invalid_argument" : code, resolved.error().message, resolved.error().hint);
+    }
+    const std::string abs = fs::path_to_utf8(resolved.value());
+    // A relative path is not judged for the managed folders (.git, .factoria) by resolve_for_write: the second step is ours.
+    // Judged on the spelling given (project-relative) and on the resolved one (an absolute path inside the project).
+    auto writable = fs::check_writable(path);
+    if (writable.ok()) writable = fs::check_writable(abs);
+    if (!writable.ok())
+        throw CommandError("managed_path_denied", writable.error().message, writable.error().hint);
+    return abs;
 }
 
 }  // namespace fa

@@ -177,6 +177,15 @@ CapabilitySet caller_capabilities();
 // The set a CommandCaller starts from.
 CapabilitySet capabilities_for_caller(CommandCaller caller);
 
+// For a handler that writes a file only when its caller passes a path (game.screenshot `path`): the command itself is
+// declared with the capabilities of its default behaviour, and this checks the one the path needs. Throws CommandError
+// "capability_denied" (same data shape as the dispatcher's refusal: command, missing, granted) when the caller lacks it.
+void require_capability(Capability needed, std::string_view command, std::string_view reason);
+// require_capability(WriteProject, ...) and then fs::resolve_for_write(path, WriteRoot::Project, <writeAnywhere granted>):
+// returns the absolute UTF-8 path to write, or throws CommandError with the path error's code (path_outside_root,
+// absolute_path_denied, managed_path_denied...), message and hint.
+std::string resolve_caller_write_path(std::string_view path, std::string_view command);
+
 // Narrows what the calls made on this thread inside the scope may do. Like CommandCallerScope it only ever narrows: the
 // granted set becomes the intersection of the current one and `granted`, so a nested scope cannot widen what an outer
 // one took away. That also means a nested call cannot say "this one legitimately runs with the tool's own set": a

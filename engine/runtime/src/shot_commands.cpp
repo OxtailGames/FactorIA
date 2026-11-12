@@ -100,7 +100,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
            "`forceTouch` true shows the touch interface first (the touch-only TouchStick and TouchButton, which a desktop hides): "
            "it is set just before the picture and put back afterwards (ui.force_touch {\"enabled\":true} keeps it on).",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Output PNG (project-relative or absolute). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it."},
+               "path":{"type":"string","x-fa-path":"write","description":"Output PNG, inside the project (needs the writeProject capability; absolute paths and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it."},
                "scale":{"type":"number","minimum":0.25,"maximum":4,"description":"Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom."},
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide)."},
@@ -118,8 +118,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                       throw CommandError("invalid_argument", "forceTouch must be true or false.", "Example: game.screenshot {\"forceTouch\":true}");
                   forceTouch = a["forceTouch"].get<bool>();
               }
-              const std::string given = a.contains("path") && a["path"].is_string() ? a["path"].get<std::string>() : std::string();
+              std::string given = a.contains("path") && a["path"].is_string() ? a["path"].get<std::string>() : std::string();
               const bool temporary = given.empty();
+              // A `path` is a file the caller names: it needs writeProject and stays inside the project. Without it the picture
+              // goes under .factoria/screenshots/ (the engine's own records), which needs no more than {read, state}.
+              if (!temporary) given = resolve_caller_write_path(given, "game.screenshot");
               if (a.contains("scale") && a.contains("zoom"))
                   throw CommandError("invalid_argument", "scale and zoom were both given.",
                                      "Use `scale` for a whole-view render scale (store screenshots) or `zoom` (with `region`) to magnify; zoom without a region magnifies the whole view.");
@@ -434,7 +437,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
 
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
-        {"game.screenshot", capability_sets::edits_project()},
+        {"game.screenshot", capability_sets::changes_state()},
         {"render.inspect", capability_sets::reads()},
         {"render.pick", capability_sets::reads()},
     });
