@@ -1,0 +1,10 @@
+{"_note":"Written from the Codex CLI documentation (codex exec --json) and the format cli_agent.cpp expects, not a recording. See ../README.md."}
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a93"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"bash -lc cat hello.txt","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"bash -lc cat hello.txt","aggregated_output":"The secret word is banana.\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"factoria","tool":"project_validate","arguments":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"factoria","tool":"project_validate","arguments":{},"result":{"ok":true},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"notes.txt","kind":"add"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"The secret word is banana."}}
+{"type":"turn.completed","usage":{"input_tokens":3000,"cached_input_tokens":1500,"output_tokens":80}}
