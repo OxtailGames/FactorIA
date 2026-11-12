@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
@@ -53,6 +54,40 @@ TEST_CASE("fs: sandbox rejects escapes with helpful errors") {
     }
     CHECK_FALSE(f.reg.call("fs.delete", {{"path", "."}}).ok);
     CHECK(resolve_project_path(f.tmp.str(), "scripts/a.js").ok());
+}
+
+TEST_CASE("resolve_project_path: a thin wrapper over fa::fs::resolve_for_write with the project's own folder") {
+    FsFixture f;
+    std::error_code ec;
+    const stdfs::path root = stdfs::weakly_canonical(f.tmp.path, ec);
+    // Relative paths come back canonical, below the folder given at registration (not fs::project_root()).
+    CHECK(resolve_project_path(f.tmp.str(), "scripts/a.js").value() == root / "scripts" / "a.js");
+    CHECK(resolve_project_path(f.tmp.str(), "scripts\\a.js").value() == root / "scripts" / "a.js");
+    CHECK(resolve_project_path(f.tmp.str(), "").value() == root);
+    CHECK(resolve_project_path(f.tmp.str(), ".").value() == root);
+    CHECK(resolve_project_path(f.tmp.str(), "new/dir/x.txt").value() == root / "new" / "dir" / "x.txt");
+    CHECK(resolve_project_path(f.tmp.str(), "scripts/../dup.txt").value() == root / "dup.txt");  // inside: fine since M92.2a
+    CHECK_FALSE(stdfs::exists(f.tmp.path / "new"));
+    // The tools' own folders are readable and resolvable here: the managed-folder rule is the commands' (check_writable).
+    CHECK(resolve_project_path(f.tmp.str(), ".factoria/log.txt").value() == root / ".factoria" / "log.txt");
+    // Every absolute or escaping form is refused, with a message and a hint.
+    for (const char* bad : {"/etc/passwd", "C:/x", "C:\\x", "C:x", "~", "~/x", "\\\\server\\share\\x", "\\\\?\\C:\\x", "../x", "a/../../x", ".."}) {
+        CAPTURE(bad);
+        auto r = resolve_project_path(f.tmp.str(), bad);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find(bad) != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    CHECK(fs::path_error_code(resolve_project_path(f.tmp.str(), "/etc/passwd").error()) == "absolute_path_denied");
+    CHECK(fs::path_error_code(resolve_project_path(f.tmp.str(), "../x").error()) == "path_outside_root");
+    // A symlink that leaves the project is refused.
+    if (stdfs::is_symlink(f.tmp.path / "link")) {
+        auto r = resolve_project_path(f.tmp.str(), "link/secret.txt");
+        REQUIRE_FALSE(r.ok());
+        CHECK(fs::path_error_code(r.error()) == "path_outside_root");
+    } else {
+        MESSAGE("symlinks cannot be created here: the link case is skipped");
+    }
 }
 
 TEST_CASE("fs.write: base64 encoding writes binary files") {
