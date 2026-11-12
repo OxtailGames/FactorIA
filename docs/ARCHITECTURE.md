@@ -198,7 +198,21 @@ thread with a `CommandContextScope`.
 capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability
 with its meaning, the caller and the granted set; the hint says where each caller gets what (the CLI user has all, `factoria mcp`
 without `--read-only` all but `writeAnywhere`, a game script `{read, state}`, a test can ask for more with `capabilities` in
-its test options); `error.data` has `command`, `missing`, `needs` and `granted`.
+its test options); `error.data` has `command`, `missing`, `needs` and `granted`. The default hint is generic; a caller that
+knows better installs a `CapabilityHintProvider` (`CommandCapabilityScope`'s second argument, carried by `command_context()` so
+it follows the work to other threads) and its words replace it: that is how a game script, the editor's Play and a test
+each get their own pointer, without core matching strings.
+
+**Scripts as callers (M92.1d).** The script host (`ScriptSystem`, per instance, never a global: two engines in one process
+do not mix) knows its role: `GameRole::Player` (`factoria run`, an exported game) or `EditorPlay` (the editor's engine,
+`EngineConfig::editorMode`), both `{read, state}`. `Impl::run_command` is the only door from JS to the registry and wraps
+the call by mode: *Game* (every entry from C++ into JS: callbacks, events, timers, promises, `game.step`, module top levels)
+installs the game's set and hint; *Test* (the body of a test while `run_tests` runs) installs `test_script` plus the test's
+`capabilities` option; *Caller* (a project tool's handler, `script.eval`) installs nothing, so the thread's set, the caller's,
+applies. A scope only narrows, so a tool a game script calls through `fa.call` runs with the game's set, and a test's set is
+the intersection with whoever runs the tests. The engine library is checked against the declarations: each `fa.call` a
+`factoria` helper makes is `{read, state}` (`tilemap.generate`'s `place` uses `scene.place_ascii`, the in-memory twin of
+`scene.import_ascii`). If a path dispatches commands on another thread or job, carry `command_context()` there.
 
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through

@@ -268,6 +268,30 @@ struct ScriptSystem::Impl {
     // ---- test runner state
     bool inTestRun = false;
 
+    // ---- command capabilities (script_capabilities.cpp): whose set `fa.call` runs a command with.
+    // Game: a behaviour or any other game code (the default: the safe one); Test: a test file's code (inside run_tests);
+    // Caller: a project tool or an eval, which run with the set of whoever called them (the thread's), never widened or narrowed here.
+    // call() puts every JS entry it makes back to Game unless told otherwise, so game code a tool triggers (game.step inside a tool)
+    // is still game code, and a tool run by a game script (fa.call("project.x")) keeps the game's set because scopes only narrow.
+    enum class CapMode { Game, Caller, Test };
+    CapMode capMode = CapMode::Game;
+    ScriptSystem::GameRole gameRole = ScriptSystem::GameRole::Player;
+    CapabilitySet gameCaps = capability_sets::game_player();
+    CapabilitySet testCaps = capability_sets::test_script();  // test_script() + what the running test asked for
+    std::shared_ptr<const CapabilityHintProvider> gameHint, testHint;
+    void set_game_role(ScriptSystem::GameRole role);
+    // Runs a command the way the current CapMode says (inside a CommandCapabilityScope of the game's or the test's set, or as is).
+    CommandResult run_command(const std::string& name, const Json& args);
+    // Switches capMode for a stretch of code and puts it back.
+    struct CapModeScope {
+        Impl& impl;
+        CapMode previous;
+        CapModeScope(Impl& i, CapMode mode) : impl(i), previous(i.capMode) { i.capMode = mode; }
+        ~CapModeScope() { impl.capMode = previous; }
+        CapModeScope(const CapModeScope&) = delete;
+        CapModeScope& operator=(const CapModeScope&) = delete;
+    };
+
     // ================= lifecycle
     bool init(ScriptHost& h, std::string* error);
     void shutdown();
@@ -282,7 +306,7 @@ struct ScriptSystem::Impl {
     // sets *failed. Result must be freed by the caller.
     JSValue call(const std::string& label, const std::string& entityId, JSValueConst fn, JSValueConst thisVal,
                  std::initializer_list<JSValue> args, bool* failed = nullptr, double limitSeconds = -1,
-                 bool quiet = false);
+                 bool quiet = false, CapMode mode = CapMode::Game);
     JSValue call_method(const std::string& label, const std::string& entityId, JSValueConst obj, const char* method,
                         std::initializer_list<JSValue> args, bool* failed = nullptr, const Behaviour* profile = nullptr);
     // push_guard returns the depth of the guard stack before the push; pop_guard(depth) drops every frame above it. A
