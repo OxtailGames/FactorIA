@@ -1833,12 +1833,12 @@ manifest `Publisher`.
   `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails or is cancelled; a
   certificate that was in the store before, with its private key, is left alone, and then the file is not even loaded a second
   time; one that was there WITHOUT its private key is completed by the import and removed with it afterwards). Up to three
-  PowerShell steps: read the thumbprint of the certificate that has a private key (imports nothing and leaves no key on disk),
+  PowerShell steps: read the thumbprint of the certificate that has a private key (imports nothing and leaves no key on disk; only a PowerShell killed while it holds the file open can leave a temporary key container),
   import only that certificate (not the chain certificates of the file, which would bring up Windows' root-store question; the
   keys of the chain certificates are deleted again), skipped when the store has the certificate with its key, and remove it.
   The import looks in the store first and loads the file only right before adding the certificate, and it deletes the key it
-  loaded when the certificate does not get into the store. Steps two and three hold a named mutex (per Windows user, shared by
-  all the user's logon sessions), so two `sign.windows` runs of one user do not change the store at the same time; the mutex
+  loaded when the certificate does not get into the store (a PowerShell killed at that very moment cannot clean up). Steps two and three hold a named mutex (per Windows user, shared by
+  all the user's logon sessions; opened with the rights it needs when a PowerShell run as administrator holds it), so two `sign.windows` runs of one user do not change the store at the same time; the mutex
   does not span the signing, so do not sign with the same `.pfx` in two runs at once (the first to finish removes the
   certificate). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
   `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
