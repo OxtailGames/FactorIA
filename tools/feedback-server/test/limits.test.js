@@ -226,3 +226,43 @@ test("admin routes need the token and are not counted against the write caps", a
     assert.equal((await admin(app, "GET", "/v1/admin/stats")).status, 200);
     assert.equal(store.counters.size, 0);
 });
+
+test("ALLOW_NO_CLIENT_IP is on only for 1 or true (any case, trimmed)", async () => {
+    const run = async (value) => {
+        const env = { ADMIN_TOKEN, HMAC_SECRET };
+        if (value !== undefined) env.ALLOW_NO_CLIENT_IP = value;
+        const s = makeServer({ env });
+        return (await rawPost(s.app, "/v1/reports", body([entry(1)]), { "x-factoria-install": INSTALL })).status;
+    };
+    for (const on of ["1", "TRUE", " true "]) assert.equal(await run(on), 200, on);
+    for (const off of ["yes", "0", "", undefined]) assert.equal(await run(off), 400, String(off));
+});
+
+test("an empty or whitespace cf-connecting-ip counts as missing", async () => {
+    const { app } = makeServer();
+    for (const v of ["", "   "]) {
+        const res = await rawPost(app, "/v1/reports", body([entry(1)]), { "x-factoria-install": INSTALL, "cf-connecting-ip": v });
+        assert.equal(res.status, 400, JSON.stringify(v));
+        assert.equal((await res.json()).error.code, "missing_client_ip");
+    }
+});
+
+test("IPv6 addresses are limited per /64, IPv4-mapped ones like the plain IPv4", async () => {
+    const hit = async (ips) => {
+        const { app } = makeServer({ limits: { ip: 1, install: 100 } });
+        const out = [];
+        for (let i = 0; i < ips.length; i++) {
+            out.push((await sendReports(app, batch(i * 10, 1), { install: uuid(), headers: { "cf-connecting-ip": ips[i] } })).status);
+        }
+        return out;
+    };
+    // Same /64 (also written differently): one bucket.
+    assert.deepEqual(await hit(["2001:db8:1:2::1", "2001:0db8:0001:0002:ffff:ffff:ffff:ffff"]), [200, 429]);
+    assert.deepEqual(await hit(["2001:DB8:1:2:3:4:5:6", "2001:db8:1:2::9"]), [200, 429]);
+    // Different /64: separate buckets.
+    assert.deepEqual(await hit(["2001:db8:1:2::1", "2001:db8:1:3::1"]), [200, 200]);
+    // IPv4-mapped is the IPv4 address.
+    assert.deepEqual(await hit(["198.51.100.7", "::ffff:198.51.100.7"]), [200, 429]);
+    assert.deepEqual(await hit(["198.51.100.7", "::ffff:c633:6407"]), [200, 429]);
+    assert.deepEqual(await hit(["198.51.100.7", "::ffff:198.51.100.8"]), [200, 200]);
+});

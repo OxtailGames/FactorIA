@@ -15,6 +15,46 @@ export async function reporterKey(secret, githubUserId) {
     return base64url(await hmac(secret, "github:" + githubUserId)).slice(0, 16);
 }
 
+/**
+ * The address a rate-limit bucket is keyed on. An IPv4 address stays as it is, an IPv4-mapped IPv6 address
+ * (::ffff:a.b.c.d) becomes that IPv4 address, and any other IPv6 address becomes its /64 prefix (the first four hextets,
+ * "::" expanded, lower case), so one host cannot get fresh buckets by rotating through its own /64. Anything else is kept.
+ */
+export function networkOf(ip) {
+    let a = String(ip).trim().toLowerCase();
+    const zone = a.indexOf("%");
+    if (zone >= 0) a = a.slice(0, zone);
+    if (!a.includes(":")) return a;
+    let tail = null;
+    const dot = a.lastIndexOf(".");
+    if (dot >= 0) {
+        const colon = a.lastIndexOf(":");
+        const v4 = a.slice(colon + 1).split(".");
+        if (v4.length !== 4 || v4.some((x) => !/^\d{1,3}$/.test(x) || Number(x) > 255)) return a;
+        const n = v4.map(Number);
+        tail = [((n[0] << 8) | n[1]).toString(16), ((n[2] << 8) | n[3]).toString(16)];
+        a = a.slice(0, colon + 1) + "0:0";
+    }
+    const halves = a.split("::");
+    if (halves.length > 2) return a;
+    const head = halves[0] ? halves[0].split(":") : [];
+    const rest = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+    let groups;
+    if (halves.length === 2) {
+        if (head.length + rest.length > 7) return a;
+        groups = [...head, ...new Array(8 - head.length - rest.length).fill("0"), ...rest];
+    } else {
+        groups = head;
+    }
+    if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return a;
+    if (tail) groups.splice(6, 2, ...tail);
+    const h = groups.map((g) => parseInt(g, 16));
+    if (h.slice(0, 5).every((x) => x === 0) && h[5] === 0xffff) {
+        return `${h[6] >> 8}.${h[6] & 255}.${h[7] >> 8}.${h[7] & 255}`;
+    }
+    return h.slice(0, 4).map((x) => x.toString(16)).join(":") + "::/64";
+}
+
 /** HMAC(secret, day + ":" + ip), only for rate-limit counters that expire after a day. */
 export async function ipKey(secret, day, ip) {
     return base64url(await hmac(secret, day + ":" + ip));
