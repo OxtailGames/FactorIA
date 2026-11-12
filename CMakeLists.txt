@@ -162,6 +162,7 @@ if(FA_BUILD_TOOLS)
         add_subdirectory(tools/editor)  # fa_editor  ImGui editor with AI assistant panel
     endif()
     add_subdirectory(tools/cli)     # factoria     the single developer binary
+    add_subdirectory(tools/bench)   # fa_bench     microbenchmarks with a baseline per machine kind (docs/PERFORMANCE.md)
 endif()
 
 # The feedback server (JavaScript, Cloudflare Worker): only its tests belong to the build, and only when Node is found.
