@@ -901,7 +901,7 @@ JSModuleDef* ScriptSystem::Impl::make_builtin_module(const std::string& name) {
     return m;
 }
 
-Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail) {
+Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail, CapMode topLevelMode) {
     std::string err;
     std::string name = normalize_module("<import>", path, &err);
     if (name.empty()) return Error{err, "Use project-relative paths such as \"scripts/player.js\"."};
@@ -913,8 +913,10 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
-    // The top level of a module is game code, not the tool or eval that happened to import it: it never runs with the caller's wider set.
-    CapModeScope topLevel(*this, capMode == CapMode::Caller ? CapMode::Game : capMode);
+    // The top level of a module is game code, not the tool, eval or test that happened to import it first (a module is evaluated
+    // once and cached, so what it did at load must not depend on who loaded it): it never runs with a wider set than the game's.
+    // Only the test file run_tests imports asks for Test.
+    CapModeScope topLevel(*this, topLevelMode);
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
     pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<JSValue> {

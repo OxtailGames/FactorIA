@@ -1355,14 +1355,13 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             twin.inputSchema = base->inputSchema;
             if (twin.inputSchema.contains("properties") && twin.inputSchema["properties"].is_object())
                 for (const char* k : {"path", "from", "dryRun", "edits", "save"}) twin.inputSchema["properties"].erase(k);
+            // The schema is closed, so a call with one of those arguments fails in validation, before any handler could explain
+            // it: the explanation lives in the schema, which the "invalid arguments" hint sends the caller to read.
+            twin.inputSchema["description"] =
+                "scene.place_ascii only changes the running world and never writes a file, so `path`, `from`, `dryRun`, `edits` and "
+                "`save` are not arguments of it. Use scene.import_ascii for those (it writes the project, so a game script cannot call it).";
         }
-        I.commands.add(std::move(twin), [&I](const Json& a) {
-            for (const char* k : {"path", "from", "dryRun", "edits", "save"})
-                if (a.contains(k))
-                    bad_arg(std::string("'") + k + "' is not an argument of scene.place_ascii: it only changes the running world and never writes a file",
-                            "Use scene.import_ascii for '" + std::string(k) + "' (it writes the project, so a game script cannot call it).");
-            return import_ascii(I, a);
-        });
+        I.commands.add(std::move(twin), [&I](const Json& a) { return import_ascii(I, a); });
     }
 
     I.commands.add(

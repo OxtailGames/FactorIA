@@ -17,12 +17,20 @@
 namespace fa {
 
 enum class Capability : std::uint8_t {
-    Read,           // "read": reads project or engine state (scenes, project files, logs, docs, screenshots of the running game).
-    State,          // "state": changes the running game or the open scene in memory only; writes no file.
-    WriteProject,   // "writeProject": writes files inside the project folder.
-    WriteAnywhere,  // "writeAnywhere": writes outside the project (absolute paths, the user's folders, user-level settings).
-    Network,        // "network": talks to a remote service (HTTP, a cloud API, a feedback server).
-    Process,        // "process": starts an external program (a compiler, an installer, a CLI agent).
+    // "read": reads project or engine state (scenes, project files, logs, docs, screenshots of the running game).
+    Read,
+    // "state": changes the running game or the open scene in memory only; writes no file.
+    State,
+    // "writeProject": writes files inside the project folder. That includes the game's own save folder (storage.clear
+    // and the other storage commands), which lives under the project.
+    WriteProject,
+    // "writeAnywhere": writes outside the project (absolute paths, the user's folders, user-level settings).
+    WriteAnywhere,
+    // "network": talks to a remote service (HTTP, a cloud API, a feedback server).
+    Network,
+    // "process": starts an external program (a compiler, an installer, a CLI agent). The platform's own helper behind a
+    // game feature is not this: the speech helper (spd-say) that ui.speak starts on Linux counts as "state".
+    Process,
     Spend,          // "spend": can cost money (paid AI APIs, store fees).
     Publish,        // "publish": makes something public or uploads a build to a store.
 };
@@ -72,6 +80,10 @@ public:
     // From JSON: an array of names (or one name as a string). An unknown name fails with its JSON pointer
     // (`pointer` + "/1") and fa::did_you_mean.
     static Result<CapabilitySet> parse(const Json& json, std::string_view pointer = {});
+    // parse() for the capabilities a COMMAND declares (core's declare_command_capabilities, a JS tool's `capabilities`, a
+    // plugin's set_command_capabilities): the same, but an empty set is an error that teaches ("a command needs at
+    // least read"): an empty set would let every caller run it, even one granted nothing.
+    static Result<CapabilitySet> parse_declaration(const Json& json, std::string_view pointer = {});
     // From text: names separated by commas and/or spaces ("read, state"); the CLI and test options use it.
     static Result<CapabilitySet> parse_list(std::string_view text);
 
@@ -91,14 +103,16 @@ namespace capability_sets {
 constexpr CapabilitySet cli_user() { return CapabilitySet::all(); }
 // An MCP client (`factoria mcp`, the editor's per-run endpoint): everything but writeAnywhere.
 constexpr CapabilitySet mcp() { return CapabilitySet::all().without(Capability::WriteAnywhere); }
-// `factoria mcp --read-only`: read and state, together with a filter that serves only the readOnly commands and the play
-// commands (game.step, game.screenshot, scene.load, ...; ai::is_read_only_tool). The play commands change the running
-// game (state), so {read} alone would refuse them. game.screenshot, the filmstrips and play.auto write only under
-// .factoria/ and declare {read, state}; their `path` argument needs writeProject, which this set lacks. The filter keeps
-// the editing commands out (tools/call on an unlisted tool is refused).
+// `factoria mcp --read-only`: read and state, together with a filter that serves only the readOnly commands and the
+// play commands (game.step, game.screenshot, scene.load, ...; ai::is_read_only_tool). The play commands change the
+// running game (state), so {read} alone would refuse them. game.screenshot, the filmstrips and play.auto write only
+// under .factoria/ and declare {read, state}; their `path` argument needs writeProject, which this set lacks. The
+// filter keeps the editing commands out (tools/call on an unlisted tool is refused).
 constexpr CapabilitySet mcp_read_only() { return CapabilitySet{Capability::Read, Capability::State}; }
 // The in-engine AI agents: everything but writeAnywhere and publish (a later package refines it per role).
-constexpr CapabilitySet agent() { return CapabilitySet::all().without(Capability::WriteAnywhere).without(Capability::Publish); }
+constexpr CapabilitySet agent() {
+    return CapabilitySet::all().without(Capability::WriteAnywhere).without(Capability::Publish);
+}
 // A script of the game the player is playing (fa.call from game scripts): read and state.
 constexpr CapabilitySet game_player() { return CapabilitySet{Capability::Read, Capability::State}; }
 // Scripts and tools the editor runs while the game plays in its window: read and state.
@@ -111,9 +125,13 @@ constexpr CapabilitySet test_script() { return CapabilitySet{Capability::Read, C
 constexpr CapabilitySet reads() { return CapabilitySet{Capability::Read}; }
 // Changes the running game or the open scene in memory (entity edits, game.step, ui.*, in-memory authoring).
 constexpr CapabilitySet changes_state() { return CapabilitySet{Capability::Read, Capability::State}; }
-// Writes project files and may also change the running game (what a command that declares nothing and is not readOnly gets).
-constexpr CapabilitySet edits_project() { return CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject}; }
-// Writes project files only; the running game is not touched (prefab.save, scene.format, anim clip edits).
+// Writes project files and may also change the running game (what a command that declares nothing and is not readOnly
+// gets).
+constexpr CapabilitySet edits_project() {
+    return CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+}
+// Writes project files only and does not change the running game or the open scene, so it has no "state" (prefab.save,
+// scene.format, anim clip edits). Every set holds "read": a command that writes may also read.
 constexpr CapabilitySet writes_project() { return CapabilitySet{Capability::Read, Capability::WriteProject}; }
 }  // namespace capability_sets
 

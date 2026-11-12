@@ -234,6 +234,10 @@ TEST_CASE("capabilities: scene.place_ascii is scene.import_ascii for the running
         CHECK(r.error["code"] == "invalid_arguments");  // the schema of the twin has no such property
         CHECK(r.error.dump().find(key) != std::string::npos);
     }
+    // The explanation of the refused arguments is in the schema (the validation error cannot carry it).
+    const Json schema = e.commands().info("scene.place_ascii")->inputSchema;
+    REQUIRE(schema.contains("description"));
+    CHECK(schema["description"].get<std::string>().find("scene.import_ascii") != std::string::npos);
     e.shutdown();
 }
 

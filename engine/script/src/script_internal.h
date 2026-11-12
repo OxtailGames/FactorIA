@@ -329,7 +329,9 @@ struct ScriptSystem::Impl {
     std::string module_name_for(const std::string& path) const;    // adds ?v= when reloaded
     // Imports a project module (project-relative path). Returns namespace (valid until module cache is cleared).
     void explain_missing_api(ScriptError& e);  // adds which module/export or method the player lacks
-    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr);  // returned value is DUPLICATED, caller frees
+    // Returned value is DUPLICATED, caller frees. The top level of the module runs with `topLevel`'s set: Game for every module (a
+    // module first imported while a test or a tool runs is still game code), Test only for the test file run_tests imports.
+    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr, CapMode topLevel = CapMode::Game);
     std::vector<std::string> bump_module_versions(const std::string& path);  // returns affected paths
 
     // ================= conversion

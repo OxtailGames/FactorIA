@@ -233,6 +233,11 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
 bool CommandRegistry::declare_capabilities(std::string_view name, CapabilitySet capabilities) {
     auto it = commands_.find(name);
     if (it == commands_.end()) return false;
+    if (capabilities.empty()) {  // refused like a JS tool's `capabilities: []`: the command keeps what it had
+        FA_ERROR("command", "capabilities declared for '{}' are empty, which is not allowed: a command needs at least \"read\" "
+                            "(use capability_sets::reads() for a command that only reads)", name);
+        return false;
+    }
     it->second.info.capabilities = capabilities;
     it->second.info.capabilitiesDeclared = true;
     it->second.info.readOnly = capabilities.without(Capability::Read).empty();
@@ -240,9 +245,12 @@ bool CommandRegistry::declare_capabilities(std::string_view name, CapabilitySet 
 }
 
 void declare_command_capabilities(CommandRegistry& registry, std::initializer_list<CommandCapabilityRow> rows) {
-    for (const CommandCapabilityRow& r : rows)
-        if (!registry.declare_capabilities(r.name, r.capabilities))
+    for (const CommandCapabilityRow& r : rows) {
+        if (registry.declare_capabilities(r.name, r.capabilities)) continue;
+        // An empty set was already reported by declare_capabilities; only a missing command is left to say.
+        if (!registry.has(r.name))
             FA_ERROR("command", "capabilities declared for '{}', which is not a registered command (renamed? conditional?)", r.name);
+    }
 }
 
 void CommandRegistry::remove(std::string_view name) {
@@ -277,6 +285,13 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
     if (jobOwner_) owner.emplace(jobOwner_);
     const std::shared_ptr<const CommandInterceptor> interceptor = interceptor_;  // one pointer test when there is none
     if (!interceptor || !interceptor->wants || !interceptor->wants(name)) return call_inner(name, argsIn);
+    // The capability check comes before the interceptor: a call the caller may not make never reaches a hook (which could log
+    // it, change its arguments or run a script of its own). call_inner checks again, after beforeCall_ may have reloaded the
+    // command, so this one only has to catch the refusal early.
+    if (auto it = commands_.find(name); it != commands_.end()) {
+        if (const CapabilitySet missing = it->second.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
+            return capability_denied(it->second.info, missing);
+    }
     Json args = argsIn.is_null() ? Json::object() : argsIn;
     if (interceptor->before) {
         if (std::optional<CommandResult> refused = interceptor->before(name, args)) return *refused;

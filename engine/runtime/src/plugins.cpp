@@ -241,7 +241,7 @@ int set_command_capabilities(const FaPluginApi* api, const char* command, const 
     if (!json.ok())
         return refuse(*p, "set_command_capabilities", "the capabilities of '" + name + "' are not JSON: " + json.error().message +
                                                           ". Example: [\"read\",\"network\"]");
-    auto set = CapabilitySet::parse(*json, "/capabilities");
+    auto set = CapabilitySet::parse_declaration(*json, "/capabilities");
     if (!set.ok()) return refuse(*p, "set_command_capabilities", "'" + name + "': " + set.error().message + " " + set.error().hint);
     it->info.capabilities = *set;
     it->info.capabilitiesDeclared = true;

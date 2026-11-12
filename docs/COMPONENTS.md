@@ -1208,6 +1208,8 @@ Since 0.22.0.
 
 Read the transcript of one AI CLI run that made a game (scripts/agent-cost.sh): steps and tokens to the first playable build, engine errors met and missed.
 
+Capabilities: read
+
 Reads `transcript` (the lines of `claude -p --output-format stream-json --verbose`) and returns {format, cli, model, brief, factoriaVersion, exitStatus, elapsedSeconds, cliVersion, total {steps, toolCalls, minutes, tokens, stepTokens, costUsd, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, stopReason, cliTurns}, firstPlayable {reached, playAutoCalls, firstPlayAutoStep, step, toolCalls, minutes, tokens}, finalGame {reachedLastLevel, phases, levelPhases, ended, endedWhy, scriptErrors}, engineErrors {count, byCode, first[]}, notCaught {count, items[]}, notes[]}. A step is one model message. Reading a transcript costs nothing; recording one with scripts/agent-cost.sh spends real AI quota (docs/AI_COSTS.md): run it only when the user asks. Example: {"transcript":"/tmp/agent-cost.x/transcript.jsonl","finalPlay":"/tmp/agent-cost.x/final-play.json","cli":"claude","model":"sonnet"}.
 
 total.tokens is input + cache + output of the CLI's own result line (stepTokens and firstPlayable.tokens add up the per-step counts, whose output tokens are partial: a lower bound). firstPlayable is the first `factoria call play.auto` whose answer ended "won" after at least `levels` (default 3) phases that are not named like a menu, title, credits or end screen, the scenes it loaded (named by their path) and the game.phase marks it made (what play.auto records; levels loaded inside one scene show only if the game calls game.phase, so a correct game can be missed; "won" is said by the game's own autoplay script, which the AI may have written, so endedWhy is kept); finalGame reads `finalPlay`, the answer of play.auto on the finished game. engineErrors are failed `factoria` calls (a test run, `factoria validate` or `factoria run` only when it gave a code), by error code, or under "none" when the failure gave no code; notCaught are outputs of `factoria run`, `play.auto`, a test run or game.logs that show a script error (script error, uncaught, TypeError...) while a `factoria test` had passed (docs or scene reads that quote the words do not count). `cliVersion` and `homeIsolated` (false: the CLI ran with the real HOME, so the user's CLAUDE.md and memory may have loaded; the report says so in notes) record how the run was made.
@@ -1232,6 +1234,8 @@ Since 0.11.0.
 
 Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.
 
+Capabilities: read
+
 The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Example: {"role":"worker"}
 
 Claude Code uses plugins, skills and hooks; Codex uses skills only; a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}; the API providers (anthropic, openai-compatible) use skills and hooks in FactorIA's own loop, not plugins. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only.
@@ -1246,6 +1250,8 @@ Since 0.11.0.
 
 List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook.
 
+Capabilities: read
+
 The "hooks" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns {entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {"recent":20}
 
 | Argument | Type | Required | Description |
@@ -1253,11 +1259,13 @@ The "hooks" entries of `extensions` in ai.json and the project's .factoria/exten
 | `role` | string | no | Only the entries this role loads (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all. |
 | `recent` | integer | no | How many recent runs to include. Default 50. |
 
-### `ai.hooks_test`
+### `ai.hooks_test` (modifies state)
 
 Since 0.11.0.
 
 Run the configured hooks of one event with a sample input and show what they decide.
+
+Capabilities: read, network, process, spend
 
 Try a hook before relying on it: runs the handlers configured for `event` whose matcher fits `match` with `input` as the event's JSON (the common fields session_id, cwd, hook_event_name... are added), exactly as the AI loop or the registry would. The handlers REALLY run (a program does what it does). Returns {event, matched, groups, outcome:{blocked, reason, blockedBy, stop, stopReason, context, feedback, systemMessages, allowed, updatedInput?, failed, runs:[{...exitCode, ms, decision, reason, output, stderr, failed, error}]}, skipped, note?}. `match` is what the matcher is compared with: the tool name (PreToolUse, PostToolUse, PostToolUseFailure), the command name (beforeCommand, afterCommand), the source of SessionStart or the reason of SessionEnd. A project's hooks that start a program run only after the user trusts the project in the editor. Example: {"event":"PreToolUse","match":"scene_spawn","input":{"tool_name":"scene_spawn","tool_input":{"name":"Coin"}}}
 
@@ -1268,9 +1276,11 @@ Try a hook before relying on it: runs the handlers configured for `event` whose 
 | `input` | object | no | The event's own fields, e.g. {tool_name, tool_input} for PreToolUse, {command, args} for beforeCommand, {prompt} for UserPromptSubmit. Default {}. |
 | `role` | string | no | Whose entries count for the AI events (the engine's command events use every role's). Default "orchestrator". |
 
-### `ai.models`
+### `ai.models` (modifies state)
 
 List the models each AI provider offers (the values for roles.<role>.model).
+
+Capabilities: read, network, process
 
 Asks the providers themselves, so newly released models show up: Claude Code through its CLI (aliases such as opus first, then full names; no model call, no usage), the Anthropic API and OpenAI-compatible APIs through GET /models. Codex and generic CLIs cannot list their models: their entry has an error. Without `provider` it lists every provider that ai.providers reports available; one provider's failure is in its own entry (error, hint) and does not fail the call. Returns {providers:[{name, models:[{id, name, description, resolved}], error?, hint?}]}: id is the value for roles.<role>.model, name the display name (empty when the provider gives none), description one line, resolved the model an alias stands for (empty for a full name). Example: {"provider":"claude-code"}
 
@@ -1283,6 +1293,8 @@ Asks the providers themselves, so newly released models show up: Claude Code thr
 Since 0.11.0.
 
 Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.
+
+Capabilities: read, writeAnywhere, network, process
 
 Runs the Claude Code CLI's own commands with the executable of the claude-code provider: `claude plugin marketplace add <marketplace>`, then `claude plugin install <plugin> --scope user`; a step already done (the marketplace listed by `claude plugin marketplace list`, the plugin installed for the user by `claude plugin list`; an install for one folder does not count) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "extensions" (the other keys stay), with `roles`. It installs software, so only the USER starts it (the editor's AI settings > Extensions > Add TokenEconomizer, or the CLI); the built-in agent and the MCP server never offer it. `preset` "tokeneconomizer" fills marketplace microsoft/TokenEconomizer, plugin tokeneconomizer@tokeneconomizer and requiresPython 3.10 (checks python3 / python before installing). `dryRun` returns what it would do. Returns {ok, dryRun, provider, command, marketplace, plugin, python:{required, command, version, ok, message}, steps:[{id marketplace|plugin|entry, command, needed, status would_run|not_needed|done|skipped|failed, detail}], entry:{name, added, present, path}, message}. Failures name the step, what the CLI said and how to fix it. Example: {"preset":"tokeneconomizer","dryRun":true}
 
@@ -1297,9 +1309,11 @@ Runs the Claude Code CLI's own commands with the executable of the claude-code p
 | `requiresPython` | string | no | Minimum Python version the plugin needs, e.g. 3.10. Checked before installing. |
 | `dryRun` | boolean | no | Report the commands and whether each is needed; install nothing. |
 
-### `ai.providers`
+### `ai.providers` (modifies state)
 
 List configured AI providers and roles, or diagnose which ones are usable (doctor).
+
+Capabilities: read, process
 
 action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: {"action":"doctor"}
 
@@ -1312,6 +1326,8 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 Since 0.17.0.
 
 Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.
+
+Capabilities: read, writeProject, network, process, spend
 
 Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, "Efficiency feedback"; docs/AI_PROVIDERS.md, "Retrospective"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste (the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind "efficiency" (threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Example: {"since":"2026-11-01"}
 
@@ -1328,6 +1344,8 @@ Nothing is shared or sent: entries stay in ENGINE_FEEDBACK.json like any other. 
 Since 0.4.0.
 
 Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done).
+
+Capabilities: read, writeProject, network, process, spend
 
 Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a different persona; the first is always the all-rounder, so the score of one reviewer stays comparable over time). They play the current build (REVIEW.md first), never change the project, and write a report with a score from 0 to 10 and sub-scores. Each review is saved in <project>/.factoria/ai/reviews/ and returned: {reviews:[{id, path, persona, score, subScores, summary, text}], averageScore, costUsd, errors}. Only a person asks for reviews: the orchestrator is told not to call this. The roles artCritic and reviewer of ~/.factoria/ai.json choose the models. Example: {"kind":"game","count":3,"focus":"the first five minutes"}
 
@@ -1348,6 +1366,8 @@ Since 0.10.0.
 
 Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.
 
+Capabilities: read, writeProject, network, process, spend
+
 Run this after feedback.report when you wrote a `share` text (the editor's Send feedback window runs it on every text it is about to send). A cheap model checks the entry against the engine's command list and documentation: (1) the gap is real, (2) it is about the engine and not about the game, (3) the engine cannot already do it. The text also goes through the automatic sanitizer, which refuses anything with names, paths or quotes from the game. On a PASS the entry is marked reviewed: true and, if the text needed it, `share` is rewritten in engine terms (components, fields, commands and API names only; nothing about the game). On a FAIL nothing is changed: you get `reasons` (which check failed and why) and `fix`, what to change (rewrite the share text, use what the engine already has, or drop `share`). The model is the "fast" role of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The result is {id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, rewritten, reviewed, share, role}. Example: {"id":"FB-0003"} It never changes the sharing mode and never sends anything.
 
 This command never changes the sharing mode and never sends anything: only a person decides whether entries leave the machine. With `share` it reviews that text instead of the saved one and writes nothing (the answer's `share` is the text to use, `stored` is false): the editor's Send feedback window does this before it stores what it sends.
@@ -1363,6 +1383,8 @@ Since 0.4.0.
 
 List the saved reviews of the art critics and the game reviewers, newest first, with their scores.
 
+Capabilities: read
+
 Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, time, engineVersion, gameVersion, score (0 to 10, null when none), subScores and summary; `text` (the report) only with includeText. Use it to see how the score changes between builds. Example: {"kind":"game","limit":10}
 
 | Argument | Type | Required | Description |
@@ -1374,6 +1396,8 @@ Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, t
 ### `ai.run` (modifies state)
 
 Run an AI agent on a task in the current project (blocks until it finishes).
+
+Capabilities: read, writeProject, network, process, spend
 
 Uses the provider/model mapped to `role` in ~/.factoria/ai.json with this project's AI settings laid over it (the project's .factoria/ai/settings.json, once the user accepted it; ai.settings.get says what the project runs with) (default role orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
@@ -1393,6 +1417,8 @@ Since 0.11.0.
 
 Accept or decline a proposed project fact: one line added to the project's AGENTS.md.
 
+Capabilities: read, writeProject
+
 A command that failed with the same error code in several runs until a later call of it worked proposes one line for AGENTS.md (ai.savers lists them with their id). Accept appends the line under "## Project facts" in the project's AGENTS.md (created when missing); `line` replaces the proposed line. Nothing is written before an accept. Decline: not proposed again. Forget: undecided again (the line is not removed from AGENTS.md). Returns {id, status, written?, file?}. Example: {"id":"scene.load:not_found","answer":"accept"}
 
 | Argument | Type | Required | Description |
@@ -1406,6 +1432,8 @@ A command that failed with the same error code in several runs until a later cal
 Since 0.11.0.
 
 Accept or decline a proposed tool group for this project (loaded in full up front from the next run).
+
+Capabilities: read, writeProject
 
 The runs of a project count the commands they load from the tool catalog (ai.savers shows the counts and proposals). Accept: from the next run on, `role` loads the commands of `group` (a command category such as assets or anim) in full besides its own toolGroups, in this project only (kept in .factoria/ai/savers.json; ai.json is not changed). Decline: the group is not proposed again. Forget: undecided again. Nothing is ever denied: a command outside the loaded groups stays reachable through the catalog. Returns {role, group, status, note}. Example: {"role":"worker","group":"assets","answer":"accept"}
 
@@ -1421,6 +1449,8 @@ Since 0.11.0.
 
 Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
 
+Capabilities: read
+
 The engine has these savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
 
 ### `ai.session_timeline`
@@ -1428,6 +1458,8 @@ The engine has these savers, each with a switch in ai.json "savers" and in the e
 Since 0.9.0.
 
 Show where the time of a recorded AI session went: the long gaps and what was going on in each.
+
+Capabilities: read
 
 Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", the UTC time with ms; tool_end has "ms", the duration of the tool; thinking has "ms", how long the model thought, also when its text is hidden). Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. `context` splits what each model call carried (built-in agent only): per step the system prompt, the tool definitions and the conversation, in bytes and estimated tokens, plus how many commands were tools and how many only catalog lines, and the totals of the run. Example: {"minGapSeconds":60}
 
@@ -1442,7 +1474,11 @@ Since 0.17.0.
 
 Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine.
 
-The AI settings of a project resolve key by key: the engine's defaults, then your ~/.factoria/ai.json, then the project's own file (<project>/.factoria/ai/settings.json), docs/AI_PROVIDERS.md "Per project". scope "resolved" (default) returns {scope, project (the folder, or null), values:[{pointer, value, source}], projectSettings} with the values the project runs with (JSON pointers like /roles/artist/enabled or /limits/maxTurns) and `source` "project", "you" or "default"; projectSettings is the file's state when the project has one. scope "project" returns the project file itself: {scope, project, file, exists, overrides (the raw file), applied, pendingTrust, pending:[{pointer, from, to}], invalidError}. A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is not accepted is in invalidError and has no effect either. scope "user" returns your own ai.json view: {scope, configPath, configFound, values} with source "you" (the file sets it, or it differs from the engine's) or "default". Read-only; providers and keys are never part of it. Example: {"scope":"resolved"}
+Capabilities: read
+
+The AI settings of a project resolve key by key: the engine's defaults, then your ~/.factoria/ai.json, then the project's own file (<project>/.factoria/ai/settings.json), docs/AI_PROVIDERS.md "Per project". scope "resolved" (default) returns {scope, project (the folder, or null), values:[{pointer, value, source}], projectSettings} with the values the project runs with (JSON pointers like /roles/artist/enabled or /limits/maxTurns) and `source` "project", "you" or "default"; projectSettings is the file's state when the project has one. scope "project" returns the project file itself: {scope, project, file, exists, overrides (the raw file), applied, pendingTrust, pending:[{pointer, from, to}], invalidError}. A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is not accepted is in invalidError and has no effect either. scope "user" returns your own ai.json view: {scope, configPath, configFound, values}. Read-only; providers and keys are never part of the values. Example: {"scope":"resolved"}
+
+In scope "user" `source` is "you" (the file sets the value, or it differs from the engine's) or "default". Scopes "resolved" and "user" also return permissionModes: [{provider, kind, pointer, mode, default, source, values:[{value, allows, dangerous}]}], what each CLI agent (claude-code, codex) may do without asking and every value it accepts with a line on what it allows (docs/AI_PROVIDERS.md "Permission mode"); only the user changes it, with ai.settings.set scope "user".
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1454,9 +1490,11 @@ Since 0.17.0.
 
 Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
 
+Capabilities: read, writeProject
+
 Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /limits/maxAssetCostUsd/perRun and /limits/maxAssetCostUsd/perDay (the most that paid asset generation may spend, estimated dollars, 0 = no limit), /limits/askAboveUsd (a generation estimated above this waits for the user's yes), /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false} Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's decision.
 
-A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's decision, and a project file you write waits for the user's acceptance anyway. IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice).
+/providers/<name>/permissionMode (scope "user" only, never in a project's file) is what a CLI agent may do without asking: claude-code manual, plan, dontAsk, acceptEdits, auto or bypassPermissions; codex read-only, default, workspace-write or danger-full-access. ai.settings.get lists every value with what it allows; bypassPermissions and danger-full-access remove the guard rails, so only the user picks them. A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's decision, and a project file you write waits for the user's acceptance anyway. IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1470,6 +1508,8 @@ Since 0.11.0.
 
 Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.
 
+Capabilities: read
+
 The built-in agent (API providers) does not send every command's definition on every step: it gets the core commands (files, docs, scene, running the game, validating, scripts) and the tool groups of the role (ai.json roles.<role>.toolGroups, default: artist assets, audio assets and audio) in full, plus tool_describe and tool_call, and lists the other commands in its system prompt. Returns `tools` (name and estimated bytes of each tool sent), `catalogCommands`, the estimated `toolBytes`/`toolTokens` against `fullBytes`/`fullTokens` (every command in full), `groups` (the tool groups loaded), `notes` (a group that matches nothing, with suggestions) and `categories` (per category: commands, inCatalog, inFull). CLI agents (claude-code...) choose their own tools; this plan is what the API providers get. Example: {"role":"artist","catalog":true}
 
 | Argument | Type | Required | Description |
@@ -1477,11 +1517,13 @@ The built-in agent (API providers) does not send every command's definition on e
 | `role` | string | no | Role to plan for: orchestrator, worker, fast, artist, audio, artCritic, reviewer. Default "orchestrator". |
 | `catalog` | boolean | no | Also list every catalog command (command, category, summary). Default false. |
 
-### `ai.tool_servers`
+### `ai.tool_servers` (modifies state)
 
 Since 0.8.0.
 
 List the external tool servers (MCP) the user configured in ai.json, and optionally test them.
+
+Capabilities: read, network, process
 
 The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. Example: {"test":true,"name":"scenario"}
 
@@ -1498,11 +1540,13 @@ Since 0.7.0.
 
 Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.
 
+Capabilities: read, writeProject
+
 The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data"), run on the entity that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_attack.anim.json","t":0.3,"feel":[{"action":"hitStop","duration":0.06},{"action":"shake","amount":0.3}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `t` | number | yes | Seconds from the start of the clip. |
 | `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
@@ -1515,11 +1559,13 @@ Since 0.7.0.
 
 Add a track to a clip, with keys or the part's current value as its first key.
 
+Capabilities: read, writeProject
+
 `track` is {path, component?, field}. Give `keys` (as anim.set_keys), or `entity` (the entity that plays the clip) to start the track with one key at t=0 holding the part's current value; with neither it is refused. An existing track of the same field is refused (use anim.set_keys to edit it); two tracks may not drive the same field channel. Result: {path, track (index), keys, undo}. Example: anim.add_track {"path":"anim/hero_walk.anim.json","track":{"path":"body","field":"position.y"},"entity":"hero"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `keys` | array | no | The first keys [{t, value, interp?}]. |
 | `entity` | string | no | Entity that plays the clip: checks the part and gives the first key its current value. |
 | `extendDuration` | boolean | no | Raise the duration when a key is later than it. Default false. |
@@ -1530,6 +1576,8 @@ Add a track to a clip, with keys or the part's current value as its first key.
 Since 0.7.0.
 
 Find what is wrong with a clip, and with how it fits its character.
+
+Capabilities: read, state
 
 Checks clips and returns {checked, findings, ok, samples, notes}. Each finding is {kind, severity, clip, track?, part?, message, hint}: it names the track or part and says how to fix it. Kinds: `no_change` (a track whose keys all hold one value), `loop_jump` (a looping clip whose last pose differs from its first, so it snaps every cycle; angles take the short way round), `unknown_part` (a track that names no part of the entity, or a part without the component), `leaves_view` (a part that is in the camera view in some poses and completely outside it in others), `ik_out_of_reach` (an IK2D whose target cannot be reached in some poses) and `invalid_clip` (the file does not load). With `path` alone only the first two run (the clip file alone); with `entity` the clip is also posed `samples` times along its length (the entity is put back as it was) for the rest, and all of the Animator's clips are checked unless `clip` names one. Example: anim.check {"entity":"hero"} or anim.check {"path":"anim/hero_walk.anim.json"}
 
@@ -1546,11 +1594,13 @@ Since 0.7.0.
 
 Write a new keyframed 2D clip file (*.anim.json).
 
+Capabilities: read, writeProject
+
 Creates the file with `duration` seconds, `loop`, and optionally its `tracks` and `events` in the format of docs/ANIMATION.md ("2D clips", schemas/anim.schema.json). Everything is checked with the loader's own rules and nothing is written if it is wrong (errors name the JSON pointer). It refuses to replace a file unless `overwrite` is true. Result: {path, duration, loop, tracks, events, undo} where `undo` is {command, args} that puts the file back (or deletes the new file); run it with anim.restore. Then add keys with anim.set_keys and play it from an Animator: Animator.clips {"walk": path}. Example: anim.create_clip {"path":"anim/hero_walk.anim.json","duration":0.8,"loop":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative file ending in .anim.json. |
+| `path` | string | yes | Project-relative file ending in .anim.json, inside the project (absolute paths need writeAnywhere). |
 | `duration` | number | yes | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
@@ -1558,11 +1608,13 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 | `events` | array | no | Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t. |
 | `overwrite` | boolean | no | Replace the file if it exists. Default false. |
 
-### `anim.filmstrip`
+### `anim.filmstrip` (modifies state)
 
 Since 0.7.0.
 
 One picture with a grid of a clip's poses, to see the whole motion at once.
+
+Capabilities: read, state
 
 Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d/n, ... never the duplicate end pose; otherwise 0 .. duration) and captures each, into one labelled grid PNG (label "f3 +250" = pose 3, 250 ms into the clip). The game is not stepped: only the pose changes, and the entity is put back as it was afterwards. By default the view is the box around the entity's visuals over all poses (plus a margin), magnified so the sheet is about 1600 px wide; `region` [x, y, width, height] (design pixels) and `zoom` override it. `onionSkin: true` draws each pose over faint copies of the previous and next ones, so a stride or a swing shows its arc and a jump between two poses shows as a double image. At most 64 poses, a sheet at most 8192 px a side. Needs graphics. Without `path` the picture is temporary (the MCP server shows it then deletes the file); with `path` it is kept. Result: {width, height, frames: [{index, t}], columns, rows, tileWidth, tileHeight, zoom, region, $image}. Example: anim.filmstrip {"entity":"hero","clip":"walk","frames":8,"onionSkin":true}
 
@@ -1575,13 +1627,15 @@ Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d
 | `onionSkin` | boolean | no | Draw faint copies of the neighbouring poses under each pose. Default false. |
 | `region` | array | no | [x, y, width, height] in design pixels; default: around the character. |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
-| `path` | string | no | Keep the PNG here (project-relative or absolute). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
 
 ### `anim.list`
 
 Since 0.7.0.
 
 List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state.
+
+Capabilities: read
 
 With `entity`: its Animator's state (`clip`, `time`, `playing`, `state`, `speed`, `loop`), its `layers` and every clip of Animator.clips as {name, file, duration, loop, tracks: [{index, path, component, field, keys, first, last, stepped}], events: [{t, name}], problems}; `problems` lists tracks that name no part of this entity, and a clip file that does not load has `error` and `issues` instead. With `path`: the same description of one clip file (no entity). With neither: every Animator that plays clip files in the scene. `full: true` adds `source`, the whole file, for editors. The track `index` is what the anim.* editing commands accept as `track`. Example: anim.list {"entity":"hero"}
 
@@ -1597,11 +1651,13 @@ Since 0.7.0.
 
 Move an event of a clip to another time.
 
+Capabilities: read, writeProject
+
 `event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Events stay sorted, so the index in the result is the new one. Result: {path, event, from, to, undo}. Example: anim.move_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"to":0.25}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `to` | number | yes | The new time in seconds. |
 | `extendDuration` | boolean | no |  Default false. |
@@ -1612,11 +1668,13 @@ Since 0.7.0.
 
 Move and scale a selection of keys in time.
 
+Capabilities: read, writeProject
+
 `keys` selects keys as [{track, t}] (`track` is the index in the clip's tracks or {path, component, field}; anim.list shows them). Each selected key goes to `pivot + (t - pivot) * scale + offset` (scale first, about `pivot`; the default pivot is the earliest selected key, scale 1, offset 0). Keys that are not selected stay. Refused (nothing written) when a key would land on another key of its track, before 0, or after the duration (unless `extendDuration`). Result: {path, moved, keys: [{track, from, to}], undo}. Example: slow the swing down by half from its start: anim.move_keys {"path":"anim/hero_walk.anim.json","keys":[{"track":0,"t":0.2},{"track":0,"t":0.4}],"scale":2,"extendDuration":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `keys` | array | yes |  |
 | `offset` | number | no | Seconds added after scaling (negative moves earlier). Default 0. |
 | `scale` | number | no | Time scale about the pivot: 2 doubles the spacing, 0.5 halves it. Default 1. |
@@ -1628,6 +1686,8 @@ Move and scale a selection of keys in time.
 Since 0.7.0.
 
 Pose an entity as one of its clips is at a time, and leave it there.
+
+Capabilities: read, state
 
 `clip` is a name of Animator.clips (or the file one of them names), `t` seconds into it (clamped to the clip). The entity's parts, bones, skins and IK take that pose and the Animator pauses there until play() or a new `clip`; save the scene only if you want the pose kept. Result: {entity, clip, t, duration, values: [{track, value}]} with the sampled value of every track. Use it with game.screenshot to look at one pose, or anim.filmstrip to look at many. Example: anim.pose {"entity":"hero","clip":"walk","t":0.2}
 
@@ -1643,11 +1703,13 @@ Since 0.7.0.
 
 Remove an event from a clip.
 
+Capabilities: read, writeProject
+
 `event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 
 ### `anim.remove_keys` (modifies state)
@@ -1656,11 +1718,13 @@ Since 0.7.0.
 
 Remove keys of one track of a clip, by time or all of them.
 
+Capabilities: read, writeProject
+
 `times` lists the times (seconds) of the keys to remove; each must be a key of the track (the error lists its times). `all` removes every key, which removes the track (a track needs at least one key). Result: {path, removed, trackRemoved, undo}. Example: anim.remove_keys {"path":"anim/hero_walk.anim.json","track":{"path":"body","field":"rotation.z"},"times":[0.4]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `times` | array | no | Times of the keys to remove. |
 | `all` | boolean | no | Remove every key (and so the track). Default false. |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
@@ -1671,11 +1735,13 @@ Since 0.7.0.
 
 Remove a whole track (all its keys) from a clip.
 
+Capabilities: read, writeProject
+
 `track` is the index in the clip's tracks or {path, component, field}. The tracks after it shift down by one. Result: {path, removed: {path, component, field, keys}, undo}. Example: anim.remove_track {"path":"anim/hero_walk.anim.json","track":{"path":"body","field":"rotation.z"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `track` | any | yes | Index in the clip's tracks, or {path, component, field}. |
 
 ### `anim.restore` (modifies state)
@@ -1684,11 +1750,13 @@ Since 0.7.0.
 
 Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits.
 
+Capabilities: read, writeProject
+
 Every editing command returns `undo` = {command: "anim.restore", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked like any clip) or, when `clip` is null, deletes the file (the undo of anim.create_clip). Its own result carries the `undo` that goes forward again (redo). Example: anim.restore {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
 
 ### `anim.set_clip` (modifies state)
@@ -1697,11 +1765,13 @@ Since 0.7.0.
 
 Set the duration, loop or description of a clip.
 
+Capabilities: read, writeProject
+
 Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the last key or event is refused, naming the key (move it with anim.move_keys first). Result: {path, duration, loop, undo}. Example: anim.set_clip {"path":"anim/hero_walk.anim.json","duration":1.2,"loop":false}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `duration` | number | no | Length of the clip in seconds. |
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose. |
 | `doc` | string | no | What the clip shows. |
@@ -1712,11 +1782,13 @@ Since 0.7.0.
 
 Rename an event of a clip, or replace its data or its game feel actions.
 
+Capabilities: read, writeProject
+
 `event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or `feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
 | `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
@@ -1728,11 +1800,13 @@ Since 0.7.0.
 
 Set how selected keys reach the next key: interp or easing, and bezier tangents.
 
+Capabilities: read, writeProject
+
 `keys` selects keys as [{track, t}] (as anim.move_keys). `interp` is linear, step, bezier or a tween easing (quadIn, quadOut, backInOut, elasticOut...). `in` and `out` set the bezier tangents of the selected keys (slope in field units per second, shaped like the value); without them a bezier key gets a smooth tangent through its neighbours. Result: {path, changed, undo}. Example: anim.set_interp {"path":"anim/hero_walk.anim.json","keys":[{"track":0,"t":0.4}],"interp":"quadOut"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `keys` | array | yes |  |
 | `interp` | string | yes | linear, step, bezier or an easing of tween(). |
 | `in` | any | no | bezier: incoming slope for every selected key. |
@@ -1744,11 +1818,13 @@ Since 0.7.0.
 
 Add or replace keys of one track of a clip, creating the track if it is missing.
 
+Capabilities: read, writeProject
+
 `track` is {path, component?, field}: the part (names from the entity that plays the clip, "" = itself), the component (default Transform) and the field with an optional channel ("rotation.z", "position", "color.a"). Each key is {t, value, interp?, in?, out?}: a key at an existing time REPLACES that key, any other time adds one; the keys stay sorted. Numbers, vectors, colours and angles interpolate (`interp`: linear, step, bezier with in/out tangents, or a tween easing such as quadOut); bool, int, enum, asset and rect fields only step. With `entity` (the entity that plays the clip) the track's part and component must exist on it, with "did you mean" over the names. A key past the duration is refused unless `extendDuration` is true (the duration grows to it). Result: {path, track (index), added, replaced, keys, undo}. Example: anim.set_keys {"path":"anim/hero_walk.anim.json","track":{"path":"body/arm_l","field":"rotation.z"},"keys":[{"t":0,"value":-30},{"t":0.4,"value":30,"interp":"quadInOut"},{"t":0.8,"value":-30}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | The clip file (.anim.json). |
+| `path` | string | yes | The clip file (.anim.json), inside the project (absolute paths need writeAnywhere). |
 | `keys` | array | yes |  |
 | `entity` | string | no | Entity that plays the clip (id or name): the track's part and component are checked against it. |
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
@@ -1759,6 +1835,8 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 Since 0.16.0.
 
 Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.
+
+Capabilities: read, writeProject
 
 The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1776,6 +1854,8 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 Since 0.16.0.
 
 Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.
+
+Capabilities: read, writeProject
 
 Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "euler" (keys are [pitch, yaw, roll] degrees, the default) or "quat" (keys are [x, y, z, w]). `rig` (optional) records the rig the clip is for and its template (retargeting and anim3d.preview read it). It refuses to replace a file unless `overwrite` is true. For a whole walk, run, idle, swing or hit clip use anim3d.generate instead. Format: schemas/anim3d.schema.json, docs/ANIMATION.md, "3D bone clips". Example: {"path":"anim/hero_wave.anim.json","duration":1.2,"loop":false,"rig":"assets/models/hero.rig.glb"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1795,6 +1875,8 @@ Since 0.16.0.
 
 Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.
 
+Capabilities: read, writeProject
+
 Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, gallop (a quadruped's four legs), idle (spine breathing, a little sway), swing (the bones of a tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with 'did you mean'). A gait is solved with the rig's own proportions: each foot follows a path that stands still on the ground in stance (the clip's `contacts` say when) and the clip's `groundSpeed` is the speed to move the entity at so the planted feet do not slide. The clip records the kind and every parameter used in `generated`, so the same call writes the same bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which template has it. Refuses to replace a file unless `overwrite`.
 
 Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLength":1.2,"cadence":1.0},"out":"anim/hero_walk.anim.json"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
@@ -1813,6 +1895,8 @@ Since 0.16.0.
 
 List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults.
 
+Capabilities: read
+
 The catalog behind anim3d.generate: for each kind what it makes, the rig templates it fits and every parameter with its meaning, default and range. Defaults that scale with the leg are written as 'N x leg' (the leg is hip to ankle in the rig's rest pose). The gait tables are in docs/ANIMATION.md, "Generators". Nothing is written. Example: {}
 
 ### `anim3d.info`
@@ -1820,6 +1904,8 @@ The catalog behind anim3d.generate: for each kind what it makes, the rig templat
 Since 0.16.0.
 
 Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project.
+
+Capabilities: read
 
 Reads the clip with the loader's own rules, so a file the game could not play comes back as an error with the JSON pointer of each problem. The result gives the length, whether it loops, the ground speed, the tracks (bone, channel, key count, first and last time), the events and the contacts (stretches where a foot is on the ground), and, for a generated clip, `generated` (kind and parameters). With `rig` it also reports bones the rig does not have (with 'did you mean'). Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb"}
 
@@ -1833,6 +1919,8 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 Since 0.16.0.
 
 Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).
+
+Capabilities: read, writeProject
 
 Samples the clip at `time`, mirrors the pose across the character's mid plane and writes it as keys at `to` (default `time`) for every bone the clip animates: `from` "swap" (default) puts each side's pose on the other side and mirrors the bones with no side (spine, head, root) in place; "left" copies the left side onto the right bones; "right" the other way. A mirrored rotation keeps pitch and flips yaw and roll (a quaternion (x, y, z, w) becomes (x, -y, -z, w)); a translation flips x. Only channels the clip has a track for are keyed. `rig` defaults to the clip's own. Use it to build the second half of a cycle from the first. Result: the clip summary plus {time, from, keys, bones, undo}. Example: {"path":"anim/hero_walk.anim.json","time":0,"to":0.5} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1851,6 +1939,8 @@ Since 0.16.0.
 
 Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.
 
+Capabilities: read, writeProject
+
 `keys` selects keys as [{bone, channel?, t}]; each moves to t + dt (rounded to 0.1 ms). A key may not leave the clip: before 0 is an error, past the duration is an error unless `extendDuration`. Two moved keys of one track landing on the same time is an error; a moved key replaces an unselected key at its new time. Bezier keys get smooth tangents again. Result: the clip summary plus {moved, dt, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}],"dt":0.05} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
@@ -1860,11 +1950,13 @@ Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key rep
 | `dt` | number | yes | Seconds to move by (negative = earlier). |
 | `extendDuration` | boolean | no | Lengthen the clip when a key moves past its end. |
 
-### `anim3d.preview`
+### `anim3d.preview` (modifies state)
 
 Since 0.16.0.
 
 Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG.
+
+Capabilities: read, state
 
 The way to SEE a clip without a window. It poses the rig's skin with the clip at `frames` times (a looping clip does not repeat its first pose at the end) and draws each with the software renderer of model.preview (no graphics device, the same pixels on every machine), all framed the same way so the motion reads across the strip. Under each pose: its time and the bones the clip's contacts say are on the ground. The mesh is skinned with the vertex weights stored in the .glb (rigid per bone as rig.bake writes them). `yaw` picks the side (default -70: from the character's right and a little in front); `yaws` (a list, e.g. [-70, 0, 90]) draws one row of poses per side in one sheet, which is how a pose is checked from several angles at once; the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb","frames":8}
 
@@ -1877,7 +1969,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 | `yaw` | number | no | The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70). |
 | `yaws` | array | no | Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]. |
 | `pitch` | number | no | Degrees above the horizon (default 10). |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
 ### `anim3d.remove_event` (modifies state)
@@ -1885,6 +1977,8 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 Since 0.16.0.
 
 Remove an event from a 3D clip.
+
+Capabilities: read, writeProject
 
 `event` is the event's index in the clip's events, or {t, name?}. Result: the clip summary plus {removed, undo}. Example: {"path":"anim/hero_walk.anim.json","event":0} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1899,6 +1993,8 @@ Since 0.16.0.
 
 Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.
 
+Capabilities: read, writeProject
+
 `keys` selects keys as [{bone, channel?, t}] (anim3d.info lists the tracks; a time within 1 ms matches). Result: the clip summary plus {removed, tracksRemoved, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}]} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
@@ -1911,6 +2007,8 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 Since 0.16.0.
 
 Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).
+
+Capabilities: read, writeProject
 
 The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {"path":"anim/hero_walk.anim.json","bone":"hand_l"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1926,6 +2024,8 @@ Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
+Capabilities: read, writeProject
+
 Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly (it needs `origin` and `date`), null removes it; with `clip: null` it is ignored (the record is removed with the file); without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
@@ -1939,6 +2039,8 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 Since 0.16.0.
 
 Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.
+
+Capabilities: read, writeProject
 
 Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not move rests. Root translation, ground speed and feet are scaled by the ratio of the leg lengths (hip to ankle) or `scale`; with `plantFeet` (default) the legs the clip has contacts for are solved again with the two-bone solver so planted feet stay planted on the new proportions (`planted`); a foot the new legs cannot reach stretches straight and is reported in `notes`. `from` defaults to the rig recorded in the clip. Result: {path, scale, mapped, dropped, resampled, planted, notes}. Example: {"path":"anim/hero_walk.anim.json","to":"assets/models/guard.rig.glb","out":"anim/guard_walk.anim.json"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1959,6 +2061,8 @@ Since 0.16.0.
 
 Set the duration, loop, ground speed or description of a 3D clip.
 
+Capabilities: read, writeProject
+
 Give any of `duration` (seconds; shorter than the last key or event is refused), `loop`, `groundSpeed` (model units per second the planted feet move back at; 0 = in place) and `doc`. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","duration":1.2,"loop":false} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
@@ -1974,6 +2078,8 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 Since 0.16.0.
 
 Move, rename or change the data or the game feel actions of an event of a 3D clip.
+
+Capabilities: read, writeProject
 
 `event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -1993,6 +2099,8 @@ Since 0.16.0.
 
 Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).
 
+Capabilities: read, writeProject
+
 `keys` selects keys as [{bone, channel?, t}]; `interp` is linear, step, bezier (smooth tangents through the neighbours) or an easing name (quadIn, quadOut, quadInOut, backOut, elasticOut... as tween()). A quaternion clip takes linear, step or an easing. Result: the clip summary plus {changed, interp, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}],"interp":"quadInOut"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
@@ -2006,6 +2114,8 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 Since 0.16.0.
 
 Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.
+
+Capabilities: read, writeProject
 
 Edits one track (`bone` + `channel`, made when it does not exist): each key is {t, value, interp, in, out} as in the file (schemas/anim3d.schema.json). `value` is [x, y, z] (rotation: pitch, yaw, roll degrees; translation: an offset from the rest position in the parent's frame, model units; scale: a multiplier) or [x, y, z, w] for a quaternion clip. `interp` is linear (default), step, bezier or an easing name (quadInOut, backOut...). Keys within 0.1 ms of an existing key replace it; the rest are added; keys end up in time order. `duration` sets the length of the clip (a key later than it is an error). `rig` (optional) checks that the bone exists in that rig (with 'did you mean'). The whole clip is checked with the loader's rules and nothing is written if it is wrong. The file is written in canonical form. Example: {"path":"anim/hero_wave.anim.json","bone":"arm_upper_l","keys":[{"t":0,"value":[0,0,0]},{"t":0.4,"value":[0,0,150],"interp":"quadOut"}]} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -2024,17 +2134,23 @@ Edits one track (`bone` + `channel`, made when it does not exist): each key is {
 
 Describe every registered command (name, summary, schema).
 
+Capabilities: read
+
 Example: api.commands {}
 
 ### `api.components`
 
 Describe every component type: fields, kinds, defaults, docs.
 
+Capabilities: read
+
 Read this before writing scene JSON. Example: api.components {}
 
 ### `api.scripting`
 
 Machine-readable JavaScript API (modules, classes, functions) for gameplay scripts.
+
+Capabilities: read
 
 Example: api.scripting {}
 
@@ -2045,6 +2161,8 @@ Example: api.scripting {}
 Since 0.1.6.
 
 Measure the loudness of a sound (or of every sound) and keep the result in assets.json.
+
+Capabilities: read, writeProject
 
 Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak (dBFS) of .wav, .ogg, .mp3 and .qoa files, and stores them under the sound's `analysis` in assets.json together with the size and SHA-256 of the file, so editing the sound later makes the record stale instead of wrong. Sounds with import "normalize": true play at `targetLufs` using that record; without one the desktop engine measures the sound when it loads it, and mobile builds cannot, so run this (or export, which stores it) before shipping. A sound whose record is still fresh is not measured again. Without `path` every sound under assets/ and every sound a scene or prefab names is analyzed. Returns {files: [{path, loudnessLufs, peakDb, seconds, streams, normalize, gainDb, cached, stored}], measured, cached, failed}: `streams` says whether the sound is decoded while it plays (import stream), `gainDb` is the gain normalize would apply (only when normalize is on). A sound that cannot be decoded is listed with `error` and `hint` when no path is given. Example: {"path": "assets/music/theme.ogg"}
 
@@ -2057,6 +2175,8 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 Since 0.6.0.
 
 Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.
+
+Capabilities: read, writeProject
 
 Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a project JavaScript module, e.g. "art/coin_spin.anim.js", whose default export is `frame({t, frame, frames, fps, progress, params, rng, seed, rngFor, clip, sheetFrame, width, height, ramp, rampAt, layer}) => string`, the SVG of that frame. t is the time in seconds (frame / fps); frame counts from 0 inside the clip and frames is the clip's length; progress runs 0..1 through the clip (frame / frames for a looping clip, so the last frame leads into the first; frame / (frames - 1) for loop false, so the last frame is the end pose); params is the `params` argument (a clip's own params are merged over it); rng() is a seeded random number in 0..1 for this frame (also rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays where it is); clip is the clip name with `clips`.
 
@@ -2098,6 +2218,8 @@ Since 0.6.0.
 
 Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame.
 
+Capabilities: read, writeProject
+
 Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `entity`) alone in a private world and captures it into a PNG sprite sheet at `path` (under assets/, ending in .png), with its `sheet` entry, provenance and recipe in assets.json. Use it to turn something that costs many draw calls on a phone (a glow made of shapes, a particle burst, a tweened badge, a scripted explosion) into ONE sprite, to make an effect once and play it as a SpriteAnimator, or to draw animated art with the engine's own Shape2D (gradients, strokes) instead of SVG. The world is simulated at the project's fixed step with the world RNG seeded from `seed`, so the same prefab, seed and settings bake the same pixels on the same GPU (the pixels of two different GPUs can differ by an edge pixel); a frame is captured every 1/`fps` seconds of simulated time, `frames` frames per clip. Example: {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24,"warmup":0.5,"pivot":[0.5,0.5]}
 
 SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's scripts all run as in the game; nothing else is in the world (no other entities and no lights: a `lit` sprite is drawn as in a world without lights). The entity is placed at the origin of the world, even when the scene puts it elsewhere. Frame 0 is drawn after one step (the entity's start() has run) and after `warmup` seconds. `clips` bakes several named clips from one entity, each in a fresh world: `[{"name":"explode","call":"explode","frames":24,"loop":false}, {"name":"idle","frames":8}]`; `call` runs that method of the entity's behaviour right after the warm-up (`args` are its arguments), `event` sends a game event instead (`data`); a clip with `clip` plays that clip of the entity's Animator (a key of Animator.clips, a `.anim.json` clip or a glTF animation) from time 0 with no cross-fade, switching the state machine off, and takes `frames` from the clip's duration times `fps` and `loop` from the clip when they are not given; a clip with none of them just plays. They follow each other in the sheet and become clips of its `sheet` entry (firstFrame, lastFrame, fps, loop). Framing: the pixels are drawn at `scale` pixels per world unit and cropped to everything drawn in ANY frame plus `margin`, so nothing is cut (a particle burst that grows is included) and the entity's origin is the same pixel in every frame: it is the `pivot` recorded in the sheet entry ([x, y] in 0..1 from the top-left of the frame). Give `pivot` to choose where the origin lands (a character's feet: [0.5, 1]); give `frameWidth` and `frameHeight` for a fixed cell: without `scale` the animation is scaled to fit it, with `scale` it must fit or the command fails and says how large the cell must be. The colours are straight alpha with the colour of the edge pixels bled outwards, so a sprite scaled with filtering has no dark halo; additive glows keep their light (their alpha is the brightest channel). `background` puts a colour behind the frames (default transparent). `padding` leaves transparent pixels around each cell (default 1; the sheet entry records it). Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's EGL). A process has one graphics device: when this one already uses it (the editor, an MCP session with graphics) the bake runs in a child `factoria call` process; from a terminal `factoria call assets.bake_sheet` works as is. A script that throws, a `call` that is not a method of the behaviour (with its methods and a suggestion) or a prefab that does not load fail with an error that names the prefab and the script. Provenance: origin generated, `ai` is true when the prefab, the scene or a texture it draws is recorded in assets.json as AI-made (pass `ai` to override, with `author` and `license`); the recipe holds the arguments and the SHA-256 of the prefab or scene, its scripts and textures, so assets.regenerate can make the sheet again and validate can tell when it is stale.
@@ -2126,11 +2248,13 @@ SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's 
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
-### `assets.check_art`
+### `assets.check_art` (modifies state)
 
 Since 0.16.0.
 
 Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
+
+Capabilities: read, state
 
 Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
 
@@ -2144,11 +2268,13 @@ Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the 
 | `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
 | `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
 
-### `assets.check_mix`
+### `assets.check_mix` (modifies state)
 
 Since 0.16.0.
 
 Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
+
+Capabilities: read, state
 
 Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Example: {"targets":{"music":-16,"sfx":-14}}
 
@@ -2160,15 +2286,17 @@ Rules: loudness_target / loudness_spread (loudness of each sound against the tar
 | `targets` | object | no | Loudness targets in LUFS per bus: {"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json. |
 | `includeOk` | boolean | no | Also list the checks that passed. Default false. |
 
-### `assets.contact_sheet`
+### `assets.contact_sheet` (modifies state)
 
 Since 0.16.0.
 
 Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.
 
+Capabilities: read, state
+
 Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for each of `sizes`) and a row for each background, so you can judge a set of assets the way the player meets them: small, on the real ground, in black and white. `backgrounds` default to a light colour, a dark colour and the clear colour of the first primary camera of the project's main scene (when it has one); the last row is the same pictures in greyscale over mid-grey (`greyscale: false` leaves it out). `sizes` are pixels of the longest side of each picture as the player sees it (Sprite.size on screen times the render scale): [32, 64] draws every picture twice, shrunk with averaging or grown with hard pixels; without `sizes` each picture is drawn at its native size (at most 512). PNG, JPG, BMP and TGA files are drawn as they are; a sprite sheet (one with a `sheet` entry in assets.json) shows its first frame, or all frames with `allFrames: true`. Example: {"paths":["assets/hero.png","assets/slime.png"],"sizes":[32,64]}.
 
-A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; without one the command fails with no_gpu, and you can leave the models out); a model in the real scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then the sheet continues below. Nothing is written unless `path` is given: then the PNG is also saved there (an existing file is not replaced without `overwrite: true`). The same inputs give the same picture.
+A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; without one the command fails with no_gpu, and you can leave the models out); a model in the real scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then the sheet continues below. No project file is written unless `path` is given (the picture is otherwise a temporary screenshot in .factoria/screenshots): then the PNG is also saved there, which needs the writeProject capability (an existing file is not replaced without `overwrite: true`). The same inputs give the same picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2178,7 +2306,7 @@ A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, t
 | `greyscale` | boolean | no | Add a last row with the pictures in greyscale over mid-grey, to judge their value structure. Default true. |
 | `columns` | integer | no | Cells per line; more wrap to a new block of rows below. Default 8. |
 | `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
-| `path` | string | no | Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written. |
+| `path` | string | no | Also save the picture as a PNG at this path (ending in .png; project-relative, an absolute path only for the command-line user). Needs the writeProject capability. Without it only a temporary screenshot in .factoria/screenshots is made. |
 | `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
 
 ### `assets.convert_audio` (modifies state)
@@ -2186,6 +2314,8 @@ A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, t
 Since 0.3.0.
 
 Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from.
+
+Capabilities: read, writeProject
 
 Reads the WAV at `path` (8, 16, 24 or 32-bit PCM or float, mono or stereo) and writes an Ogg Vorbis file at `to` (default: the same name ending in .ogg), with the encoder of this engine (fixed block size, no stereo coupling: about 4 to 6 times smaller than 16-bit WAV at the default quality, less than libvorbis would reach). The sample rate and length are kept. The WAV stays; the provenance of the WAV is copied to the Ogg with a note. Use it for music and long ambience (a streamed .ogg keeps little in memory, docs/ASSETS.md); keep short effects as WAV. Example: {"path":"assets/audio/wind.wav","quality":0.6}
 
@@ -2202,6 +2332,8 @@ Since 0.1.6.
 
 Write the AI-generated content disclosure for store forms (Steam) from the provenance records.
 
+Capabilities: read
+
 Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as AI_CONTENT_DISCLOSURE.md. Example: {}
 
 ### `assets.draw_capsules` (modifies state)
@@ -2209,6 +2341,8 @@ Returns Markdown that answers the AI-generated content questions of Steam's cont
 Since 0.2.0.
 
 Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo.
+
+Capabilities: read, writeProject
 
 Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
 The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds and screenshots get none (Steam's library hero must have no text), and the logo-only assets (Steam library logo 1280x720, Epic logo 960x540) are a transparent PNG with just the logo. `logo` is {"image": "assets/logo.png"} (transparent PNG) or {"text": "My Game", font, fill, outline} (title drawn like assets.draw_icon draws text; fill default white, outline default a dark one, false = none).
@@ -2237,6 +2371,8 @@ Since 0.2.0.
 
 Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and text, no image provider needed.
 
+Capabilities: read, writeProject
+
 Draws on the CPU (anti-aliased, identical everywhere, works headless): a background plus layers drawn in order. Writes the 1024x1024 icon at `path` (default: factoria.json `icon`, else assets/icon.png) and the Android adaptive-icon foreground (432x432, transparent; the 0..100 drawing box is scaled into the 66/108 safe zone, so nothing inside it is cropped) at `foreground` (default: export.android.adaptiveIcon.foreground, else assets/icon_fg.png; false = skip). An icon or foreground path factoria.json does not name yet is added to it. Files are replaced; assets.json gets provenance origin "original", ai false.
 Drawing space: x and y run 0..100 across the icon, origin top-left, y down; sizes and radii are in the same units (shapes may reach outside 0..100: the icon crops them).
 
@@ -2256,6 +2392,8 @@ Layer types: rect {x,y,w,h} (x,y = top-left), roundRect {x,y,w,h,radius}, circle
 Since 0.1.6.
 
 Generate a PNG image with the image asset provider and record where it came from.
+
+Capabilities: read, writeProject, network, process, spend
 
 Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. With `count` 2 to 4 it makes candidates and ONE review sheet: show it, ask for one number, call assets.pick; never pick for the person. COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
@@ -2283,6 +2421,8 @@ With `count` 2 to 4 it makes that many candidates for the slot `path` instead (f
 Since 0.3.0.
 
 Make a seamless loop offline (a wind or fire bed, a clock, a drone or chord pad) as a WAV or Ogg: no provider, no key.
+
+Capabilities: read, writeProject
 
 Synthesizes a mono loop at `path` (under assets/, .wav or .ogg) from `kind`, with no AI provider and no key. The same arguments and `seed` always give the same bytes. The end of the loop meets its start: filters run round the loop, gusts and hums have a whole number of cycles, and pops, ticks and notes wrap round the end. Records provenance in assets.json (origin original, ai false, license CC0).
 kind "noise": a bed of `color` noise (white = hiss, pink = rain, brown = rumble and wind) low-passed at `cutoff` Hz and scaled by `level`; `gusts` (0 to 1) swells it slowly; `crackles` adds random pops per second (a fire); `tick` adds a tick-tock every that many seconds (a clock; make `seconds` a multiple of it and `level` 0 for the ticks alone); `hum` adds sines at those Hz (a cellar's mains hum).
@@ -2321,6 +2461,8 @@ Since 0.1.6.
 
 Generate a 3D model with the model3d asset provider and record where it came from.
 
+Capabilities: read, writeProject, network, process, spend
+
 Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"} COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
@@ -2341,6 +2483,8 @@ Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes
 Since 0.1.6.
 
 Generate a music track with the music asset provider and record where it came from.
+
+Capabilities: read, writeProject, network, process, spend
 
 Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60} COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
@@ -2364,6 +2508,8 @@ Since 0.1.6.
 
 Generate a sound effect with the sound asset provider and record where it came from.
 
+Capabilities: read, writeProject, network, process, spend
+
 Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1} COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
@@ -2385,6 +2531,8 @@ Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the
 Since 0.1.6.
 
 Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.
+
+Capabilities: read, writeProject, network, process, spend
 
 Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10} COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
@@ -2414,6 +2562,8 @@ Like assets.generate_image, but the picture is a grid of `frames` animation fram
 Since 0.4.0.
 
 Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key.
+
+Capabilities: read, writeProject
 
 Paints a procedural texture at `path` (under assets/, ending in .png) with no AI provider and no key: free, offline and seeded (the same arguments give the same picture with the same build of factoria; another `seed` is another take of the material). Use it for backgrounds, desks, book covers and pages, floors, walls and surfaces when no image provider is configured (assets.generate_image would fail with no_provider), or when you want a flat material you can tune: `color` and `accent` recolour it, `scale` makes the features bigger or smaller, `roughness` goes from smooth and even (0) to worn and uneven (1), `tileable` makes the picture repeat with no seam, `normalMap` also writes a tangent-space normal map next to it (`<name>_n.png`, +Y up) for lit sprites and 3D materials. Textures are lit from the upper left, so grooves and bumps read. It makes surfaces, not drawings: for a picture of a subject (a portrait, an icon, an ornament) write an SVG and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets:
 
@@ -2464,6 +2614,8 @@ Since 0.1.6.
 
 Generate spoken audio from text with the voice asset provider and record where it came from.
 
+Capabilities: read, writeProject, network, process, spend
+
 Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"} COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
@@ -2487,6 +2639,8 @@ Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text
 Since 0.1.6.
 
 Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from.
+
+Capabilities: read, writeProject, process
 
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
 - .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
@@ -2518,6 +2672,8 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 
+Capabilities: read
+
 Example: assets.list {"folder":"assets","extension":".png"}
 
 | Argument | Type | Required | Description |
@@ -2530,6 +2686,8 @@ Example: assets.list {"folder":"assets","extension":".png"}
 Since 0.3.0.
 
 Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads.
+
+Capabilities: read, writeProject
 
 Every image under `folder` (png, jpg, tga, bmp; subfolders too) is a frame named by its path without the extension ("ship/0.png" is "ship/0"). They are packed into the smallest square page up to maxSize (tallest first), each with `padding` pixels of its own edge repeated around it so bilinear filtering and mipmaps never bleed a neighbour (the same padding as the export's atlas groups). The page is written to `out`, and the table to `table` (default `out` with .json): {"texture":"assets/atlas.png","size":[w,h],"frames":{"ship/0":{"rect":[x,y,w,h],"pivot":[px,py]}}}. rect is in texture pixels from the top-left, exactly Sprite.region; pivot is Sprite.pivot (+Y up). Pivots come from `<folder>/pivots.json` ({"ship/0":[0.5,0.2]}); a frame without one is [0.5, 0.5]. Keys of an existing table other than texture, size and frames are kept, so your own data can live in the same file.
 
@@ -2551,6 +2709,8 @@ Since 0.18.0.
 
 Keep the candidate the person chose: it becomes the slot, the others are dropped.
 
+Capabilities: read, writeProject
+
 Answers the review sheet that assets.generate_image {count} made for `slot` (its newest one: a newer sheet for the same slot replaces the older ones, which are refused as superseded) with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file cannot be moved (open in another program: code busy) nothing changes. Refused: a slot whose newest sheet was already answered (already_picked), and a candidate file that is no longer the picture on the sheet (superseded). The editor's Review window calls it with {sheet, n, slot}. Example: {"slot":"assets/items/potion.png","n":2}
 
 | Argument | Type | Required | Description |
@@ -2567,17 +2727,21 @@ Since 0.19.0.
 
 Read a list of asset files in the background, ready for their first use.
 
+Capabilities: read, state
+
 Starts a background load of the listed files: textures, models, fonts and sounds are decoded into the engine's caches (a .gltf brings its buffers and textures, a .prefab.json or .material.json what it names); any other file is read into memory. Answers at once with `loadId` and the status; it advances in the frames the game runs. A missing file is an error with "did you mean"; a folder is an error too. Example: assets.preload {"paths":["assets/boss.glb","sounds/boss_theme.ogg"]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `paths` | array | yes | Project-relative files to read ahead. |
 
-### `assets.preview_in_scene`
+### `assets.preview_in_scene` (modifies state)
 
 Since 0.16.0.
 
 See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.
+
+Capabilities: read, state
 
 Starts the scene `scene` in a second, headless engine, steps `steps` frames (default 2) so its scripts start, puts a temporary entity with the asset in the world and captures the view once per resolution. The result is ONE image with the screens side by side, each labelled with its name and size, plus `screens` (each with its position in the picture and, for a 2D camera, whether the asset is in view). The scene file is never changed and the temporary entity exists only in that engine, so nothing needs cleaning up. Where: `at` [x, y(, z)] in world units; or `entity` (an id or name in the scene) with `placement` "beside" (default: to the right of it, using the size of its Sprite or Shape2D, 64 when it has none) or "replace" (at its position, the entity hidden for the picture); `offset` [x, y] moves it from there. Without either, the middle of the view: the camera's position for a 2D scene, a few meters in front of the camera for a 3D one. Example: {"path":"assets/slime.png","scene":"scenes/main.scene.json","entity":"player","size":48}.
 
@@ -2596,11 +2760,13 @@ Starts the scene `scene` in a second, headless engine, steps `steps` frames (def
 | `steps` | integer | no | Frames the scene runs before the asset is placed. Default 2. |
 | `center` | boolean | no | 2D scenes: move the camera onto the asset so it is in view at every resolution. Default false. |
 
-### `assets.preview_sheet`
+### `assets.preview_sheet` (modifies state)
 
 Since 0.6.0.
 
 Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.
+
+Capabilities: read, state
 
 Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in assets.json (columns, rows, frameWidth, frameHeight, padding, frames; or the grid you pass), and returns a picture: every frame in a tile with its number (f<n>), a cyan rectangle for the frame, a grey one for the padding gutter around it and a magenta cross for the pivot (the clip's pivot, else the sheet's, else the centre; [x, y] from the top-left). `clip` shows one clip of the sheet; without it all the clips (or all the frames). `onion: true` draws the previous frame in red and the next in blue under the current one. It also checks the frames and returns `warnings` for: frames that draw nothing, shapes touching the edge of the cell (cut off), a bounding box that jumps by more than 30% of the frame between consecutive frames, a looping clip whose last frame jumps from the first or repeats it, and a grid that does not match the image size. The checks are the same for a sheet from assets.animate_svg, assets.bake_sheet, assets.slice_sheet or an Aseprite import, or one drawn by hand. The picture is a temporary screenshot in .factoria/screenshots. A wrong `clip` fails listing the clips of the sheet with a "did you mean". Example: {"path":"assets/hero.png","clip":"walk","onion":true}.
 
@@ -2623,6 +2789,8 @@ Since 0.1.6.
 
 Show where assets came from: the provenance record of one file, or all of them.
 
+Capabilities: read
+
 With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {"path":"assets/hero.png"}
 
 | Argument | Type | Required | Description |
@@ -2634,6 +2802,8 @@ With `path`, the provenance record of that file (null when it has none). Without
 Since 0.4.0.
 
 Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key.
+
+Capabilities: read, writeProject
 
 Rasterizes an SVG to a PNG at `path` (under assets/, ending in .png) with no AI provider and no key, anti-aliased, on the CPU (no GPU, so it works headless and in CI). Pass the SVG text in `svg` or an .svg file of the project in `source`. This is how an agent without an image provider draws a subject (a crest, a portrait silhouette, an ornament, a map symbol): write the shapes as SVG, rasterize, look at the picture in the result, edit the SVG, repeat. The size is `width` x `height` (the SVG is fitted inside, aspect kept, centred; give one and the other follows the SVG's proportions); leave both out for the size the SVG declares. Example: {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
 
@@ -2661,6 +2831,8 @@ Since 0.6.0.
 
 Make a made asset again from the recipe its provenance records, and say what changed.
 
+Capabilities: read, writeProject
+
 The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules, assets.generate_texture, assets.synth_sound, assets.generate_loop, assets.pack_atlas, assets.slice_sheet) record in assets.json `provenance.recipe`: {command, args, inputs: [{path, sha256}]}, the command that made the asset, the arguments that make the same bytes again and the project files it read with their hashes. This command runs that recipe through the command registry (any assets.* command that writes a recipe works, there is no list) with `overwrite: true`, and reports per file what changed: "pixels changed", "bytes changed (same pixels)", "unchanged" or "created", the size and the `sheet` layout before and after. Give `path` for one asset, `all` for every asset with a recipe, or `stale` for those whose `inputs` no longer match the files (an SVG or other source file you edited). Assets that read the output of another (a sheet sliced from a picture made from an SVG) are made after it, and `stale` looks again at their inputs when their turn comes. `dryRun` lists what would run and which inputs changed, and changes nothing. Example: {"stale":true} or {"path":"assets/art/coin.png"}.
 
 What a person recorded in the provenance (license, author, notes) is kept; the recipe and the date are new. Several files made by one call (an icon and its foreground, a texture and its normal map, the capsules of a store) are made once. Provider-made assets (assets.generate_image...) have no recipe: they would cost money and give a different picture, so asking for one is an error that says so. `factoria validate` warns about a stale asset with this command in its hint.
@@ -2672,11 +2844,13 @@ What a person recorded in the provenance (license, author, notes) is kept; the r
 | `stale` | boolean | no | Make again only the assets whose recipe inputs (the files they were made from) changed since. |
 | `dryRun` | boolean | no | List what would run (command, arguments, which inputs changed) and change nothing. |
 
-### `assets.review`
+### `assets.review` (modifies state)
 
 Since 0.16.0.
 
 A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.
+
+Capabilities: read, network, process, spend
 
 The optional last look of the make, preview, check, fix loop (docs/AI_GUIDE.md 9.23, docs/ASSETS.md "Reviewing art"). It runs assets.check_art on the same pictures first, then sends a vision model the pictures, the annotated picture of the check, the check's numbers, the style rules of assets.json and the style `references` images, and asks what the numbers cannot tell: does it match the style, does it read, does it suit its use. Unlike the user-only art critics of ai.review, you can call it yourself while you work. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off; the artist role is usually an image generator, not a viewer), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with assets.check_art alone. One model call per review: call it once the check shows no `fail`, not after every edit. Example: {"paths":["assets/knight.png","assets/orc.png"],"focus":"do they look like the same game at 48 px?"}
 
@@ -2693,6 +2867,8 @@ Result: {verdict: good | fix | redo (never `good` while the check has a fail), s
 Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
+
+Capabilities: read, writeProject
 
 Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` "" or null, are kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
@@ -2720,6 +2896,8 @@ Since 0.1.6.
 
 Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them.
 
+Capabilities: read, writeProject
+
 SpriteAnimator plays a uniform grid of frames (columns x rows, row-major from the top-left). Two ways to get one:
 1. The image already is a grid: give columns/rows (or frameWidth/frameHeight). The grid is checked against the image size (a width that columns does not divide is an error that lists the columns that fit) and recorded as the `sheet` of the image in assets.json. Example: {"path":"assets/hero.png","columns":4,"rows":2,"fps":12}.
 2. Frames separated by transparent gutters and of uneven sizes, as AI-generated and downloaded sheets often are: pass auto: true. Every group of touching pixels is a sprite (sprites whose boxes overlap are one frame), ordered by rows then columns, and repacked into a uniform grid of the largest sprite's size, each centred (align "bottom" stands characters on the same ground line). The new PNG is `out` (default <name>_sheet.png next to the image; the source is kept). `frames` is the number of sprites you expect: a different count is an error that lists what was found. Example: {"path":"assets/hero_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}.
@@ -2740,11 +2918,13 @@ background "auto" first makes a solid background transparent (the four corners m
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
 | `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
 
-### `assets.spectrogram`
+### `assets.spectrogram` (modifies state)
 
 Since 0.16.0.
 
 See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.
+
+Capabilities: read, state
 
 Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, like assets.preview_sheet does for a sprite sheet: the waveform on top (mid, or each channel; red columns are samples at full scale), a spectrogram in the middle (short-time Fourier transform of the mid channel, 20 Hz to 20 kHz on a logarithmic axis, brighter = louder, with a dB scale) and the loudness curve at the bottom (momentary 400 ms in blue, short-term 3 s in orange, the integrated value dashed, the loudest momentary value marked). When the sound is played looping (an AudioSource with loop, SceneSettings.music, audio.music, or audio.play with loop: true; or `loop: true` here) magenta dashed lines mark the loop seam and the title gives its jump and slope. Axes are labelled with the engine's built-in font. The result carries the numbers: integratedLufs, truePeakDb (4x oversampled), samplePeakDb, momentaryMaxLufs, shortTermMaxLufs, seconds, clippedSamples (samples flattened at full scale), dominantBand (the loudest octave band) and loopSeam. It reuses the sound's fresh `analysis` record for the integrated loudness and writes nothing unless `out` is given. The picture is a temporary screenshot in .factoria/screenshots; with `out` the PNG is kept at that project path. Example: {"path":"assets/music/theme.ogg","width":1200}
 
@@ -2753,7 +2933,7 @@ Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, li
 | `path` | string | yes | Project-relative sound file, e.g. assets/sfx/jump.wav. |
 | `width` | integer | no | Width of the picture in pixels. Default 1000. |
 | `height` | integer | no | Height of the picture in pixels. Default 640. |
-| `out` | string | no | Also keep the PNG at this project-relative path (must end in .png). Without it the picture is a temporary screenshot. |
+| `out` | string | no | Also keep the PNG at this project-relative path (must end in .png; needs the writeProject capability, never inside .git or .factoria). Without it the picture is a temporary screenshot. |
 | `loop` | boolean | no | Mark the loop seam. Default: whether the project plays the sound looping (scenes, prefabs and scripts). |
 | `channels` | string ["mid","each"] | no | "mid": one waveform of the average of the channels; "each": one lane per channel of a stereo sound. Default "mid". |
 
@@ -2762,6 +2942,8 @@ Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, li
 Since 0.3.0.
 
 Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes.
+
+Capabilities: read, writeProject
 
 Reads the font `source` (an absolute path on this machine, or relative to the project) and writes `out` (under assets/) with only the glyphs for: every character of locales/<language>.json for the `locales` (default: factoria.json's localization.languages; the same characters the glyph check of `factoria validate` asks a font for), printable ASCII, Latin-1 (Spanish and French letters), the full-width forms, the CJK punctuation line breaking needs, and the characters of `keep`. The shaping tables (GSUB, GPOS, GDEF, kerning) and the name strings (the license) stay; hinting and glyph names are dropped. A variable font is pinned to one instance (`axes`, default {"wght":400}; its other axes go to their default), because the engine draws a variable font's default instance and a Thin default would draw hairlines. Example: {"source":"C:/fonts/NotoSansSC[wght].ttf","locales":["zh-Hans"],"out":"assets/fonts/NotoSansSC-Regular-subset.ttf"}. Check the font's license allows modifying it (SIL OFL fonts do, but ask not to keep the Reserved Font Name; Noto has none) and keep its license file next to the result.
 
@@ -2780,6 +2962,8 @@ Runs HarfBuzz's subsetter: no Python or fontTools. The result has the sizes, the
 Since 0.3.0.
 
 Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
+
+Capabilities: read, writeProject
 
 Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no key. The presets are sound patches rendered by the engine's synthesizer: sfx.preset returns one as an editable *.sfx.json (docs/SOUND.md), so to change a sound instead of taking it as it is, write the patch, edit it and call sfx.render. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound (the noise changes and the pitch moves up to 10 percent). `seconds` stretches the whole sound. Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license CC0, the preset and the seed). Presets:
 
@@ -2817,6 +3001,8 @@ Since 0.16.0.
 
 Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
+Capabilities: read, writeProject
+
 Without `path` this bakes every *.audio.json of the project whose sound is missing or out of date (its document or a file it reads changed: the recipe's hashes), like sfx.bake. With `path` it bakes that document. The sound goes to `output.path` of the document, else next to it as <name>.wav (or .ogg); assets.json records provenance (a CC0 license for synthesized sources; the license and author of the files it read otherwise) and the recipe, so assets.regenerate and project.validate know when it is stale. A `loop` step stores its points as the import settings loopStart/loopEnd of the output, which a looping AudioSource honours. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
@@ -2833,6 +3019,8 @@ Without `path` this bakes every *.audio.json of the project whose sound is missi
 Since 0.3.0.
 
 Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.
+
+Capabilities: read, state
 
 Buses are "sfx", "music", "ui", "master" (the master has no ducking) and the project's own (factoria.json "audio"."buses"). Every voice of a bus, and the buses declared under it, is summed into its own buffer; the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 (0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with `attack` and `release` time constants in seconds (63% of the way in that time; null = off). `fade` (seconds) makes volume, lowpass and reverb slide instead of jumping (a volume change always ramps over about 10 ms so it does not click). Only the keys you pass change; with just `bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect work. Example: audio.bus {"bus":"music","lowpass":800,"fade":0.5}
 
@@ -2853,6 +3041,8 @@ Since 0.16.0.
 
 Write a new audio document (a source and a chain of steps) and bake it.
 
+Capabilities: read, writeProject
+
 Writes `path` (*.audio.json under assets/) with the format, `source` (a project WAV/OGG/MP3, an .sfx.json patch or another .audio.json), the `steps` (list of step objects; audio.info {} lists the types and fields) and the optional `seed`, `output` ({format wav|ogg, channels source|mono, quality, path}) and `doc` note. The document is checked first: a mistake returns every issue and writes nothing. Then it is baked (unless bake is false) and the result holds the measurements. Example: {"path":"assets/audio/door.audio.json","source":"assets/raw/door.wav","steps":[{"type":"trim","auto":true},{"type":"fade","out":0.05},{"type":"normalize","target":-3}]}
 
 | Argument | Type | Required | Description |
@@ -2871,6 +3061,8 @@ Writes `path` (*.audio.json under assets/) with the format, `source` (a project 
 Since 0.16.0.
 
 Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it.
+
+Capabilities: read, writeProject
 
 `op` is one of: add (insert `step`, an object, at `index`, default the end), set (change the fields of step `index` with `values`; a null value removes a field), remove (delete step `index`), move (take step `index` to position `to`), document (change `source`, `seed` or `output`). The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other steps as written. Then the sound is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/audio/door.audio.json","op":"set","index":2,"values":{"target":-6}}
 
@@ -2895,6 +3087,8 @@ Since 0.16.0.
 
 Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields.
 
+Capabilities: read
+
 An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
@@ -2910,6 +3104,8 @@ An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-des
 
 List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
 
+Capabilities: read
+
 Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
 
 | Argument | Type | Required | Description |
@@ -2923,6 +3119,8 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 Since 0.16.0.
 
 Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
+
+Capabilities: read, state
 
 The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary (from its beginning unless `section` is given). `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`, `pendingSong`, `pendingSection` and `pendingAt`); setIntensity, goToSection and crossfadeTo answer `change`: {frame, time, quantize}, the audio frame it lands on (null before the song plays or while it loads). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}. More: docs/MUSIC.md, "Playing a song in a game".
 
@@ -2953,6 +3151,8 @@ Since 0.16.0.
 
 What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
 
+Capabilities: read
+
 Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, appliedIntensity, requestedIntensity, volume, bus, stems, stemGains, pending, pendingSong, pendingSection, pendingAt, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `song` and `section` are what is audible now; `pendingSong`, `pendingSection` and `pendingAt` (the audio frame, as in the events' `frame`) say where the next queued section change or crossfade lands (null when none waits). While a crossfade's song is still loading, `pendingSong` is set and `pendingAt` is null; a song that failed to load shows in `error`, not as pending. `intensity` = `appliedIntensity` is the value the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). Example: audio.music_state {"entity":"music"}. The other fields and the music's memory: docs/MUSIC.md, "What the music costs in memory".
 
 `stemGains` is the gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). `cache` lists the songs the music cache holds, {song, mode, bytes, streamed, underruns, stems: [{name, bytes, streamed}]}, and `cacheBytes` adds them up, plus the sources a player still plays after the cache let go of them and the loads that finished but are not cached yet: this is the memory of the music (also `musicBytes` in game.state's audio and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` plays from its encoded ogg (in memory) through a small window of decoded chunks, so its `bytes` are that window plus the encoded file, not the whole song decoded; `streamed` of a song says any of its stems is, and `underruns` (per song, all its stems together) counts the blocks in which a window was not ready (that stem played silence).
@@ -2963,11 +3163,13 @@ Without `entity`: every player, including one still fading out after a scene cha
 
 ## assets
 
-### `audio.render`
+### `audio.render` (modifies state)
 
 Since 0.16.0.
 
-Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing.
+Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes no sound.
+
+Capabilities: read, state
 
 Applies the chain of the document (`path`, or an inline `document`) and returns the measurements (seconds, integrated loudness in LUFS, peak in dBFS, centroidHz, loop points), the length and peak after every step, and a picture (`$image`): the source and the result, each as a waveform over a spectrogram with its numbers, on one time and level scale. `stopAfter` renders only steps 0..stopAfter to hear the chain up to a step; `seed` takes another take of the random steps. The same document and files always render the same samples. Example: {"path":"assets/audio/door.audio.json","stopAfter":2}
 
@@ -2979,7 +3181,7 @@ Applies the chain of the document (`path`, or an inline `document`) and returns 
 | `stopAfter` | integer | no | Render only steps 0..stopAfter. |
 | `compare` | boolean | no | Show the unprocessed source above the result in the picture. Default true. |
 | `picture` | boolean | no | Return the picture (`$image`). Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Without it the picture is a temporary screenshot. |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 
 ## audio
@@ -2989,6 +3191,8 @@ Applies the chain of the document (`path`, or an inline `document`) and returns 
 Since 0.3.0.
 
 Apply a named mixer snapshot from factoria.json, or list the snapshots.
+
+Capabilities: read, state
 
 A snapshot is a named set of bus settings (volume scale, low-pass, reverb, ducking) from factoria.json "audio"."snapshots". Applying one moves every bus to the snapshot's state over `fade` seconds (default: the snapshot's own "fade", 0.5 when it has none): a bus the snapshot does not list goes back to neutral, so a snapshot is the whole picture and a snapshot with no buses is the way back. The volumes the player set are not touched. Without `name` it lists the snapshots and the one applied last. An unknown name fails with a "did you mean". Example: audio.snapshot {"name":"underwater","fade":1}
 
@@ -3004,6 +3208,8 @@ A snapshot is a named set of bus settings (volume scale, low-pass, reverb, ducki
 Since 0.7.0.
 
 Create a chain of Bone2D entities along points, under a parent.
+
+Capabilities: read, state
 
 `points` are [x, y] positions in the PARENT's local space (at least 2); N points make N-1 bones. Bone 1 is a child of `parent`, placed at the first point and turned to face the second; every later bone is a child of the one before, placed at its tip, with the rotation that turns it toward the next point. Each Bone2D.length is the distance between its two points. `names` (N-1) names them, default prefix_1, prefix_2... (`prefix` default "bone"); two bones may not share a name under one parent, since clip paths and skins find them by name. Pose bones through Transform.rotation.z (clips, IK2D). Result: {parent, bones: [{id, name, length}]}. Example: bones.create {"parent":"hero","points":[[0,40],[0,20],[0,0]],"names":["thigh","shin"]}
 
@@ -3022,6 +3228,8 @@ Since 0.2.0.
 
 Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back.
 
+Capabilities: read, writeProject
+
 Copies the project's files into .factoria/checkpoints (content-addressed: a file that did not change since an earlier checkpoint is not copied again, so the second checkpoint of a project is cheap). Includes scripts, scenes, tests and assets; skips folders starting with '.', node_modules and a top-level build/. Keeps the newest 30 checkpoints. The editor makes one before every AI run (the Revert button of the AI Assistant), so call this yourself only before a risky change the user did not ask the editor to track. Returns {id, label, created (epoch seconds), files, bytes (size of the files), bytesStored (newly copied), filesHashed}. Example: {"label":"before the refactor"}.
 
 | Argument | Type | Required | Description |
@@ -3033,6 +3241,8 @@ Copies the project's files into .factoria/checkpoints (content-addressed: a file
 Since 0.2.0.
 
 Show which files changed since a checkpoint (modified, added, deleted).
+
+Capabilities: read
 
 Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {"id":"20261022-153012-7"}.
 
@@ -3046,13 +3256,17 @@ Since 0.2.0.
 
 List the project's checkpoints, newest first.
 
+Capabilities: read
+
 Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limit}. Only the newest `limit` checkpoints are kept.
 
-### `checkpoint.read` (modifies state)
+### `checkpoint.read`
 
 Since 0.4.0.
 
 Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything.
+
+Capabilities: read
 
 Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
 
@@ -3068,6 +3282,8 @@ Since 0.2.0.
 
 Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
 
+Capabilities: read, writeProject
+
 Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). With `paths` only those files are put back as the checkpoint had them (a file the checkpoint holds is written back, a file the checkpoint does not hold is deleted) and every other file of the project stays untouched; the same safety checkpoint is made first. A path that is neither in the checkpoint nor in the project fails with a "did you mean" before anything changes; a listed file that already equals the checkpoint is left alone. Returns {modified, added, deleted (what was done), safetyCheckpointId}. Examples: {"id":"20261022-153012-7"}, {"id":"20261022-153012-7","paths":["scripts/player.js"]}.
 
 | Argument | Type | Required | Description |
@@ -3080,6 +3296,8 @@ Writes back the files that were modified or deleted since checkpoint `id` and de
 ### `docs.commands`
 
 Reference of the available commands (tools) with arguments: a list of names, or one command in full.
+
+Capabilities: read
 
 Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command with its summary. {"name":"game.click"} returns that command with its arguments, {"filter":"ui"} the commands whose name, category or summary contains the text, {"full":true} every command in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; a plugin or tools/*.js loaded between two pages can make a page skip or repeat commands).
 
@@ -3096,6 +3314,8 @@ Lists the commands of this session, including project tools from tools/*.js. Wit
 
 Reference of components and fields (types, defaults, docs): a list of names, or one component in full.
 
+Capabilities: read
+
 Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. With no argument it lists every component with a one-line summary. {"name":"Sprite"} returns that component with all its fields, {"filter":"physics"} the components whose name, category or summary contains the text, {"full":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; entries loaded between two pages can shift the pages).
 
 | Argument | Type | Required | Description |
@@ -3111,6 +3331,8 @@ Generated from the engine's reflection data; always accurate for this build. Use
 
 List the engine documentation available offline.
 
+Capabilities: read
+
 Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
 
 | Argument | Type | Required | Description |
@@ -3120,6 +3342,8 @@ Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `s
 ### `docs.read`
 
 Read a documentation page (Markdown), a section or a line range; long pages come in parts.
+
+Capabilities: read
 
 Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
 
@@ -3135,6 +3359,8 @@ Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, ab
 
 Search the documentation by keywords.
 
+Capabilities: read
+
 Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. Example: {"query":"input actions"}
 
 | Argument | Type | Required | Description |
@@ -3148,6 +3374,8 @@ Since 0.2.0.
 
 Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.
 
+Capabilities: read, writeProject
+
 Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
 
 | Argument | Type | Required | Description |
@@ -3160,6 +3388,8 @@ Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the sc
 
 Show engine version, platform, graphics backend and loop state.
 
+Capabilities: read
+
 Returns {engineVersion, platform, graphics, headless, frame, paused, fixedHz, components, commands}. Example: engine.info {}
 
 ### `engine.update_status`
@@ -3167,6 +3397,8 @@ Returns {engineVersion, platform, graphics, headless, frame, paused, fixedHz, co
 Since 0.4.0.
 
 Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due.
+
+Capabilities: read
 
 Returns {running, onDisk, restartDue, state, executable, summary, ...}: `running` and `onDisk` are {version, fingerprint, label}: the build this process was started from and the one now in the `factoria` file it was started from (the build fingerprint written inside the file, not just its date). state: current | updated_on_disk | unidentified (the file changed but has no comparable identity) | settling (it is being written). When `restartDue`, what to do depends on the host: in the editor (`editor` is present) the user presses Restart in the notice; under `factoria mcp` (`mcp` is present) the server restarts itself between two calls on Linux and macOS and says so in the next tool result, on Windows the client must reconnect the factoria server (Claude Code: /mcp). `mcp.projectConfig` says whether the client was started with the .mcp.json now on disk. Details: docs_read {"name":"mcp"}. Example: {}.
 
@@ -3178,6 +3410,8 @@ Since 0.4.0.
 
 Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate, rejected) to the archive file.
 
+Capabilities: read, writeProject
+
 ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; a new report that matches an archived fixed-in-engine entry reopens it (feedback.report says reopened). The editor runs this when it opens the project. Safe to repeat: with nothing closed it changes nothing. feedback.list with includeArchive and `factoria feedback collect` still see the archived entries.
 
 ### `feedback.check`
@@ -3185,6 +3419,8 @@ ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry
 Since 0.16.1.
 
 Check, before filing, whether the engine already has what a feedback report says is missing.
+
+Capabilities: read
 
 feedback.report runs this check itself and refuses a report that calls missing something the engine has (a component, a field such as Collider2D.oneWay, a command, a scripting member): the answer names what exists, its doc string and the page that documents it. Call it first with the title, missing and suggestion you are about to file to find out. `exists: true` means do not file: read the docs; if it does not work as documented, file a BUG that says what you tried. `exists: false` lists `related` documentation to read before you decide. A request for an extra option on an existing component (the field is not there) passes. With `entries: true` it checks the OPEN entries already in this project's ENGINE_FEEDBACK.json instead, and with `reject: true` too it rejects the ones it catches (status rejected, statusBy engine, the reason says what exists); a person can reopen one and it is not rejected again. Example: {"title":"No fluid simulation","missing":"There is no liquid solver."}
 
@@ -3202,6 +3438,8 @@ Since 0.10.0.
 
 Close the open feedback entries whose gap this engine version fixed.
 
+Capabilities: read, writeProject
+
 Every FactorIA release ships a list of the gaps it fixed (feedback/fixed.json, embedded). Each open entry of this project's ENGINE_FEEDBACK.json with the same category (or family) and a similar title (`title` or `share.title`, similarity 0.7) becomes fixed-in-engine with engineIssue "FactorIA <version>" and a note to check whether the workaround can go; feedback.archive then moves it to the archive. The editor runs this when it opens the project. Reporting the gap again reopens it as a possible regression. Safe to repeat. Example: {}
 
 ### `feedback.delete` (modifies state)
@@ -3209,6 +3447,8 @@ Every FactorIA release ships a list of the gaps it fixed (feedback/fixed.json, e
 Since 0.16.1.
 
 Delete a closed feedback entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.
+
+Capabilities: read, writeProject
 
 Removes entry `id` from ENGINE_FEEDBACK.json or ENGINE_FEEDBACK.archive.json for good, and takes it out of the sharing outbox. Only a closed entry can go (any status but open), or an open one the engine developer refused (its `shared` says rejected or declined): an open entry is a question for the engine developers, so close it first with feedback.update. Its id is not given again. What was already sent to the engine developer stays with them. The editor's Feedback panel offers this with a confirmation. Example: {"id":"FB-0004"}
 
@@ -3219,6 +3459,8 @@ Removes entry `id` from ENGINE_FEEDBACK.json or ENGINE_FEEDBACK.archive.json for
 ### `feedback.list`
 
 List the engine-feedback entries recorded for this project.
+
+Capabilities: read
 
 Check this before reporting to see what is already recorded. Filters are optional. The file only holds what is still open (plus entries closed since the last feedback.archive): entries that are fixed, rejected or duplicates live in the archive file next to it; pass includeArchive to list them too (each marked "archived": true). Example: {"status":"open","category":"physics"}
 
@@ -3233,6 +3475,8 @@ Check this before reporting to see what is already recorded. Filters are optiona
 ### `feedback.report` (modifies state)
 
 Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
+
+Capabilities: read, writeProject
 
 CALL THIS WHENEVER the engine lacked a feature or had a bug/limitation and you built a workaround or gave up on something, right when it happens (not at the end). Examples: a component field you expected does not exist; an error message did not say how to fix the problem; a documented API behaves differently; you had to emulate a feature in JavaScript; a command you wanted is missing.
 The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless.
@@ -3274,6 +3518,8 @@ Since 0.10.0.
 
 Send the queued feedback to the engine developer now (only what the user's mode allows).
 
+Capabilities: read, writeProject, network, publish
+
 With mode `always`: queues the shareable entries of this project that are not queued yet and sends the outbox (one request of up to 20 entries; failed ones keep their retry time). With mode `ask`: entries wait for the user's confirmation, which only the user gives (editor, or `factoria feedback share`); nothing is sent here. With mode `unset` or `never` nothing is sent and the result says why. Result: counts, per-entry results and the outcome (sent, failed, rate_limited, banned, off, unavailable, idle). Example: {"ids":["FB-0003"]}
 
 | Argument | Type | Required | Description |
@@ -3285,6 +3531,8 @@ With mode `always`: queues the shareable entries of this project that are not qu
 Since 0.10.0.
 
 Show exactly what sharing would send for the entries that have a `share`, and what the sanitizer removed.
+
+Capabilities: read
 
 Runs the deterministic sanitizer on the `share` of each shareable entry and returns the entry as the engine developer's server would receive it (`sent`), plus `removed`: every path, file name, URL, e-mail address, quoted text and project name that was cut out. An entry whose text drops under its minimum after cleaning is `ok: false` with the reason: rewrite `share` in engine terms only. Nothing is sent and nothing is written. Example: {"ids":["FB-0003"]}
 
@@ -3298,11 +3546,15 @@ Since 0.10.0.
 
 Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.
 
+Capabilities: read
+
 Reports the mode that applies to this project (unset, always, ask or never): its own choice if the user made one, else the user's default (`default` and `project` say which; no command changes either). Also whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
 
 ### `feedback.update` (modifies state)
 
 Change the status of a feedback entry (with a reason when it is rejected) or link it to an engine issue.
+
+Capabilities: read, writeProject
 
 Engine developers use this when a gap is fixed (status fixed-in-engine), will not be done (wont-fix) or duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens the project). Status `rejected` means the entry claims a gap the engine does not have (the thing exists, or it is not about the engine): it REQUIRES `statusReason`, a sentence the person reads in the editor (what exists and where it is documented). A reason may also be given with wont-fix and duplicate. An archived entry is found too, and set to open it moves back to the file (its reason is removed). Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"} or {"id":"FB-0002","status":"rejected","statusReason":"The field exists: see the Collider2D page of the reference."}
 
@@ -3319,6 +3571,8 @@ Since 0.16.1.
 
 Ask the feedback server what the engine developers decided about the reports this installation sent.
 
+Capabilities: read, writeProject, network
+
 Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}
 
 ## feel
@@ -3328,6 +3582,8 @@ Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (a
 Since 0.17.0.
 
 Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+
+Capabilities: read, state
 
 Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
 
@@ -3340,6 +3596,8 @@ Without `entity` it ends every effect of the scene, hit-stops included. The enti
 Since 0.17.0.
 
 Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square.
+
+Capabilities: read, state
 
 The same as `entity.flash(opts)`. The entity's own colour, material and Transform never change. Children are flashed with it. Text, Tilemap, particles and UI are not flashed. With the player's reducedEffects on (feel.settings, else the system's reduce motion) the strength is capped at 0.35 and the flash always fades, never a full-bright strobe. Example: feel.flash {"entity":"enemy","color":"#ffffff","duration":0.1}
 
@@ -3357,6 +3615,8 @@ Since 0.17.0.
 
 Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going.
 
+Capabilities: read, state
+
 The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, timers, particles and sprite animators stop (or slow to `scale`); the UI, audio, runWhilePaused behaviours, shake, flashes and squash keep running; `time.scale` and `game.paused` do not change. Overlapping calls do not add up: the longest wins and the smallest scale applies while they overlap. With reduceMotion on the duration is halved. The timer is REAL time: `game.step` frames count their fixed step. Example: feel.hitStop {"duration":0.08}
 
 | Argument | Type | Required | Description |
@@ -3369,6 +3629,8 @@ The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, time
 Since 0.17.0.
 
 Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity.
+
+Capabilities: read, state
 
 The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody3D gets `speed` added to its velocity; an entity without one moves with a velocity that decays by exp(-decay * dt) on the fixed clock. For `lockTime` seconds `entity.isKnockedBack` is true: the movement script leaves the player without control. A hit-stop freezes it. Example: feel.knockback {"entity":"player","direction":[-1,0.3],"speed":8}
 
@@ -3387,6 +3649,8 @@ Since 0.17.0.
 
 The accessibility choices of the game feel effects: reduceMotion and reducedEffects.
 
+Capabilities: read, state
+
 The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or false is the player's choice, null follows the operating system's reduce motion again; a missing key stays as it is. reduceMotion shrinks shake and squash to a quarter and halves hit-stops; reducedEffects caps flashes at 0.35 and makes them fade. Applies to effects started afterwards. Returns the values in force. Example: feel.settings {"reduceMotion":true}
 
 | Argument | Type | Required | Description |
@@ -3399,6 +3663,8 @@ The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or fal
 Since 0.17.0.
 
 Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`.
+
+Capabilities: read, state
 
 The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of trauma; the shake is trauma squared, smooth noise seeded from the world's RNG (deterministic), and only what is DRAWN moves: the camera's Transform does not change. A 2D camera moves in x, y and roll, a 3D one also looks a little around. With the player's reduceMotion on (feel.settings, else the system's) the amount is a quarter. Example: feel.shake {"amount":0.5,"duration":0.3}
 
@@ -3418,6 +3684,8 @@ Since 0.17.0.
 
 Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
 
+Capabilities: read, state
+
 The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: feel.sound {"path":"audio/hit.wav","volume":0.8,"pitch":1.1}
 
 | Argument | Type | Required | Description |
@@ -3435,6 +3703,8 @@ Since 0.17.0.
 
 Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
 
+Capabilities: read, state
+
 The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as data"). The prefab appears at the entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; without it the prefab has to end itself. Example: feel.spawn {"entity":"enemy","prefab":"prefabs/hit_spark.prefab.json","lifetime":0.4}
 
 | Argument | Type | Required | Description |
@@ -3451,6 +3721,8 @@ Since 0.17.0.
 
 Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale.
 
+Capabilities: read, state
+
 The same as `entity.squash(opts)`. The pulse is drawn on top of the entity's own scale (volume kept: x * y in 2D, x * y * z with a mesh); `entity.scale` is never written, so nothing is left behind. amount > 0 squashes, < 0 stretches. With reduceMotion on the amount is a quarter. Example: feel.squash {"entity":"player","amount":0.35,"duration":0.25}
 
 | Argument | Type | Required | Description |
@@ -3466,6 +3738,8 @@ Since 0.17.0.
 
 What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
 
+Capabilities: read
+
 Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
 ## fs
@@ -3473,6 +3747,8 @@ Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSettin
 ### `fs.delete` (modifies state)
 
 Delete a file or folder from the project.
+
+Capabilities: read, writeProject
 
 Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may write to. Example: {"path":"scripts/old.js"} or {"path":".factoria/tmp","recursive":true}
 
@@ -3484,6 +3760,8 @@ Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be de
 ### `fs.edit` (modifies state)
 
 Replace exact text in a file (must match exactly once unless replaceAll).
+
+Capabilities: read, writeProject
 
 Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
 
@@ -3498,6 +3776,8 @@ Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360
 
 List files and folders in the project.
 
+Capabilities: read
+
 Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {"path":"scenes","recursive":true}
 
 | Argument | Type | Required | Description |
@@ -3511,6 +3791,8 @@ Project-relative. Hides the tools' folders (.factoria, version control) except t
 
 Read a text file (optionally a line range).
 
+Capabilities: read
+
 Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.
 
 | Argument | Type | Required | Description |
@@ -3523,6 +3805,8 @@ Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files a
 ### `fs.search`
 
 Search text in project files (substring or regex).
+
+Capabilities: read
 
 Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"**/*.json"} or {"query":"onUpdate\\(","regex":true}.
 
@@ -3538,6 +3822,8 @@ Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"*
 ### `fs.write` (modifies state)
 
 Create or overwrite a file (text, or binary via base64; parent folders are created; the write is atomic).
+
+Capabilities: read, writeProject
 
 Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For binary files such as PNG sprites pass encoding="base64" and the base64 of the bytes as content (e.g. {"path":"sprites/hero.png","encoding":"base64","content":"iVBORw0KGgo..."}). For small changes to an existing file prefer fs.edit. .json files are checked for syntax and a warning is returned if invalid; run project.validate afterwards. The file is replaced atomically (a temporary file is renamed over it), so hot reload never reads a half-written file. Writing into .factoria/ is refused except .factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).
 
@@ -3556,6 +3842,8 @@ Since 0.4.0.
 
 Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.
 
+Capabilities: read, state
+
 Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more frame (input.mouse.released, the ui "click" event). The same sequence as game.click in a test, so it runs hold + 1 frames. A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable that no camera shows where a player can reach it) is an error that says why and how to fix it; a click at a position or world point reaches only what the camera there draws. A page shown on a mesh: a camera with Camera.renderTarget draws world-space Interactables into a texture and a MeshRenderer shows it (texture "target:<name>"). Examples: game.click {"id":"play"}, game.click {"position":[640,360]}, game.click {"world":[3,-2],"button":"right"}
 
 A `position` over that mesh reaches the widget under it through the mesh's UVs, exactly like the real mouse, and `widget` is that widget. `id` of a widget that only such a page shows (the main camera hides it with hideTags, or it is far off screen) is aimed backwards: a point of its hit area in the target camera's view, the matching point of the mesh, its place on the screen; the command uses the first point where the pointer really reaches this widget (a mesh or widget in front is skipped) and, when there is none, says why (no mesh shows the target, the widget is outside the camera's view, the mesh is off screen or covered, a target shown inside another target is not reachable). game.input {"mouse":{"position":[x,y],"left":true}} only sets the state for the next frame and leaves the button held; a click is move + press + frame + release + frame, which this command does in one call. Returns {position, button, frames, widget, via?, frame}: `widget` is the id of the topmost UI widget or Interactable the pointer reached when the button went down (null over the world; the widget a click removes or changes in that frame is still named); `via` is {mesh, target} - the entity of the MeshRenderer and of the Camera.renderTarget camera whose page the click went through - present only when it went through a page and no screen widget was on top.
@@ -3571,6 +3859,8 @@ A `position` over that mesh reaches the widget under it through the mesh's UVs, 
 ### `game.input` (modifies state)
 
 Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
+
+Capabilities: read, state
 
 Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. Forms: {"action":"jump","down":true}, {"key":"Space","down":false}, {"press":["jump"],"release":["fire"]}, {"mouse":{"position":[640,360]}}, {"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}, {"touch":{"id":1,"position":[200,300],"down":true}}. gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. Example: game.input {"press":["jump"],"frames":1}
 
@@ -3593,6 +3883,8 @@ Names may be input actions from factoria.json, key names (Space, A, Left...) or 
 
 Read recent log lines (engine, scripts, assets...).
 
+Capabilities: read
+
 Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
 
 | Argument | Type | Required | Description |
@@ -3605,6 +3897,8 @@ Each line has `wallTime`, the computer's local time when it was logged (ISO 8601
 
 Pause the simulation (frame() stops simulating; game.step still works).
 
+Capabilities: read, state
+
 Example: game.pause {}
 
 ### `game.render_stats`
@@ -3613,17 +3907,23 @@ Since 0.3.0.
 
 What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
 
+Capabilities: read
+
 Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
 Resume the simulation after game.pause.
 
+Capabilities: read, state
+
 Example: game.resume {}
 
-### `game.screenshot`
+### `game.screenshot` (modifies state)
 
 Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
+
+Capabilities: read, state
 
 Draws the game view as it is now (design resolution) and returns it; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect.
 WITHOUT `path` the picture is temporary: the result is {width, height, frame, temporary: true, $image: {path, mimeType, temporary: true}}, the MCP server and the AI assistant attach the image to the message and then DELETE the file, so do not keep or read that path later. (`factoria call` only prints the result and leaves the file; the engine removes engine-named files `.factoria/screenshots/frame_<n>*.png` older than 3 days or beyond the newest 200 when a project opens.) WITH `path` the file is written there and kept, and the result has `path`. Use `path` when your client cannot show images (then open the file yourself) or when you want to compare pictures later.
@@ -3638,7 +3938,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Output PNG (project-relative or absolute). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
 | `scale` | number | no | Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom. |
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom. |
 | `zoom` | number | no | Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide). |
@@ -3651,6 +3951,8 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 ### `game.state`
 
 Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
+
+Capabilities: read
 
 Filters: entities (ids), components (names to include), includeDefaults, maxEntities (default 200). Example: game.state {"entities":["player"],"components":["Transform","RigidBody2D"]}
 
@@ -3667,6 +3969,8 @@ Since 0.19.0.
 
 One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator.
 
+Capabilities: read
+
 Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. components limits the hash to the named component types (and leaves the particles, the clock and the random generator out): compare two runs on, say, ["SpriteAnimator","Sprite"] only. Example: game.state_hash {"perEntity":true}
 
 | Argument | Type | Required | Description |
@@ -3679,6 +3983,8 @@ Two runs that simulate the same thing give the same hash; any difference (a floa
 ### `game.step` (modifies state)
 
 Advance the simulation by N fixed frames (deterministic) and return a state summary.
+
+Capabilities: read, state
 
 Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `release` lets go; they are applied BEFORE the first frame and stay in effect (a press without release stays held). To tap a button use game.step {"frames":1,"press":["jump"]} then game.step {"frames":1,"release":["jump"]}. Works while paused. Example: game.step {"frames":60,"press":["move_right"]}
 
@@ -3696,6 +4002,8 @@ Since 0.2.0.
 
 Write the game's string tables as a spreadsheet (CSV) or XLIFF files for translators.
 
+Capabilities: read, writeProject
+
 Reads locales/<language>.json of every language and writes what a translator needs into `out` (default build/translations/, never inside locales/): format "csv" is ONE file, translations.csv (UTF-8 with a byte order mark so Excel opens it right; columns `key`, the default language, then one column per language to translate; fields with a comma, quote or line break are quoted), format "xliff" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf (source = the default language's text, target = the translation, state "needs-translation" when missing; trans-unit id and resname = the key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language needs (CLDR) plus any the tables have. A gender (select) entry is one row per form too (`ship.the#f`, `ship.the#m`, `ship.the#other`), and a string that has a gender in any language gets a row `ship.light#gender` whose cell is f, m or n. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every language except the default). With `delimiter` ";" the CSV opens in Excel set to a language that writes decimals with a comma. Read the result back with i18n.import. Example: {"format": "csv", "languages": ["es", "ja"]}
 
 | Argument | Type | Required | Description |
@@ -3711,6 +4019,8 @@ Since 0.2.0.
 
 Read a translator's CSV or XLIFF file back into locales/<language>.json.
 
+Capabilities: read, writeProject
+
 Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and updates the tables of the languages in it: existing keys are changed in place (nested objects stay nested, flat keys stay flat, key order is kept), keys the language lacks are added (nested by their dots when the file is nested), and an empty cell never deletes a translation. Rows `items#one` fill the forms of a plural entry, `ship.the#f` those of a gender entry, and `ship.light#gender` sets the gender of a string (f, m or n; the text becomes an object of text and gender). A column or target language that is not in localization.languages is an error with "did you mean"; a key the default language does not have, a {placeholder} that differs from the default language's, or a plural/plain mismatch is a warning and that row is not imported (placeholders: imported with the warning). The default language's own column is the source and is skipped unless named in `languages`. Tables are rewritten with 2-space indentation. Returns {file, format, dryRun, languages: {<tag>: {file, updated, added, unchanged, skippedEmpty, written, warnings}}}. With `dryRun` nothing is written. Example: {"file": "build/translations/translations.csv", "dryRun": true}
 
 | Argument | Type | Required | Description |
@@ -3725,6 +4035,8 @@ Since 0.2.0.
 
 Switch the game to another language now: every Text and widget with a key is rewritten at once.
 
+Capabilities: read, state
+
 `language` is one of the game's languages (see i18n.state), written as in factoria.json or close to it ("pt_br", "es-MX" -> "es", "zh-CN" -> "zh-Hans"). Sends the game event "i18n.change" {language, previous} to the scripts (`i18n.on("change", fn)`). The choice is not saved: a game keeps the player's choice with `storage` and calls i18n.setLanguage at start (docs/LOCALIZATION.md). Returns {language, previous, changed}. Example: i18n.set_language {"language": "es"}
 
 | Argument | Type | Required | Description |
@@ -3737,6 +4049,8 @@ Since 0.2.0.
 
 Show the languages of the game: which is current, which strings each lacks compared with the default language.
 
+Capabilities: read
+
 Returns {enabled, default, current, languages: [{code, name, file, loaded, keys, missing, missingKeys}], systemLanguages}. `enabled` is false when factoria.json has no "localization" section (then there is nothing else). Each language has one string table, file locales/<code>.json; `loaded` is false when the file is missing or broken (its strings come from the fallback languages: see the log). `keys` counts the strings of the table, `missing` the keys of the default language's table that this one lacks (missingKeys lists up to 20 of them), `name` is the table's "$name" or the code. systemLanguages is the player's system languages in a game with its own window and empty in headless runs. Example: i18n.state {}
 
 ## anim
@@ -3746,6 +4060,8 @@ Returns {enabled, default, current, languages: [{code, name, file, loaded, keys,
 Since 0.16.0.
 
 Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end).
+
+Capabilities: read
 
 The same check project.validate runs on every IK3D in a scene, available before the scene exists. Each problem has a JSON pointer into `solvers` ("/2/root"), what is wrong and how to fix it. The result also lists the rig's bones. Nothing is written. Example: {"rig":"assets/models/hero.rig.glb","solvers":[{"type":"lookAt","bone":"head","target":"player"},{"type":"foot","thigh":"thigh_l","shin":"shin_l","foot":"foot_l"}]}
 
@@ -3759,6 +4075,8 @@ The same check project.validate runs on every IK3D in a scene, available before 
 Since 0.16.0.
 
 Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.
+
+Capabilities: read, writeProject
 
 Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers with [x, y, z] targets in the model's space, as ik3d.solve) and writes rotation keys at that time for every bone the solver changed (translation for a foot solver that lowers the pelvis). The keys are ordinary ones: anim3d.set_keys, anim3d.move_keys and the Animation panel edit them. Result: the clip summary plus {time, keyed: [{bone, channel}], solved (as ik3d.solve), undo}. An error says the solver changed nothing when the pose already satisfied it. Example: {"path":"anim/hero_wave.anim.json","time":0.4,"solver":{"type":"twoBone","root":"arm_upper_r","mid":"arm_lower_r","end":"hand_r","target":[-0.4,1.5,0.4],"pole":[-0.5,1.2,-0.5]}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
@@ -3776,6 +4094,8 @@ Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers 
 Since 0.16.0.
 
 Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up.
+
+Capabilities: read
 
 `solver` is one entry of IK3D.solvers whose targets are positions [x, y, z] in the model's space (an entity target is an error: there is no scene). twoBone moves root, mid and end so the end reaches `target` bending towards `pole`; lookAt aims `bone` within its yaw and pitch limits; foot puts the ankle at the height of a flat ground at `groundHeight` over where it is. Result: for a limb {reached, error, target, bones: [{bone, head}]}, for lookAt {clamped, yaw, pitch, aim}. Use it to find a target the limb can reach and limits that look right. Nothing is written. Example: {"rig":"assets/models/hero.rig.glb","solver":{"type":"twoBone","root":"arm_upper_r","mid":"arm_lower_r","end":"hand_r","target":[-0.4,1.3,0.5]}}
 
@@ -3795,6 +4115,8 @@ Since 0.16.0.
 
 Draw a layered image document (*.image.json) into its PNG and return the picture.
 
+Capabilities: read, writeProject
+
 Composites the layers of the image document at `path` (project-relative, ending in .image.json) on the CPU and writes the PNG next to it (hero.image.json -> hero.png, or the document's `output`). Bytes are deterministic: the same document and files give the same PNG. Records provenance and the recipe {command image.bake, args {path}, inputs: the document and every file it reads} in assets.json, so assets.regenerate remakes the PNG and `factoria validate` warns when the document or a source file changed since (stale). A document with `frames` or `tags` bakes a SPRITE SHEET (the frames in a grid) and records its SpriteAnimator clips, one per tag, in the `sheet` entry of the PNG, returned as `sheet`. A picture with a provider layer, or built from AI-made files, is recorded as AI-made. The result has the picture as `$image`, its size and any warnings. A problem in the document is an error with the file, the JSON pointer and a fix. Format and layers: docs.read IMAGES. Example: {"path":"assets/art/hero.image.json"}
 
 | Argument | Type | Required | Description |
@@ -3807,6 +4129,8 @@ Composites the layers of the image document at `path` (project-relative, ending 
 Since 0.16.0.
 
 Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG.
+
+Capabilities: read, writeProject
 
 Writes a new image document at `path` (project-relative, ends in .image.json) with a width x height canvas (1..4096), an optional `background` colour and optional `layers` (bottom first; docs.read IMAGES lists the kinds), then bakes the PNG next to it. Refuses to replace an existing file unless overwrite is true. The result has the picture as `$image`, the changed `region` {x,y,width,height} (the whole canvas for a new document) and next steps. Example: {"path":"assets/art/hero.image.json","width":64,"height":64,"background":"#00000000","layers":[{"kind":"fill","name":"sky","color":"#203040"}]}
 
@@ -3830,6 +4154,8 @@ Since 0.16.0.
 
 Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.
 
+Capabilities: read, writeProject
+
 Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, `create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: line {points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the L-corners of a bending line so it is one pixel thick everywhere); rect {x, y, width, height, color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; fill {at [x,y], color, connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or transparency; 4 does not leak through diagonal gaps). For rect, ellipse and polygon `color` is the outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is drawn first, so the outline stays). Result as image.pixel (`region`, `pixelsSet`, `$image` magnified with hard pixels).
 
 Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"shapes":[{"type":"ellipse","x":2,"y":2,"width":12,"height":12,"fill":"skin","color":"outline"},{"type":"line","points":[[2,14],[8,10],[14,14]],"color":"outline","perfect":true},{"type":"fill","at":[8,8],"color":"skin-light"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to draw on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
@@ -3850,6 +4176,8 @@ Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"sh
 Since 0.16.0.
 
 Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.
+
+Capabilities: read, writeProject
 
 Applies `action` to the pixels of `layer` inside the stored `selection` (made with image.select; "all" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; move {dx, dy, copy?} (whole pixels; the selection moves along unless moveSelection is false); transform {scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, pivot [x,y]} (the selected pixels are lifted, transformed around the pivot - default their middle - and put back; the default filter is nearest when the project's style guide says pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} (the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that mark, the edit is added to its provenance).
 
@@ -3872,6 +4200,8 @@ Since 0.16.0.
 
 Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed.
 
+Capabilities: read, writeProject
+
 Draws the document at `path` (or only `layer`, by name or index path, with its masks, adjustments and effects but at full opacity and normal blend; the offsets of the groups around it count) and writes a PNG to `out`. `scale` resizes (0.01..16) with `filter` nearest (pixel art) or bilinear; the default filter is nearest when assets.json style.pixelArt is true, else bilinear. `trim` crops to the pixels that show. The PNG is a plain copy, not baked from the document. Refuses to replace an existing file unless overwrite is true. Example: {"path":"assets/art/hero.image.json","out":"assets/art/hero-x2.png","scale":2} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to export: the picture of that frame is written.
 
 | Argument | Type | Required | Description |
@@ -3891,6 +4221,8 @@ Since 0.16.0.
 
 Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place.
 
+Capabilities: read, writeProject
+
 Inserts `count` frames at `at` (0..number of frames; default: at the end). Each new frame shows what frame `from` shows (default the frame before `at`, or frame 0 when `at` is 0), or nothing with `blank: true`, on every pixels and indexed layer; layers of other kinds are the same in every frame. A document with no `frames` is one frame, so the first call makes it an animation (it then bakes to a sprite sheet next to the document). `duration` is the new frames' time in milliseconds (default: the copied frame's, 100 for a new animation). Tags after `at` move along; a tag the new frames land inside grows. Draw on a frame with image.pixel / image.draw / image.edit / image.paint and `frame`. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","count":3} makes a 4-frame animation of the same picture.
 
 | Argument | Type | Required | Description |
@@ -3909,6 +4241,8 @@ Since 0.16.0.
 
 Make a layer show in one frame what it shows in another, or show nothing there.
 
+Capabilities: read, writeProject
+
 A pixels or indexed layer has a picture (cel) per frame. This sets the cel of `layer` in `frame`: `from` copies what the layer shows in that frame (the two frames share one file or one set of rows), `clear: true` shows nothing. Use it to reuse a pose (a walk cycle's legs) or hide a layer in some frames. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","layer":"legs","frame":4,"from":0}.
 
 | Argument | Type | Required | Description |
@@ -3926,6 +4260,8 @@ Since 0.16.0.
 
 Move a frame to another place in the animation; tags follow their frames.
 
+Capabilities: read, writeProject
+
 Takes frame `frame` out and puts it back so that it is frame `to` (the frames in between shift by one), on every layer, with its duration. A tag keeps its frames; when the move leaves them not in one run, the tag covers the run from the first to the last and a warning says so. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":3,"to":0}.
 
 | Argument | Type | Required | Description |
@@ -3941,6 +4277,8 @@ Since 0.16.0.
 
 Remove one frame of an animated image document; later frames and tags move down.
 
+Capabilities: read, writeProject
+
 Deletes frame `frame` from every layer and from `frames`. Tags after it move down; a tag that held the frame shrinks (a tag that was only that frame is removed, with a warning). The last frame cannot be removed; when one frame is left and there are no tags the document is a plain still image again. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":2}.
 
 | Argument | Type | Required | Description |
@@ -3954,6 +4292,8 @@ Deletes frame `frame` from every layer and from `frames`. Tags after it move dow
 Since 0.16.0.
 
 Set how long frames show, in milliseconds.
+
+Capabilities: read, writeProject
 
 `frame` is one frame number, a range [first, last] (inclusive) or "all"; `duration` is the milliseconds each of them shows (1..60000). A clip of the baked sheet plays at one speed: tags whose frames have different durations get extra cells that spell the timing out (the bake warns when a duration cannot be kept exactly). Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":"all","duration":80}.
 
@@ -3970,6 +4310,8 @@ Since 0.16.0.
 
 Choose how many frames the baked sprite sheet has per row.
 
+Capabilities: read, writeProject
+
 The bake of an animated document is a sprite sheet. `columns` sets the frames (cells) per row; null goes back to the automatic grid (about square). The cells are all the size of the canvas. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","columns":8}.
 
 | Argument | Type | Required | Description |
@@ -3983,6 +4325,8 @@ The bake of an animated document is a sprite sheet. `columns` sets the frames (c
 Since 0.16.0.
 
 Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection.
+
+Capabilities: read, state, writeProject, network, process, spend
 
 Draws `prompt` with the image provider and adds the picture as a `provider` layer: the whole canvas by default, or `size` {width,height} at `placement` ("center" when a size is given, "fill", or {x,y}). `selection` (a stored selection, "all", or an inline image.select object) masks the layer so it shows only there. The layer carries the provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate. COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
@@ -4015,6 +4359,8 @@ Since 0.16.0.
 
 Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
 
+Capabilities: read
+
 Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. An animated document (docs.read IMAGES, "Frames and tags") also has `animation`: {frameCount, totalMs, frames: [{frame, duration, tags?}], tags, sheet (the cell grid and clips the bake will write), sheetWarnings?}; a layer with cels lists `celFrames`, the frames where it changes. Read-only. Example: {"path":"assets/art/hero.image.json"}
 
 | Argument | Type | Required | Description |
@@ -4026,6 +4372,8 @@ Reads the document at `path` and returns {document, width, height, background, v
 Since 0.16.0.
 
 Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.
+
+Capabilities: read, state, writeProject, network, process, spend
 
 Sends the picture of the document (its composite, or `layer` alone, at `frame`) and the selection as the mask to an image provider that can inpaint, and adds what it paints as a new `provider` layer over the whole canvas whose mask is the selection (with the selection's feather), so the rest of the picture is untouched and the layer can be hidden, moved or removed. `selection` is the name of a stored selection (image.select; "all" is the whole canvas) or an object with the arguments of image.select (stored as `selectionName`, default "inpaint"). COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns {needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call again with approved:true. An AI must never set approved:true on its own.
 
@@ -4057,6 +4405,8 @@ Since 0.16.0.
 
 Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture.
 
+Capabilities: read, writeProject
+
 Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to the document at `path`: on top of the root list by default, at `index` (0 = the bottom) of the list, or inside the group `parent`. A layer without `name` gets one from its kind ("fill", "fill 2"); names must be distinct because they address layers. The document is checked completely (a problem names the JSON pointer, nothing is written) and baked. The result has the picture as `$image`, the changed `region`, and `layer` {index, pointer, name, kind} of the new layer. Example: {"path":"assets/art/hero.image.json","layer":{"kind":"text","text":"Hi","size":16,"x":4,"y":4}}
 
 | Argument | Type | Required | Description |
@@ -4072,6 +4422,8 @@ Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to
 Since 0.16.0.
 
 Add a PNG an image provider made to an image document as a `provider` layer, with its provenance and an optional mask from a stored selection.
+
+Capabilities: read, writeProject
 
 The second half of image.inpaint and image.generate_layer, and the way to put any provider picture into a document: `source` is a PNG of the project (already written, with its provenance in assets.json), `provenance` the record the layer carries (provider, model, prompt, seed, references, license, author, notes). `selection` (a stored selection, or "all") becomes a `pixels` mask of the layer, copied next to the PNG so later changes of the selection do not move it; the selection's feather is part of its coverage. The layer goes on top (or at `index` / inside the group `parent`) at (`x`, `y`). It never calls a provider. The document is checked completely and baked; the picture is AI-made from then on (docs.read IMAGES, "Baking"). Example: {"path":"assets/art/hero.image.json","source":"assets/art/hero.layers/sky.png","selection":"sky","provenance":{"provider":"openai","prompt":"a stormy sky"}}
 
@@ -4096,6 +4448,8 @@ Since 0.16.0.
 
 Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer.
 
+Capabilities: read, writeProject
+
 `to: "indexed"`: the layer, drawn alone with its masks, adjustments and effects, is cropped to what it shows and each visible pixel takes its nearest palette colour (OKLab by default, `space: "rgb"` for stored values) with an optional `dither` (none, bayer2, bayer4, bayer8, floydSteinberg, atkinson; ordered patterns line up with the canvas) at `strength` 0..1; pixels at least `alphaThreshold` (default 0.5) opaque are kept, the others become transparent; a pixel that already has a palette colour keeps it, so pixels -> indexed -> pixels loses nothing. The palette is the document's, else `palette` (written into the document), else the style palette. A layer made from an AI-made picture marks the new layer `ai: true`. Masks, adjustments and effects are drawn into the pixels. `to: "pixels"`: the indexed layer is written as a PNG (in <document>.layers/) and becomes a pixels layer, so blur, edit and paint work on it. Both directions keep the layer's name, visibility, opacity, blend and clip, and place it where it was. Result: the baked document, `layer`, `colorsUsed`, `region`, warnings and `$image` magnified with hard pixels. Example: {"path":"assets/art/hero.image.json","layer":"painted","to":"indexed","dither":"bayer4"}
 
 | Argument | Type | Required | Description |
@@ -4117,6 +4471,8 @@ Since 0.16.0.
 
 Move a layer to another position in its list, or into another group (or back to the top level), and bake.
 
+Capabilities: read, writeProject
+
 `index` is the layer's position in its list afterwards (0 = the bottom, so a higher index is drawn over more layers); without it the layer goes to the top of the list. `parent` moves it into that group (a name or index path; "" is the top level). The layer keeps its own x, y: moving it between groups with different offsets moves it on the canvas. A layer cannot move into its own children. The result has the picture as `$image` and the changed `region`. Example: {"path":"assets/art/hero.image.json","layer":"glow","index":0}
 
 | Argument | Type | Required | Description |
@@ -4133,6 +4489,8 @@ Since 0.16.0.
 
 Remove a layer (and the children of a group) from an image document and bake.
 
+Capabilities: read, writeProject
+
 Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns when the layer above was clipped to it. The result has the picture as `$image`, the changed `region` and `removed` {index, pointer, name, kind}. Example: {"path":"assets/art/hero.image.json","layer":"1/0"}
 
 | Argument | Type | Required | Description |
@@ -4146,6 +4504,8 @@ Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns 
 Since 0.16.0.
 
 Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake.
+
+Capabilities: read, writeProject
 
 Merges `set` into the layer: a field you give replaces the old one (objects such as `gradient` merge key by key; arrays such as `masks` are replaced whole), null removes a field. The `kind` cannot change. The layer is addressed by name or index path; a wrong name gets a did-you-mean and the layer list. The document is checked completely before anything is written. The result has the picture as `$image` and the changed `region`. Example: {"path":"assets/art/hero.image.json","layer":"shadow","set":{"opacity":0.4,"blend":"multiply"}}
 
@@ -4161,6 +4521,8 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 Since 0.16.0.
 
 Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.
+
+Capabilities: read, writeProject
 
 Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`.
 
@@ -4183,6 +4545,8 @@ Since 0.16.0.
 
 Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to.
 
+Capabilities: read, writeProject
+
 Without `palette` and `ramps` it only reads: every colour with its index, the character that stands for it in the layers' rows, name, #rrggbb, how many pixels use it, its ramp, and the colour one step darker (`shade`) and lighter (`light`); the palette is the document's `palette`, or the style palette of assets.json when the document has none. With `palette` (a list of colours, each "#rrggbb" or {name, color}, at most 81, all different; or "style") and/or `ramps` (lists of palette colours from the darkest to the lightest, each colour in one ramp; null removes) it rewrites them and bakes. Pixels keep their INDEX, so replacing the palette recolours the layers: append colours to keep the old ones. Without a declared ramp a colour's shade is the palette colour with lower lightness nearest to it in OKLab. Example: {"path":"assets/art/hero.image.json","palette":["#1a1c2c",{"name":"skin","color":"#e0a070"},{"name":"skin-dark","color":"#b06a40"}],"ramps":[["skin-dark","skin"]]}
 
 | Argument | Type | Required | Description |
@@ -4197,6 +4561,8 @@ Without `palette` and `ramps` it only reads: every colour with its index, the ch
 Since 0.16.0.
 
 Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change.
+
+Capabilities: read, writeProject
 
 Reorders the palette of the document (the colours of its indexed layers, cels and tileset parts keep looking the same: the index characters of the rows are rewritten) and the ramps that name the colour. `from` and `to` are palette colours (index, name or #rrggbb); the colour ends at the position of `to` and the colours between shift by one. A document with no `palette` gets the style palette copied into it. Result: the baked document, the new `palette` report and `moved`. Example: {"path":"assets/art/hero.image.json","from":"skin","to":0}
 
@@ -4213,6 +4579,8 @@ Since 0.16.0.
 
 Remove one colour from an image document's palette; its pixels become another colour or transparent.
 
+Capabilities: read, writeProject
+
 Takes the colour `index` (index, name or #rrggbb) out of the palette; the colours after it shift down and the rows of every indexed layer, cel and tileset part are rewritten to match, so the other pixels do not change. Pixels that used the removed colour take the colour `replaceWith`, or become transparent when it is left out (a warning counts them). Ramps lose the colour. The palette keeps at least one colour. Result: the baked document, the new `palette` report and `removed`. Example: {"path":"assets/art/hero.image.json","index":"skin-dark","replaceWith":"skin"}
 
 | Argument | Type | Required | Description |
@@ -4227,6 +4595,8 @@ Takes the colour `index` (index, name or #rrggbb) out of the palette; the colour
 Since 0.16.0.
 
 Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.
+
+Capabilities: read, writeProject
 
 Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.read IMAGES, "Pixel art"). `layer` is its name or index path; an unknown name with `create: true` makes a new blank indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], ...] (horizontal, to the right); `stamp` {x, y, rows: ["..11..", ".1221."], clear?} (text rows in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is true). A colour is a palette index, name or colour; a colour not in the palette is an error with the nearest one. {"step": -1} shades the pixel one step along its colour ramp (see image.palette). When the document has no `palette` yet, the style palette is copied into it. Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, `changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large as fits 512 pixels).
 
@@ -4250,6 +4620,8 @@ Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"pi
 Since 0.16.0.
 
 Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed.
+
+Capabilities: read, writeProject
 
 Three passes (`passes`, default all, in this order). orphans: a pixel with no neighbour of its own colour takes the commonest opaque colour around it, or disappears when only transparency is around (`connectivity` 8 default counts diagonal neighbours, `holes` also fills single transparent holes inside colour). doubles: the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed so the line is one pixel wide everywhere; the right-angled corners of shapes are left alone. jaggies: a one-pixel line that is nearly straight (never more than `tolerance` pixels, default 1, from the straight line between its ends) but has uneven steps (3,3,1,3) is redrawn evenly between its ends, when the pixels it needs are free. `keep` lists palette colours never touched (a one-pixel highlight on purpose). A single-pixel highlight or eye dot is an orphan to this command: name its colour in `keep`. Frames: `frame` or `frames`. Result: as image.pixel, plus per frame `orphans`, `doubles`, `jaggies` (pixels changed by each pass) and `changedPixels` ([x, y] on the canvas, the first 100).
 
@@ -4276,6 +4648,8 @@ Three passes (`passes`, default all, in this order). orphans: a pixel with no ne
 Since 0.16.0.
 
 Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction.
+
+Capabilities: read, writeProject
 
 Writes into the region (`selection`, and/or `rect`, else the whole layer box; transparent pixels too unless `onlyFilled`) a blend of palette colours made of pixels of exactly those colours, arranged by an ordered pattern. `colors` are 2 or more palette colours (or `ramp`: any colour of a declared ramp uses the whole ramp). Either `level` 0..1, the share of the second colour (bayer2 has 5 steps, bayer4 17, bayer8 65; checker alternates the two between a quarter and three quarters), or `gradient` {from [x,y], to [x,y]} in canvas pixels: the first colour at `from`, the last at `to`, the colours between spaced evenly and dithered into each other (with `ramp` the gradient runs from the lightest colour to the darkest). The patterns line up with the canvas, not with the layer, so two layers dithered alike match. Frames: `frame` or `frames`.
 
@@ -4305,6 +4679,8 @@ Since 0.16.0.
 
 Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).
 
+Capabilities: read, writeProject
+
 Outlines the shape of an INDEXED layer (everything that is not transparent). `side`: "outer" (default) puts the outline on the transparent pixels next to the shape, "inner" on the shape's own edge pixels. `connectivity` 4 (default) is a thin outline whose corners stay open, 8 closes the corners. `mode`: "flat" paints `color` (the default when `color` is given); "darkest" (default without `color`) uses, for each outline pixel, the darkest colour of the ramp of the fill colour it touches (a colour in no declared ramp: the darkest palette colour derived from it, see image.palette); "selective" is sel-out: the outline pixel takes its fill colour `shade` steps darker (default 2) along the ramp, and on the side that faces the light `litShade` steps (default shade - 1), so the outline is lighter where the light hits. The light is `light` or style.lightDirection; without one every pixel is `shade` steps darker. With `selection` only outline pixels inside it are written (the shape is still read from the whole layer). Frames: `frame` or `frames`. Only indexed layers: pixel art is palette-exact; a pixels layer must be converted first.
 
  Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sprite","mode":"selective","light":"upper-left"} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
@@ -4333,6 +4709,8 @@ Since 0.16.0.
 
 Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur.
 
+Capabilities: read, writeProject
+
 Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees clockwise about `pivot` (canvas pixels; default the centre of those pixels) and draws them back; the layer's box grows to hold the result. A multiple of 90 degrees is an exact turn of the pixels. Otherwise `method` "rotsprite" (default) enlarges the picture 8 times with Scale2x (EPX) three times, rotates by nearest sample and takes the commonest colour of each 8x8 block back down, which keeps edges and thin lines far better than a plain nearest rotation ("nearest", fast and blocky); the pixels to rotate are at most 256 x 256 for rotsprite. Only palette colours appear. Frames: `frame` or `frames`.
 
  Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sword","angle":30,"pivot":[12,20]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
@@ -4356,6 +4734,8 @@ Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees 
 Since 0.16.0.
 
 Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending.
+
+Capabilities: read, writeProject
 
 Scales the visible pixels of the layer (or of the `selection`) by `factor` (a number, or [horizontal, vertical]) or to `size` {width, height} (one of them keeps the proportions), around `pivot` (canvas pixels, default the centre of the pixels); the layer's box grows to hold the result. `method`: "nearest" repeats the pixel under each new pixel's centre (a whole factor makes exact blocks); "mode" gives each new pixel the commonest colour of the old pixels it covers (the clean way to shrink; opaque wins a tie); "scale2x" / "scale3x" are the EPX-style enlargers by exactly 2 / 3 that round off corners instead of copying them; "auto" (default) is nearest when enlarging and mode when shrinking. A non-integer enlargement works but repeats some rows and columns and not others, and a warning says so. Only palette colours appear. Frames: `frame` or `frames`.
 
@@ -4381,6 +4761,8 @@ Scales the visible pixels of the layer (or of the `selection`) by `factor` (a nu
 Since 0.16.0.
 
 Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition.
+
+Capabilities: read, writeProject
 
 Shades the shape (the non-transparent pixels of the layer, or of the `selection`) as if lit from `light`: along the light's axis, `shadowLevels` bands of `shadowWidth` pixels at the edge facing away from the light step the colour darker (the outermost the most, the inner bands one step less), and `highlightLevels` bands of `highlightWidth` pixels at the edge facing the light step it lighter. A step follows the colour's declared ramp, or the nearest darker / lighter palette colour (image.palette). Shadow wins where both reach a pixel. `dither` N makes the first N pixels of each band after the first a Bayer-ordered mix with the stronger band before it, so the transition is not a hard line. The light is `light` or style.lightDirection (an error teaches both when neither exists). Run it on a flat-coloured shape (a body, a ball, a hat): shading is relative to what is in the pixel, so shading twice shades twice. Frames: `frame` or `frames`.
 
@@ -4409,6 +4791,8 @@ Since 0.23.0.
 
 Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
 
+Capabilities: read, writeProject
+
 Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the same pixels and it no longer covers the added area (a warning names it). Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be made again (a warning). One undo step. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
 
 | Argument | Type | Required | Description |
@@ -4426,6 +4810,8 @@ Since 0.16.0.
 
 Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.
 
+Capabilities: read, writeProject
+
 Validates `document` (the layered image document as JSON: canvas width and height, background, layers bottom first; see docs.read IMAGES), writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake (an animated document -- `frames`, `tags`, `cels` -- bakes a sprite sheet and its clips). A problem in the document is an error naming the JSON pointer (/layers/2/blend), what is wrong and how to fix it, and writes nothing. Example: {"path":"assets/art/sky.image.json","document":{"width":128,"height":128,"layers":[{"kind":"gradient","gradient":{"angle":0,"stops":[{"at":0,"color":"#102040"},{"at":1,"color":"#e08040"}]}},{"kind":"text","text":"Hi","size":32,"x":8,"y":8}]}}
 
 | Argument | Type | Required | Description |
@@ -4439,6 +4825,8 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 Since 0.16.0.
 
 Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
+
+Capabilities: read, writeProject
 
 Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it.
 
@@ -4471,6 +4859,8 @@ Since 0.16.0.
 
 Remove a tag (and so its clip) from an image document.
 
+Capabilities: read, writeProject
+
 Deletes the tag `name`; the frames stay. The next bake drops its clip from the sheet entry. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","name":"walk"}.
 
 | Argument | Type | Required | Description |
@@ -4484,6 +4874,8 @@ Deletes the tag `name`; the frames stay. The next bake drops its clip from the s
 Since 0.16.0.
 
 Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it.
+
+Capabilities: read, writeProject
 
 Creates the tag `name`, or changes it when it exists (omitted fields keep their value): frames `from` to `to` (inclusive), played in `direction` (forward, reverse, pingpong), `repeat` times (0 = the clip loops; N plays N times and stops). The bake writes the clip into the sheet entry of assets.json under that name, so a game plays it with SpriteAnimator `clip` or entity.spriteAnimator.play(name) with no other step. SpriteAnimator plays contiguous cells at one speed, so a tag that is reverse, ping-pong, repeated or has frames of different durations gets extra cells after the frames that spell its order out (image.info shows the sheet with its cells and clips). Tags may overlap. A still image becomes a one-frame animation. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","name":"walk","from":0,"to":3}.
 
@@ -4503,6 +4895,8 @@ Since 0.16.0.
 
 Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies.
 
+Capabilities: read
+
 Compares the pixels that touch when a tile repeats: its right column against its own left column and its bottom row against its top row, for every tile that is not empty. The tile is `tileWidth` x `tileHeight`, else the document's `tile`, else the whole canvas. `tolerance` (0 to 255) is how far apart two touching pixels may look: by default 0 for pixel art (a palette or style.pixelArt) and else 1.5 x the mean difference of neighbouring pixels inside the tiles, so a soft texture is not failed for its own gradient. Returns {seamless, tolerance, problems: [{tile, column, row, axis, sides, columns, rows (canvas coordinates, with the runs of mismatching pixels), mismatched, worst, mean, message}]} (the first 40), and the preview as `$image` and in `preview` (.factoria/previews/<document>.tilecheck.png): the tile 3 x 3 with red lines on the mismatching seam pixels. Reads the document as it is; for an autotile set use image.tileset.check. Example: {"path":"assets/art/ground.image.json"}
 
 | Argument | Type | Required | Description |
@@ -4520,6 +4914,8 @@ Since 0.16.0.
 
 Turn tile mode (wrap-around editing) on or off for an image document.
 
+Capabilities: read, writeProject
+
 Sets the `tile` key of the document at `path`. With tile mode on, the drawing commands (image.pixel, image.draw, image.paint, the pixel helpers outline / shade / dither / cleanup, image.edit move) wrap around the edges of a tile: what leaves the right edge comes back in on the left, so the edges keep matching while you draw. A shape wraps inside the tile that holds its first point (a pixel, the start of a line or run, the corner of a rectangle, the `at` of a fill, the first point of a stroke). Without `width` and `height` the whole canvas is one tile; with them the canvas is a sheet of tiles of that size (they must divide the canvas). `enabled` false turns it off. image.edit transform and the helpers rotate and scale do not wrap (they warn). Returns the tile grid and the picture. Example: {"path":"assets/art/ground.image.json"} or {"path":"assets/art/sheet.image.json","width":16,"height":16}
 
 | Argument | Type | Required | Description |
@@ -4535,6 +4931,8 @@ Sets the `tile` key of the document at `path`. With tile mode on, the drawing co
 Since 0.16.0.
 
 Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules.
+
+Capabilities: read, writeProject
 
 Makes the image document `path` (or adds the layer to an existing one) with a `tileset` layer that builds the whole set from parts: each part is one tile picture, a PNG (`source`), text `rows` of the document's palette, or one flat `color`; a list gives variants. Minimal parts: inside, edge, corner (+ innerCorner for blob47, + edgeLeft for tiles that are not square); image.tileset.info draws each one. Modes: basic16 (4 neighbours) and blob47 (8 neighbours, the common 47-tile set). `variations` 1 to 8 makes several pictures of every tile (the other variations pick variants of the parts by `seed`, the same seed always gives the same sheet). The canvas becomes the sheet (columns x rows of tiles), `tile` is set to the tile size, the PNG is baked, and the rules file (default <document>.terrains.json: the Tilemap.terrains entry with the exact tile of every neighbour combination) is written and recorded in assets.json. Example: {"path":"assets/art/ground.image.json","mode":"blob47","tileWidth":16,"tileHeight":16,"palette":["#1e4a14","#2d5a1e","#4a8a2c"],"parts":{"inside":{"rows":[...16 rows...]},"edge":{"rows":[...]},"corner":{"rows":[...]},"innerCorner":{"rows":[...]}}}
 
@@ -4567,6 +4965,8 @@ Since 0.16.0.
 
 Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits.
 
+Capabilities: read
+
 Reads the tileset layer of the document at `path`, reports every part that is missing, unreadable or the wrong size (with its JSON pointer), then builds the sheet and compares the sides of the tiles that stand side by side in a map: tile A east of tile B needs A to have an east neighbour and B a west one (and for blob47 the cells around the pair to agree), and likewise north-south. It also checks the joins INSIDE each tile, where two quadrants cut from different parts meet (corner next to edge, edge next to inside, inner corner next to edge): the two parts must show the same pixels on both sides of the middle line, within the tolerance; `tolerance` as in image.tile.check (automatic by default: 0 for pixel art). Returns {seamless, problems: [{axis, a, b (tile, slot, neighbours, sheet position), mismatched, worst, message}]} (axis "horizontal" / "vertical" for a seam between tiles, "centreColumn" / "centreRow" for a join inside tile a, with `half`, `parts` and `runs`) and the sheet magnified with red marks on the failing sides and on the middle line of a tile that does not join as `$image` (.factoria/previews/<document>.tilesetcheck.png). Example: {"path":"assets/art/ground.image.json"}
 
 | Argument | Type | Required | Description |
@@ -4581,6 +4981,8 @@ Reads the tileset layer of the document at `path`, reports every part that is mi
 Since 0.16.0.
 
 Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet).
+
+Capabilities: read
 
 Describes what image.tileset.build is made of: for the mode (basic16 or blob47), each part with a small drawing, which are required for the tile shape, how the quadrants and flips make the set, and the table of slots with their neighbour masks. With `path` (and `layer`) also the layout of that tileset layer and every tile with its sheet position and neighbours. Example: {"mode":"blob47"} or {"path":"assets/art/ground.image.json"}
 
@@ -4597,6 +4999,8 @@ Since 0.16.0.
 
 Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current).
 
+Capabilities: read, writeProject
+
 Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","terrains":[{name, mode, seed, tiles}]}, with the tile of every neighbour combination (variations as lists). image.tileset.build already does this; this command is what assets.json records as the recipe of the rules file, so assets.regenerate keeps it current when the document changes. Read by tilemap.set_terrains {id, path}. Refuses to replace a file that is not this layer's unless `overwrite`. Example: {"path":"assets/art/ground.image.json"}
 
 | Argument | Type | Required | Description |
@@ -4611,6 +5015,8 @@ Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","ter
 Since 0.16.0.
 
 Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer.
+
+Capabilities: read, writeProject
 
 Takes `source` (a layer of the document of any kind: a pixels layer, a painted, generated or vector one, drawn alone with its masks and effects) or `png` (a PNG of the project), makes it `width` x `height` pixels (one keeps the proportions) or `pixelSize` source pixels per art pixel, and writes the result into the indexed layer `into` (created at the top, or replaced). `method`: "dominant" (default) turns every source pixel into its nearest palette colour (OKLab) first and gives each art pixel the commonest colour of the source pixels it covers, so edges stay crisp and no colour is a blend; "average" averages the covered area (a box filter with exact fractional edges, not bilinear) and then quantizes to the palette with the dither of image.layer.convert (`dither` none, bayer2/4/8, floydSteinberg, atkinson; `strength`; `space` oklab or rgb). Art pixels under `alphaThreshold` opaque (default 0.5) are transparent.
 
@@ -4648,12 +5054,14 @@ Since 0.3.0.
 
 Record the input the game receives as an input replay (start / stop).
 
+Capabilities: read, state, writeProject
+
 `start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the calendar date; what is held at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that `factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop between frames. Starting while recording begins again. Example: input.record {"action":"start"} ... input.record {"action":"stop","path":"replays/run1.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
-| `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
+| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). |
 
 ## jobs
 
@@ -4662,6 +5070,8 @@ Record the input the game receives as an input replay (start / stop).
 Since 0.19.0.
 
 The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.
+
+Capabilities: read
 
 mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
 
@@ -4672,6 +5082,8 @@ mode is "threads" (a pool of workers; 0 workers means jobs run on the main threa
 Since 0.19.0.
 
 Stop a background load, or drop the files a finished one read ahead.
+
+Capabilities: read, state
 
 A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now, and an async scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. Example: load.cancel {"id":1}
 
@@ -4684,6 +5096,8 @@ A running load stops: what it decoded is thrown away, an async scene.load does n
 Since 0.19.0.
 
 Show the background loads: progress, items, bytes, errors.
+
+Capabilities: read
 
 With `id`: that load (from scene.preload, assets.preload, scene.load {async:true}, or a script's handle). Without: {jobs, threaded, warmBytes}, the loads that run and the last 16 that ended. A load is {id, kind, paths, origin (script|tool), state (scanning|loading|done|failed|cancelled), progress (0..1, never goes down), items {done, total} (the scan counts as one), bytes, uploadedBytes, error?, hint?}. `threaded` is false when the job pool has no worker thread: the files are then read on the main thread, a share per frame. Example: load.status {"id":1}
 
@@ -4699,6 +5113,8 @@ Since 0.2.0.
 
 Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state.
 
+Capabilities: read
+
 Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound}}. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. `programs` are the shader programs the material makes: mesh and mesh_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
 
 | Argument | Type | Required | Description |
@@ -4712,6 +5128,8 @@ Reads a *.material.json (schemas/material.schema.json) and returns {material, do
 Since 0.9.0.
 
 Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.
+
+Capabilities: read, state
 
 Builds geometry at run time, without writing a file: `positions` (three numbers per vertex), `indices` (three per triangle; left out = a triangle soup), and optionally `normals`, `uvs`, `tangents`, `colors` and `submeshes` (runs of the index list with their own material). Missing normals and tangents are computed. Conventions are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0,0) is the top-left of the image. Everything is checked and an error names the field, the counts and the fix (array length, index outside the vertices, submesh outside the index list). Result: the info of mesh.info with `id` ("mesh:N"). Set MeshRenderer.mesh (and Collider3D.mesh for a convex or mesh collider) to that id; culling, shadows, picking and the editor's selection use the mesh's real bounds. The mesh belongs to the running scene: loading a scene releases every mesh, and it is not written to scene files (scene validation rejects an id in a file): use mesh.save for a file. At most 256 meshes, 1048576 vertices and 6291456 indices each. Vertex colors multiply the base color. Example: mesh.create {"positions":[0,0,0, 1,0,0, 0,1,0],"indices":[0,1,2],"submeshes":[{"material":{"name":"skin","color":[0.9,0.7,0.5,1]}}]}
 
@@ -4731,6 +5149,8 @@ Since 0.9.0.
 
 Free a procedural mesh.
 
+Capabilities: read, state
+
 Entities that still name the id draw the missing-mesh placeholder and the engine logs why once: set their `mesh` first. Errors for an unknown id with the live ids. Result: {destroyed: id}. Example: mesh.destroy {"id":"mesh:1"}
 
 | Argument | Type | Required | Description |
@@ -4742,6 +5162,8 @@ Entities that still name the id draw the missing-mesh placeholder and the engine
 Since 0.9.0.
 
 Describe one procedural mesh: counts, bounds, submeshes and materials.
+
+Capabilities: read
 
 Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submeshes: [{material, start, count}]}. `version` grows with every mesh.update. Errors for an unknown or destroyed id with the live ids. Example: mesh.info {"id":"mesh:1"}
 
@@ -4755,6 +5177,8 @@ Since 0.9.0.
 
 List the live procedural meshes of the running scene.
 
+Capabilities: read
+
 Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles, hasColors, bounds, submeshes}. Example: mesh.list {}
 
 ### `mesh.save` (modifies state)
@@ -4763,18 +5187,22 @@ Since 0.9.0.
 
 Write a procedural mesh as a .glb file that loads back as a normal model.
 
-One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; it may not be inside .factoria/ (except .factoria/tmp/). A material whose texture is a run-time texture cannot be saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, submeshes}. Example: mesh.save {"id":"mesh:1","path":"assets/models/tree.glb"}
+Capabilities: read, writeProject
+
+One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; it stays inside the project and may not be inside .git or .factoria/ (except .factoria/tmp/); an absolute path needs the writeAnywhere capability (the command line). A material whose texture is a run-time texture cannot be saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, submeshes}. Example: mesh.save {"id":"mesh:1","path":"assets/models/tree.glb"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The mesh ("mesh:N"). |
-| `path` | string | yes | Project-relative file ending in .glb. |
+| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). |
 
 ### `mesh.update` (modifies state)
 
 Since 0.9.0.
 
 Replace the data of a procedural mesh; arrays left out are kept.
+
+Capabilities: read, state
 
 Takes the same arrays as mesh.create. `positions`, `uvs`, `colors`, `indices` and `submeshes` that are left out are kept; normals and tangents are computed again unless given. Changing the vertex count needs the other per-vertex arrays to fit it (errors say which); changing `indices` of a mesh with several submeshes needs `submeshes` too. Cheap enough to call every frame: the GPU buffers are reused while the new data fits. A Collider3D (convex or mesh) that uses the mesh rebuilds its shape on every update, which is costly for big meshes. Result: the info of mesh.info. Example: mesh.update {"id":"mesh:1","positions":[0,0,0, 2,0,0, 0,2,0]}
 
@@ -4797,6 +5225,8 @@ Since 0.16.0.
 
 Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
+Capabilities: read, writeProject
+
 Without `path` this bakes every *.model.json of the project whose .glb is missing or out of date (its document or a file it reads changed: the recipe's hashes), like audio.bake. With `path` it bakes that document. The .glb goes to `output.path` of the document, else next to it as <name>.glb, written the way mesh.save writes a mesh (one primitive per part and material, the part name in the primitive's extras, vertex colours as COLOR_0); the same document gives the same bytes. assets.json records provenance (a CC0 license, or the licenses of the fonts and textures it read) and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/door.model.json"}
 
 | Argument | Type | Required | Description |
@@ -4811,6 +5241,8 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 Since 0.16.0.
 
 Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures.
+
+Capabilities: read
 
 Measures the maps that `texturing` wear and `ao` use, so you can choose thresholds before changing the document. ao: 1 (white) is open, lower is occluded by the rest of the model (rays up to `distance`, `samples` per texel); curvature: 0.5 grey is flat, lighter is a convex edge, darker a concave corner (sharp edges turn the surface by at least `edgeAngle` degrees and give a band `edgeWidth` metres wide); thickness: how far the inside of the shell is from the opposite surface up to `thicknessDistance`, darker is thin. All three are CPU and deterministic. The defaults are the document's texturing.maps (else samples 16, distance 15% and thicknessDistance 50% of the model's diagonal, edgeAngle 20, edgeWidth 3% of the diagonal). The atlas is the document's `uv` section (a model with none is unwrapped for the measurement; nothing is written). `size` defaults to texturing.size, else the uv texture size. The result has each map's mean, min, max and coverage over the covered texels, the texels covered and the share claimed by two pieces, and one picture with the maps side by side. To keep the maps as pictures next to the model add them to texturing.maps.write; to paint with them add wear entries (model.texture). Example: {"path":"assets/models/crate.model.json","maps":["ao","curvature"],"size":512}
 
@@ -4832,6 +5264,8 @@ Since 0.16.0.
 
 Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix.
 
+Capabilities: read
+
 Builds the document in memory and checks the mesh the game gets (the evaluated mesh, with the `gameReady` origin and merge applied). Findings, errors first: `inside_out` (a closed piece whose triangles all face inward), `inconsistent_winding` (neighbouring triangles disagree on the side that is out), `non_manifold` (an edge of more than two triangles), then warnings: `flipped_normals`, `open_edges` (holes: the model is not a closed solid), `degenerate` (triangles with no area), `scale` (the height differs from `expectedHeight` by more than `tolerance`, or, with no expectation, the largest side is under 2 cm or over 100 m: probably authored in the wrong unit), `origin` (the model is far from its origin), `triangle_budget` and `draw_call_budget` (more triangles or submeshes than a platform's budget for one model; the same table model.game_ready reports, and a LOD of the document's gameReady that fits makes the triangle finding information). Example: {"path":"assets/models/door.model.json","expectedHeight":2.1,"platforms":["mobile"]}
 
 Every finding has `message` (what is wrong, with the parts and bounds), `hint` (how to fix it), and for mesh faults `count`, `parts`, `bounds` and up to `samples` positions in model space. `ok` is false when there is an error. `platforms` limits the budgets checked (default all); `ignore` lists codes not to report (an open surface that is meant to be open: ["open_edges"]). With no `path` or `document` it returns the catalog of checks and budgets. Nothing is written.
@@ -4851,6 +5285,8 @@ Every finding has `message` (what is wrong, with the parts and bounds), `hint` (
 Since 0.16.0.
 
 Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb.
+
+Capabilities: read, writeProject
 
 Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list of node objects; model.info {} lists the operations and fields; left out: one box named box_1 to start from), the optional `materials` ({name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}), `output` ({path: where the .glb goes}) and `doc` note. Nodes without an `id` get one (box_1, cylinder_2...), so model.edit can address them later. The document is checked first: a mistake returns every issue (JSON pointer, what is wrong, how to fix it) and writes nothing. Then it is baked (unless bake is false) and the result holds the measurements. Example: {"path":"assets/models/door.model.json","materials":{"wood":{"color":[0.55,0.35,0.2,1]},"brass":{"color":[0.8,0.65,0.3,1],"metallic":1}},"nodes":[{"op":"box","id":"panel","size":[1,2,0.08],"part":"door","material":"wood"},{"op":"sphere","id":"knob","radius":0.05,"position":[0.4,0,0.07],"part":"knob","material":"brass"}]}
 
@@ -4873,6 +5309,8 @@ Since 0.16.0.
 
 Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture.
 
+Capabilities: read, writeProject
+
 A decal is an image of the project (assets.generate_texture output, or the baked png of an image document) projected along the opposite of its `normal` from `position` (model space, metres), `size` [w, h] metres, `rotation` degrees around the normal, `opacity`, `tint`, `depth` (how far from the plane through `position` the projection reaches, each way; 0 = the smaller side), `maxAngle` (surfaces turned more than this away from `normal` are left alone, default 75). `parts` restricts it to named parts and `faces` to the faces of a selection query (model.select tries one). Decals are composited in order into the layer "model: decals" of the texture; transparent pixels of the image stay transparent. `add` takes one decal or a list (a decal whose name exists replaces it; a missing name becomes decal1, decal2...); `remove` takes a name or a list; `clear` removes all. With none of them it only lists. Example: {"path":"assets/models/crate.model.json","add":{"name":"label","image":"assets/textures/label.png","position":[0,0.2,0.5],"normal":"front","size":[0.4,0.25]}}
 
 Adding decals to a model with no texturing section creates one (and a uv unwrap when it has no uv section). The decals must name existing images and the whole document is checked first; nothing is written on a mistake. The report says how many texels each decal painted: 0 means it missed the surface.
@@ -4892,6 +5330,8 @@ Adding decals to a model with no texturing section creates one (and a uv unwrap 
 Since 0.16.0.
 
 Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.
+
+Capabilities: read, writeProject
 
 `op` is one of: add (insert `node`, an object, into the group or modifier `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output`, `gameReady` or `doc`; `materials` replaces the whole table). `target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/models/door.model.json","op":"set","target":"knob","values":{"radius":0.07}}
 
@@ -4920,6 +5360,8 @@ Since 0.16.0.
 
 Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
 
+Capabilities: read, writeProject
+
 Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
 
 `collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
@@ -4941,6 +5383,8 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 Since 0.16.0.
 
 Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake.
+
+Capabilities: read, writeProject
 
 Takes the mesh `source` (project-relative; assets.generate_model and assets.import put meshes there) and does, in order: `upAxis` (z-up exports are turned to y-up), weld (vertices at the same place with the same uv, colour and a similar normal become one, so seams stay), degenerate and repeated triangles removed, floating pieces removed (separate pieces whose size is under `minPieceSize`, default 2%, of the biggest piece's; the biggest is always kept, and the report lists what went), a consistent winding (neighbouring triangles agree and closed pieces face outward), scale (`height` in metres, `reference` = "human" (1.8 m) or a project model whose height to match, or `scale` factor; without one the size is kept, with a warning when it is not a size a game uses), `origin` (keep, center, bottom or bottom_center, the ground centre: the default), an optional remesh (`remesh: true` ... Example: {"source":"assets/models/robot.glb","height":1.8,"platform":"mobile"}
 
@@ -4974,6 +5418,8 @@ Since 0.16.0.
 
 Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields.
 
+Capabilities: read
+
 A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text, lathe, sweep, loft), groups, modifiers that wrap their children and change the mesh they make (boolean, mirror, array, radial_array, bevel, subdivide, solidify, bend, twist, taper, noise, smooth, weld, shade), edits on a selection chosen by meaning (extrude_faces, inset_faces, loop_cut, bevel_edges, delete_faces, assign_faces: see model.select and the "selections" of the catalog), and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, default and doc string. Example: {"path":"assets/models/door.model.json"}
 
 | Argument | Type | Required | Description |
@@ -4987,6 +5433,8 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 Since 0.16.0.
 
 Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches.
+
+Capabilities: read, writeProject
 
 The `vertexColors` section of a model document writes colours into the mesh while it is evaluated, so a low-poly model needs no texture. `palette` is "style" (the project's assets.json style.palette) or a list of colours; with a palette every colour snaps to the nearest one (`snap: false` turns that off). `color` is the colour of the parts with no entry; `parts` gives each part (by name, "" for nodes with no part) `color` (a colour or the index of a palette colour), or a `gradient` {axis, from, to, via, range} along a model axis, and its own `variation`. `flat: true` gives every triangle one colour (vertices are split: the faceted look); `variation` (0..0.5) changes each triangle's or vertex's brightness a little, deterministically from `seed`. Colours are "#rrggbb", "#rrggbbaa" or [r, g, b, a] from 0 to 1. Example: {"path":"assets/models/house.model.json","set":{"palette":"style","flat":true,"variation":0.05,"parts":{"roof":{"color":2},"wall":{"gradient":{"from":0,"to":1,"axis":"y"}}}}}
 
@@ -5002,13 +5450,15 @@ The colours multiply any the nodes already have, and go into the .glb as vertex 
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 | `picture` | boolean | no | Return the palette swatches ($image) when there is a palette. Default true. |
 
-### `model.preview`
+### `model.preview` (modifies state)
 
 Since 0.16.0.
 
 Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG.
 
-The way to SEE a model. It builds the document in memory and draws it with a software renderer (no graphics device, the same pixels on every machine): one picture with `views` sides evenly spaced around the model, starting at `yaw`, seen from `pitch` degrees above the horizon, each framed the same way so sizes compare across the sheet. A blue 1.8 m figure stands beside the model on the ground (turn it off with figure false) and a grid lies on y = 0 with the origin's axes brighter, so scale, how it stands and where its origin is can be read at once. The header gives the triangle count, the size in metres and the number of parts. A dark red surface is one seen from inside (a flipped triangle). `mode` is "shaded", "wireframe" (the triangle edges; hidden ones stay hidden) or "shaded_wireframe"; `part` draws one part in orange. It draws the mesh the game gets: with `gameReady` settings in the document, their origin and merge are applied. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"assets/models/crate.model.json","views":4,"mode":"shaded_wireframe"}
+Capabilities: read, state
+
+The way to SEE a model. It builds the document in memory and draws it with a software renderer (no graphics device, the same pixels on every machine): one picture with `views` sides evenly spaced around the model, starting at `yaw`, seen from `pitch` degrees above the horizon, each framed the same way so sizes compare across the sheet. A blue 1.8 m figure stands beside the model on the ground (turn it off with figure false) and a grid lies on y = 0 with the origin's axes brighter, so scale, how it stands and where its origin is can be read at once. The header gives the triangle count, the size in metres and the number of parts. A dark red surface is one seen from inside (a flipped triangle). `mode` is "shaded", "wireframe" (the triangle edges; hidden ones stay hidden) or "shaded_wireframe"; `part` draws one part in orange. It draws the mesh the game gets: with `gameReady` settings in the document, their origin and merge are applied. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise (a caller that may not write the project cannot use `out`). Example: {"path":"assets/models/crate.model.json","views":4,"mode":"shaded_wireframe"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5022,7 +5472,7 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 | `figure` | boolean | no | Draw the 1.8 m reference figure beside the model. Default true. |
 | `ground` | boolean | no | Draw the grid on y = 0. Default true. |
 | `part` | string | no | A part of the model to draw in orange. |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; needs the writeProject capability, never inside .git or .factoria). Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
 
 ### `model.select`
@@ -5030,6 +5480,8 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 Since 0.16.0.
 
 Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.
+
+Capabilities: read
 
 The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces take a selection written as a query, never as indices: {"by": "normal", "direction": "top"}, {"by": "part", "part": "lid"}, {"by": "box", "min": [...], "max": [...]}, combined with and / or / not / grow / shrink; edges: border (of a face selection), sharp (over an angle), between_parts, loop (round an axis at a height or ratio). This evaluates the document up to `node` and runs the query on the mesh that node receives (its merged children, or the mesh a primitive made; in the node's own space, before its transform), then answers: how many faces (or edges) matched out of how many, their total area (or length), their bounds and how many belong to each part. An empty selection returns a warning that says why (what the mesh spans, the parts that exist, how close the nearest face was). Without `faces` / `edges` the node's own selection is used, so model.select on an edit node tells what it will edit. Because a query is evaluated on every build, it keeps meaning the same faces when the model below changes. Example: {"path":"assets/models/crate.model.json","node":"body","faces":{"by":"normal","direction":"top"}}
 
@@ -5046,6 +5498,8 @@ The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and as
 Since 0.16.0.
 
 Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture.
+
+Capabilities: read, writeProject
 
 The `texturing` section of a model document (docs/MODELING.md, "Texturing") makes the CPU bake the model's colour into its UV atlas (it needs a `uv` section with layout "atlas"; with none, {"method":"unwrap"} is added). Example: {"path":"assets/models/crate.model.json","set":{"size":1024,"ao":true,"wear":[{"mask":"edges","color":"#d9d2c0"},{"mask":"cavity","color":"#2a2018","amount":0.6}]}}
 
@@ -5067,6 +5521,8 @@ Since 0.16.0.
 
 Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.
 
+Capabilities: read, writeProject
+
 The `uv` section of a model document replaces the primitives' own uvs: `layout` "atlas" (default) packs every piece into one texture painted for this model, "tile" gives world-scale uvs that continue across the model and repeat. `method` is "unwrap" (xatlas cuts the surface into pieces and flattens each with little stretch; atlas default), or a projection: "box" (each face on the axis plane it looks at; tile default), "cylinder" and "sphere" (around `axis`), "planar" (along `axis`); `parts` overrides method, axis and texelsPerUnit per part name, so a wheel can be a cylinder and a body unwrapped. `texelsPerUnit` is texels per metre (default the project's assets.json style.texelsPerUnit, else 128); `textureSize` 0 picks the smallest power of two the pieces fit in, a fixed size the pieces do not fit lowers the density (a warning says so); `padding` empties texels around each piece; `seams` few, balanced or many; `rotate` lets the packer turn pieces. Example: {"path":"assets/models/crate.model.json","set":{"method":"unwrap","texelsPerUnit":256,"parts":{"wheel":{"method":"cylinder","axis":"x"}}}}
 
 The same spec works on sdf organic shapes, whose default box uvs it replaces. With `set` the fields are merged into the section (a null value removes a field; `parts` merges part by part), `replace: true` puts `set` in place of the section, `clear: true` removes it; the document is checked as a whole and a mistake returns every issue with its JSON pointer and writes nothing. Then the .glb is baked again (unless bake is false). The result measures the uvs: texels per metre (mean, min, max, per part), stretch (1 = none, 2 = a texture drawn twice as long one way as the other), seams, mirrored triangles, how full the texture is, overlap and uvs outside 0..1, with warnings that say what to change; with no `set` or `clear` it only measures (a document with no uv section is measured on its primitives' own uvs). Unless picture is false it returns the layout (`$image`): the texture square with every triangle at its uvs, a colour per part, mirrored triangles red.
@@ -5086,6 +5542,8 @@ The same spec works on sdf organic shapes, whose default box uvs it replaces. Wi
 Since 0.16.0.
 
 Make an arpeggio over a chord progression as note text, and optionally put it in a song.
+
+Capabilities: read, writeProject
 
 Spells the chords of `progression` one note after another, in a direction (up, down, updown, downup, random), over 1 to 4 octaves, at a rate, with the first note of each beat accented. Returns the note text. With `path` it also writes the text as a pattern (default track "arp", pattern "arp", instrument pluck; created when missing), and with `section` adds it to what the track plays there; meter, key and mode come from the song. Example: {"progression":"Am F C G","direction":"updown","octaves":2,"path":"assets/music/theme.song.json","section":"loop"}
 
@@ -5121,6 +5579,8 @@ Since 0.16.0.
 
 Make a bassline over a chord progression as note text, and optionally put it in a song.
 
+Capabilities: read, writeProject
+
 A bass part from the progression: root (a note per beat on the root), root_fifth, octave (eighths jumping an octave) or walking (stepwise toward the next chord). Returns the note text. With `path` it writes it as a pattern (default track "bass", pattern "bass", instrument bass; created when missing) and, with `section`, plays it there. Example: {"progression":"i VI III VII","key":"A","mode":"minor","style":"walking"}
 
 | Argument | Type | Required | Description |
@@ -5144,11 +5604,13 @@ A bass part from the progression: root (a note per beat on the root), root_fifth
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
 
-### `music.check`
+### `music.check` (modifies state)
 
 Since 0.16.0.
 
 Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness.
+
+Capabilities: read, state
 
 Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a note outside the song's key and mode that is not a passing tone), range (a note outside the instrument's range or the track's `range`), clash (a minor second or a tritone sounding together on a strong beat), mud (close low notes under C3), structure (a track that never plays, an empty section, an unused pattern) and loudness (the song is rendered with its mixer: with the master limiter off a clipping mix is an error and a peak over -1 dBFS a warning; a limiter that pulls the level down by more than 6 dB is a warning, more than 3 dB a note; a mix below -35 LUFS is a warning; an integrated loudness more than 3 LU from the target is a warning, unless the master `loudness` brings it there). Without `rules` every rule that needs no render runs; `render: true` adds loudness. The target is `targetLufs`, else style.audio.loudnessLufs.music of assets.json when the style guide says it. Every finding has the rule, severity, a message, a fix (`hint`), the track, pattern, section, bar and position, and for a note the pointer, line, column and token in the note text; equal findings are reported once with a `count`. `ok` is true when there is no error and no warning. A song with mistakes fails like music.info. Example: {"path":"assets/music/theme.song.json","render":true}
 
@@ -5165,6 +5627,8 @@ Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a not
 Since 0.16.0.
 
 Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste.
+
+Capabilities: read
 
 With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at `octave`, their MIDI numbers, the interval list and the two ways to write it in note text. With `progression` (names, or Roman numerals in `key` and `mode`, or those of the song at `path`) it returns every chord and `pad`, the progression as sustained chords. With no arguments it lists the chord qualities the notation knows. Example: {"progression":"i VI III VII","key":"A","mode":"minor"}
 
@@ -5183,6 +5647,8 @@ With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at
 Since 0.16.0.
 
 Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro.
+
+Capabilities: read, writeProject
 
 Makes a complete, valid starting song at `path` (assets/..., ending in .song.json): a pad playing the chords, a bassline, a drum groove in a style and (unless arpeggio is false) a plucked arpeggio; sections intro, loop (twice) and outro. It is a starting point to change with music.edit, not a finished piece. `progression` is chord names ("Am F C G") or Roman numerals in the key ("i VI III VII"; `*2` holds a chord two bars). Defaults: tempo from the drum style's usual range, 4/4, key A minor, progression "i VI III VII" (minor) or "I V vi IV" (major), style rock (waltz in 3/4), bass root_fifth. Fails with `exists` when the file is there unless overwrite is true. Returns the song's summary and a piano-roll picture (`$image`). Example: {"path":"assets/music/theme.song.json","key":"D","mode":"dorian","tempo":96,"style":"funk"}
 
@@ -5213,6 +5679,8 @@ Since 0.16.0.
 
 Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song.
 
+Capabilities: read, writeProject
+
 Without `style` it lists the styles and the kit's lanes. With one it returns a drum pattern ({"grid": {lane: steps}, "step": "16"}) of `bars` bars, with a tom fill on the last beat if `fill` is set. With `path` it writes it as a pattern (default track "drums", pattern "groove", instrument kit; created when missing) and with `section` plays it there; the meter comes from the song. A style written for 4/4 fails in 3/4 and says so. Example: {"style":"funk","bars":2,"fill":true}
 
 | Argument | Type | Required | Description |
@@ -5236,6 +5704,8 @@ Since 0.16.0.
 
 Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.
 
+Capabilities: read, writeProject
+
 Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Example: {"path":"assets/music/theme.song.json","ops":[{"op":"set_pattern","track":"bass","pattern":"line","notes":"A2:8 A2 E3 A2 | G2:8 G2 D3 G2"},{"op":"mute","section":"intro","tracks":["drums"]}]}
 
 Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, "x.sf2#Preset" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md "Mixer"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md "Layers"); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did.
@@ -5256,6 +5726,8 @@ Since 0.16.0.
 
 Write a song as a format-1 Standard MIDI File that a DAW or notation program opens.
 
+Capabilities: read, writeProject
+
 Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quarter note) at `out` (default: the song's path with .mid). Track 1 holds the tempo, time signature, key signature (major or minor) and one marker per section ("kind:name"); then one track per song track with its name, instrument (Instrument Name and the General MIDI program), volume and pan controllers and its notes with the length they sound; drum tracks use channel 10 and the General MIDI percussion keys. The sounded timeline is written: swing is in the note times, `transpose` in the pitches, and muted tracks (or tracks not soloed) are left out. The mixer, effects, buses and automation are not part of a MIDI file. music.import_midi reads the file back as the same notes, timing and velocities. Example: {"path":"assets/music/theme.song.json"}
 
 | Argument | Type | Required | Description |
@@ -5269,6 +5741,8 @@ Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quart
 Since 0.16.0.
 
 Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.
+
+Capabilities: read, writeProject
 
 Reads the MIDI file `path` (absolute on this machine, or in the project) with the engine's own parser (format 0 and 1, running status, meta events, any number of tracks and channels; format 2 and SMPTE timing are errors) and writes a song document at `out` (default assets/music/<name>.song.json; assets.import does the same for a .mid). Every (track, channel, program) that plays notes becomes a song track: channel 10 is a drum track (General MIDI percussion keys become the lanes of the built-in kit, as a step grid with ghost / hit / accent velocities), the others take the built-in instrument nearest to the General MIDI program (an Instrument Name that names a built-in instrument wins; with `soundfont` the track plays that SoundFont's preset of the program). Velocities are kept, the sustain pedal lengthens notes, controllers 7 and 10 become the track's volume and pan. `quantize` ("off" keeps the written times to 1/48 of a quarter note; "16", "8t", "32"...) snaps starts and ends. Example: {"path":"C:/music/theme.mid","out":"assets/music/theme.song.json","quantize":"16"}
 
@@ -5286,11 +5760,13 @@ Markers become sections (a name starting with intro, loop or outro, or written "
 | `author` | string | no | Who made the MIDI file. |
 | `sourceUrl` | string | no | The page the file came from, for the credits. |
 
-### `music.info`
+### `music.info` (modifies state)
 
 Since 0.16.0.
 
 Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture.
+
+Capabilities: read, state
 
 Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/song.schema.json) from `path`, or takes it inline as `song`, and checks it. A song with mistakes fails with `invalid_song` and EVERY problem in data.issues (JSON pointer, line and column inside note text, what is wrong and how to fix it), so one call is enough to repair it. A valid song returns tempo, meter, key, mode, swing, the length in bars and seconds, the structure ("intro (4 bars) > loop (8 bars) x2 > outro (4 bars)"), each track (instrument, patterns and their bars, notes played, the range they cover, the sections they play in) and each section (kind, bars, repeats, what every track plays, where it starts in bars and seconds, notes per bar and per track), and where its preview WAV is and whether it is stale. Unless `picture` is false it also returns a piano roll (`$image`): the sections on top, one colour per track, brighter = louder, drum lanes below; `fromBar` and `bars` zoom on a part. Example: {"path":"assets/music/theme.song.json"}
 
@@ -5299,7 +5775,7 @@ Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/s
 | `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
 | `song` | object | no | The song itself, as JSON, to check before writing it to a file (format is filled in). |
 | `picture` | boolean | no | Return the piano-roll picture (`$image`). Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Default: a temporary screenshot. |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
@@ -5310,6 +5786,8 @@ Since 0.16.0.
 
 List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets.
 
+Capabilities: read, writeProject
+
 Without `name` it lists what a track's `instrument` can be: the built-in pitched instruments (with family, note range and polyphony), the drum kits (acoustic "kit", "kit:electronic", "kit:chiptune") and their lanes ("kit:kick"), the sfx presets, the .sfx.json patches and the .sf2 SoundFonts in the project. With `name` set to a .sf2 path under assets/ it lists that SoundFont's presets (name, bank, program) so a track can name one. With `name` set to a built-in it returns that instrument's patch (the JSON of a .sfx.json, docs/SOUND.md; a bare lane name like "kick" works) and, with `path`, writes it to a .sfx.json under assets/ so you can change the numbers and point a track at the copy. A pitched patch is played once per note, re-pitched to the note. Example: {"name":"pluck","path":"assets/audio/my_pluck.sfx.json"}
 
 | Argument | Type | Required | Description |
@@ -5318,11 +5796,13 @@ Without `name` it lists what a track's `instrument` can be: the built-in pitched
 | `path` | string | no | Write the patch here (a .sfx.json under assets/). |
 | `overwrite` | boolean | no | Replace the file at `path` when it exists. Default false. |
 
-### `music.mix`
+### `music.mix` (modifies state)
 
 Since 0.16.0.
 
 Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did.
+
+Capabilities: read, state
 
 Renders the song (`path`, or inline `song`) like music.preview but writes no file, and returns the mix: for every track its notes, peak (dBFS) and loudness (LUFS) as heard in the mix, volume, pan, effects and sends; the buses (volume, pan, effects); and the master: the loudness and peak before the loudness gain and the limiter, the gain the normalization added, the target loudness (`mixer.master.loudness`: "style" is the project's style.audio.loudnessLufs.music, a number is LUFS, "off" leaves the level), whether the limiter is on and how many dB it pulled down at most. Use it to balance the tracks (a track 10 LU above the others covers them), to see whether the limiter is squashing a hot mix, and before music.edit set_track / set_mixer. `fromBar`, `bars`, `solo`, `mute`, `seed` and `sampleRate` work as in music.preview. Example: {"path":"assets/music/theme.song.json","bars":8}
 
@@ -5343,6 +5823,8 @@ Since 0.16.0.
 
 List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them.
 
+Capabilities: read
+
 Reads the pattern `pattern` of `track` in the song at `path` and returns its notes sorted by start: `pitch` (MIDI, 60 is C4), `name`, `tick` and `duration` (960 ticks per quarter note, from the start of the pattern), `velocity`, `accent` and `staccato`; a chord is one note per pitch. `text` is the note text as written. The list goes back through music.edit set_pattern with `notes` as a list (changing, adding or removing notes), which writes it as note text again. A drum pattern returns its `grid` and `hits`. Example: {"path":"assets/music/theme.song.json","track":"bass","pattern":"line"}
 
 | Argument | Type | Required | Description |
@@ -5356,6 +5838,8 @@ Reads the pattern `pattern` of `track` in the song at `path` and returns its not
 Since 0.16.0.
 
 Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram.
+
+Capabilities: read, writeProject
 
 Renders the song at `path` with the preview voices: every note of the arrangement is played by its track's instrument at the note's pitch (a built-in instrument, a preset, or your own .sfx.json patch), with the track's volume, pan, swing and automation lanes and the song's master lanes. The result is a stereo 16-bit WAV at `out` (default: the song's path with .preview.wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: the same song, options and seed give the same bytes on every platform. The file gets provenance and a recipe in assets.json whose inputs are the song and every patch it read, so project.validate warns when they changed after the preview was made and assets.regenerate renders it again. `fromBar` and `bars` render a part, `solo` and `mute` choose tracks, `seed` is another take of the instruments' noise, `sampleRate` 22050, 32000, 44100 (default) or 48000. A song longer than 180 s needs a range. An existing file that music.preview did not make is an `exists` error unless overwrite is true. Example: {"path":"assets/music/theme.song.json","fromBar":5,"bars":4,"solo":["lead"]}
 
@@ -5383,6 +5867,8 @@ Since 0.16.0.
 
 Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer.
 
+Capabilities: read, writeProject
+
 Renders the song at `path` as music.preview does (same voices, mixer, loudness normalization and limiter) but as an ASSET: the whole song, with the loop points of its `loop` sections. The loop is seamless: the tail of the loop's last bar (reverb, release) is folded onto its first bar, so a looping AudioSource plays `loopStart`..`loopEnd` with no click. The points are the bar boundaries of the loop sections, exact frames, written as `import.loopStart` / `loopEnd` (seconds) in assets.json, which the engine honours, and, for a WAV, in the standard `smpl` chunk; an OGG keeps them in assets.json only. `out` (default: the song's path with .wav) or `format` "wav" / "ogg" choose the file. `stems`: "layers" renders one file per layer of the song's `layers` (the tracks left out form the layer `other`), "tracks" one per track, "buses" the dry tracks and each bus's return; true means "layers". Example: {"path":"assets/music/theme.song.json","stems":"layers"}
 
 A stem is named <out without extension>.stem.<name>.<ext>, has the same length, sample rate and loop points as the mix, and passes through the same buses and master: the stems carry the mix's loudness gain and limiter gain, so their SUM is the mix to within float rounding (below -80 dBFS) when the buses and the master hold only linear effects; a compressor, distortion or bitcrush there acts on the sum and the result's stemSum says by how much the sum differs. Add them with gain 1 and clip nothing: a stem can pass 0 dBFS when the others cancel it. Every written file gets provenance and the same recipe in assets.json (inputs: the song, every .sfx.json patch and SoundFont it reads; context: the style guide's music loudness when the song's master loudness is "style"), so project.validate warns when any of them changed and assets.regenerate makes the files again; running music.render again updates them in place (a stem of a layer you removed is deleted). `import.music` of each entry says what it is: {role: "mix", song, stemGrouping, stems: [{name, path, kind, intensity, tracks, buses}]} or {role: "stem", song, mix, name, kind, intensity, tracks, buses}; intensity (0..1) is when a layered player brings the stem in. `sampleRate` 22050, 32000, 44100 (default, exact loop frames in the engine) or 48000; `seed` another take of the instruments' noise; `loop` false renders the song once with no loop points. An existing file that music.render did not make is an `exists` error unless overwrite is true.
@@ -5404,6 +5890,8 @@ Since 0.16.0.
 
 Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals).
 
+Capabilities: read
+
 With `key` and `mode` returns the scale's notes, intervals, and the triads and seventh chords on every degree labelled with Roman numerals (the same names a progression accepts). With no arguments it lists every scale the notation knows. Example: {"key":"D","mode":"dorian"}
 
 | Argument | Type | Required | Description |
@@ -5419,6 +5907,8 @@ Since 0.3.0.
 
 Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.
 
+Capabilities: read
+
 A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D or a static one; triggers, Collider3D.navObstacle and Collider3D.navWalkable colliders are left out; navWalkable ones are added as moving cells) into a grid of walkable cells: not steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change (autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, regions, obstacles, links, walkableBodies}; NavLink3D entities add off-mesh links; no timing, so the same level gives the same result. Example: nav.bake {"mesh":"navmesh"}
 
 | Argument | Type | Required | Description |
@@ -5430,6 +5920,8 @@ A NavMesh3D component marks a box of the level. Baking voxelizes the static coll
 Since 0.3.0.
 
 Find a walkable path between two 3D points on the baked NavMesh3D.
+
+Capabilities: read
 
 A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, links?:[{point, entity}], from, to, mesh} or {found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in different walkable areas, a moving obstacle blocks the way, or a navWalkable platform is away). A start or goal within `snap` meters of walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal (complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). mesh = id of the NavMesh3D entity; omitted = the first enabled one that contains `from`. Scripts: nav.findPath(from, to, {radius}). Example: nav.find_path {"from":[0,0,0],"to":[10,0,5]}
 
@@ -5448,6 +5940,8 @@ Since 0.19.0.
 
 Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
 
+Capabilities: read
+
 The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: nav.findPaths(queries, opts). Example: nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},{"from":[2,0,2],"to":[-4,0,6]}]}
 
 | Argument | Type | Required | Description |
@@ -5463,6 +5957,8 @@ The batch form of nav.find_path for crowds and AI planners: `queries` is a list 
 Since 0.3.0.
 
 Find a path over the cells of a Tilemap (or a plain cost grid) with A*.
+
+Capabilities: read
 
 Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in solidTiles block, every other cell costs 1, `costs` {"<tile index>": cost | null} overrides per tile, null = blocked, key "-1" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] (cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. Deterministic. Example: nav.find_tile_path {"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}.
 
@@ -5486,6 +5982,8 @@ Since 0.19.0.
 
 Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
 
+Capabilities: read
+
 The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and `allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths {"tilemap":"ground","queries":[{"from":[0,0],"to":[5,3]},{"from":[1,1],"to":[9,2]}]}
 
 | Argument | Type | Required | Description |
@@ -5505,6 +6003,8 @@ Since 0.3.0.
 
 Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.
 
+Capabilities: read
+
 The cost of the cheapest route from every cell to the nearest goal, with the same rules as nav.find_tile_path (entering a cell costs its cost, 4-way or diagonals=true, no corner cutting, null or negative blocks). A blocked goal is entered at cost 1. Pass `tilemap` or `grid` like nav.find_tile_path, `goals` [[col,row],...] and optionally `from`. Result {width, height, distance: [width*height numbers, row-major, row 0 = top; null where no goal can be reached]} and, with `from`: {reachable, cost, next: [col,row] | null (the cell to walk to; null at a goal or when unreachable), path: [[col,row]...] (from `from` to the goal it reaches)}. Deterministic. Scripts: nav.flowField(grid, goals) keeps the field and answers field.stepToward(col, row) in O(1). Example: nav.flow_field {"tilemap":"ground","goals":[[9,4]],"from":[0,0]}
 
 | Argument | Type | Required | Description |
@@ -5522,6 +6022,8 @@ Since 0.3.0.
 
 List the NavMesh3D components with their bounds, agent size, bake state and stats.
 
+Capabilities: read
+
 Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, staleSinceBake, stats} (stats include links and walkableBodies). staleSinceBake is true when the colliders changed after the last bake of a mesh with autoBake off (call nav.bake).
 
 ## project
@@ -5531,6 +6033,8 @@ Use it to check that a level was baked and how much of it is walkable. Result: a
 Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
+
+Capabilities: read, writeProject
 
 Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. Example: {"frames":300,"input":"replays/play.json"}.
 
@@ -5551,6 +6055,8 @@ Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
+Capabilities: read
+
 Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). The counters (draw calls, entities; triangles and lights when the baseline has them) are exact: one more than the baseline FAILS always (fewer passes). The median and p95 frame time and the peak memory have a wide band: past a warn limit the status is "warn" and the message says so, and only past the fail limit (about 6x for a time, +50% for memory, each with an absolute floor) does it FAIL, so a baseline is never refreshed to pass (docs/PERFORMANCE.md, "The band"). The average and the maximum are not gated; the message names the slowest frames. An entry with "provisional": true enforces only the counters. Texture memory fails past +10% and 1 MB. Example: {} or {"file":"perf.json"}.
 
 The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU milliseconds the game may take from reading its files to its first frame (startupMs of the sample); the templates ship one with a wide margin, and the message tells how to bring start-up down. A time (cpuMsMedian, cpuMsP95, startupMs, maxStartupMs) past its fail limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time past its fail limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit (where it fails), warnLimit?, warned?, exceeded}], message, provisional?, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data.
@@ -5568,6 +6074,8 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
+Capabilities: read
+
 Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every 8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
@@ -5582,6 +6090,8 @@ Runs the project in a second headless engine inside this process, drawing every 
 Since 0.2.0.
 
 Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.
+
+Capabilities: read
 
 Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the profiler on and returns {runner, graphics, profile}. profile = {frames, clock:"wall", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, world.on handlers and promise jobs are the bucket "(timers, events and promises)"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: {"frames":300,"input":"replays/play.json"}.
 
@@ -5599,6 +6109,8 @@ Times are wall-clock milliseconds and vary a little from run to run: compare the
 ### `physics.raycast`
 
 Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
+
+Capabilities: read
 
 2D: {from:[x,y], to:[x,y]}. 3D: {dimension:"3d", origin:[x,y,z], direction:[x,y,z], maxDistance}. Options, the same as physics.shape_cast and the script API physics.raycast(a, b, {mask, ignore, ignoreTriggers}): mask = collision layer bit mask (bit i = layer i, -1 = all layers); ignore = id (or name) of an entity whose colliders, and its children's, are skipped (usually the caster, so a ray starting at a body's edge does not hit the body itself); ignoreTriggers (default true) skips trigger colliders, false hits them too. A collider that contains the ray origin is always skipped. Result: {hit:false} or {hit:true, entity, point, normal, distance}. Example: physics.raycast {"from":[0,300],"to":[0,-300],"ignore":"player","ignoreTriggers":false}
 
@@ -5620,6 +6132,8 @@ Since 0.3.0.
 
 Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.
 
+Capabilities: read
+
 Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see everything between two points (what hides a character from the camera), or to click through colliders that only exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, distance}]} sorted by distance. Example: physics.raycast_all {"dimension":"3d","origin":[0,2,0],"direction":[0,0,-1],"maxDistance":20,"maxHits":4}
 
 | Argument | Type | Required | Description |
@@ -5639,6 +6153,8 @@ Same arguments and options as physics.raycast, plus maxHits (default 32, the nea
 
 Sweep a circle, sphere or box from one point to another and return the first collider it touches.
 
+Capabilities: read
+
 Like physics.raycast, but the shape has size: use it to ask whether a character fits or how far a box can move before it hits something. 2 numbers in from/to = 2D, 3 numbers = 3D. shape: 2D {"shape":"circle","radius":8} or {"shape":"box","size":[16,24]}; 3D {"shape":"sphere","radius":0.5} or {"shape":"box","size":[1,2,1]} (2D pixels, 3D meters, full sizes). The shape is centred on the cast position and axis-aligned. Result: {hit:false} or {hit:true, entity, point, normal, distance}: distance is how far the CENTRE travels before contact, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped (like a ray starting inside one); a collider it only touches blocks the cast only if it moves towards it. Options as for physics.raycast: mask; ignore = id of an entity whose colliders (and its children's) are skipped, usually the caster; triggers are skipped unless ignoreTriggers=false. Example: physics.shape_cast {"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}
 
 | Argument | Type | Required | Description |
@@ -5657,6 +6173,8 @@ Like physics.raycast, but the shape has size: use it to ask whether a character 
 Since 0.2.0.
 
 Set up a store backend for this game: its plugin, its build and what the store needs.
+
+Capabilities: read, writeProject, process
 
 One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs.
 
@@ -5681,6 +6199,8 @@ Since 0.2.0.
 
 Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change.
 
+Capabilities: read, state
+
 `event` is "purchase" ({productId, status?: "purchased" | "pending" | "cancelled" (default purchased), transactionId?, receipt?}; a purchased one also records an unfinished transaction, made up when not given), "overlay" ({open: bool}) or "player" ({id?, name?, signedIn}). Scripts get it through platform.on(event, fn) at the start of the next frame (game.step). Fails when the game runs a real store backend. Example: platform.emit {"event":"overlay","data":{"open":true}}
 
 | Argument | Type | Required | Description |
@@ -5693,6 +6213,8 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 Since 0.3.0.
 
 A guest joins the fake platform's Remote Play Together session, as Steam would tell the game.
+
+Capabilities: read, state
 
 Adds a session that remotePlay.sessions() lists and sends the game {status: "connected", session} at the start of the next frame (game.step), which platform.on("remotePlay", fn) listeners receive. `session` is {id (numbered from 1), guestName, guestId, deviceName, formFactor, resolution: {width, height}}; what you leave out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080). Returns the session. A guest's input is NOT simulated here: drive the pad the guest would use with game.gamepad(i). Fails when the game runs a real store backend. Example: platform.remote_play_connect {"guestName":"Ana","formFactor":"phone"}
 
@@ -5710,6 +6232,8 @@ Since 0.3.0.
 
 A guest leaves the fake platform's Remote Play Together session.
 
+Capabilities: read, state
+
 Removes the session from remotePlay.sessions() and sends the game {status: "disconnected", session} (the session as it was) at the start of the next frame (game.step). Fails when no guest has that session id (the message lists the connected ones) or when the game runs a real store backend. Example: platform.remote_play_disconnect {"id":1}
 
 | Argument | Type | Required | Description |
@@ -5722,6 +6246,8 @@ Since 0.2.0.
 
 Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.
 
+Capabilities: read, state
+
 Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again, and forgets the answer of platform.ads.setUnderAge (the game asks the age again). Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
 
 ### `platform.respond` (modifies state)
@@ -5729,6 +6255,8 @@ Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1
 Since 0.2.0.
 
 Script the next answer(s) the fake platform backend gives to a method: an error, an exact result, or a change to the default.
+
+Capabilities: read, state
 
 `method` is a platform method such as "purchases.buy" (docs/PLATFORM.md lists them all). `answer` is one of {"error": "network", "message"?, "hint"?} to reject (codes: unavailable, notSignedIn, notAllowed, unknownId, network, failed), {"result": value} to resolve with exactly that value, or any other object, which is merged into the default result: {"status": "cancelled"} cancels a purchase (and buys nothing). Answers are used first in, first out, one per request; `times` queues the same answer several times. Fails when the game runs a real store backend. Example: platform.respond {"method":"purchases.buy","answer":{"status":"cancelled"}}
 
@@ -5744,6 +6272,8 @@ Since 0.3.0.
 
 Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
 
+Capabilities: read, state
+
 The product leaves purchases.restore() and its unfinished transaction is dropped; the game gets a "purchase" event {status: "revoked", productId, transactionId, receipt} at the start of the next frame (game.step), which platform.on("purchase", fn) listeners receive. Fails when the player owns no such product (the message lists the owned ones) or when the game runs a real store backend. Example: platform.revoke {"productId":"remove_ads"}
 
 | Argument | Type | Required | Description |
@@ -5755,6 +6285,8 @@ The product leaves purchases.restore() and its unfinished transaction is dropped
 Since 0.3.0.
 
 Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
+
+Capabilities: read, state
 
 `outcome` decides how every ads.showRewarded() ends until changed (and platform.reset): "watched" (the default: {rewarded: true}), "closedEarly" ({rewarded: false, reason: "closedEarly"}), "noFill" (no ad: ads.available() is false and showRewarded gives reason "noFill") or "consentRefused" (also sets gdpr and tracking to "denied"; reason "consentRefused"). `gdpr` ("granted", "denied", "notRequired", "unknown") and `tracking` ("authorized", "denied", "notDetermined", "restricted", "notRequired") are what ads.consent() answers; a denied gdpr stops every ad. `privacyOptions` ("required", "notRequired", "unknown") is what ads.consent() answers for the privacy options form: with "required", platform.ads.privacyOptions() "shows" the form. Give any of them. platform.state's fake.ads counts the ads shown and rewarded and the privacy forms shown. Fails when the game runs a real store backend. Example: platform.set_ad {"outcome":"closedEarly"}
 
@@ -5771,6 +6303,8 @@ Since 0.2.0.
 
 Change how the fake platform backend behaves: signed in or out, how many frames it holds its answers, and the time of its cloud saves.
 
+Capabilities: read, state
+
 `signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give any of them. `cloudClock: n` sets the time (Unix seconds) the next cloud.save gets as its modified time, which cloud.stat reports; it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up by one second with each save, so saves are ordered without the wall clock. `backend: "none"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
 
 | Argument | Type | Required | Description |
@@ -5786,6 +6320,8 @@ Since 0.2.0.
 
 Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.
 
+Capabilities: read
+
 Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the ids factoria.json "platform" declares), pending (requests waiting for an answer), droppedEvents (events the full queue lost, oldest first), timedOut (requests the engine gave up on: docs/PLATFORM.md, "Deadlines"), fake?} where `fake` (only when the backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, leaderboards: {id: best} (a daily or weekly board: "id@periodKey"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, scripted?}], callsDropped}. `calls` is every request the game made, with the arguments the backend got (store ids included) and how it was answered: assert on it after game.step. Example: platform.state {}
 
 `adsBackend` is the backend that answers ads.* (an ads plugin such as admob, the store backend when it offers ads, or "none") and `adsWhy` says why; `audience` is factoria.json platform.ads.audience and `underAge` what platform.ads.setUnderAge answered (true for a children's game, null if not asked). `httpBackend` is what answers http.fetch (the system HTTP client such as curl or winhttp in a windowed run or a shipped game, the fake in tests and headless runs, or "none"), `httpWhy` says why (also why a client cannot run) and `networkHosts` is the hosts factoria.json "network" declares.
@@ -5797,6 +6333,8 @@ Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, a
 Since 0.18.0.
 
 Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.
+
+Capabilities: read, state
 
 Run this after you build a feature and BEFORE you ask the user to play: it plays the game with nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what breaks. A second headless engine in this process (fake platform, in-memory saves, fixed 1/fixedHz steps, the same `seed` plays the same game) plays up to `seconds` GAME seconds. The bot is the game's own: scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input actions to hold (docs/SCRIPTING.md, "The bot"; the project templates ship one that finishes their sample level). Without that file a generic explorer holds the declared input actions in seeded patterns (and taps the menu actions when the scene has buttons), so any game still gets smoke-played; bot "explorer" forces it. Example: {"seconds":120,"seed":7} or {"scene":"scenes/level2.scene.json","bot":"explorer","speed":4}.
 
@@ -5816,6 +6354,8 @@ The run ends with `ended`: "won" or "lost" (the hook returned { end } or the gam
 
 What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
 
+Capabilities: read
+
 Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Example: play.report {"mark":2}
 
 Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; loading: timeToFirstFrameMs, each scene's loadMs (from the start of its load to the end of the first frame after it), files and bytes, slowestAssets (kind, path, bytes, readMs, decodeMs) and reads (count, bytes, fromPack, packStoredBytes): this machine's times, rounded, to compare runs, never a pass or a fail; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` "auto") also `kind` and `step` of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and `auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1) or, with `phase`, of that phase; a play.auto session without marks shows the picture taken when the run ended. Call again with mark 2, 3... or phase 1, 2... to see the others. `session` defaults to the latest (see play.sessions).
@@ -5830,6 +6370,8 @@ Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.
 
 List the recent play sessions (recorded by the editor on Play .. Stop, or by play.auto), newest first.
 
+Capabilities: read
+
 Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor, or <yyyymmdd-hhmmss>-auto/ by play.auto (`source` "auto"; those rows also carry `ended` and `score`). Rows have a short summary: source, scene, duration, frame time p95/max, number of warnings/errors and the marks (the user's notes, or the problems the bot found). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
 
 | Argument | Type | Required | Description |
@@ -5843,6 +6385,8 @@ Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the 
 Since 0.3.0.
 
 Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot.
+
+Capabilities: read, writeProject, process
 
 Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player takes both itself: this command boots a simulator, installs `app` (the Simulator build of the player, ./build_ios.sh --simulator in the iOS export folder), launches it with the environment variables FA_INPUT_REPLAY (the replay `input.record` writes, the one `factoria run --input` plays) and FA_ORIENTATION (portrait or landscape; iOS refuses an orientation the Info.plist does not allow), waits for the player's "player: replay done after N frames" line (without `input`: for its 60-frame run marker), waits `settleMilliseconds` more, writes a PNG of the simulator's screen when `screenshot` is given and terminates the app. Example: {"app":"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app","input":"replays/play.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}.
 
@@ -5866,6 +6410,8 @@ The replay is applied by frame number to the window's frames at their real durat
 
 Save an entity of the running world, with its children, as a prefab file.
 
+Capabilities: read, writeProject
+
 Writes {"format":"factoria.prefab/1","entity":{...}} in the canonical compact layout (the one scene.save and scene.format write), ready to commit and to instantiate with scene.spawn {"prefab":path}, a scene entity {"prefab":path} or a scene.import_ascii legend. `id` is the id (or name) of an entity of the running world; the whole tree below it is saved with every component's non-default serialized fields (runtime state such as velocities and animation time is not). Example: prefab.save {"id":"enemy_3","path":"prefabs/enemy.prefab.json"}
 
 A prefab describes the reusable thing, not this instance, so the file does NOT carry: the ids (every instantiation gets fresh ones; an id stays only where another entity of the saved tree points at it through an Entity field, so those references survive); the root's Transform.position (where the instance happens to stand: the spawn call, the scene entity or the legend places each new instance; children keep their positions relative to the root; rotation and scale are kept); tags starting with 'tilemap:' (scene.import_ascii adds them to the objects it places, and a prefab carrying one would be destroyed when that map is re-imported); Entity fields pointing at an entity outside the saved tree (they would dangle). An entity created from a prefab saves fully expanded (no `prefab` key). To keep the exact position, save the whole world with scene.save instead. `path` is project-relative (or absolute inside the project), must end in .prefab.json and normally lives in prefabs/. An existing file is NOT replaced unless `overwrite` is true. Returns {path, entity (id of the saved entity in the running world), children (number of saved descendants), overwritten, notes?}; `notes` lists what was left out of the file when something noteworthy was. Errors name the id with did-you-mean suggestions or the path rule with a corrected name.
@@ -5884,6 +6430,8 @@ Since 0.3.0.
 
 Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
 
+Capabilities: read, writeProject
+
 The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop, ageGate and analyticsConsent parts are optional for the main menu: its Shop button, shop panel, age gate call and analytics question call are written only when those parts are added (all parts by default). A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
 
 A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}.
@@ -5896,6 +6444,8 @@ A language the kit has no texts for gets the English ones. The "pause" part also
 ### `project.create` (modifies state)
 
 Create a new game project from a template.
+
+Capabilities: read, writeProject
 
 Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
 
@@ -5911,6 +6461,8 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 Since 0.1.2.
 
 Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).
+
+Capabilities: read, writeProject, network, process
 
 Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, replaced on every call but only when it is empty or an earlier export wrote it; any other existing folder of that name is an error that says how to proceed, never deleted. The project itself is not modified, except that a layered image document (*.image.json) whose PNG is missing or stale is baked first. linux/windows/macos: the game plus the factoria_player runtime next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a Gradle project that is then BUILT with its own wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build takes minutes): `format` "apk" (default) or "aab" leaves <slug>[-debug].apk/.aab, reported as `artifact`; "gradle" only writes the project. ios: the game plus an Xcode/CMake project. web: a folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: signed with export.android.signing), `dryRun` true checks everything and writes nothing. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
 
@@ -5934,6 +6486,8 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 
 Show the project settings, input actions, current scene, scenes and scripts.
 
+Capabilities: read
+
 Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. Example: project.info {}
 
 ### `project.new_ci_workflow` (modifies state)
@@ -5941,6 +6495,8 @@ Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefab
 Since 0.2.0.
 
 Write a GitHub Actions workflow that validates, tests and exports the game on every push.
+
+Capabilities: read, writeProject
 
 Writes .github/workflows/factoria.yml into the game's folder. On every push to main or master and every pull request it installs FactorIA on an Ubuntu 24.04 runner (the release package of the SAME version as this factoria, checked against the SHA-256 GitHub lists; a build from source has no release of its own, so it follows the newest one and warns), installs the OpenGL/X11/Xvfb libraries, runs `factoria validate` and `factoria test` under xvfb-run, downloads the other players (`factoria setup players`), exports the game for Linux and Windows, and on a macOS runner for macOS, and uploads the exports as workflow artifacts (tar.gz; the Windows one is a zip). It never overwrites a file that differs unless `overwrite` is true (an identical file is left alone). Project templates do not carry the file: call this when the game goes on GitHub. A game in a subfolder of the repository: GitHub reads workflows only from the repository root, so write it with `workingDirectory` set to that folder and move the file to <repo>/.github/workflows/. Returns {path, written, dryRun, version, repo, platforms[], workflow (the YAML), warnings[], nextSteps[]}. Details: docs_read {"name":"exporting"}, "CI for your game". Examples: {}, {"platforms":["linux","windows"],"dryRun":true}, {"workingDirectory":"games/my-game","overwrite":true}.
 
@@ -5958,6 +6514,8 @@ Writes .github/workflows/factoria.yml into the game's folder. On every push to m
 Since 0.1.6.
 
 Create a native plugin (C/C++) for this game and declare it in factoria.json.
+
+Capabilities: read, writeProject
 
 Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
 
@@ -5978,6 +6536,8 @@ Since 0.18.0.
 
 Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.
 
+Capabilities: read, writeProject, network
+
 Exports the web build (the same as project.export {platform:"web"}, into build/serve-web/, so the real export folder is not touched; the web player must be installed: `factoria setup players --platforms web`) and serves it from a small HTTP server inside this process. It listens on 127.0.0.1 (this computer only) unless `lan` is true, on a random port, and the URL has a random token in its path: http://<address>:<port>/<token>/ (a request without the token is a 404). Returns {running, state, url (this computer), lanUrl and urls[] (lan), port, version, warnings[]}. While the server runs, a changed script, scene, asset or factoria.json exports the build again and every open page reloads itself (a banner on the page says when it is rebuilding or when the export failed); what the page logs (console.log/warn/error and uncaught errors) comes back to the log with category "phone" (read it with game.logs or in the editor console). With lan, open the URL on a phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code.
 
 The server stops with the process or with {"stop":true}; it lives in the process that runs it: the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when the call returns. Calling it again with the same project and `lan` returns the current status; with another `lan` it restarts the server (new port and token). In the editor the call never waits: it answers {running:false, state:"starting"} while the server starts and exports on a helper thread; call it again (same arguments) until state is "ready" (a start that failed is reported as an error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. Limits: 8 connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read {"name":"exporting"}, section Web, and MOBILE.md.
@@ -5993,11 +6553,15 @@ The server stops with the process or with {"stop":true}; it lives in the process
 
 List the project templates `project.create` can start from.
 
+Capabilities: read
+
 Returns [{name, description, dimension}]. Example: {}.
 
 ### `project.test` (modifies state)
 
 Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
+
+Capabilities: read, state
 
 Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). `files` runs only those test files: project-relative paths, folders or globs such as tests/ui*.test.js (a path that is not a *.test.js file is an error that says what to pass). Example: project.test {"filter":"player","files":["tests/saves.test.js"]}
 
@@ -6010,6 +6574,8 @@ Tests run inside this engine instance and change the world; reload the scene aft
 
 Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
 
+Capabilities: read
+
 Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. Example: {}
 
 Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about a scene entity that repeats a prefab's components inline instead of being an instance of it (the copy does not follow later changes of the prefab; the hint gives the {id, prefab, differences} entry that replaces it), and about an instance that also saves two or more components with the prefab's own values. It looks at the entities of scenes (children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the rest in one more warning. Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, a name imported from "factoria" that does not exist, a member the engine's objects lack (physics.raycats), a literal component name that is wrong, a module whose top level throws, and a colour array that mixes 0..1 and 0..255, or that has channels over 1 (none over 8) and none in 0..1, so it reads as almost black (for MeshRenderer.emissive the warning points to emissiveStrength) (docs/SCRIPTING.md, "What factoria validate checks in a script").
@@ -6021,6 +6587,8 @@ Checks every *.scene.json and *.prefab.json of the project, wherever it is kept 
 Since 0.2.0.
 
 Upload the iOS build (.ipa) or the Mac App Store package (.pkg) to App Store Connect (xcrun altool, macOS only).
+
+Capabilities: read, writeProject, network, process, publish
 
 Runs `xcrun altool --upload-package <ipa> --type ios --apple-id <id> --bundle-id <id of factoria.json> --bundle-version <export.ios.buildNumber> --bundle-short-version-string <version> --apiKey <key id> --apiIssuer <issuer id>`. The .ipa is NOT made by `factoria export --platform ios` (that writes an Xcode project): archive it in Xcode (Product > Archive, Distribute App > App Store Connect > Export) and save it as build/export/<game-slug>.ipa, or pass `artifact`. Needs: factoria.json publish.appstore {appleId} (the number of the app in App Store Connect) and id (the bundle id), Xcode (xcrun: PATH, FACTORIA_XCRUN, or publish.xcrun of ~/.factoria/export.json), macOS (other computers get a teaching error; dryRun works anywhere), and an App Store Connect API key (role App Manager): FACTORIA_APPSTORE_API_KEY = path of AuthKey_<KeyID>.p8, FACTORIA_APPSTORE_API_KEY_ID, FACTORIA_APPSTORE_API_ISSUER (FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER of sign.macos also work). Examples: {"dryRun":true}, {"artifact":"build/export/space-dodge.ipa"}, {"platforms":["macos"],"dryRun":true}. Details: docs_read {"name":"exporting"}.
 
@@ -6039,6 +6607,8 @@ Since 0.2.0.
 
 Upload the desktop exports to the Epic Games Store (BuildPatchTool UploadBinary, one artifact per platform).
 
+Capabilities: read, writeProject, network, process, publish
+
 Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the export folder, -CloudDir under .factoria/publish/epic/cloud, -BuildVersion the game's version and -AppLaunch the game's executable. Needs factoria.json publish.epic {organizationId, productId, clientId, artifacts: {windows: <artifact id>, ...}}, BuildPatchTool (PATH, FACTORIA_BUILDPATCHTOOL, or publish.buildPatchTool of ~/.factoria/export.json) and the client secret in the environment variable FACTORIA_EPIC_CLIENT_SECRET: it is passed by name (-ClientSecretEnvVar), so it is never on a command line, in the result or in the log. Epic accepts each BuildVersion once per artifact: raise the version for every upload. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed BuildPatchTool is an error whose data is that report. Examples: {"dryRun":true}, {"platforms":["windows"]}. Details: docs_read {"name":"exporting"}.
 
 | Argument | Type | Required | Description |
@@ -6053,6 +6623,8 @@ Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the exp
 Since 0.2.0.
 
 Upload the desktop exports to GOG (Galaxy Pipeline Builder build-game, one project file per platform).
+
+Capabilities: read, writeProject, network, process, publish
 
 Writes gog-<platform>.json (the Pipeline Builder project: the export folder as the depot, the game's executable as the primary task) into .factoria/publish/gog/ and runs `GOGGalaxyPipelineBuilder build-game <json> --ignore_list <file> --version <version>` once per platform. Needs factoria.json publish.gog {productId, clientId?, languages?}, Pipeline Builder (PATH, FACTORIA_GOG_PIPELINE_BUILDER, or publish.galaxyPipelineBuilder of ~/.factoria/export.json) and a sign-in: the credentials it cached, or FACTORIA_GOG_USERNAME and FACTORIA_GOG_PASSWORD (the password is then an argument of the process while it runs; it is redacted everywhere FactorIA shows anything). The upload is not published: do that in the GOG Developer Portal. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed run is an error whose data is that report. Examples: {"dryRun":true}, {"platforms":["windows"],"branch":"testing"}. Details: docs_read {"name":"exporting"}.
 
@@ -6069,6 +6641,8 @@ Writes gog-<platform>.json (the Pipeline Builder project: the export folder as t
 Since 0.2.0.
 
 Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).
+
+Capabilities: read, writeProject, network, process, publish
 
 Runs `fastlane supply --aab <aab> --track <track> --release_status <draft|completed> --package_name <id of factoria.json> --json_key <service account key>` on the bundle `factoria export --platform android --format aab --release` writes (build/export/<game-slug>-android/<game-slug>.aab), or on `artifact`. A bundle signed with the debug key (no export.android.signing keystore, or a -debug.aab) is refused: Google Play rejects it. Needs: id (the package name), optionally factoria.json publish.googleplay {track (default internal), releaseStatus (draft, the default, or completed), changelogs: {"en-US": "store/whats-new-en.txt"} (files of up to 500 characters, uploaded as the release notes)}, fastlane (PATH, FACTORIA_FASTLANE, or publish.fastlane of ~/.factoria/export.json), and a Google Cloud service account JSON key with access to the app in the Play Console: its path in FACTORIA_GOOGLEPLAY_JSON_KEY (SUPPLY_JSON_KEY also works); the key is never copied, written, shown or logged. The first bundle of a new app must be uploaded by hand in the Play Console; this command works from the second one. Examples: {"dryRun":true}, {"track":"beta","releaseStatus":"completed"}. Details: docs_read {"name":"exporting"}.
 
@@ -6088,6 +6662,8 @@ Since 0.2.0.
 
 Upload the desktop exports to itch.io (butler push, one channel per platform).
 
+Capabilities: read, writeProject, network, process, publish
+
 Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version>` once per platform; the user/game comes from factoria.json publish.itch.game, the channel from publish.itch.channels (default windows, mac, linux) and the version from the game's version. Needs butler (PATH, FACTORIA_BUTLER, or publish.butler of ~/.factoria/export.json) signed in: run `butler login` once, or set BUTLER_API_KEY (never put it in the project). The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed butler is an error whose data is that report (platforms before it were uploaded). Examples: {"dryRun":true}, {"platforms":["windows","linux"]}. Details: docs_read {"name":"exporting"}.
 
 | Argument | Type | Required | Description |
@@ -6102,6 +6678,8 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 Since 0.3.0.
 
 Upload the Windows MSIX package to the Microsoft Store (msstore publish).
+
+Capabilities: read, writeProject, network, process, publish
 
 Runs `msstore reconfigure --tenantId ... --sellerId ... --clientId ... --clientSecret ...` and then `msstore publish <folder of the msix> --inputFile <msix> --appId <product id> [--noCommit]` (the Microsoft Store Developer CLI) on the package `factoria export --platform windows --format msix` writes (build/export/<game-slug>-windows.msix), or on `artifact`. Upload it UNSIGNED: the Store signs it. Examples: {"dryRun":true}, {"releaseStatus":"completed"}. Details: docs_read {"name":"exporting"}.
 
@@ -6119,6 +6697,8 @@ Needs: the app reserved in Partner Center with its first submission made by hand
 Since 0.2.0.
 
 Upload the desktop exports to Steam (steamcmd, one depot per platform).
+
+Capabilities: read, writeProject, network, process, publish
 
 Uploads the folders project.export wrote (build/export/<game-slug>-windows, -macos, -linux) as a SteamPipe build: writes app_build_<appid>.vdf and one depot_build_<depot>.vdf per platform (the content root is the export folder) into .factoria/publish/steam/ and runs `steamcmd +login <account> +run_app_build <vdf> +quit`. Needs: the game's app id in steam_appid.txt, factoria.json publish.steam {account, depots: {windows: <id>, ...}}, steamcmd (PATH, FACTORIA_STEAMCMD, or publish.steamcmd of ~/.factoria/export.json), and a steamcmd login done once by hand (it keeps the password and the Steam Guard approval; this command never takes or stores a password). `branch` sets the build live on a beta branch; the default branch is never touched. The build description is the game's name and its factoria.json version. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed steamcmd is an error whose data is that report. Examples: {"dryRun":true}, {"platforms":["windows"],"branch":"beta"}. Details: docs_read {"name":"exporting"}.
 
@@ -6140,6 +6720,8 @@ Since 0.4.0.
 
 Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it.
 
+Capabilities: read
+
 Draws the picture as it is now and reads the pixels along the segment `from` -> `to` (design pixels, origin top-left): one sample per pixel along the longer axis, as a value 0..255 of the sRGB bytes (`channel`: luminance with Rec. 709 weights, or red, green, blue). It lists every STEP: a change of at least `threshold` (default 8 levels) within `window` samples (default 2), which is how a bright seam, a gap between two sprites or the edge of a gradient band shows in the numbers while the eye misses it. A smooth ramp has no steps; a staircase (Mach bands: two overlapping gradients) has one per riser. The edge of a sprite or a shape is a step too: find what draws it with render.pick at the step's `at`. Result: {from, to, channel, scale, count, samples: [values], min, max, steps: [{index, at: [x, y] (design pixels, the middle of the jump), width, from, to, delta}], stepCount, frame}; at most 200 steps and 4096 samples. `scale` (0.25 to 4, default 1) samples a render at that scale, so at 4 there are four samples per design pixel and a sub-pixel gap shows. Look at the area with game.screenshot {region, zoom} first, then measure it. Needs graphics. Example: render.inspect {"from":[600,360],"to":[680,360],"threshold":6}
 
 | Argument | Type | Required | Description |
@@ -6156,6 +6738,8 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 Since 0.4.0.
 
 Which entities draw a design-space pixel of the picture, topmost first.
+
+Capabilities: read
 
 Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn box covers `position` (design pixels, origin top-left), topmost first: screen-space UI above the world, then the higher `layer`, then (world Sprites) the lower world y, then the one drawn later (component order Tilemap, Sprite, Shape2D, Text; then creation order). Each hit is {entity, name, component, layer, space: "world"|"screen"}. Use it to find which shape or sprite causes a visible artefact (a seam, a dark band) after game.screenshot {region, zoom} or render.inspect located it. The test is the oriented BOX of the visual (the same footprint as entity.bounds() and the editor's picking): a transparent corner of a sprite, the corners outside a circle and the parts of a gradient that fade out still count; an alpha-0 colour is skipped; inactive entities are skipped, and so are world visuals the camera at that pixel does not draw (Camera.showTags / hideTags). The world point is found through the primary camera; `world` in the result is that point. Example: render.pick {"position":[640,360]}
 
@@ -6174,6 +6758,8 @@ Since 0.18.0.
 
 Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.
 
+Capabilities: read, writeProject
+
 review.sheet runs it by itself after each new sheet; call it to see what it would do (dryRun) or to use other ages. Two things only: (1) the files review.pick MOVED to a sheet's drop folder are deleted `droppedDays` days after the pick (the clock against the pick's time in the manifest); the manifest entry becomes status "expired" ("gone" when the file was already moved back or removed) and the empty folder goes. Nothing else is ever deleted there: only the files named `<NN>_<name>` that the pick put in <dropDir>/<sheet id>/. (2) a sheet folder with no manifest.json (the process died between starting the sheet and writing it; review.list shows these as `orphans`) is removed once nothing in it changed for `orphanMinutes` minutes. A sheet nobody has answered, the files of the picked item and every chosen file are never touched. At most 200 sheets are changed per call (`more` says there are others: call again). A file that is open in another program is kept and tried again next time. Runs under the project's review lock; busy when another process holds it (nothing changed). Result: {droppedExpired: [{sheet, files}], orphansRemoved: [ids], skipped: [{sheet, reason}], examined, more, dryRun, droppedDays, orphanMinutes}. Example: review.cleanup {"dryRun":true}.
 
 | Argument | Type | Required | Description |
@@ -6188,6 +6774,8 @@ Since 0.18.0.
 
 The manifest of one review sheet (items, facts, the choice) and its picture.
 
+Capabilities: read
+
 Result: the manifest of the sheet (format factoria.review/1: id, label, createdAt, columns, rows, thumbSize, picture, dropDir, items [{n, type, label, source, candidate, ok, info, numbers, thumb, cell, picture, spec}], picked ({n, label, at, atUnix, who, note, drop, dropped [{n, label, from, to, status: moved | expired | gone}], spec}), meta, warnings) plus `dir` and the picture as `$image`. `picked` is null until review.pick answers it. Example: review.info {"sheet":"sheet-0002"}.
 
 | Argument | Type | Required | Description |
@@ -6200,6 +6788,8 @@ Since 0.18.0.
 
 List the review sheets of the project, newest first, with what was picked.
 
+Capabilities: read
+
 Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, picked (the number, or null while unanswered), pickedLabel, picture, meta, dir}], unreadable?, orphans?}. `orphans` are sheet folders with no manifest: a sheet being made right now, or one whose process died (review.cleanup removes the old ones). Use it to find a sheet that is still waiting for an answer (picked null) or to see what was chosen before. Example: review.list {"limit":5}.
 
 | Argument | Type | Required | Description |
@@ -6211,6 +6801,8 @@ Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, 
 Since 0.18.0.
 
 Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0).
+
+Capabilities: read, writeProject
 
 Call it with the number THE PERSON gave you for a sheet that review.sheet made; never pick for them (over MCP and the CLI nothing asks them, so the number must be theirs: show the sheet, ask, wait). The choice is written into the sheet's manifest (who, when, the note and the exact spec of the item: a level's seed and arguments) and is final: a sheet is picked once. With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): the pick deletes nothing (review.cleanup deletes the dropped files after
 
@@ -6228,6 +6820,8 @@ Call it with the number THE PERSON gave you for a sheet that review.sheet made; 
 Since 0.18.0.
 
 Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number.
+
+Capabilities: read, writeProject
 
 Make the candidates, call review.sheet, show the picture to the person, ask for ONE number, then review.pick. Do not choose for them and do not show candidates one by one. Each item is an object with exactly one of image (a PNG/JPG/BMP/TGA), scene, prefab, level (the arguments of tilemap.generate, with `seeds` next to it for one thumbnail per seed), vector (an .svg) or vfx (a .vfx.json), plus an optional label and candidate. Every thumbnail carries its number (1..N, in the item order), its label and one line of facts: an image its size, colors and how much is clear; a scene its entity count; a prefab its entities and size; a level its size, seed and tries; vector art its size, shapes and colors (counted from the file's text); an effect its peak particles and length. Only files marked `candidate: true` are ever moved by review.pick; a file not marked is never touched.
 
@@ -6251,6 +6845,8 @@ Since 0.16.0.
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
+Capabilities: read, writeProject
+
 Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `mergeParts` joins parts that share a material (fewer draw calls). Example: {} or {"path":"assets/models/hero.rig.json"}
 
 `mergeParts` welds the skinned parts that share a material into one submesh after the fit (a rigged character of 8 parts with 2 materials then draws in 2 calls per pass instead of 8): only the index list is regrouped, so the weights, joints and bind pose are the same and a posed frame looks the same; the result lists `submeshesBefore` and `submeshes`, and the part names of a merged submesh are joined with "+". The choice is kept in the recipe, so a later bake or `factoria export` repeats it. `factoria export` bakes the stale documents first.
@@ -6268,6 +6864,8 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 Since 0.16.0.
 
 Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.
+
+Capabilities: read, writeProject
 
 Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a `template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone counts, toes, pose, segments, axis), optional `parts` ({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], "<bone>.tail": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Example: {"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid","options":{"spine":4}}
 
@@ -6294,6 +6892,8 @@ Since 0.16.0.
 
 Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake.
 
+Capabilities: read, writeProject
+
 Reads `path` (*.rig.json), applies the changes you give, checks the document as a whole and fits the template to the model with the changes (a bad bone or part name, or a fit that cannot be made, fails with the issues, their JSON pointers and a "did you mean", and writes nothing), writes it and answers with the fit: each bone's head and tail and where it came from (override, part, geometry, proportion = estimate), the parts each bone follows (`matched`), the bones that follow no part, the parts no bone used and the warnings. `parts` and `landmarks` are merged key by key: a value sets that bone, null removes it, null as the whole value removes them all. Use `parts` when a part's name does not say which bone it is ({"arm_l": ["sleeve_left"]}), `landmarks` when a joint is somewhere the fit cannot know ({"head": [0, 1.62, 0.03], "head.tail": [0, 1.9, 0.03]}); `strict` makes every estimated joint an error so nothing is silently guessed. With nothing to change this only shows the fit. dryRun shows the fit the changes would give without writing. Unless bake is false the skinned .glb is baked again after a change. Example: {"path":"assets/models/hero.rig.json","landmarks":{"neck":[0,1.55,0]},"strict":true}
 
 | Argument | Type | Required | Description |
@@ -6315,6 +6915,8 @@ Since 0.16.0.
 
 Check a rig document and fit it to its model without writing anything: every issue with its fix, the bones, where each joint came from and what the fit noticed.
 
+Capabilities: read
+
 Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix (a bone or part name that does not exist gets a "did you mean"). A valid one returns where it bakes to and whether that .glb is fresh or stale, and (unless fit is false) the fit: for each bone its head and tail in the model's space and where they came from (override = the document's landmarks, part = a model part named for the bone, geometry = measured from the mesh, proportion = an ESTIMATE from the template's default proportions), which model parts each bone follows (`matched`), the parts no bone looked at (`unusedParts`) and the warnings. A fit that cannot be made returns state failed with the reason. Example: {"path":"assets/models/hero.rig.json"}
 
 | Argument | Type | Required | Description |
@@ -6327,6 +6929,8 @@ Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL 
 Since 0.16.0.
 
 List the skeleton templates (humanoid, quadruped, bird, tail, chain, generic) with their options and the words in part names they recognise; with `name`, the bones of one.
+
+Capabilities: read
 
 A rig document (`*.rig.json`, docs/RIGGING.md) fits a skeleton template to a model. Every template names its bones the same way, `<role>[_<index>][_<side>]` (root, spine_1, neck, head, clavicle_l, arm_upper_l, arm_lower_l, hand_l, thigh_l, shin_l, foot_l, toe_l, tail_1...), and the (role, index, side) triple is what retargeting between templates maps. With no argument this returns the catalog: for each template what it is for, the pose it assumes, its options (spine, neck, tail, toes, pose, segments, axis) with range and default, and the words in a model part name that tell the fit which bone it is ("arm_l", "left leg", "head"...). With `name` (and optionally `options`) it returns the bones that template has for those options, in order (parents first): name, role, index, side, parent, leaf, and the landmark names a rig document's `landmarks` may use ("<bone>" for a joint, "<bone>.tail" for the end of a leaf bone). Example: {"name":"quadruped","options":{"tail":6}}
 
@@ -6343,13 +6947,15 @@ Since 0.2.0.
 
 Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.
 
+Capabilities: read, state, writeProject
+
 `file` is a project-relative JSON file holding scene.import_ascii arguments (at least `rows`; its legend is `legend` merged over `legendFrom`). `ops` run in order, all-or-nothing (an error names the op, e.g. ops[2], and nothing is written). Columns and rows are 0-based, row 0 = TOP, like import_ascii. Ops: {op:'fill', rect:[col,row,w,h], glyph}; {op:'replace', from, to, rect?} (whole map without rect); {op:'insertColumns', at, count, glyph?} (without glyph the new columns repeat the column left of `at` (column 0 when at = 0) with every glyph that spawns an object turned into '.', so the ground continues and nothing is duplicated); {op:'deleteColumns', at, count}; {op:'put', col, glyph, row} or {op:'put', col, glyph, above:h} = h rows above the ground of that column (1 = standing on it; ground = the topmost cell whose glyph is a tile in the file's tilemap.solidTiles, else the Tilemap of the scene the file builds). A glyph that is not '.', ' ' or in the legend is refused with suggestions. Example: scene.ascii_edit {"file":"levels/1-1.json","ops":[{"op":"put","col":40,"glyph":"o","above":1},{"op":"insertColumns","at":60,"count":5}]}
 
 The edited `rows` are written back to `file` (one row per line, every other key and the key order kept). With `rebuild` (default true) and a `path` in the file, the level is then rebuilt exactly like `factoria call scene.import_ascii @file` and its result is merged into this one (`spawned` lists id, glyph and cell [col,row] of every object). `dryRun` writes nothing and returns the edited `rows` (and the import's dry run). Returns {file (written unless dryRun), width, height, ops (applied), changedCells (cells whose glyph changed; inserted/deleted columns count all their cells), dryRun, rows? (dryRun)} plus the import result when it ran (its `path` and `saved` name the scene file).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...). |
+| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). |
 | `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Default false. |
@@ -6357,6 +6963,8 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 ### `scene.destroy` (modifies state)
 
 Destroy an entity and its children.
+
+Capabilities: read, state
 
 Destruction is applied immediately when called outside a frame. Example: scene.destroy {"id":"coin_3"}
 
@@ -6367,6 +6975,8 @@ Destruction is applied immediately when called outside a frame. Example: scene.d
 ### `scene.format` (modifies state)
 
 Rewrite scene and prefab files in the canonical compact layout, without loading them.
+
+Capabilities: read, writeProject
 
 Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; without `paths` the command writes NOTHING and fails (code paths_required) saying how many files would change and the first ones; `all` true formats the whole project (skipping folders that start with '.', node_modules and a top-level build/). With `check` true nothing is written: the files that are not canonical are listed (the whole project when `paths` is absent; use it in CI or to review). Example: scene.format {"paths":["prefabs"],"check":true}
 
@@ -6383,6 +6993,8 @@ A file that is not valid JSON is reported in `errors` with its file, line and co
 
 Get one entity with every component field (including defaults and runtime values).
 
+Capabilities: read
+
 Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 | Argument | Type | Required | Description |
@@ -6392,6 +7004,8 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 ### `scene.import_ascii` (modifies state)
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
+
+Capabilities: read, state, writeProject
 
 Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing).
 
@@ -6405,7 +7019,7 @@ Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an is
 | `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
-| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
+| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
 | `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
 | `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Default false. |
 | `edits` | object | no | File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {"camera": {"Camera": {"clearColor": [0.5, 0.7, 0.9, 1]}}}). Add "$merge": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}. A wrong entity/component/field fails and nothing is written. |
@@ -6416,6 +7030,8 @@ Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an is
 ### `scene.list_entities`
 
 List entities (id, name, tags, components) with optional filters.
+
+Capabilities: read
 
 Filters: name (substring, case-insensitive), tag (exact), component (name). limit defaults to 100. Use scene.get_entity for full data. Example: scene.list_entities {"tag":"enemy","limit":20}
 
@@ -6430,6 +7046,8 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
+Capabilities: read, state
+
 Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. `async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, "Background loading") and answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
@@ -6438,11 +7056,34 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 | `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
 
+### `scene.place_ascii` (modifies state)
+
+Not released yet (on main after 0.24.0).
+
+Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file.
+
+Capabilities: read, state
+
+scene.import_ascii without its file half: the map and the objects of the legend are created in the running world (like scene.spawn), the scene file is never touched, so scripts of a game may call it (tilemap.generate with `place` does). It takes the arguments of scene.import_ascii except `path`, `from`, `edits`, `dryRun` and `save`, which are refused (use scene.import_ascii for those). `rows` is the map, row 0 = the TOP row, one character per tile; `legend` maps a character to a tile index or to an object {tile?, prefab?, id?, overrides?, offset?}; `entity` is the Tilemap entity (default "tilemap"), `tilemap` its fields, `position` + `anchor` where the map goes, `replace` destroys the objects of earlier imports into the same tilemap. Returns what scene.import_ascii returns for the running world. Example: scene.place_ascii {"rows":["....","#oo#"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
+| `legend` | object | no | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
+| `legendFrom` | string | no | Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
+| `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
+| `position` | array | no | [x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is. |
+| `anchor` | string ["top-left","bottom-left","center"] | no | Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin. |
+
 ### `scene.preload` (modifies state)
 
 Since 0.19.0.
 
 Read a scene's files in the background, so a later scene.load waits for nothing.
+
+Capabilities: read, state
 
 Starts a background load of the scene file and everything it uses (prefabs, materials, scripts, models, textures, fonts, sounds): the IO thread reads them and jobs decode them while frames run; each frame the main thread uploads a share to the GPU (docs/PERFORMANCE.md, "Background loading"). Answers at once with `loadId` and the load's status; it advances in the frames the game runs (game.step, play.auto, a running window). The files stay ready until the second scene load after the preload finished (load.cancel drops them earlier). A missing scene is an error with "did you mean". Example: scene.preload {"path":"scenes/level2.scene.json"}
 
@@ -6454,11 +7095,15 @@ Starts a background load of the scene file and everything it uses (prefabs, mate
 
 Reload the current scene from disk (discards runtime changes).
 
+Capabilities: read, state
+
 Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}
 
 ### `scene.remove_component` (modifies state)
 
 Remove a component from an entity.
+
+Capabilities: read, state
 
 Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id":"player","component":"Script"}
 
@@ -6471,16 +7116,20 @@ Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id
 
 Save the running world to a scene file (current scene path by default).
 
+Capabilities: read, writeProject
+
 Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}. Entities a script created at runtime (world.spawn, world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities made with scene.spawn, the editor or other authoring commands are always saved. An entity made from a prefab (a scene entry {"prefab": ...}, scene.spawn with `prefab`) is written as {"id", "prefab", only the fields that differ from the prefab} so later changes of the prefab file still reach the scene; the rare instance whose differences that form cannot express (a part of the prefab removed, a child added under a part of it) is written inline and listed under `expandedPrefabs` with the reason.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative output path. Default: the current scene. |
+| `path` | string | no | Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene. |
 | `includeSpawned` | boolean | no | Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load. Default false. |
 
 ### `scene.set_component` (modifies state)
 
 Add a component to an entity (if missing) and set the given fields.
+
+Capabilities: read, state
 
 `fields` is a partial object; unspecified fields keep their value. A value outside a field's range (see api.components) is refused, and a bad field changes nothing: errors name the field, the allowed values and the range. A field with free-form JSON content (Script.props) is REPLACED as a whole by default; with `merge` true `fields` is an RFC 7386 JSON merge-patch instead: an object for such a field is merged into the current one recursively (keys you do not mention stay, a null value deletes the key), and a null for any other field resets it to its default. Example: scene.set_component {"id":"player","component":"Sprite","fields":{"color":"red"}}; change one prop and keep the rest: scene.set_component {"id":"level","component":"Script","fields":{"props":{"levelIndex":3,"oldProp":null}},"merge":true}
 
@@ -6497,6 +7146,8 @@ Since 0.2.0.
 
 Move an entity under another entity, or to the top level of the scene.
 
+Capabilities: read, state
+
 `parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed. Example: scene.set_parent {"id":"coin_3","parent":"chest"}
 
 | Argument | Type | Required | Description |
@@ -6509,6 +7160,8 @@ Move an entity under another entity, or to the top level of the scene.
 ### `scene.spawn` (modifies state)
 
 Create an entity from entity JSON, or instantiate a prefab at a position.
+
+Capabilities: read, state
 
 Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, position?}. Optional parent id. Returns the created entity (with defaults) plus load messages. Example: scene.spawn {"name":"Coin","components":{"Transform":{"position":[100,50,0]},"Shape2D":{"shape":"circle","size":[20,20],"color":"gold"}}}  or  scene.spawn {"prefab":"prefabs/enemy.prefab.json","position":[300,0]}
 
@@ -6533,6 +7186,8 @@ Since 0.2.0.
 
 Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).
 
+Capabilities: read, state
+
 The safe area is the part of the screen a notch, rounded corners and the system bars of a phone leave free; items with `safeArea: true` are anchored to it and screen.safeArea in scripts reports it. A real phone reports it by itself; a headless run, a test or the editor has none (the whole screen), so this sets one to check a layout: either a `profile` ("phone-portrait": notch at the top and home indicator at the bottom; "phone-landscape": notch on a side; "none"), as fractions of the design size, or insets in design pixels from each edge (`left`, `top`, `right`, `bottom`, default 0). Take a game.step and a game.screenshot to see the result. A windowed run on a phone overwrites it every frame with the device's real value. Example: screen.set_safe_area {"profile":"phone-portrait"}
 
 | Argument | Type | Required | Description |
@@ -6549,11 +7204,15 @@ The safe area is the part of the screen a notch, rounded corners and the system 
 
 List script errors (load/runtime) and scene load problems.
 
+Capabilities: read
+
 Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
 
 ### `script.eval` (modifies state)
 
 Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
+
+Capabilities: read, state
 
 The last expression is returned as JSON. Example: script.eval {"code":"world.find('player').get('Transform').position"}. With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, "default" for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is awaited if it settles without time passing. Before the import, every loaded module whose file changed on disk is re-imported (like script.reload), so an edit shows at once. Example: script.eval {"module":"scripts/game/rules.js","call":"price","args":["wood",3]}
 
@@ -6568,6 +7227,8 @@ The last expression is returned as JSON. Example: script.eval {"code":"world.fin
 
 Re-import script modules edited on disk and restart the behaviours (the world is kept).
 
+Capabilities: read, state
+
 scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs again), or with `force` to re-import every module even if no file changed. Example: script.reload {}
 
 | Argument | Type | Required | Description |
@@ -6579,6 +7240,8 @@ scene.load and scene.reload already re-import every module whose file changed (b
 Since 0.2.0.
 
 Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.
+
+Capabilities: read
 
 The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same input gives the same answer) with the scripts instrumented, and at each traced line records what is there instead of stopping. A point is {file, line, condition?, watch?, log?}: `file` a project-relative script, `line` a line that starts a statement (an error names the nearest ones when it does not), `condition` a JavaScript expression that must be true for the point to record, `watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). Example: {"points":[{"file":"scripts/player.js","line":17,"condition":"dt > 0","watch":["this.body.velocity"]}],"frames":120,"maxHits":5}.
 
@@ -6601,9 +7264,11 @@ Since 0.1.4.
 
 Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or open Xcode's App Store page).
 
-Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. It downloads hundreds of megabytes (setup.status says how many: installSizeMb) and can take minutes: ask the user before calling it. `android`: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's), saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with error code `license_required` until acceptLicenses is true: the Android SDK license is a legal agreement between the user and Google, so show the user the text from setup.status (components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. Example: {"component":"android","acceptLicenses":true}.
+Capabilities: read, writeAnywhere, network, process
 
-`players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release takes the newest release's players and warns that their build fingerprint will not match, so an export needs allowPlayerMismatch; code `no_release` only when even the newest release cannot be read); platforms narrows it (windows, linux, macos, mobile, web). `webplayer`: builds the web player from the checkout this factoria was built from (CMake preset web-release) into build/web-release/player, where the web export looks first; uses an Emscripten SDK it finds ($EMSDK, emcc on PATH, .cache/emsdk, ~/emsdk) or fetches the pinned one (6.0.10, about 1 GB) into the checkout's .cache/emsdk; takes several minutes, so ask the user first; skipped when the player there is of this factoria's build. `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. `ffmpeg`: the static ffmpeg 6.0 build of github.com/eugeneware/ffmpeg-static (GPL, with libx264 and AAC; 19-28 MB depending on the computer) into $FACTORIA_HOME/tools/ffmpeg/<release>/, so `factoria run --record-video trailer.mp4` works without installing ffmpeg by hand; skipped when an ffmpeg is already found. `launcher` (macOS, Linux): writes the app that opens this factoria's editor with the FactorIA icon (~/Applications/FactorIA.app, or factoria.desktop + its icon under ~/.local/share), so it can be kept in the Dock or the application menu; nothing is downloaded, so it is fast and safe to run without asking; an existing launcher is rewritten in place (a Dock item stays valid). Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far.
+The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP client or an AI agent gets `capability_denied`. Call setup.status and tell the user to press the editor's File > Set Up This Computer... button or run `factoria setup <component>`. Run by the user, it downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped. Hundreds of megabytes (setup.status: installSizeMb), minutes. `android`: JDK 21 and the Android SDK, saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with `license_required` until acceptLicenses is true, which only the user who has read the Android SDK license (setup.status components[].licenses[].text) sets. Example: {"component":"android","acceptLicenses":true}.
+
+`android` in full: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's). `players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the last release takes the newest release's players and warns that their build fingerprint will not match, so an export needs allowPlayerMismatch; code `no_release` only when even the newest release cannot be read); platforms narrows it (windows, linux, macos, mobile, web). `webplayer`: builds the web player from the checkout this factoria was built from (CMake preset web-release) into build/web-release/player, where the web export looks first; uses an Emscripten SDK it finds ($EMSDK, emcc on PATH, .cache/emsdk, ~/emsdk) or fetches the pinned one (6.0.10, about 1 GB) into the checkout's .cache/emsdk; takes several minutes, so ask the user first; skipped when the player there is of this factoria's build. `cmake`: CMake 3.31 from Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). `appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. `shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, for source builds and editor-less setups; downloads of factoria carry it. `vscode`: copies the VS Code extension built into factoria (the script debugger, docs_read {"name":"debugging"}) to ~/.vscode/extensions/oxtailgames.factoria-<version>/ and to VS Code Insiders, VSCodium and Cursor when they exist, records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. `ffmpeg`: the static ffmpeg 6.0 build of github.com/eugeneware/ffmpeg-static (GPL, with libx264 and AAC; 19-28 MB depending on the computer) into $FACTORIA_HOME/tools/ffmpeg/<release>/, so `factoria run --record-video trailer.mp4` works without installing ffmpeg by hand; skipped when an ffmpeg is already found. `launcher` (macOS, Linux): writes the app that opens this factoria's editor with the FactorIA icon (~/Applications/FactorIA.app, or factoria.desktop + its icon under ~/.local/share), so it can be kept in the Dock or the application menu; nothing is downloaded, so it is fast and safe to run without asking; an existing launcher is rewritten in place (a Dock item stays valid). Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6612,11 +7277,13 @@ Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) a
 | `platforms` | array | no | players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). "web" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for. |
 | `force` | boolean | no | android, cmake, players, webplayer, ffmpeg, launcher: install again even when it is found (a JDK or CMake that is already there is used otherwise). Default false. |
 
-### `setup.status`
+### `setup.status` (modifies state)
 
 Since 0.1.4.
 
 Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher.
+
+Capabilities: read, network, process
 
 Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, licenses[], canInstall}. Example: {"component":"android"}.
 
@@ -6635,6 +7302,8 @@ Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
+Capabilities: read, writeProject
+
 Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). `path` (one patch or a list) bakes only those patches, with the same rules (stale or missing only, `force` renders them anyway). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
 
 | Argument | Type | Required | Description |
@@ -6649,6 +7318,8 @@ Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's p
 Since 0.16.0.
 
 Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch.
+
+Capabilities: read, writeProject
 
 Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed again after the change and, when it would be invalid, nothing is written and the error lists the issues with their pointers. op `set` writes `value` at `pointer` (an existing object's field, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` (at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. Nothing is rendered: call sfx.render or sfx.bake afterwards. Example: {"path":"assets/audio/coin.sfx.json","op":"set","pointer":"/oscillators/0/wave","value":"square"}
 
@@ -6666,6 +7337,8 @@ Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed a
 Since 0.16.0.
 
 Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch.
+
+Capabilities: read, writeProject
 
 Writes one patch per sound into the `out` directory (default: the base's path without .sfx.json plus _family), each a COPY of the base patch `from` with what that role changes: its length and tail, macros (brighter for a hover, heavier and gritty for an error), an arpeggio (confirm goes up, cancel down) or a pitch slide (open up, close down). They share the base's oscillators, filters, effects and master.normalize, so they share timbre and loudness; being copies they stand alone (editing the base later does not change them; make the family again with overwrite: true). Names: click, hover, confirm, cancel, error, open, close, notify; `preset: "ui"` makes all eight. Unless `render` is false each is baked to name.wav with a recipe (so sfx.bake keeps them current). The result lists the measurements of each (lufs, peakDb, seconds, centroidHz), the spread of loudness in LU, and one picture with a row per sound. Example: {"from":"assets/audio/ui.sfx.json","preset":"ui"}
 
@@ -6687,6 +7360,8 @@ Since 0.16.0.
 
 Check a sound patch and say what it holds and how loud it renders, without writing anything.
 
+Capabilities: read
+
 Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `preset` name, and checks it against the format (docs/SOUND.md). A patch with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and how to fix it, so one call is enough to repair it. A valid patch returns its layers (oscillators, start, pitch), its effects, the base pitch (rootHz), its macros (the declared values) and variations (count and the files they bake to), whether its baked sound exists and is stale, and the loudness, peak, length, brightness (centroidHz) and attack (riseSeconds) it renders to (it is rendered in memory; nothing is written). Example: {"path":"assets/audio/coin.sfx.json"}
 
 | Argument | Type | Required | Description |
@@ -6702,6 +7377,8 @@ Since 0.16.0.
 
 List the sound presets, return one as an editable patch, or write it to a *.sfx.json file.
 
+Capabilities: read, writeProject
+
 The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion, hit, coin, pickup, jump, powerup, laser, blip, click, error, splash, footstep) are sound patches shipped in the engine. Without `name` this lists them. With `name` it returns the patch (the exact JSON that renders): read it to learn the format, or change it. With `name` and `path` it writes the patch to that *.sfx.json file under assets/ (an existing file is an error unless overwrite is true), ready for sfx.render. Example: {"name":"laser","path":"assets/audio/laser.sfx.json"}
 
 | Argument | Type | Required | Description |
@@ -6715,6 +7392,8 @@ The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion
 Since 0.16.0.
 
 Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.
+
+Capabilities: read, writeProject
 
 Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1: layers of oscillators with envelopes, pitch sweeps and arpeggios, filters, FM and ring modulation, distortion, bitcrush, delay and reverb; docs/SOUND.md and schemas/sfx.schema.json) and renders it to mono 16-bit WAV at `out` (default: the patch's path with .wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: the same patch, `seed` and options give the same bytes on every platform. The sound is levelled to the patch's normalization (default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json whose input is the patch, so project.validate warns when the patch changed after the sound was made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` and every problem in data.issues (JSON pointer, what is wrong, how to fix it). The result has measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. Example: {"path":"assets/audio/coin.sfx.json"}
 
@@ -6744,6 +7423,8 @@ Since 0.16.0.
 
 Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch.
 
+Capabilities: read, writeProject
+
 `macros` is {name: amount}: attack, brightness, weight, tail, pitch, grit (each from -1 to 1; 0 is the patch as written) or a macro the patch declares. Each amount is ADDED to the value the patch declares now (+0.2 brighter than it is), or is the new value when `absolute` is true; the result is clamped to -1..1 and written to the patch's `macros` (the file is rewritten with the same keys in the same order). Then the sound (and its variations) is rendered again and the result compares the measurements before and after: centroidHz rises with brightness, seconds with tail, riseSeconds with a slower attack. An unknown macro is an error with a 'did you mean'. Example: {"path":"assets/audio/coin.sfx.json","macros":{"brightness":0.2}}
 
 | Argument | Type | Required | Description |
@@ -6760,11 +7441,13 @@ Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the 
 
 ## shader
 
-### `shader.compile`
+### `shader.compile` (modifies state)
 
 Since 0.2.0.
 
 Compile a custom material's GLSL snippet for the dialects of some platforms and report errors with file, line and fixes.
+
+Capabilities: read, process
 
 Checks the material file (*.material.json, schemas/material.schema.json) and compiles its snippet with sokol-shdc, injected into the engine's mesh shader, for every shader dialect of the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, hint, source}], cached}: a snippet error is mapped to the line of your snippet, with the offending line in `source` and a fix in `hint` (an unknown field of Surface gets "did you mean albedo?", texture(waves, uv) gets the separate-sampler form); a mistake in the material file has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an unchanged material compiles instantly.
 
@@ -6783,13 +7466,15 @@ Since 0.2.0.
 
 Sign, notarize and staple the exported macOS app (Developer ID), or sandbox and sign it as a .pkg for the Mac App Store.
 
+Capabilities: read, writeProject, network, process
+
 Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<Name>.app) and makes it open on any Mac without Gatekeeper warnings: codesign of every native plugin library in Contents/Frameworks (deepest first) and then the app, with the hardened runtime and a secure timestamp (the export's <slug>.entitlements when `provisioningProfile` is given; the profile is embedded), codesign --verify --deep --strict, then `xcrun notarytool submit --wait` on a zip of the app (Apple's notary log is quoted when it refuses the app), `xcrun stapler staple`, spctl --assess, and finally a zip to share next to the export folder (<game-slug>-macos.zip). Needs a Mac (codesign, notarytool and stapler exist nowhere else): on another computer only `dryRun` works and a real run is an error that says so. `dryRun: true` checks everything and returns the exact command lines in steps[]. Examples: {"dryRun":true}, {"identity":"Developer ID Application: Ada Lovelace (ABCDE12345)","keychainProfile":"factoria-notary"}, {"identity":"-"}.
 
 Identity: `identity` ("Developer ID Application: Your Name (TEAMID)"; `security find-identity -v -p codesigning` lists them), else FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json; "-" signs ad hoc (this Mac only, no notarization). Notarization logs in with the first of: a keychain profile (`keychainProfile`, FACTORIA_NOTARY_PROFILE, sign.macos.notaryProfile; saved once with `xcrun notarytool store-credentials`), an App Store Connect API key (`apiKey` file, `apiKeyId`, `apiIssuer`; or FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER), or an Apple ID (`appleId` + `teamId` or FACTORIA_APPLE_ID / FACTORIA_APPLE_TEAM_ID, and the app-specific password in FACTORIA_APPLE_APP_PASSWORD only). `distribution: "appStore"` prepares the Mac App Store submission instead: the app is sandboxed (com.apple.security.app-sandbox + the plugins' entitlements + export.macos.entitlements + the identifiers of the provisioning profile, which is required and embedded), signed with an "Apple Distribution" / "3rd Party Mac Developer Application" identity (`identity`, FACTORIA_MACOS_APPSTORE_IDENTITY or sign.macos.appStoreIdentity; "-" = a local ad hoc try of the sandbox), never notarized, wrapped by productbuild in <game-slug>-macos.pkg signed with `installerIdentity` (FACTORIA_MACOS_INSTALLER_IDENTITY or sign.macos.installerIdentity) and checked with pkgutil --check-signature; the result adds distribution, pkg, pkgSigned, installerIdentity, profile and the entitlements read back from the signature. publish.appstore uploads the .pkg. No password is ever an argument of a program this command starts (the Apple ID password goes to notarytool on stdin), in factoria.json, in a result or in a log. `notarize` unset notarizes when there are credentials and a Developer ID identity (else only signs, with a warning); true makes missing credentials an error; false only signs. Returns {app, dryRun, identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, [appStore: pkg, pkgSigned, installerIdentity, profile, entitlements], steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. The export is replaced by the next project.export: sign again after every export. Details: docs_read {"name":"exporting"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app` | string | no | The .app to sign, relative to the project. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). |
+| `app` | string | no | The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). |
 | `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
 | `identity` | string | no | The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; "-" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json. |
 | `distribution` | string ["developerId","appStore"] | no | developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is "-"). Default "developerId". |
@@ -6814,6 +7499,8 @@ Since 0.3.0.
 
 Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store.
 
+Capabilities: read, writeProject, network, process
+
 Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows","format":"msix"}` writes) in place, and with `exe` the game's .exe of the export folder. A package for the Microsoft Store is uploaded UNSIGNED (Microsoft signs it), so this is for installing the package on a PC outside the Store (yours, a tester's) or for a game sold elsewhere. The certificate is a code-signing .pfx: `pfx`, else FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json; its password ONLY in FACTORIA_WINDOWS_PFX_PASSWORD (never an argument of any program, a file of the game, a result or a log: on Windows the .pfx is imported into the user's certificate store for the run and removed afterwards, signtool signs by thumbprint; osslsigncode reads the password on stdin). The subject of the certificate must equal the Publisher of the package (checked with openssl when it is installed). Examples: {"dryRun":true}, {"pfx":"C:/keys/code-signing.pfx"}, {"testCertificate":true}.
 
 `testCertificate: true` (Windows) instead creates a self-signed certificate for the package's Publisher in your user certificate store, signs with it and saves the public part as <slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation Cert:\LocalMachine\TrustedPeople as Administrator) and `Add-AppxPackage -Path <the .msix>` installs the game (docs/EXPORTING.md, "Trying the package on your PC"). The tool: signtool.exe on Windows (FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.9 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, testCertificateFile, steps[{title, command, commandLine, ran, exitCode}], warnings[], nextSteps[]}. Signing again after every export is needed: the next project.export replaces the package.
@@ -6836,6 +7523,8 @@ Since 0.11.0.
 
 List the skills (topic guides) available to a role: name, description, where each lives.
 
+Capabilities: read
+
 Skills are folders with a SKILL.md (Agent Skills format) that you read only when a task needs them: the engine's own (make-art, make-audio, custom-shaders...), the user's (~/.factoria/skills) and the project's (skills/). Returns {skills:[{name, description, source engine|user|project, enabled, roles, dir, entry?, shadowedBy? (another skill of the same name wins), problem + fix? (SKILL.md invalid: not offered)}], count}. With `role`, only the skills that role is offered; without it, every skill with its settings. Read one with skills.read. docs/SKILLS.md. Example: {"role":"worker"}
 
 | Argument | Type | Required | Description |
@@ -6847,6 +7536,8 @@ Skills are folders with a SKILL.md (Agent Skills format) that you read only when
 Since 0.11.0.
 
 Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).
+
+Capabilities: read, writeProject
 
 Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lowercase letters, digits and hyphens, up to 64, the folder's name) and `description` (what the skill is for and WHEN to read it, up to 1024 characters), then a body to fill in. Add other files beside it and name them in the body. Never overwrites an existing skill. scope "project" (default) writes into the project's skills/ folder, which the game's other AIs and `factoria validate` see; "user" writes into ~/.factoria/skills for every project. Returns {path, name, scope}. docs/SKILLS.md. Example: {"name":"enemy-design","description":"How enemies are built in this game. Read before adding an enemy."}
 
@@ -6861,6 +7552,8 @@ Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lower
 Since 0.11.0.
 
 Read a skill: its SKILL.md instructions, or another file of the skill.
+
+Capabilities: read
 
 Loads the instructions of the skill `name` (see the Skills list in your prompt, or skills.list) before you start the kind of work it covers. Without `file` it returns the body of SKILL.md and lists the other files beside it; read one with `file` (a path relative to the skill, "reference.md"). Long files come in pieces: `truncated` and `nextOffset` say where the next call continues (`offset`, `limit` are bytes). Returns {name, source, file, description?, content, totalBytes, truncated?, nextOffset?, files?}. Unknown names and files answer with the ones that exist. docs/SKILLS.md. Example: {"name":"make-art"} or {"name":"make-art","file":"reference.md"}
 
@@ -6880,6 +7573,8 @@ Since 0.7.0.
 
 Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights.
 
+Capabilities: read, state
+
 Computes what SpriteSkin.weights "auto" would give every vertex of the full mesh grid (each vertex follows its nearest bones, up to 4) and stores it in SpriteSkin.weights as [boneIndex, weight, ...] per vertex, row-major from the top row (vertex = row * (columns + 1) + column). The picture does not change. The skin must be bound (skin.bind). Result: {entity, vertices, columns, rows, bones}. Example: skin.auto_weights {"entity":"leg"}
 
 | Argument | Type | Required | Description |
@@ -6891,6 +7586,8 @@ Computes what SpriteSkin.weights "auto" would give every vertex of the full mesh
 Since 0.7.0.
 
 Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now.
+
+Capabilities: read, state
 
 Adds a SpriteSkin to the Sprite entity `entity` if it has none, sets its bones and records the bind pose (skin_bind): the sprite looks the same until a bone moves from where it is now. Name the bones with `bones` (ids or names, the order is the weight order) or give `root`, a bone: it and every Bone2D below it, depth first. `mesh` [columns, rows] sets Sprite.meshColumns / meshRows (a skin needs a mesh grid, or SpriteSkin.outline). The weights stay as they are ("auto" by default; skin.auto_weights writes them out to paint). Result: {entity, bones: [ids], mesh: [columns, rows] | null, note?}. Example: skin.bind {"entity":"leg","root":"thigh","mesh":[4,8]}
 
@@ -6906,6 +7603,8 @@ Adds a SpriteSkin to the Sprite entity `entity` if it has none, sets its bones a
 Since 0.7.0.
 
 Paint the bone weights of chosen vertices: set, add or smooth.
+
+Capabilities: read, state
 
 `vertices` are grid vertex numbers (row * (columns + 1) + column, row 0 on top), "all", or {"rect": [x0, y0, x1, y1]} (every vertex inside that rectangle of the sprite's local space, +Y up). `bone` is a bone index in SpriteSkin.bones or its name. Modes: `set` gives the bone `weight` (0..1) and scales the vertex's other bones to fill the rest; `add` adds `weight` (negative removes) to the bone's weight; `smooth` moves every weight `weight` (default 0.5, 0..1) of the way toward the average of the vertex's grid neighbours (`bone` is not needed). Afterwards each vertex keeps its 4 heaviest bones, weights under 0.001 dropped, summing to 1. Automatic weights are written out first when the skin still says "auto". Result: {entity, changed, mode}. Example: skin.set_weights {"entity":"leg","vertices":{"rect":[-8,0,8,12]},"bone":"thigh","weight":1}
 
@@ -6925,6 +7624,8 @@ Since 0.16.0.
 
 Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection.
 
+Capabilities: read, writeProject
+
 Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises (a vertex keeps at most the document's `maxInfluences` strongest bones, the others are dropped). A positive amount makes the bone pull the vertices harder, a negative one releases them from it. Example: {"path":"assets/models/hero.rig.json","bone":"spine_2","amount":0.3,"select":{"by":"box","min":[-0.3,1.2,-0.2],"max":[0.3,1.4,0.2]}}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
 
 | Argument | Type | Required | Description |
@@ -6943,6 +7644,8 @@ Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises 
 Since 0.16.0.
 
 Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake.
+
+Capabilities: read, writeProject
 
 Changes the `skin` section of a rig document. `method`: auto (heat diffusion; a generic rig, whose bones were placed on parts, is rigid per part), heat (bone heat diffusion on the surface: smooth weights that follow the shape; works on the meshes the engine makes, SDF creatures included), voxel (distance along a voxelised copy of the surface: needs no manifold mesh; what a part falls back to when the heat solve cannot converge) or rigid (the whole part follows ONE bone: robot style). With `part` the method is that part's only (`bone` is the bone it follows: rigid = the one bone, heat and voxel = the bone the part is centred on; without `method` and `bone` the part's override is removed). Settings: `maxInfluences` (1 to 4 bones per vertex), `smooth` (passes over the automatic weights, 0 to 8), `maxHops` (a vertex never follows bones further than this many bones from its strongest, 1 to 8) and `locality` (heat: higher hugs each bone, 0.05 to 20). `clearEdits` also removes every edit. Nothing is written if a part or bone is wrong. Examples: {"path":"assets/models/robot.rig.json","part":"claw","method":"rigid","bone":"arm_lower_l"}, {"path":"assets/models/hero.rig.json","smooth":3,"locality":1.5}.
 
@@ -6969,6 +7672,8 @@ Since 0.16.0.
 
 Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake.
 
+Capabilities: read, writeProject
+
 Removes `index` (as skin3d.info and the answer of an edit command number them) or, without it, every entry of `skin.edits`; the automatic weights and the per-part methods stay. The weights are recomputed and the .glb is baked again unless bake is false. Example: {"path":"assets/models/hero.rig.json","index":2}
 
 | Argument | Type | Required | Description |
@@ -6985,6 +7690,8 @@ Since 0.16.0.
 
 Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives.
 
+Capabilities: read
+
 Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` section. Returns the effective settings (`skin`: method, maxInfluences, smooth, maxHops, locality and the per-part overrides), the `edits` with their index (skin3d.clear removes one), the `bones` with their parent and the model parts each follows, the `quality` of the weights and the state of the baked .glb. `quality` counts vertices without weight (`unweighted`: they follow the nearest bone), the most influences any vertex has, `farBlends` (vertices blending bones more than `maxHops` apart in the hierarchy), the vertices led by each bone (`boneVertices`; `idleBones` lead none), the method used per part, the heat solver's pieces and the `warnings` (each says what to change). Nothing is written. Example: {"path":"assets/models/hero.rig.json"}
 
 | Argument | Type | Required | Description |
@@ -6996,6 +7703,8 @@ Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` s
 Since 0.16.0.
 
 Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise.
+
+Capabilities: read, writeProject
 
 Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormalises. max 1 makes the selection rigid per vertex. Example: {"path":"assets/models/hero.rig.json","max":2,"part":"hand_l"}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
 
@@ -7014,6 +7723,8 @@ Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormali
 Since 0.16.0.
 
 Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.
+
+Capabilities: read, writeProject
 
 Copies the weights from the side `from` ("l" = the character's left, +X; "r" = right) to the opposite side: each vertex is paired with the vertex nearest to its mirror image across the symmetry plane (`symmetryX` of the rig document, else the centre of the model's bounds), preferring one of the mirrored part, and takes its weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; bones on the centre line keep themselves). Vertices with no partner within a tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it after hand-editing one arm. Example: {"path":"assets/models/hero.rig.json","from":"l"}.
 
@@ -7035,6 +7746,8 @@ Since 0.16.0.
 
 Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection.
 
+Capabilities: read, writeProject
+
 Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales what is left to sum to 1. A vertex whose weights are all under the threshold keeps its strongest bone. Example: {"path":"assets/models/hero.rig.json","threshold":0.05}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
 
 | Argument | Type | Required | Description |
@@ -7047,13 +7760,15 @@ Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales w
 | `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
 | `threshold` | number | no | Influences under this weight are dropped, 0 to 0.5 (default 0.01). |
 
-### `skin3d.preview`
+### `skin3d.preview` (modifies state)
 
 Since 0.16.0.
 
 Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG.
 
-The way to SEE the weights. It fits the rig, computes the weights of the document's `skin` section (edits included) and draws the model with the software renderer of model.preview (no graphics device, the same pixels everywhere), from `views` sides. With `bone` (mode "heat"): the weights of that bone as a heat map, blue 0 to red 1, so a blend that is too long, too short or on the wrong limb is visible. Without it (mode "bones"): each vertex has the weighted mix of its bones' colours, with a legend of the bones. `pose` ({"arm_lower_l":60} or [{bone, degrees, axis:[x,y,z]}]) bends bones about the axis perpendicular to the bone (a knee or an elbow; `axis` overrides it), taking their children along, and adds a second row with the model deformed by linear blend skinning the way the .glb would deform it: creases, stretched triangles and parts left behind are what a bad skin looks like. The answer has the weights' `quality` and, for one bone, how many vertices it has weight on. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"assets/models/hero.rig.json","bone":"arm_lower_l","pose":{"arm_lower_l":70}}
+Capabilities: read, state
+
+The way to SEE the weights. It fits the rig, computes the weights of the document's `skin` section (edits included) and draws the model with the software renderer of model.preview (no graphics device, the same pixels everywhere), from `views` sides. With `bone` (mode "heat"): the weights of that bone as a heat map, blue 0 to red 1, so a blend that is too long, too short or on the wrong limb is visible. Without it (mode "bones"): each vertex has the weighted mix of its bones' colours, with a legend of the bones. `pose` ({"arm_lower_l":60} or [{bone, degrees, axis:[x,y,z]}]) bends bones about the axis perpendicular to the bone (a knee or an elbow; `axis` overrides it), taking their children along, and adds a second row with the model deformed by linear blend skinning the way the .glb would deform it: creases, stretched triangles and parts left behind are what a bad skin looks like. The answer has the weights' `quality` and, for one bone, how many vertices it has weight on. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png; needs the writeProject capability) to keep it. Nothing in the project changes otherwise. Example: {"path":"assets/models/hero.rig.json","bone":"arm_lower_l","pose":{"arm_lower_l":70}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7065,7 +7780,7 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 | `yaw` | number | no | The angle of the first view in degrees: 0 looks at the model's +Z side (default 20). |
 | `pitch` | number | no | Degrees above the horizon (default 12). |
 | `cell` | number | no | Pixels per side of each view (default 280). |
-| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png; never inside .git or .factoria). Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
 
 ### `skin3d.set` (modifies state)
@@ -7073,6 +7788,8 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 Since 0.16.0.
 
 Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest.
+
+Capabilities: read, writeProject
 
 Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow only that bone) and scales the other influences of each vertex to share what is left in their proportions. A vertex whose only influence was the bone keeps it at 1. Use it to pin a hand to its bone, a sleeve to an arm or free a vertex from a bone (weight 0). The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing. Example: {"path":"assets/models/hero.rig.json","bone":"hand_l","weight":1,"part":"glove_l"}
 
@@ -7092,6 +7809,8 @@ Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow on
 Since 0.16.0.
 
 Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint.
+
+Capabilities: read, writeProject
 
 Moves the weights of each vertex towards the average of the vertices that share an edge with it (welded by position, so seams do not break it): `iterations` passes of `strength` (0 to 1). The neighbours outside the selection take part, so the border blends in. Example: {"path":"assets/models/hero.rig.json","part":"arm_lower_l","iterations":3}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
 
@@ -7114,6 +7833,8 @@ Since 0.4.0.
 
 Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder.
 
+Capabilities: read, state, writeProject
+
 Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .factoria/). `key` is the key as the game wrote it ("run.current", see storage.list); `all: true` removes every key and every key file, including damaged ones. Give exactly one of them. The key files in the save folder go whatever the storage mode is. Returns the removed keys. A scene that already read the key keeps its own copy: scene.reload afterwards. During project.test it only clears the test's in-memory storage. Example: storage.clear {"key":"run.current"}
 
 | Argument | Type | Required | Description |
@@ -7127,6 +7848,8 @@ Since 0.4.0.
 
 List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder.
 
+Capabilities: read
+
 Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse. Example: storage.list {}
 
 ## assets
@@ -7136,6 +7859,8 @@ Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `
 Since 0.23.0.
 
 Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
+
+Capabilities: read, writeProject
 
 Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets.check_art, project.validate) do not judge those rules for the asset. `path` is a project-relative file, a folder ending in a slash ("assets/ui/") or a glob ("assets/fx/**"). `rules` names the rules to skip: outline (outline.color, outline.width), value (value.min, value.max), saturation, lightDirection, texelsPerUnit, pixelArt (pixelArt.edges, pixelArt.colours), palette (palette.offShare); without `rules` every rule is skipped for the path (the old plain-path entry). Naming only the rules that do not fit keeps the others checking, so a real problem is not hidden. assets.check_art still checks a file you name, and lists what it left out under `styleSkipped` with the reason. To skip by kind of asset instead, give it a role: style.set_role or assets.set_provenance `role`. `remove: true` takes an entry (or, with `rules`, those rules of it) back. Example: {"path":"assets/art/flame.png","rules":["texelsPerUnit","lightDirection"]}
 
@@ -7150,6 +7875,8 @@ Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets
 Since 0.23.0.
 
 Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
+
+Capabilities: read, writeProject
 
 Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back with assets.set_provenance `role` "". Example: {"path":"assets/ui/**","role":"ui"}
 
@@ -7167,6 +7894,8 @@ Since 0.3.0.
 
 The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds).
 
+Capabilities: read
+
 Returns {id, col, row, inside, tile} for the Tilemap on entity `id`: the cell that contains the world point (`x`, `y`), by the entity's world transform (position, rotation, scale) and the map's `projection`. `inside` is false when the cell lies outside the map (col and row are then still the cell numbers the point falls in, so negative or past the edge) and `tile` is -1. Pair it with `camera.screenToWorld` to pick the cell under the mouse; the script form is `entity.tilemap.cellAt(point)`. Example: tilemap.cell_at {"id":"ground","x":120,"y":-80}
 
 | Argument | Type | Required | Description |
@@ -7181,6 +7910,8 @@ Since 0.3.0.
 
 The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds).
 
+Capabilities: read
+
 Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position of the centre of cell (`col`, `row`) (0-based, row 0 = TOP row), by the entity's world transform and the map's `projection`. The cell may lie outside the map. It is the inverse of tilemap.cell_at for the cell's centre; the script form is `entity.tilemap.cellToWorld(col, row)`. Example: tilemap.cell_to_world {"id":"ground","col":3,"row":4}
 
 | Argument | Type | Required | Description |
@@ -7194,6 +7925,8 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 Since 0.17.0.
 
 Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample.
+
+Capabilities: read, state
 
 Learns from a small example level and makes a new, bigger one that looks like it, the same on every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object {rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the one with the fewest options left, so every n x n window of the result also exists in the sample (with `symmetry` also in its rotations and mirrors); a bigger n copies larger pieces, a smaller n mixes more freely. Example: tilemap.generate {"sample":["........","..##....","..##..#.","......#.","..#.....","........"],"legend":{"#":0},"size":[32,20],"seed":7,"n":3,"symmetry":8,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]}}
 
@@ -7226,6 +7959,8 @@ Since 0.17.0.
 
 Drop a generation started with tilemap.generate_start and free its memory.
 
+Capabilities: read, state
+
 Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a scene load) answers {cancelled:false}. Example: tilemap.generate_cancel {"job":1}
 
 | Argument | Type | Required | Description |
@@ -7237,6 +7972,8 @@ Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a
 Since 0.17.0.
 
 Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.
+
+Capabilities: read, state
 
 Takes exactly the arguments of tilemap.generate, checks them at once (the same errors, before anything is generated) and returns {job, width, height, seed, cells, patterns, memoryBytes} without generating. The sample is read and its pattern model is BUILT in this call (the cost of the sample, not of the level: milliseconds for a small one, longer for a 512 x 512 sample with n 5 and symmetry 8), so call it at a loading point or from a tool, not in the middle of a busy frame; everything after it, the solve included, is paced by tilemap.generate_step. Then call tilemap.generate_step {job} until it answers done: its `result` is what tilemap.generate returns, and `into` is written at that moment, not before. The level does not depend on how the steps are cut: any `work` or `budgetMs` gives the same level and the same stats.work for the same arguments. A job belongs to the scene that started it (a scene load drops it) and holds its solver memory until it finishes, fails or is cancelled; at most 8 run at once and their memory adds up under the same 256 MB limit. Scripts do not need this: `tilemap.generate(...)` in a Behaviour starts the job, advances it every frame within a budget and places the objects of the sample. Example: tilemap.generate_start {"sample":["#####","#...#","#####"],"legend":{"#":0},"size":[16,12],"seed":3}
 
@@ -7267,6 +8004,8 @@ Since 0.17.0.
 
 Advance a generation started with tilemap.generate_start by a bounded amount of work.
 
+Capabilities: read, state
+
 Does at most `work` units of work (default 500000, about 10 ms of a Debug build; the same unit as stats.work) or, with `budgetMs`, steps until that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs (progress 0..1 follows the solver: inside an attempt it is the share of cells decided, scaled into that attempt's part of the bar (the first attempt covers 0 to 0.8, each retry a quarter of what is left), so it moves while the solver works and never goes down when an attempt restarts; it is 1 only when done) and {done:true, progress:1, result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: an attempt (its reset, the solve, the output, the counts and the reachability check) advances in chunks of about 16384 units, so a step stays near its budget. Example: tilemap.generate_step {"job":1,"work":200000}
 
 Three pieces are not cut and run to their end inside one step: the rebuild of the entropy heap when it is at its allowance (a pass over at most 4 entries per cell), the re-tiling of a terrain (Tiled) level by the reachability check (one pass over the grid) and each path search of the reachability check (one A* bounded by the grid, at most 16 per attempt). Errors (the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists.
@@ -7282,6 +8021,8 @@ Three pieces are not cut and run to their end inside one step: the rebuild of th
 Since 0.16.0.
 
 Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules.
+
+Capabilities: read, state
 
 Sets the cells to the terrain `terrain` of the Tilemap on entity `id` (rules in Tilemap.terrains) and re-tiles them and the 8 cells around each one, so the edge, corner and inside tiles line up: paint a lake and the shore appears. Name the cells with `cells` ([[col, row], ...], row 0 = TOP row) and/or `rect` ({col, row, width, height}). `erase` true empties the cells instead (-1) and re-tiles what was next to them. Cells outside the map are skipped and counted in `outside`. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. A terrain cell's tile is picked from the terrain's variations by column, row and seed, so the same painting always looks the same. Changes the RUNNING world only (scene.save keeps it); the script form is `entity.tilemap.paintTerrain(terrain, cells)`. Returns {id, painted, outside, changed, changes: [{col, row, from, to}] (the first 200), changesTruncated}. Example: tilemap.paint_terrain {"id":"map","terrain":"grass","rect":{"col":2,"row":2,"width":5,"height":3}}
 
@@ -7299,6 +8040,8 @@ Since 0.16.0.
 
 Re-tile every terrain cell of a Tilemap from its neighbours.
 
+Capabilities: read, state
+
 Recomputes the tile of every cell that belongs to a terrain of the Tilemap on entity `id` from the cells around it, with the terrain's rules (Tilemap.terrains). Use it after writing `tiles` by hand, after tilemap.set_terrains with new rules, or after resizing the map. Cells that belong to no terrain are not touched. Changes the RUNNING world only. Returns {id, changed, changes (the first 200), changesTruncated}. Example: tilemap.retile {"id":"map"}
 
 | Argument | Type | Required | Description |
@@ -7310,6 +8053,8 @@ Recomputes the tile of every cell that belongs to a terrain of the Tilemap on en
 Since 0.16.0.
 
 Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them).
+
+Capabilities: read, state
 
 Replaces Tilemap.terrains of the entity `id` with `terrains` (an array of terrain objects) or with the `terrains` of the rules file `path` (a JSON file {"format": "factoria.terrains/1", "terrains": [...]}, such as the .terrains.json that image.tileset.build writes next to the tileset). The rules are checked first: a bad rule changes nothing and the error names its JSON pointer and the fix. `retile` true also re-tiles the map with the new rules. Changes the RUNNING world only (scene.save keeps it). Returns {id, terrains: [names], retiled}. Example: tilemap.set_terrains {"id":"map","path":"assets/art/ground.terrains.json","retile":true}
 
@@ -7326,6 +8071,8 @@ Since 0.3.0.
 
 Change one tile of a Tilemap in the running scene, in place.
 
+Capabilities: read, state
+
 Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) at column `col`, row `row` of the Tilemap on entity `id` (0-based, row 0 = TOP row). Only that element of `tiles` changes: the array is not rewritten, the renderer reads it directly and 2D physics rebuilds only the colliders of the changed tiles on the next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the RUNNING world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A cell outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, previous}. Example: tilemap.set_tile {"id":"map","col":12,"row":7,"tile":-1}
 
 | Argument | Type | Required | Description |
@@ -7341,6 +8088,8 @@ Since 0.16.0.
 
 The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each.
 
+Capabilities: read
+
 Reads Tilemap.terrains of the entity `id` and returns {id, valid, issues, terrains: [{name, mode, seed, tiles (the count), slots: [{slot, mask, tiles}], cells (how many map cells belong to it)}]}. `mask` is the neighbour mask the slot draws (N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128). `issues` lists every problem of the rules with its JSON pointer and the fix. Example: tilemap.terrains {"id":"map"}
 
 | Argument | Type | Required | Description |
@@ -7354,6 +8103,8 @@ Reads Tilemap.terrains of the entity `id` and returns {id, valid, issues, terrai
 Since 0.2.0.
 
 Show a subtitle line on the Captions component for a few seconds.
+
+Capabilities: read, state
 
 The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line without a sound, drawn by the Captions component (docs/TEXT.md, "Captions") for `seconds` of the game clock; the newest Captions.maxLines lines show. With `key` (a localization key) the line is the translation and follows a language change. Without a Captions entity the line is only tracked and the log says so once. Example: ui.caption {"text":"Watch out!","seconds":2,"speaker":"Mara"}
 
@@ -7369,6 +8120,8 @@ The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line wi
 Since 0.2.0.
 
 Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.
+
+Capabilities: read, state
 
 For every scene (default: each scene with UI) and every case it loads the scene, switches the language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), (2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the other) cover each other, (3) `offscreen`: its rectangle leaves the screen, or (4) `tooltip`: the `tooltip` of a visible widget is not a valid tooltip, or its box (the project's ui.tooltip style: maxWidth, font sizes, padding) is larger than the screen, so it cannot be placed inside it. Example: ui.check_layout {"textScales":[1,2],"uiScales":[0.75,1,1.5],"pseudo":true}
 
@@ -7391,6 +8144,8 @@ Since 0.2.0.
 
 Remove every subtitle from the screen now.
 
+Capabilities: read, state
+
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
 ### `ui.force_touch` (modifies state)
@@ -7398,6 +8153,8 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 Since 0.23.0.
 
 Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
+
+Capabilities: read, state
 
 TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a finger: those controls are shown at once (no step needed), `input.lastDevice` says "touch" and prompts and tooltips follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. Example: ui.force_touch {"enabled":true}
 
@@ -7411,6 +8168,8 @@ Since 0.3.0.
 
 Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
+Capabilities: read, state
+
 The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
 
 | Argument | Type | Required | Description |
@@ -7423,6 +8182,8 @@ Since 0.3.0.
 
 Set the interface scale: every screen-space widget and Text gets bigger or smaller.
 
+Capabilities: read, state
+
 The same as `ui.scale = value` in a script (docs/TEXT.md, "Interface size"): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Slider..., Text with space "screen") are multiplied by `scale`, on top of the text size option (ui.set_text_scale); the layout, ui.state rectangles, clicks and the drawing all follow. The widgets are laid out in a screen of design size / scale, so a Panel with anchors keeps its place and its children stay inside it. World-space Text and entities are not scaled. 1 is as authored; the range is 0.5 to 3. The project default is the "ui": {"scale"} of factoria.json. A change sends the game event `ui.scale` {value, previous}. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot, and check every size you offer with ui.check_layout {"uiScales": [...]}. Example: ui.set_scale {"scale":1.5}
 
 | Argument | Type | Required | Description |
@@ -7434,6 +8195,8 @@ The same as `ui.scale = value` in a script (docs/TEXT.md, "Interface size"): the
 Since 0.3.0.
 
 Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.
+
+Capabilities: read, state
 
 For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to [min, max] and snapped to `step` exactly as dragging the track does, and the "ui.change" event {id, value} is sent when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that is the difference. Needs an active, interactable Slider, or an enabled Interactable of kind "slider". Returns {id, value, changed}. Example: ui.set_slider {"id":"music_volume","value":0.5}
 
@@ -7448,6 +8211,8 @@ Since 0.2.0.
 
 Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
 
+Capabilities: read, state
+
 The player's "text size" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by `scale`, and so is what ui.measureText returns for them (space "screen", the default). World-space Text is part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot. Example: ui.set_text_scale {"scale":1.5}
 
 | Argument | Type | Required | Description |
@@ -7459,6 +8224,8 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 Since 0.2.0.
 
 Say a line aloud with the system's text to speech (or record it, headless).
+
+Capabilities: read, state
 
 The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and record the line (game.spoken() in tests). Example: ui.speak {"text":"Play"}
 
@@ -7473,6 +8240,8 @@ Since 0.1.6.
 
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
+Capabilities: read
+
 Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). Example: ui.state {}
 
 `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now ({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, "Tooltips").
@@ -7483,6 +8252,8 @@ Since 0.2.0.
 
 Stop what is being said by ui.speak and drop the queued lines.
 
+Capabilities: read, state
+
 The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 
 ## assets
@@ -7492,6 +8263,8 @@ The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being 
 Since 0.16.0.
 
 Add a path, rectangle, ellipse or line to an SVG.
+
+Capabilities: read, writeProject
 
 Inserts one new element into an SVG file, SVG text or an svg layer of an image document, at the end of the drawing or of `parent` (or in front of `before`). kind "path" takes `d` (SVG path data); "rect" takes x, y, width, height and cornerRadius and writes a <rect>; "ellipse" takes center, rx and ry (a circle when ry is left out) and writes an <ellipse> or <circle>; "line" takes from and to. Coordinates are in the DRAWING space (the viewBox) by default and are converted into the parent's own space; space "local" (or a `transform`) means the element's own numbers. Style with fill, stroke, strokeWidth, opacity and attributes (same as vector.shape). Open paths and lines get a stroke and no fill by default. Returns the new element's id, its bounds in the drawing and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "kind": "rect", "x": 10, "y": 10, "width": 40, "height": 20, "cornerRadius": 4, "fill": "#d94f4f"}. Docs: docs.read VECTOR.
 
@@ -7536,6 +8309,8 @@ Since 0.16.0.
 
 Align SVG elements to each other, the canvas or a key element.
 
+Capabilities: read, writeProject
+
 Moves the picked elements (shapes or whole groups) so their bounds line up: horizontal left/center/right and/or vertical top/middle/bottom, relative to the selection's bounds, the canvas (the viewBox) or a key element that stays put. Elements are moved by their own transform attribute, so ids, groups and styles stay as they are; parent transforms are honoured. Returns a preview as `$image`. Example: {"source": "assets/art/ui.svg", "elements": ["a", "b", "c"], "vertical": "middle", "to": "key", "key": "a"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7563,6 +8338,8 @@ Since 0.16.0.
 
 Give every drawn element without an id one.
 
+Capabilities: read, writeProject
+
 Names the shapes and groups that have no id (path, path-2, g, g-2...) so the other vector.* commands can pick them by id; picked `elements` limit it (with what is inside them). Returns the new ids with the selector each one had before. Example: {"source": "assets/art/traced.svg"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7584,6 +8361,8 @@ Names the shapes and groups that have no id (path, path-2, g, g-2...) so the oth
 Since 0.16.0.
 
 Add a smooth organic shape or curve through or around a few points.
+
+Capabilities: read, writeProject
 
 Inserts a smooth closed blob (or, with closed: false, an open curve) built from a few [x, y] points. fit "through" (default): the curve passes through every point as a cardinal spline, `tension` 0 (straight lines) to 1.5, 0.5 is the usual smooth curve. fit "around": the points are a control polygon, a uniform B-spline that stays inside it and never touches it, always smooth. A closed blob needs 3 points, an open curve 2 and gets a stroke and no fill by default. Same placement arguments as vector.shape. Returns the new element and a preview as `$image`. Example: {"source": "assets/art/cloud.svg", "points": [[20,60],[35,35],[60,30],[80,50],[70,75],[40,80]], "tension": 0.6, "fill": "#e8eef7"}. Docs: docs.read VECTOR.
 
@@ -7622,6 +8401,8 @@ Since 0.16.0.
 
 Union, subtract, intersect or exclude SVG shapes into one path.
 
+Capabilities: read, writeProject
+
 Combines the picked shapes with a path boolean (Clipper2, integer-exact) and writes the result as ONE <path> whose curves are cubic Beziers again (the polygon the operation computes is refitted). The first shape keeps its id, style, transform and place in the drawing and takes the new outline; the others are removed (keepInputs: true keeps them). `union` merges all; `subtract` removes the later shapes from the first; `intersect` keeps what all cover; `exclude` keeps what an odd number of them cover. Transforms of the shapes and their groups are honoured: each shape is measured in the drawing space and the result is written back in the first shape's own space. fill-rule is read per shape. Returns a rasterized preview as `$image`. Example: {"source": "assets/art/badge.svg", "op": "subtract", "elements": ["disc", "hole"]}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7649,6 +8430,8 @@ Since 0.16.0.
 
 Delete SVG elements.
 
+Capabilities: read, writeProject
+
 Removes the picked shapes or groups (a group takes everything in it). The rest of the drawing is not touched. Returns the removed refs and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["hole"]}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7670,6 +8453,8 @@ Removes the picked shapes or groups (a group takes everything in it). The rest o
 Since 0.16.0.
 
 Space SVG elements evenly along an axis.
+
+Capabilities: read, writeProject
 
 Moves the picked elements along `axis` so the gaps between them (by: "gaps", default) or their centres (by: "centers") are equal; the first and the last stay put. With `spacing` the gap is fixed instead and the first element stays. Elements are ordered by position, and moved by their own transform attribute. Returns a preview as `$image`. Example: {"source": "assets/art/row.svg", "elements": ["i1", "i2", "i3", "i4"], "axis": "horizontal"}. Docs: docs.read VECTOR.
 
@@ -7697,6 +8482,8 @@ Since 0.16.0.
 
 Copy SVG elements right after the originals.
 
+Capabilities: read, writeProject
+
 Inserts a copy of each picked element (shape or group, with everything in it) right after it, with new ids (<id>-copy, <id>-copy-2...). `offset` [dx, dy] moves the copies in the drawing space. Returns the pairs {from, to} and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["star"], "offset": [12, 12]}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7719,6 +8506,8 @@ Inserts a copy of each picked element (shape or group, with everything in it) ri
 Since 0.16.0.
 
 Wrap SVG elements in a new group.
+
+Capabilities: read, writeProject
 
 Puts the picked elements (all in the same group) into a new <g>, which takes the place of the topmost one; their order, ids and transforms stay. `id` names the group (default group, group-2...). Returns the group and a preview as `$image`. Example: {"source": "assets/art/face.svg", "elements": ["eye-l", "eye-r"], "id": "eyes"}. Docs: docs.read VECTOR.
 
@@ -7743,6 +8532,8 @@ Since 0.16.0.
 
 List the shapes and groups of an SVG with ids, bounds and node counts.
 
+Capabilities: read
+
 Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing space (viewBox units), node count, fill, stroke and transform, plus the canvas. Use it to find the ids the other vector.* commands take. Changes nothing. Example: {"source": "assets/art/badge.svg"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7764,6 +8555,8 @@ Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing spa
 Since 0.16.0.
 
 Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy.
+
+Capabilities: read, writeProject
 
 For each picked shape, reflects it across the line x = at (axis "vertical") or y = at (axis "horizontal"). weld: true (default) unions the shape with its reflection into ONE path that keeps the shape's id and style, so you draw half a face, a wing or a vase and get the whole; points within `snap` of the axis are put on it first, so the halves meet without a hairline. weld: false adds the mirrored copy after the original instead (id <id>-mirror) with the exact curves. `at` is a number (the coordinate of the axis in the drawing), "canvas" (the drawing's middle line, default) or "start" / "end" (the shape's own left or top / right or bottom edge). Open lines cannot be welded and get a copy. Transforms are honoured. Returns a preview as `$image`. Example: {"source": "assets/art/face.svg", "elements": ["half"], "axis": "vertical", "at": 50}. Docs: docs.read VECTOR.
 
@@ -7794,6 +8587,8 @@ Since 0.16.0.
 
 Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append.
 
+Capabilities: read, writeProject
+
 Applies a list of node operations, in order, to ONE shape (a rect or circle becomes a <path> with the same outline; the id, style and transform stay). Nodes are numbered from 0 in the order of the path data, per subpath (`subpath`, default 0). Points are in the drawing space by default (space "local" for the path's own numbers). Example: {"source": "assets/art/leaf.svg", "element": "leaf", "ops": [{"op": "move", "node": 1, "to": [40, 50]}, {"op": "convert", "node": 2, "to": "smooth"}]}. Docs: docs.read VECTOR.
 
 Ops: {"op": "move", "node": n, "to": [x, y]} or "by": [dx, dy] (the handles go with it unless handles: false); {"op": "handle", "node": n, "which": "in"|"out", "to": [x, y], "link": "auto"|"none"|"angle"|"mirror"} (auto: a smooth node keeps its handles on one line, a symmetric one mirrors them; a handle moved onto its node is removed); {"op": "insert", "segment": s, "t": 0.5} or "at": [x, y] near the path (the curve keeps its shape); {"op": "delete", "node": n, "keepShape": true}; {"op": "convert", "node": n, "to": "corner"|"smooth"|"symmetric"}; {"op": "break", "node": n} (open a closed subpath there, or split an open one); {"op": "join", "node": a, "otherNode": b, "other": subpath, "connect": "merge"|"line"} (two ends); {"op": "close"}; {"op": "reverse"}; {"op": "append", "at": [x, y], "out": [x, y], "end": "end"|"start"} (continue an open path; subpath = the number of subpaths starts a new one). A shape drawn by vector.shape with parametric: true stops being parametric. Returns the new node count and bounds and a preview as `$image`.
@@ -7822,6 +8617,8 @@ Ops: {"op": "move", "node": n, "to": [x, y]} or "by": [dx, dy] (the handles go w
 Since 0.16.0.
 
 Grow or shrink SVG shapes by a distance (offset path, inset).
+
+Capabilities: read, writeProject
 
 Offsets the outline of each picked shape by `distance` drawing units (positive grows, negative insets) with round, miter, bevel or square corners, and writes it back as a <path> (curves refitted as Beziers). Each shape keeps its id, style and transform; copy: true leaves the original and adds the offset shape after it (id <id>-offset). Holes grow the opposite way, as in any offset. Distances are in the drawing space (viewBox units), whatever the shape's transform. Returns a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["disc"], "distance": -3, "join": "round", "copy": true}. Docs: docs.read VECTOR.
 
@@ -7852,6 +8649,8 @@ Since 0.16.0.
 
 Change the drawing order of SVG elements or move them into another group.
 
+Capabilities: read, writeProject
+
 `to` changes the order inside the group: "front" (drawn last, on top), "back", "forward" or "backward" by one place. `parent` (a group id, or "root") and/or `before` (an element id) move the elements there: into the group at its end, or in front of that element; the elements keep their look (the transforms of the old and new group are compensated). Ids stay. Returns the elements and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["star"], "to": "front"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7876,6 +8675,8 @@ Change the drawing order of SVG elements or move them into another group.
 Since 0.16.0.
 
 Repeat an SVG element in a grid or around a circle.
+
+Capabilities: read, writeProject
 
 Adds copies of one element (a shape or a group): mode "grid" lays out `columns` x `rows` with `spacing` between their bounds; mode "radial" puts `count` copies (the original included) around `center` (or `radius` away) over `sweep` degrees, turned to follow the circle unless orient is false. `rotation` turns each copy a little more than the last, about its own centre. Copies are placed with a transform attribute and get ids <id>-2, <id>-3... (ids inside a copied group get the same suffix); they follow the original in the drawing. Angles are in degrees, clockwise on screen, 0 pointing right. Returns a preview as `$image`. Example: {"source": "assets/art/flower.svg", "element": "petal", "mode": "radial", "count": 8, "center": [50, 50]}. Docs: docs.read VECTOR.
 
@@ -7909,6 +8710,8 @@ Adds copies of one element (a shape or a group): mode "grid" lays out `columns` 
 Since 0.16.0.
 
 Set the style, visibility, lock, id or attributes of SVG elements.
+
+Capabilities: read, writeProject
 
 Sets presentation properties on the picked elements (shapes or groups): fill, stroke (a CSS colour, "none" or url(#gradient)), strokeWidth, opacity, fillOpacity, strokeOpacity, fillRule, lineCap, lineJoin, miterLimit, dashes ([] = solid); hidden (display="none", which every renderer honours) and locked (data-locked="true", which the Vector panel honours); `id` renames ONE element and updates the href and url(#...) that point to it; `attributes` sets any other attribute (null removes it). A null value removes the property, so the element takes it from its group again. A property the element already writes in its style attribute is changed there. Returns the elements and what was set, and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["disc"], "fill": "#d94f4f", "stroke": "#101018", "strokeWidth": 2}. Docs: docs.read VECTOR.
 
@@ -7947,6 +8750,8 @@ Since 0.16.0.
 
 Replace the path data of a shape.
 
+Capabilities: read, writeProject
+
 Sets the outline of ONE shape to the path data `d`: a rect or circle becomes a <path>; the id, style and transform stay. `space` "local" (default) means `d` is written in the shape's own coordinates, "drawing" that it is in the drawing space (converted through the shape's transforms). A shape drawn by vector.shape with parametric: true stops being parametric. Returns the node count, the bounds and a preview as `$image`. Example: {"source": "assets/art/leaf.svg", "element": "leaf", "d": "M10 10 L90 10 L50 80 Z"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -7973,6 +8778,8 @@ Sets the outline of ONE shape to the path data `d`: a rect or circle becomes a <
 Since 0.16.0.
 
 Add a shadow band and a highlight band to shapes from the light direction.
+
+Capabilities: read, writeProject
 
 For each picked shape builds a shadow band (the part of the shape on the side away from the light: the shape minus itself pushed toward the light by `depth`) and a highlight band (on the light side, `highlightDepth` wide), as two new paths right after the shape (ids <id>-shadow, <id>-highlight) with the shape's transform, so they stay inside it. Colours: if the project's style palette (assets.json style.palette) has the fill, the next darker and lighter palette colours (its ramp when one is declared); otherwise the fill shifted in OKLab by `strength`; `shadowColour` / `highlightColour` override. `light` is the direction TOWARDS the light in degrees counter-clockwise from +x (90 from above, 135 upper-left) or a name; default: the style guide's lightDirection, else 135. Shapes need a solid fill (or explicit colours). Returns the bands and the light used, plus a preview as `$image`. Example: {"source": "assets/art/orb.svg", "elements": ["orb"], "light": "upper-left", "depth": 6}. Docs: docs.read VECTOR.
 
@@ -8008,6 +8815,8 @@ For each picked shape builds a shadow band (the part of the shape on the side aw
 Since 0.16.0.
 
 Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.
+
+Capabilities: read, writeProject
 
 Inserts a new element with exact geometry (the shapes AIs draw badly by hand) into an SVG file, SVG text or an svg layer of an image document, at the end of the drawing or of `parent`, with the `id`, `fill`, `stroke` and `transform` you give. kind "star" (points, innerRatio, roundness), "gear" (teeth, depth, toothWidth, hole), "polygon" (sides, cornerRadius: a rounded regular polygon), "arrow" (from, to, shaftWidth, headLength, headWidth, curve: straight or bent), "bubble" (width, height, cornerRadius, tailTo: a speech bubble whose tail points at the speaker) and "ribbon" (a banner with folded ends, a group of five paths). Curves are cubic Beziers. Sizes and positions are in the parent's coordinates (the viewBox for the top level); anything left out defaults to a good size in the middle of the drawing, so {"kind": "star"} works. Returns the new element, its bounds in the drawing and a preview as `$image`. With `replace` the shape is redrawn in an existing element, and with parametric: true the arguments are kept on it (data-fa-shape, data-fa-args). Example: {"source": "assets/art/badge.svg", "kind": "gear", "teeth": 12, "center": [50, 50], "radius": 30, "fill": "#c0c4cc"}. Docs: docs.read VECTOR.
 
@@ -8073,6 +8882,8 @@ Since 0.16.0.
 
 Reduce the nodes of SVG paths within a tolerance.
 
+Capabilities: read, writeProject
+
 Rewrites each picked shape (default: every shape) with fewer nodes: a path with curves is refitted from its outline as few cubic Beziers as `tolerance` allows, a path of straight lines loses the vertices within `tolerance` of the line between their neighbours. Corners stay corners. A shape that cannot lose nodes is left as it is (listed in `unchanged`), so a rect or circle is not turned into a path for nothing. Returns a preview as `$image`. Example: {"source": "assets/art/tree.svg", "tolerance": 0.4}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -8097,6 +8908,8 @@ Rewrites each picked shape (default: every shape) with fewer nodes: a path with 
 Since 0.16.0.
 
 Round the corners of SVG paths into smooth Bezier curves.
+
+Capabilities: read, writeProject
 
 Gives every node that is not a sharp corner smooth handles, so a polygon or a rough hand-drawn path becomes a flowing curve through the same nodes. `smoothness` 0 keeps the segments straight, 1 is the usual round curve. Nodes that turn more than `cornerAngle` stay sharp. Applies to the picked shapes (default: every shape). Returns a preview as `$image`. Example: {"source": "assets/art/blob.svg", "elements": ["blob"], "smoothness": 0.8}. Docs: docs.read VECTOR.
 
@@ -8123,6 +8936,8 @@ Gives every node that is not a sharp corner smooth handles, so a polygon or a ro
 Since 0.16.0.
 
 Turn the stroke of SVG shapes into a filled outline path.
+
+Capabilities: read, writeProject
 
 Converts the stroke of each picked shape (its stroke-width, linecap, linejoin, miterlimit, dasharray and dashoffset, read with inheritance, or the overrides given here) into a filled <path> outline, with SVG's own cap, join and dash rules. A shape with no fill becomes the outline (fill = its stroke colour, stroke none). A filled shape keeps its fill and id, and the outline is added after it with the id <id>-stroke. Stroke widths are in the shape's own space, so a scaled shape keeps its look. Returns a preview as `$image`. Example: {"source": "assets/art/logo.svg", "elements": ["swoosh"], "cap": "round"}. Docs: docs.read VECTOR.
 
@@ -8156,6 +8971,8 @@ Since 0.16.0.
 
 Apply the project's style guide to an SVG: outline and palette.
 
+Capabilities: read, writeProject
+
 Applies assets.json `style` to the SVG: `outline` puts the guide's outline colour and width (pixels of the SVG's declared size) as a stroke on every filled shape; `palette` snaps every fill, stroke and gradient stop colour to the nearest colour of the guide's palette. With neither argument it applies both, whichever the guide defines; one of them asked for alone applies only that one (outline: true = just the outline), and one switched off alone applies the other (outline: false = just the palette). Pass {"outline": {"width": 2, "color": "#101018"}} or {"palette": ["#101018", "#e8e0d0"]} to use values other than the guide's. Applies to the picked elements (default: the whole drawing). Returns a preview as `$image`. Example: {"source": "assets/art/crest.svg"}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -8179,6 +8996,8 @@ Applies assets.json `style` to the SVG: `outline` puts the guide's outline colou
 Since 0.16.0.
 
 Turn text into path outlines with the engine's fonts, so it needs no font.
+
+Capabilities: read, writeProject
 
 Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligatures, Arabic and other joining scripts, right-to-left; DejaVu Sans, the built-in families or a project .ttf / .otf) and inserts it as ONE <path> (fill-rule nonzero), so the picture does not depend on a font being installed. Give `text` (new outlines at `at`, with `size` the em height, `anchor` start / middle / end, `letterSpacing`, `lineSpacing`; \n starts a line) or `elements` (ids of <text> elements of the drawing, which become paths with their own id, fill, class and transform; position, font-size and text-anchor are read from them; pass `font` since families cannot be looked up by name). Characters no font has are left out with a warning. Returns the element, `advance` (the width of the widest line, in the parent's units), `glyphs` and a preview as `$image`. Example: {"source": "assets/art/title.svg", "text": "LEVEL 3", "font": "builtin:display", "size": 24, "at": [50, 40], "anchor": "middle"}. Docs: docs.read VECTOR.
 
@@ -8221,6 +9040,8 @@ Since 0.16.0.
 
 Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.
 
+Capabilities: read, writeProject
+
 Reads a project SVG and makes a character that animates in parts, with no other step. Every group with an id is a PART (a group nested in a group is a child part; ids an editor makes up, like g123, do not count; `parts` names the groups yourself). Each part is drawn alone (its own shapes only, with the transforms and styles of its groups), trimmed, padded and packed into ONE atlas picture (`layout: "atlas"`, default; "files" writes a picture per part). The prefab (default prefabs/<name>.prefab.json) has an entity per part, named by its id, in the hierarchy of the drawing, with a Sprite (region, size, pivot, layer from the SVG order, pixelArt from the style), a Transform at the joint and a Bone2D (length to the farthest child joint). Rotating a part (Transform.rotation.z, in a clip) turns it, and its children, about its joint. Example: {"source": "assets/art/hero.svg", "pixelsPerUnit": 4}. Docs: docs.read VECTOR (Characters in parts).
 
 JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG marks the joint by its centre (it is not drawn); else `pivots` {part: [x, y]} in the drawing; else the `data-pivot="x y"` attribute of the group; else the overlap with the nearest ancestor part that has a picture (its centre, moved to the nearer end of a long part such as an arm); else the top centre of the part. The result says which one was used (`pivotFrom`). HIERARCHY: nesting in the SVG, then the `data-parent` attribute and `parents` {part: parent, "" = root}, then names (`naming`): arm_lower_l hangs from arm_upper_l, and when one of root/body/torso/trunk/hips/pelvis/chest is left with no parent the other parentless parts hang from it. `data-min-angle` / `data-max-angle` on a group set Bone2D.minAngle / maxAngle. Running it again UPDATES the prefab in place: the entities keep their names and everything you added (an Animator, colliders, other children); only Transform.position, Sprite and Bone2D.length are rewritten, new parts are added, and parts that left the SVG are reported (with the clips that name them; `prune: true` removes them). Result: `parts` (parent, pivot, pivotFrom, bone length, region), the atlas, `restPose` {matches, maxDifference, differingPixels} from composing the prefab's sprites and comparing them with the SVG drawn whole, a side-by-side `$image` (SVG left, rig right with a cross at each joint) and `warnings`. The pictures get a provenance recipe in assets.json, so assets.regenerate and `factoria validate` find the rig stale when the SVG changes. SVG y points down, the engine's up: the prefab's y is flipped, and the rig's origin is the bottom centre of the drawing (`origin`).
@@ -8256,6 +9077,8 @@ Since 0.16.0.
 
 Move, scale, rotate or flip SVG elements in the drawing space.
 
+Capabilities: read, writeProject
+
 Applies a transform of the DRAWING space to the picked elements (shapes or whole groups) by writing their transform attribute, so ids, groups, styles and the nodes stay exactly as they are; parent transforms are honoured. Give any of translate [dx, dy], scale (a number or [sx, sy]), rotate (degrees, clockwise on screen), flip ("horizontal", "vertical" or "both") and matrix [a, b, c, d, e, f]; scale, rotate and flip turn about `about` ([x, y] or "center", the middle of the picked elements; default center). Order: matrix, flip, scale, rotate, then translate. Returns the transform and the bounds after it, and a preview as `$image`. Example: {"source": "assets/art/ui.svg", "elements": ["icon"], "rotate": 15, "translate": [10, 0]}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -8284,6 +9107,8 @@ Since 0.16.0.
 
 Dissolve SVG groups, keeping what is in them where it was.
 
+Capabilities: read, writeProject
+
 Moves the children of each picked <g> out into the group's parent, at the group's place, and removes the group. The group's transform is folded into each child's, and the style it set (fill, stroke, stroke-width...) is written on the children that do not set it. A group with clip-path, mask or filter is refused (it would change the picture). Returns the children and a preview as `$image`. Example: {"source": "assets/art/face.svg", "elements": ["eyes"]}. Docs: docs.read VECTOR.
 
 | Argument | Type | Required | Description |
@@ -8308,6 +9133,8 @@ Since 0.17.0.
 
 What an effect document costs on a phone: live particles and the screen they cover, with the fixes.
 
+Capabilities: read
+
 Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, 1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. Example: vfx.budget {"path":"assets/vfx/hit.vfx.json"}
 
 The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw is measured through the project's main camera (the active primary Camera with the lowest depth in the loaded scene): its quads are projected with the effect 5 m in front of the camera, on its axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). `camera` in the result says which was used ({used:true, projection, distance, fov | height}); when there is no camera (no scene loaded, or none in it) a 3D emitter's particles are counted but its overdraw is 0 and not measured, and `camera` is {used:false, reason} and `notes` says so.
@@ -8325,6 +9152,8 @@ Since 0.17.0.
 
 Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
 
+Capabilities: read
+
 Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors: [{pointer, message, hint}], warnings: [...]}. Errors stop the effect from playing; warnings (a `rate` with no duration, too many live particles) do not. A sound whose file is missing is an error. Example: vfx.check {"path":"assets/vfx/hit.vfx.json"}
 
 | Argument | Type | Required | Description |
@@ -8339,6 +9168,8 @@ Since 0.17.0.
 
 Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit.
 
+Capabilities: read, writeProject
+
 Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/PARTICLES.md "Effect documents") with one emitter part that bursts 16 soft dots, so there is something to see and edit. An existing file is an error unless `overwrite` is true. Change it with vfx.edit, play it with vfx.play, list its problems with vfx.check. The editor's Particle panel (View > Particles) edits the same file. Example: {"path":"assets/vfx/hit.vfx.json","doc":"A hit: sparks."}
 
 | Argument | Type | Required | Description |
@@ -8352,6 +9183,8 @@ Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/P
 Since 0.17.0.
 
 Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect.
+
+Capabilities: read, writeProject
 
 Edits `*.vfx.json` the way a hand edit would, but checked: the document is parsed again after the change (the same checks as vfx.check, without the files a sound names) and, when it would be invalid, nothing is written and the error lists the problems with their pointers. op `set` writes `value` at `pointer` (a field of an existing object, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` (at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. The result has the effect's duration, its part count and the parser's warnings. Examples: {"path":"assets/vfx/hit.vfx.json","op":"set","pointer":"/parts/0/emitter/burst","value":24} and {"path":"assets/vfx/hit.vfx.json","op":"add","pointer":"/parts","value":{"type":"light","duration":0.1,"light":{"radius":80}}}
 
@@ -8372,6 +9205,8 @@ Since 0.17.0.
 
 Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.
 
+Capabilities: read, state
+
 Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; in a 3D game the point 5 m in front of the main 3D camera, on its axis, which the result says in `positionNote`), steps the game and captures `region` at each step into one labelled grid PNG (label "f3 +100" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect must read against. The first picture is the frame after the effect started. By default the strip covers the effect's length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. Example: vfx.filmstrip {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"frames":12}
 
 Without `path` the picture is temporary (the MCP server shows it then deletes the file). The effect's sound and command parts really act on the game (a feel.hitStop stretches the labelled times, an audio.music keeps playing, a feel.spawn leaves its prefab). A `position` the camera cannot project into the view fails (it is behind the camera: aim the camera or give `region`). Result: {path (only with `path`), effect, duration, width, height, frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, everyFrames, region, position: [x, y, z] (where it played), positionDefault (true when `position` was left out), positionNote (only then: which default was used), $image}. vfx.review gives the picture to a vision model with the budget numbers.
@@ -8386,13 +9221,15 @@ Without `path` the picture is temporary (the MCP server shows it then deletes th
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
 | `columns` | integer | no | Pictures per row (default: nearly square). |
-| `path` | string | no | Keep the PNG here (project-relative or absolute). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
 
 ### `vfx.list`
 
 Since 0.17.0.
 
 The effects that play now, and the limits of an effect.
+
+Capabilities: read
 
 Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect (the document's own clock), `duration` its length. An effect started by vfx.play counts at once, before the next step (time 0). Use it in a test to see that an effect started and ended: game.step, then vfx.list. Example: vfx.list {}.
 
@@ -8401,6 +9238,8 @@ Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limit
 Since 0.17.0.
 
 Play an effect document (*.vfx.json) at a position, or on an entity.
+
+Capabilities: read, state
 
 Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once (an ended effect counts until its emitters' particles are gone): past that the call returns {"id": null, "dropped": true} (logged once). The effect advances with the game clock (game.step, time.scale), so the same calls at the same steps give the same result. Example: vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
 
@@ -8420,6 +9259,8 @@ Since 0.17.0.
 
 A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes.
 
+Capabilities: read, state, network, process, spend
+
 The last look of the make, film, grade, fix loop for effects (docs/PARTICLES.md "Reviewing an effect"). It runs vfx.budget on the document and vfx.filmstrip on the running game (so THE GAME ADVANCES by about the length of the effect, at most 3 s, and the game must have graphics), then sends a vision model the filmstrip, the budget numbers and the document with a checklist: readability at game size, timing, palette, overdraw. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with vfx.budget and vfx.filmstrip, which you can read yourself. One model call per review: call it once vfx.check passes and vfx.budget has no finding, not after every edit. Example: {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"focus":"does it read on the dark floor?"}
 
 Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding), summary, checklist: [{item, grade, note}], fixes: [{what, where, command}], budget: {peakParticles, peakOverdraw, findings, ...}, filmstrip: {frames, columns, rows, tileWidth, tileHeight, zoom, region, position (where it was filmed), positionDefault, positionNote}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names something this engine does not have is listed in `warnings`. The document is not changed. Pass `picturePath` to keep the filmstrip PNG.
@@ -8438,6 +9279,8 @@ Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding
 Since 0.17.0.
 
 End an effect started by vfx.play (or a Vfx entity).
+
+Capabilities: read, state
 
 `immediate` true removes the effect's entity and its children at once (particles vanish); the default lets the emitters stop emitting and their particles finish, ends the lights, and the parts that had not started never do. Example: vfx.stop {"id":"vfx_hit_3"}
 
@@ -18486,6 +19329,11 @@ declare module "factoria:test" {
      * @since 0.22.0
      */
     expectErrors?: (RegExp | string)[];
+    /**
+     * What fa.call in this test may do besides the default {read, state}: ["writeProject"] lets it call a command that writes a project file (fa.call("scene.save"), fs.write...). An unknown name fails with its JSON pointer and a "did you mean". It cannot get more than whoever runs the tests has (a test run over MCP never gets writeAnywhere), and the game's own scripts keep {read, state}.
+     * @since unreleased
+     */
+    capabilities?: ("read" | "state" | "writeProject" | "writeAnywhere" | "network" | "process" | "spend" | "publish")[];
   }
 
   export interface TestFn {

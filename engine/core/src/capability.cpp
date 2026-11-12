@@ -36,7 +36,7 @@ static_assert(static_cast<int>(Capability::Publish) + 1 == kCapabilityCount, "ca
 Error unknown_capability(std::string_view name, const std::string& where) {
     const std::vector<std::string> valid = capability_names();
     std::string message = "Unknown capability '" + std::string(name) + "'";
-    if (!where.empty()) message += " at " + where;
+    if (!where.empty()) message += " at " + where;  // no pointer = the value itself, nothing to point at
     message += ".";
     return make_error(std::move(message), did_you_mean(name, valid) + " Names are camelCase, e.g. \"writeProject\".");
 }
@@ -89,11 +89,12 @@ Result<CapabilitySet> CapabilitySet::parse(const Json& json, std::string_view po
     if (json.is_string()) {
         const std::string name = json.get<std::string>();
         const std::optional<Capability> c = capability_from_name(name);
-        if (!c) return unknown_capability(name, base.empty() ? std::string("/") : base);
+        if (!c) return unknown_capability(name, base);
         return set.with(*c);
     }
     if (!json.is_array())
-        return make_error("Capabilities at " + (base.empty() ? std::string("/") : base) + " must be an array of names, e.g. [\"read\", \"state\"].",
+        return make_error(std::string(base.empty() ? "Capabilities" : "Capabilities at " + base) +
+                              " must be an array of names, e.g. [\"read\", \"state\"].",
                           "Valid names: " + CapabilitySet::all().to_string() + ".");
     for (std::size_t i = 0; i < json.size(); ++i) {
         const std::string at = base + "/" + std::to_string(i);
@@ -104,6 +105,18 @@ Result<CapabilitySet> CapabilitySet::parse(const Json& json, std::string_view po
         if (!c) return unknown_capability(name, at);
         set = set.with(*c);
     }
+    return set;
+}
+
+Result<CapabilitySet> CapabilitySet::parse_declaration(const Json& json, std::string_view pointer) {
+    Result<CapabilitySet> set = parse(json, pointer);
+    if (!set.ok()) return set;
+    if (set->empty())
+        return make_error(std::string(pointer.empty() ? "A command declares no capabilities" : "No capabilities at " + std::string(pointer)) +
+                              ": a command needs at least \"read\".",
+                          "Declare [\"read\"] for a command that only reads, [\"read\", \"state\"] for one that also changes the running "
+                          "game, and add what else it does (\"writeProject\", \"network\", ...). Leave the declaration out to get a set "
+                          "derived from readOnly.");
     return set;
 }
 
