@@ -78,6 +78,7 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     d.loaded = true;
     d.project = projectDir_;
     d.tools.servers = cfg.toolServers;
+    d.tools.inheritEnvGlobal = cfg.inheritEnv;
     d.limRun = cfg.limits.maxAssetCostPerRunUsd;
     d.limDay = cfg.limits.maxAssetCostPerDayUsd;
     d.limAsk = cfg.limits.askAboveUsd;
@@ -112,7 +113,10 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
         d.siteError = std::move(old.siteError);
         d.saveError = std::move(old.saveError);
     }
-    if (keepTools) d.tools = std::move(old.tools);
+    if (keepTools) {
+        d.tools = std::move(old.tools);
+        d.agents = std::move(old.agents);
+    }
 }
 
 bool Editor::ai_settings_reload_keeping_edits(bool userChanged) {
@@ -403,6 +407,14 @@ void Editor::draw_ai_settings_window() {
     if (extShown) {
         if (projectMode) ImGui::TextDisabled("Your own extensions and savers (ai.json) are the same in every project; the project's extensions are the ones marked project below.");
         draw_ai_extensions_tab(user, cfgErr.empty());
+        ImGui::EndTabItem();
+    }
+    const bool agentsShown = ImGui::BeginTabItem("Agents", nullptr, wantTab == 5 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    at_track("aiset:tab:agents");
+    ImGui::SetItemTooltip("How much each command-line agent (Claude Code, Codex) may do without asking you: its permission mode.");
+    if (agentsShown) {
+        if (projectMode) ImGui::TextDisabled("The permission mode is yours (ai.json), the same in every project: a project's file cannot change it.");
+        draw_ai_agents_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
     const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
