@@ -364,7 +364,9 @@ Json McpServer::tool_json(const CommandInfo& c) const {
     const std::string since = api_since("commands", c.name);
     if (!since.empty() && since != "0.1.0") desc += "\n\n" + api_since_label(since) + ".";
     t["description"] = desc;
-    if (!since.empty()) t["_meta"] = Json::object({{"since", since}});
+    t["_meta"] = Json::object({{"factoria/capabilities", c.capabilities.to_json()},
+                               {"factoria/capabilitiesDeclared", c.capabilitiesDeclared}});
+    if (!since.empty()) t["_meta"]["since"] = since;
     Json schema = c.inputSchema.is_object() ? c.inputSchema : Json::object();
     if (!schema.contains("type")) schema["type"] = "object";
     t["inputSchema"] = schema;
@@ -538,6 +540,8 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
                                              {"summary", c->summary},
                                              {"description", c->full_description()},
                                              {"readOnly", c->readOnly},
+                                             {"capabilities", c->capabilities.to_json()},
+                                             {"capabilitiesDeclared", c->capabilitiesDeclared},
                                              {"inputSchema", c->inputSchema}}));
         }
         const bool none = commands.empty();
