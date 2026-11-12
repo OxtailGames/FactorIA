@@ -380,6 +380,9 @@ Json animate(const std::string& projectDir, const Json& a) {
 
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
+    // every file this call writes is checked before the SVG is rasterized: managed folders (.git, .factoria), links out of the project
+    for (const std::string& lr : layerRels) (void)project_write_file(projectDir, lr);
+    if (prefabSpec) (void)project_write_file(projectDir, prefabSpec->rel);
     if (prefabSpec && !prefabSpec->overwrite && stdfs::exists(project_file(projectDir, prefabSpec->rel), ec))
         fail("exists", "The prefab '" + prefabSpec->rel + "' already exists, and may hold changes made by hand (`overwrite` is about the sheets, not the prefab).",
              "Pass \"prefab\": {\"path\": \"" + prefabSpec->rel + "\", \"overwrite\": true} to write it again, or choose another prefab path. Nothing was baked.");
@@ -574,7 +577,7 @@ Json animate(const std::string& projectDir, const Json& a) {
     std::vector<std::string> written;
     for (std::size_t li = 0; li < layerList.size(); ++li) {
         std::string err;
-        if (tooling_detail::write_file(project_file(projectDir, layerRels[li]), std::string_view(reinterpret_cast<const char*>(pngs[li].data()), pngs[li].size()), &err)) {
+        if (tooling_detail::write_file(project_write_file(projectDir, layerRels[li]), std::string_view(reinterpret_cast<const char*>(pngs[li].data()), pngs[li].size()), &err)) {
             written.push_back(layerRels[li]);
             continue;
         }
@@ -585,7 +588,7 @@ Json animate(const std::string& projectDir, const Json& a) {
                 continue;
             }
             std::error_code rm;
-            if (!fs::remove_file(project_file(projectDir, written[k]), rm)) replaced.push_back(written[k]);   // could not be taken back either
+            if (!fs::remove_file(project_write_file(projectDir, written[k]), rm)) replaced.push_back(written[k]);   // could not be taken back either
         }
         fail("failed", err + (replaced.empty() ? " Nothing else was changed: the sheets written before it were removed again, and assets.json was not touched."
                                                : " assets.json was not touched, but these sheets were already written over the earlier ones: " + join(replaced, ", ") + "."),
@@ -677,7 +680,7 @@ Json animate(const std::string& projectDir, const Json& a) {
         const Json recipe = member(member(entry, "provenance"), "recipe");
         if (member(recipe, "command") != Json(kCommand) || member(member(recipe, "args"), "path") != Json(rel)) continue;
         std::error_code rm;
-        const std::filesystem::path file = project_file(projectDir, stale);
+        const std::filesystem::path file = project_write_file(projectDir, stale);
         if (stdfs::exists(file, rm) && !fs::remove_file(file, rm)) {
             warn("The sheet '" + stale + "' is left over from an earlier bake of this effect with the layer \"" + name + "\", and it could not be deleted: " + rm.message() + ". Delete it, or it keeps its recipe.");
             continue;
@@ -696,7 +699,7 @@ Json animate(const std::string& projectDir, const Json& a) {
         const std::string clipName = clips[0].name;
         const Json doc = build_animate_prefab(*prefabSpec, layerList, layerRels, clipName);
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, prefabSpec->rel), dump_scene_json(doc), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, prefabSpec->rel), dump_scene_json(doc), &err))
             fail("failed", "The sheets were baked and recorded, but the prefab '" + prefabSpec->rel + "' could not be written: " + err,
                  "Check that the folder is writable and the file is not open in another program, then call again with overwrite: true and the prefab's overwrite: true (the sheets above are already in place).");
         Json children = Json::array();
@@ -898,7 +901,11 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
                {"ai", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the code was written by an AI (the default, since the caller is an agent). Set false for art a person made; it then counts as original work in the AI disclosure."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
                {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the sheet for the provenance record."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
+    mark_paths(info.inputSchema, "read", {"source"});
     registry.add(info, [projectDir](const Json& args) { return animate(projectDir, args); });
+    // Capabilities (capability.h): the sheets (and the prefab) are written in the project; the game is not touched.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

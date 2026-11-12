@@ -1,11 +1,15 @@
 // What each AI role may do (role_capabilities): the sets, the tools a role is offered, the refusal of a call outside the set and
 // the environment that carries the set to the factoria a CLI agent starts.
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
 
 #include "fa/ai/cli_agent.h"
+#include "fa/tooling/asset_import.h"
+#include "fa/tooling/audio_analysis.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -290,3 +294,47 @@ TEST_CASE("role capabilities: the CLI agent of a reviewer starts with the review
     CHECK(capabilities_env_value(role_capabilities(kRoleWorker)).find("writeAnywhere") == std::string::npos);
 }
 #endif
+
+TEST_CASE("role capabilities: the commands that look at an asset are read-only tools for the critics, and a path of their own is refused") {
+    TempDir dir;
+    CommandRegistry reg;
+    register_asset_commands(reg, dir.str());
+    register_audio_commands(reg, dir.str());
+    const char* const kLooking[] = {"model.preview", "assets.contact_sheet", "assets.preview_sheet", "assets.preview_in_scene", "assets.check_art",
+                                    "audio.render",  "assets.spectrogram",   "assets.check_mix",     "music.info",             "music.check",
+                                    "music.mix",     "anim3d.preview",       "skin3d.preview"};
+    for (const char* name : kLooking) {
+        const CommandInfo* info = info_of(reg, name);
+        REQUIRE_MESSAGE(info != nullptr, name);
+        CHECK_MESSAGE(info->capabilities == capability_sets::changes_state(), name);
+        CHECK_MESSAGE(is_read_only_tool(*info), name);
+    }
+    // commands that make project files stay out
+    for (const char* name : {"model.bake", "audio.bake", "assets.synth_sound", "assets.import", "model.edit"}) {
+        const CommandInfo* info = info_of(reg, name);
+        REQUIRE_MESSAGE(info != nullptr, name);
+        CHECK_FALSE_MESSAGE(is_read_only_tool(*info), name);
+    }
+    const auto ro = tool_names(tools_from_registry(reg, false, true));
+    for (const char* name : {"model_preview", "assets_contact_sheet", "audio_render", "assets_spectrogram"}) CHECK_MESSAGE(contains(ro, name), name);
+    CHECK_FALSE(contains(ro, "model_bake"));
+    const auto rev = cli_disallowed_tools(reg, kRoleReviewer, false);
+    CHECK_FALSE(contains(rev, "mcp__factoria__model_preview"));
+    CHECK(contains(rev, "mcp__factoria__model_bake"));
+
+    // A critic that gives its own output path does not write into the project: its role's scope has no writeProject.
+    std::filesystem::create_directories(dir.path / "assets" / "models");
+    {
+        std::ofstream crate(dir.path / "assets" / "models" / "crate.model.json");
+        crate << R"({"format":"factoria.model/1","nodes":[{"op":"rounded_box","size":[1,1,1],"radius":0.05,"position":[0,0.5,0],"part":"body"}]})";
+    }
+    for (const char* role : {kRoleReviewer, kRoleArtCritic}) {
+        CAPTURE(role);
+        CommandCallerScope caller(CommandCaller::Agent);
+        CommandCapabilityScope caps(role_capabilities(role), role_denial_hint(role));
+        const CommandResult r = reg.call("model.preview", Json::object({{"path", "assets/models/crate.model.json"}, {"out", "assets/own.png"}}));
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "capability_denied");
+        CHECK_FALSE(std::filesystem::exists(dir.path / "assets" / "own.png"));
+    }
+}

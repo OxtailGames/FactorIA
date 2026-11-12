@@ -178,7 +178,14 @@ bool is_read_only_tool(const CommandInfo& info) {
                                         "play.auto",
                                         // One PNG of poses / frames under .factoria/ (writeProject, so no longer readOnly): the art
                                         // critic and the reviewers look at an animation or an effect with them.
-                                        "anim.filmstrip", "vfx.filmstrip"};
+                                        "anim.filmstrip", "vfx.filmstrip",
+                                        // The commands that look at an asset or a sound (M92.1b2a): they are {read,state}, not readOnly,
+                                        // because each can also keep its picture at a caller-given path. By default they write only an
+                                        // engine-chosen temporary picture; a path of the caller (`out`, `path`, `pictureOut`) needs
+                                        // writeProject, which these roles lack (the registry refuses it with capability_denied).
+                                        "model.preview", "assets.contact_sheet", "assets.preview_sheet", "assets.preview_in_scene",
+                                        "assets.check_art", "audio.render", "assets.spectrogram", "assets.check_mix", "music.info",
+                                        "music.check", "music.mix", "anim3d.preview", "skin3d.preview"};
     for (const char* name : kPlay) {
         // The play commands also have to fit the critics' capability set (role_capabilities): one that declares more (a process,
         // the network) is not a play command, whatever its name.
