@@ -947,7 +947,7 @@ const char* form_name(PathForm f) {
         case PathForm::DriveRelative: return "a drive-relative Windows path (C:name)";
         case PathForm::Unc: return "a network (UNC) path";
         case PathForm::LongPath: return "a Windows long path (\\\\?\\)";
-        case PathForm::DevicePath: return "a Windows device path (\\\\.\\)";
+        case PathForm::DevicePath: return "a Windows device or NT object path (\\\\.\\ or \\??\\)";
         case PathForm::Home: return "a path starting with ~";
     }
     return "a path";
@@ -1067,7 +1067,7 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
             std::size_t n = 0;
             if (!aec && is_under_root(rootCanon, abs, &n) && n < element_keys(abs).size()) {
                 const std::string rel = relative_below_root(abs, n);
-                hint ="This path is inside the " + label + "; write it relative to it: \"" + rel + "\".";
+                hint = "This path is inside the " + label + "; write it relative to it: \"" + rel + "\".";
             }
         }
         return write_error("absolute_path_denied",

@@ -347,7 +347,7 @@ TEST_CASE("api export: the argument table shows what a path argument is used for
     reg.add(info, [](const Json&) { return Json::object(); });
     const std::string md = export_commands_markdown(reg);
     CHECK(md.find("| `src` | string | no | Input. Path the command reads. |") != std::string::npos);
-    CHECK(md.find("| `out` | string | no | Output. Path the command writes (confined: project only, unless the caller may write anywhere). |") != std::string::npos);
+    CHECK(md.find("| `out` | string | no | Output. Path the command writes; the write rules apply (docs/CLI.md, \"Paths\"). |") != std::string::npos);
     CHECK(md.find("| `name` | string | no | Not a path. |") != std::string::npos);
 }
 
