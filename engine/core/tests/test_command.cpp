@@ -593,6 +593,16 @@ TEST_CASE("capabilities: an explicit declaration is kept, flagged, and described
     REQUIRE(d.size() == 1);
     CHECK(d[0]["capabilities"] == Json::parse(R"(["read","network","publish"])"));
     CHECK(d[0]["readOnly"] == false);
+    CHECK(d[0]["capabilitiesDeclared"] == true);
+}
+
+TEST_CASE("capabilities: describe() says capabilitiesDeclared false for an undeclared command") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.old", true);
+    const Json d = reg.describe();
+    REQUIRE(d.size() == 1);
+    CHECK(d[0]["capabilitiesDeclared"] == false);
+    CHECK(d[0]["capabilities"] == Json::parse(R"(["read"])"));
 }
 
 TEST_CASE("capabilities: re-adding a copy of a derived info keeps it undeclared; declare_capabilities declares") {

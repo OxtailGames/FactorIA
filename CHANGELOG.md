@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- The capabilities of every command are visible (M92.1c): `api.commands`, `factoria commands --json` and `factoria api --json`
+  carry `capabilities` and `capabilitiesDeclared`, `factoria commands <name>` prints a `Capabilities:` line, each command of the
+  generated reference says what it can do (or "not declared yet"), and each MCP tool has `_meta` `factoria/capabilities` and
+  `factoria/capabilitiesDeclared` (`tool_describe` returns them too).
+
 - Every `ai.*`, `assets.*`, `image.*`, `skills.*` and review command of `tools/ai` declares its capabilities (M92.1b3):
   `ai.run` and `ai.review` need `process`, `network` and `spend`, the generators, image providers, reviews, `ai.review_feedback` and `ai.retrospective` `process` (a CLI agent or local-program provider), `network` and `spend`, `ai.plugin_install`
   `writeAnywhere`, and the `user` scope of `ai.settings.set` and `skills.new` also asks for `writeAnywhere`. `ai.models`,

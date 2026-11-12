@@ -30,6 +30,9 @@ Json export_commands_json(const CommandRegistry& registry);  // registry.describ
 std::string export_commands_markdown(const CommandRegistry& registry);
 // The sentence that ends the description MCP sends for a command that has CommandInfo::details ("" without): where the rest is.
 std::string command_details_pointer(const CommandInfo& info);
+// What a command may do, for the reference and `factoria commands <name>`: "read, network, spend", or "not declared yet" while
+// the command has not declared its capabilities (CommandInfo::capabilitiesDeclared; the set is then only a guess).
+std::string capabilities_line(const CommandInfo& info);
 
 // The browsable reference: docs/COMPONENTS.md plus docs/reference/ (index, one page per component and command category).
 // Paths are relative to the docs folder, forward slashes, sorted; the text is LF-only and platform independent.

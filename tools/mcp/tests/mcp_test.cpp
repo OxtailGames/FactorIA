@@ -304,6 +304,9 @@ TEST_CASE("mcp: tools/list maps command names and describes tools") {
     CHECK((*echo)["annotations"]["readOnlyHint"] == true);
     CHECK((*echo)["annotations"]["destructiveHint"] == false);
     CHECK((*echo)["inputSchema"]["required"][0] == "value");
+    // test.echo_value declares nothing: its _meta says so; the set is the one derived from readOnly.
+    CHECK((*echo)["_meta"]["factoria/capabilitiesDeclared"] == false);
+    CHECK((*echo)["_meta"]["factoria/capabilities"].is_array());
     for (auto& t : toolsCopy)
         if (t["name"] == "test_change_state") {
             CHECK(t["annotations"]["readOnlyHint"] == false);
