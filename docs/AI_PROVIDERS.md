@@ -159,9 +159,45 @@ file is optional; without it the Anthropic defaults below apply. Schema:
 Provider fields: `type`, `preset`, `baseUrl`, `apiKeyEnv`, `apiKey`, `headers`,
 `defaultModel`, `useAntCli`, `sendReasoningEffort`, `command`, `argv` (full
 template: **every CLI argument can be overridden**, CLI flags change over time),
-`env`, `unsetEnv`, `factoriaCommand` (default `factoria`), `pricing`
+`env`, `unsetEnv`, `inheritEnv` (see [Environment of the programs the AI starts](#environment-of-the-programs-the-ai-starts)),
+`factoriaCommand` (default `factoria`), `pricing`
 (`inputPerMTok`, `outputPerMTok`, ...), `maxRetries`, `timeoutSeconds`, `license`
 (asset providers, see [Asset providers](#asset-providers)).
+
+### Environment of the programs the AI starts
+
+The editor's environment holds secrets (the API key of every provider, `FACTORIA_*_PASSWORD` for signing), so the programs the AI
+starts do not inherit it whole. Each gets an allow-list:
+
+| Program | Inherits |
+|---|---|
+| Command hooks ([HOOKS.md](HOOKS.md)) | the base list, the hook's own `CLAUDE_PROJECT_DIR`, `FACTORIA_*` variables, and the top-level `inheritEnv` |
+| CLI agents (Claude Code, Codex, `generic-cli`), model listing, plugin installs | the base list, network and config variables (`XDG_*`, `HTTP(S)_PROXY`, `NO_PROXY`, `SSL_CERT_*`, `NODE_EXTRA_CA_CERTS`), the variables of the CLI (`CLAUDE_*` and `ANTHROPIC_*` for Claude Code, `CODEX_*` and `OPENAI_*` for Codex), the provider's own API key variable, the provider's `inheritEnv` and the top-level `inheritEnv` |
+| `asset-command` providers | the same as a CLI agent of that provider |
+| Stdio tool servers (`mcpServers`) | the base list, network and config variables, the server's `apiKeyEnv`, its `inheritEnv` and the top-level `inheritEnv`; the server's `env` is always passed |
+| Version probes (`--version`), `curl` | the base list and the network and config variables |
+
+The base list is `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`/`TEMP`/`TMP`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `TZ`,
+`FACTORIA_HOME`, `FACTORIA_AI_CONFIG`, `FACTORIA_CALLER` and a few more of FactorIA's own, and on Windows `SystemRoot`,
+`ComSpec`, `PATHEXT`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `ProgramFiles*`, `USERNAME` and the like. Claude Code
+on macOS finds its login in the keychain through `HOME`; it needs no other variable. `env` of a provider or server is added on
+top, `unsetEnv` removes names again.
+
+A program that needs another variable (`AWS_PROFILE`, `GIT_SSH_COMMAND`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`, a company proxy
+variable) needs its name listed. Names are exact (`"AWS_PROFILE"`) or a prefix ending in `*` (`"AWS_*"`); on Windows they ignore
+case. Two places, both in `~/.factoria/ai.json` (a project's AI settings file cannot set them):
+
+```json
+{
+  "inheritEnv": ["AWS_PROFILE", "SSH_AUTH_SOCK"],
+  "providers": { "claude-code": { "inheritEnv": ["NODE_OPTIONS"] } },
+  "mcpServers": { "files": { "command": "node", "args": ["server.js"], "inheritEnv": ["FILES_TOKEN"] } }
+}
+```
+
+The top-level list applies to every hook, agent and tool server; the other two to one provider or one server. A name with `=`, a
+space, or a `*` anywhere but the end is refused with its JSON pointer when the file is read. If an agent works in the terminal but
+not in FactorIA and the cause is a missing variable, add its name here (or in the provider's `env`, with the value).
 
 Built-in providers exist without being listed: `anthropic`, `openai`,
 `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`, `claude-code`,
@@ -1287,8 +1323,8 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 * Prefer `apiKeyEnv` over `apiKey`; if the file holds a key, `chmod 600` it
   (FactorIA warns when it is world-readable). A key pasted into the editor's
   [AI settings window](#the-ai-settings-window) is stored as `apiKey` in this same
-  user-level file, which the window writes readable only by you (Linux and macOS: the
-  file is created private before the key goes in), and the box never shows a stored key
+  user-level file, which the window writes readable only by you (the file is created private before the key goes in:
+  mode 0600 on Linux and macOS, a protected ACL with your account as the only entry on Windows), and the box never shows a stored key
   again. The key is not written to a game project, a log, a notification or a command
   result, and is forgotten from the window once saved or closed.
 * Keys are sent only to the provider's `baseUrl`, in headers (never in URLs or

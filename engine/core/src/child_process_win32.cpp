@@ -17,6 +17,8 @@
 
 #include "fa/core/child_process.h"
 
+#include "child_env.h"
+
 namespace fa {
 
 namespace {
@@ -121,25 +123,8 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
     }
     if (batch) cmdline = L"cmd.exe /d /s /c \"" + cmdline + L"\"";
 
-    std::wstring envBlock;
-    {
-        LPWCH base = GetEnvironmentStringsW();
-        std::vector<std::wstring> vars;
-        for (LPWCH p = base; p && *p;) {
-            std::wstring s = p;
-            p += s.size() + 1;
-            auto eq = s.find(L'=', 1);
-            std::wstring key = s.substr(0, eq);
-            bool drop = false;
-            for (const auto& [k, v] : opt.env) drop = drop || (_wcsicmp(widen(k).c_str(), key.c_str()) == 0);
-            for (const auto& u : opt.unsetEnv) drop = drop || (_wcsicmp(widen(u).c_str(), key.c_str()) == 0);
-            if (!drop) vars.push_back(std::move(s));
-        }
-        if (base) FreeEnvironmentStringsW(base);
-        for (const auto& [k, v] : opt.env) vars.push_back(widen(k) + L"=" + widen(v));
-        for (const auto& v : vars) { envBlock += v; envBlock.push_back(L'\0'); }
-        envBlock.push_back(L'\0');
-    }
+    // Environment block: inherited (all of it, or the allow-list) + overrides - unset.
+    std::wstring envBlock = detail::build_environment_block(opt.inheritEnv, opt.env, opt.unsetEnv);
 
     SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
     HANDLE inR = nullptr, inW = nullptr, outR = nullptr, outW = nullptr, errR = nullptr, errW = nullptr;

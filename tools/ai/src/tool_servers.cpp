@@ -53,7 +53,7 @@ std::string tool_server_name_problem(std::string_view name) {
 namespace {
 
 constexpr const char* kServerKeys[] = {"type",   "url",  "headers", "command", "args",    "env",
-                                       "apiKeyEnv", "apiKey", "note", "roles", "enabled", "timeoutSeconds"};
+                                       "apiKeyEnv", "apiKey", "note", "roles", "enabled", "timeoutSeconds", "inheritEnv"};
 
 std::string join_names(const std::vector<std::string>& v) {
     std::string out;
@@ -157,6 +157,11 @@ Result<ResolvedToolServer> resolve_tool_server(const ToolServer& s, const EnvLoo
         r.env[name] = std::move(v);
     }
     if (!r.usesKey) r.keySource.clear();
+    // A stdio program inherits the base list, proxies and certificates, its own key variable and what the user listed.
+    r.inheritEnv = s.inheritEnv;
+    for (const std::string& n : s.inheritEnvGlobal)
+        if (std::find(r.inheritEnv.begin(), r.inheritEnv.end(), n) == r.inheritEnv.end()) r.inheritEnv.push_back(n);
+    if (!s.apiKeyEnv.empty()) r.inheritEnv.push_back(s.apiKeyEnv);
     return r;
 }
 
@@ -211,6 +216,11 @@ Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::s
     if (auto ok = read_map("headers", [&](const std::string& k, std::string v) { s.headers.emplace_back(k, std::move(v)); }); !ok)
         return ok.error();
     if (auto ok = read_map("env", [&](const std::string& k, std::string v) { s.env[k] = std::move(v); }); !ok) return ok.error();
+    if (const Json* n = child(entry, "inheritEnv")) {
+        auto names = parse_env_names(*n, at + "/inheritEnv");
+        if (!names) return names.error();
+        s.inheritEnv = std::move(*names);
+    }
     for (const auto& [h, v] : s.headers) {
         if (!valid_header_name(h))
             return make_error(at + "/headers/" + h + ": '" + h + "' is not a header name",
@@ -317,6 +327,7 @@ Json tool_server_to_json(const ToolServer& s, bool redactKeys) {
         for (const auto& [k, v] : s.env) e[k] = redactKeys && is_literal_secret(k, v) ? "***" : v;
         j["env"] = std::move(e);
     }
+    if (!s.inheritEnv.empty()) j["inheritEnv"] = s.inheritEnv;
     if (!s.apiKeyEnv.empty()) j["apiKeyEnv"] = s.apiKeyEnv;
     if (!s.apiKey.empty()) j["apiKey"] = redactKeys ? "***" : s.apiKey;
     if (!s.note.empty()) j["note"] = s.note;

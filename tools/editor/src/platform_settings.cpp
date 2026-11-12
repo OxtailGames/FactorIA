@@ -13,6 +13,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/core/private_file.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/export.h"
 
@@ -458,7 +459,10 @@ Result<void> create_keystore(const KeystoreRequest& r, const CancelFlag* cancel)
     }
     if (!stdfs::exists(r.path, ec)) return make_error("keytool finished but " + r.path + " does not exist.", "Run it again.");
     // The file holds a signing key: nobody but its owner needs to read it.
-    stdfs::permissions(r.path, stdfs::perms::owner_read | stdfs::perms::owner_write, stdfs::perm_options::replace, ec);
+    // (0600 on Linux/macOS, an owner-only protected ACL on Windows.)
+    if (auto priv = fa::fs::make_private(r.path); !priv.ok())
+        return make_error("The keystore " + r.path + " was created but could not be made readable by you only: " + priv.error().message,
+                          priv.error().hint.empty() ? "Restrict the file to your user account by hand." : priv.error().hint);
     return {};
 }
 
