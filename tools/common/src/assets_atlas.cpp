@@ -346,6 +346,8 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
         "padding":{"type":"integer","minimum":0,"maximum":32,"description":"Pixels of the frame's own edge repeated around each frame. Default 2."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return pack_atlas(projectDir, args); });
+    // Capabilities (capability.h): the atlas PNG, its table and the assets.json entries are project files.
+    declare_command_capabilities(registry, {{"assets.pack_atlas", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

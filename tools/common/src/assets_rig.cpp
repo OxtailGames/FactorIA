@@ -73,7 +73,7 @@ RigDoc checked(const Json& json, const std::string& rel) {
 
 void write_document(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
 Json bake_json(const RigBakeStatus& s) { return Json::object({{"state", rig_bake_state_name(s.state)}, {"output", s.output}, {"reason", s.reason}}); }
@@ -250,6 +250,7 @@ Json bake_part(const std::string& projectDir, const std::string& rel, bool bake,
 Json rig_create_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("rig.create", a, "", {"path", "model", "template", "options", "parts", "landmarks", "strict", "output", "doc", "overwrite", "bake", "skin"});
     const std::string rel = rig_path(tooling_detail::arg_string(a, "path", true));
+    (void)project_write_file(projectDir, rel);  // refuse a path outside the project before anything else
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, rel), ec))
         fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or change it with rig.fit.");
@@ -461,6 +462,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
             "and the warnings. A fit that cannot be made returns state failed with the reason. Example: {\"path\":\"assets/models/hero.rig.json\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()}, {"fit", boolean("Fit the template to the model for the report (evaluates the model).", true)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return rig_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -500,6 +502,8 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
                                                              {"doc", str("A note on what the rig is for.")},
                                                              {"overwrite", boolean("Replace the document when it exists (and the .glb when nothing baked it).", false)},
                                                              {"bake", boolean("Bake the skinned .glb after writing.", true)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
+        mark_paths(info.inputSchema, "read", {"model"});
         registry.add(info, [projectDir](const Json& args) { return rig_create_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -525,6 +529,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
                                                              {"dryRun", boolean("Fit with the changes but write nothing.", false)},
                                                              {"bake", boolean("Bake the skinned .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no rig document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return rig_fit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -548,8 +553,13 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
                                                              {"dryRun", boolean("List what would be baked and why, and write nothing.", false)},
                                                              {"overwrite", boolean("Replace a file at the output that no rig document baked.", false)},
                                                              {"mergeParts", Json::object({{"type", "boolean"}, {"description", "Weld the skinned parts that share a material into one submesh (fewer draw calls). Left out: what the last bake of the document used (false the first time); the choice is kept in the recipe."}})}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return rig_bake_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): the rig documents and the skinned models they bake to are project files.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"rig.templates", reads()}, {"rig.info", reads()}, {"rig.create", writes_project()},
+                                            {"rig.fit", writes_project()}, {"rig.bake", writes_project()}});
 }
 
 }  // namespace fa::assets_detail

@@ -49,7 +49,9 @@ std::string structure_text(const SongDoc& doc);
 // The compact description of a song every music command returns: tempo, meter, key, bars, seconds, notes, tracks and sections.
 Json summary_json(const SongDoc& doc, const SongTimeline& timeline);
 // Adds the piano-roll picture (`$image`, `pianoRoll`) of the song to `result`; reads width, fromBar, bars, pictureOut from `a`.
-void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& timeline, Json& result);
+void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& timeline, Json& result, const char* command);
+// Refuses a `pictureOut` the caller may not write (writeProject, inside the project) before the command does any work.
+void check_picture_out(const std::string& projectDir, const Json& a, const char* command);
 
 double round_to(double v, int decimals);
 inline Json num(double v, int decimals = 2) { return Json(round_to(v, decimals)); }

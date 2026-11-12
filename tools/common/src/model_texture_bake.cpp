@@ -32,7 +32,7 @@ double round_to(double v, int decimals) {
 bool write_png_if_changed(const std::string& projectDir, const std::string& rel, const Image& image) {
     const std::vector<std::uint8_t> png = encode_png(image);
     const std::string_view bytes(reinterpret_cast<const char*>(png.data()), png.size());
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = assets_detail::project_write_file(projectDir, rel);
     if (auto old = tooling_detail::read_file(file); old && *old == bytes) return false;
     std::string err;
     if (!tooling_detail::write_file(file, bytes, &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");

@@ -211,7 +211,7 @@ Json model_uv_command(const std::string& projectDir, const Json& a) {
     if (changed) {
         require_usable_manifest(projectDir);
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+        if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     }
 
     ModelBuild build;
@@ -327,7 +327,10 @@ void register_model_uv_command(CommandRegistry& registry, const std::string& pro
                {"bake", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Bake the .glb again after a change."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace a .glb that no model document baked."}})},
                {"picture", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Return the UV layout picture ($image)."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [projectDir](const Json& args) { return model_uv_command(projectDir, args.is_null() ? Json::object() : args); });
+    using namespace capability_sets;  // capability.h: changes the document's uv section and bakes it
+    declare_command_capabilities(registry, {{"model.uv", writes_project()}});
 }
 
 }  // namespace fa::assets_detail

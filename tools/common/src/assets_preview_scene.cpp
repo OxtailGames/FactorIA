@@ -377,7 +377,6 @@ void register_preview_scene_command(CommandRegistry& registry, const std::string
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.readOnly = true;
     info.summary = "See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.";
     info.description =
         "Starts the scene `scene` in a second, headless engine, steps `steps` frames (default 2) so its "
@@ -421,7 +420,12 @@ void register_preview_scene_command(CommandRegistry& registry, const std::string
                {"resolutions", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", 4}, {"items", Json::object({{"type", "string"}})}, {"description", "\"phone\" (540x1170), \"tablet\" (1024x768), \"desktop\" (1280x720) or \"WxH\". Default [\"phone\", \"desktop\"]."}})},
                {"steps", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 600}, {"default", 2}, {"description", "Frames the scene runs before the asset is placed."}})},
                {"center", Json::object({{"type", "boolean"}, {"default", false}, {"description", "2D scenes: move the camera onto the asset so it is in view at every resolution."}})}})}});
+    mark_paths(info.inputSchema, "read", {"path", "scene"});
     registry.add(info, [projectDir](const Json& args) { return preview(projectDir, args); });
+    // Capabilities (capability.h): it runs the scene in a private engine (its scripts start there) and saves a temporary screenshot
+    // the engine names in .factoria/screenshots; the project is not changed. When this process holds the graphics device the work
+    // runs in a child `factoria call` of this same command.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::changes_state()}});
 }
 
 }  // namespace fa::assets_detail

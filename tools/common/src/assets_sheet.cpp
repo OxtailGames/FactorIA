@@ -482,7 +482,10 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
         "background":{"type":"string","enum":["none","auto"],"description":"auto: first make the solid background (the four corners the same opaque colour) transparent. Default none."},
         "out":{"type":"string","x-fa-path":"write","description":"PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place."}
       }})");
+    mark_paths(info.inputSchema, "read", {"path"});
     registry.add(info, [projectDir](const Json& args) { return slice_sheet(projectDir, args); });
+    // Capabilities (capability.h): the sheet PNG and the grid in assets.json are project files.
+    declare_command_capabilities(registry, {{"assets.slice_sheet", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail
