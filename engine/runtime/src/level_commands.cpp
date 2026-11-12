@@ -1330,6 +1330,38 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          false, "scene"},
         [&engine, &I](const Json& a) { return import_ascii(I, a); });
 
+    // The running-world half of scene.import_ascii as a command of its own: it can never write a file, so it needs only {read, state}
+    // and a game script may call it (tilemap.generate's `place` does). The file half (`path`, `from`, `edits`, `dryRun`) and `save`
+    // write the project, which scene.import_ascii declares and a game script is refused.
+    {
+        CommandInfo twin;
+        twin.name = "scene.place_ascii";
+        twin.summary = "Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file.";
+        twin.description =
+            "scene.import_ascii without its file half: the map and the objects of the legend are created in the running world (like "
+            "scene.spawn), the scene file is never touched, so scripts of a game may call it (tilemap.generate with `place` does). "
+            "It takes the arguments of scene.import_ascii except `path`, `from`, `edits`, `dryRun` and `save`, which are refused "
+            "(use scene.import_ascii for those). `rows` is the map, row 0 = the TOP row, one character per tile; `legend` maps a character "
+            "to a tile index or to an object {tile?, prefab?, id?, overrides?, offset?}; `entity` is the Tilemap entity (default "
+            "\"tilemap\"), `tilemap` its fields, `position` + `anchor` where the map goes, `replace` destroys the objects of earlier "
+            "imports into the same tilemap. Returns what scene.import_ascii returns for the running world. Example: scene.place_ascii "
+            "{\"rows\":[\"....\",\"#oo#\"],\"legend\":{\"#\":0,\"o\":{\"prefab\":\"prefabs/coin.prefab.json\"}}}";
+        twin.readOnly = false;
+        twin.category = "scene";
+        if (const CommandInfo* base = I.commands.info("scene.import_ascii")) {
+            twin.inputSchema = base->inputSchema;
+            if (twin.inputSchema.contains("properties") && twin.inputSchema["properties"].is_object())
+                for (const char* k : {"path", "from", "dryRun", "edits", "save"}) twin.inputSchema["properties"].erase(k);
+        }
+        I.commands.add(std::move(twin), [&I](const Json& a) {
+            for (const char* k : {"path", "from", "dryRun", "edits", "save"})
+                if (a.contains(k))
+                    bad_arg(std::string("'") + k + "' is not an argument of scene.place_ascii: it only changes the running world and never writes a file",
+                            "Use scene.import_ascii for '" + std::string(k) + "' (it writes the project, so a game script cannot call it).");
+            return import_ascii(I, a);
+        });
+    }
+
     I.commands.add(
         {"scene.ascii_edit",
          "Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.",
@@ -1464,6 +1496,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
         {"scene.import_ascii", capability_sets::edits_project()},
+        {"scene.place_ascii", capability_sets::changes_state()},
         {"scene.ascii_edit", capability_sets::edits_project()},
         {"tilemap.set_tile", capability_sets::changes_state()},
         {"tilemap.cell_at", capability_sets::reads()},

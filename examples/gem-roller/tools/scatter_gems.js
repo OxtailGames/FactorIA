@@ -19,6 +19,7 @@ export default {
     },
   },
   readOnly: false,
+  capabilities: ["read", "state"], // spawns into the running game only, writes no file
   run(args) {
     return scatterGems(args);
   },

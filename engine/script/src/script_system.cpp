@@ -531,8 +531,9 @@ void ScriptSystem::Impl::report_pending_exception(const std::string& entityId, c
 // ---------------------------------------------------------------------------------------------------------------------
 JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& entityId, JSValueConst fn,
                                  JSValueConst thisVal, std::initializer_list<JSValue> args, bool* failed,
-                                 double limitSeconds, bool quiet) {
+                                 double limitSeconds, bool quiet, CapMode mode) {
     if (failed) *failed = false;
+    CapModeScope capMode_(*this, mode);  // fa.call from this callback runs with the set of its kind (script_capabilities.cpp)
     double limit = limitSeconds < 0 ? callbackLimit : limitSeconds;
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard(label, limit);
@@ -912,6 +913,8 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
+    // The top level of a module is game code, not the tool or eval that happened to import it: it never runs with the caller's wider set.
+    CapModeScope topLevel(*this, capMode == CapMode::Caller ? CapMode::Game : capMode);
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
     pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<JSValue> {
@@ -1159,13 +1162,18 @@ void ScriptSystem::Impl::shutdown() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------------------------------------------------
-ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) { impl_->owner = this; }
+ScriptSystem::ScriptSystem() : impl_(std::make_unique<Impl>()) {
+    impl_->owner = this;
+    impl_->set_game_role(GameRole::Player);
+}
 ScriptSystem::~ScriptSystem() {
     if (impl_) impl_->shutdown();
 }
 
 void ScriptSystem::set_debugger(std::shared_ptr<ScriptDebugger> debugger) { impl_->debugger = std::move(debugger); }
 void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = exported; }
+void ScriptSystem::set_game_role(GameRole role) { impl_->set_game_role(role); }
+CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
