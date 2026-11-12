@@ -1401,10 +1401,10 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
     add_read_only_asset_commands(registry, ctx);
-    // The generators call a paid provider (network, spend; the offline "fake" provider is the exception, not the rule) and write
+    // The generators call a provider (network, spend, and process when it is a local-program provider; the offline "fake" one is the exception) and write
     // the file at `path`, which asset_path() confines to assets/ of the project: no free output path here. The rest write assets.json
     // or move files inside the project.
-    const CapabilitySet generate{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Spend};
+    const CapabilitySet generate{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
     declare_command_capabilities(registry, {
         {"assets.generate_image", generate},
         {"assets.generate_sprite_sheet", generate},
