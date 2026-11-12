@@ -504,14 +504,20 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "differences that form cannot express (a part of the prefab removed, a child added under a part of it) is "
            "written inline and listed under `expandedPrefabs` with the reason.",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."},
+               "path":{"type":"string","x-fa-path":"write","description":"Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene."},
                "includeSpawned":{"type":"boolean","default":false,"description":"Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
-              std::string path = a.value("path", I.currentScene);
-              if (path.empty())
-                  throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
-              if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+              std::string path;
+              if (a.contains("path") && a["path"].is_string()) {
+                  // A path the caller names stays inside the project (an absolute one only for a caller that may write anywhere).
+                  path = resolve_caller_project_path(a["path"].get<std::string>(), "scene.save");
+              } else {
+                  path = I.currentScene;
+                  if (path.empty())
+                      throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+              }
               SpawnedSkip skip;
               std::vector<PrefabExpanded> expanded;
               auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded);
@@ -596,7 +602,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "input.record {\"action\":\"stop\",\"path\":\"replays/run1.json\"}",
            parse_schema(R"({"type":"object","required":["action"],"properties":{
                "action":{"type":"string","enum":["start","stop"],"description":"start: begin recording now. stop: end it and return the replay."},
-               "path":{"type":"string","description":"stop only: also write the replay to this project-relative file (e.g. replays/run1.json)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               const std::string action = a["action"].get<std::string>();
@@ -607,12 +613,14 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               }
               if (!engine.input_recording())
                   throw CommandError("unavailable", "Nothing is being recorded.", "Start with input.record {\"action\":\"start\"}.");
+              // The path is judged before the recording stops: a refused path must not throw the recording away.
+              std::string path;
+              const bool writeReplay = a.contains("path") && a["path"].is_string();
+              if (writeReplay) path = resolve_caller_project_path(a["path"].get<std::string>(), "input.record");
               const std::size_t frames = engine.input_recording_frames();
               Json replay = engine.stop_input_recording();
               Json out = Json::object({{"recording", false}, {"frames", frames}, {"replay", replay}});
-              if (a.contains("path") && a["path"].is_string()) {
-                  const std::string path = a["path"].get<std::string>();
-                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+              if (writeReplay) {
                   if (auto r = fs::write_text(path, replay.dump(1)); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
                   out["path"] = path;
               }

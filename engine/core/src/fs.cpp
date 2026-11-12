@@ -1099,6 +1099,21 @@ Result<stdfs::path> resolve_for_write(std::string_view path, WriteRoot root, boo
     return resolve_for_write_in(write_root_dir(root), root, path, allowAnywhere, managed);
 }
 
+std::string project_spelling(const stdfs::path& resolved) {
+    std::error_code ec;
+    const stdfs::path rootCanon = canonical_of(project_root(), ec);
+    std::size_t n = 0;
+    if (ec || !is_under_root(rootCanon, resolved, &n)) return path_to_utf8(resolved);
+    std::string rel;
+    std::size_t i = 0;
+    for (const stdfs::path& part : resolved) {
+        const std::string t = path_to_utf8(part);
+        if (t.empty() || i++ < n) continue;
+        rel += (rel.empty() ? "" : "/") + t;
+    }
+    return rel;
+}
+
 namespace {
 Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path);
 }
