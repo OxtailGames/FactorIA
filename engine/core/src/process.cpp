@@ -105,7 +105,9 @@ const std::vector<std::string>& base_child_env() {
         "FACTORIA_AI_CONFIG", "FACTORIA_HOME", "FACTORIA_ENGINE_DIR",  // a `factoria` they run finds the same settings and engine
         "FACTORIA_CALLER", "FACTORIA_IN_HOOK",  // who is calling, and that hooks must not start hooks (no loop)
         "FACTORIA_CAPABILITIES", "FACTORIA_ROLE",  // what the role may do and its name: a `factoria` they run keeps the floor
-        "FA_CACHE_DIR", "FA_LANGUAGE",          // the cache folder and the language of that `factoria`
+        "FA_CACHE_DIR", "FA_LANGUAGE", "FA_JOB_THREADS",  // the cache folder, the language and the job threads of that `factoria`
+        "SOKOL_SHDC", "FACTORIA_EXPORT_CONFIG", "FACTORIA_FFMPEG", "FACTORIA_STEAMCMD", "FACTORIA_FASTLANE",
+        "FACTORIA_XCRUN",  // where the tools it starts are (paths, not secrets)
 #ifdef _WIN32
         "SystemRoot", "SystemDrive", "windir",  // Windows folders: nearly every program needs them (winsock fails without SystemRoot)
         "ComSpec", "PATHEXT",                   // cmd.exe, and which extensions make a file a program

@@ -36,7 +36,6 @@ constexpr const char* kSecurity = "/usr/bin/security";
 constexpr const char* kProductbuild = "/usr/bin/productbuild";
 constexpr const char* kPkgutil = "/usr/sbin/pkgutil";
 constexpr const char* kLipo = "/usr/bin/lipo";
-constexpr const char* kPerl = "/usr/bin/perl";
 constexpr const char* kSandboxKey = "com.apple.security.app-sandbox";
 
 Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
@@ -170,7 +169,7 @@ Credentials resolve_credentials(const SignMacosOptions& o, const ExportEnvLookup
     // notarytool has no @env: / @keychain: form for --password (`xcrun notarytool submit --help`; only altool has them: https://help.apple.com/asc/appsaltool/); `--password <pw>`
     // would put the password in the argument list, readable by every user of the Mac (ps). Without --password, notarytool asks for it
     // ("Password for <apple id>:"), and a process that has no terminal reads the answer from its standard input: so the password
-    // goes on stdin, and notarytool_command() starts the tool without a controlling terminal.
+    // goes on stdin, and notary_command() starts the tool without a controlling terminal.
     c.argv = {"--apple-id", appleId, "--team-id", teamId};
     c.shown = c.argv;
     c.secret = password;
@@ -245,11 +244,12 @@ NotaryAnswer parse_notary(const std::string& output) {
 struct NotaryCommand {
     std::vector<std::string> argv, shown;
     std::string stdinText;
+    bool newSession = false;  // start without a controlling terminal (ProcessOptions::newSession)
 };
 
-// `xcrun notarytool <head...> <credentials> <tail...>`. With a password to feed on stdin the command starts through the perl that
-// macOS ships, so that notarytool has no controlling terminal (it would ask /dev/tty for the password, and a background process
-// that reads the terminal is stopped for good) and reads the password from stdin instead.
+// `xcrun notarytool <head...> <credentials> <tail...>`. With a password to feed on stdin the command starts in a session of its
+// own (ProcessOptions::newSession), so that notarytool has no controlling terminal (it would ask /dev/tty for the password, and a
+// background process that reads the terminal is stopped for good) and reads the password from stdin instead.
 NotaryCommand notary_command(const Credentials& c, const std::vector<std::string>& head, const std::vector<std::string>& tail) {
     NotaryCommand n;
     std::vector<std::string> core = {kXcrun, "notarytool"};
@@ -260,16 +260,10 @@ NotaryCommand notary_command(const Credentials& c, const std::vector<std::string
     coreShown.insert(coreShown.end(), head.begin(), head.end());
     coreShown.insert(coreShown.end(), c.shown.begin(), c.shown.end());
     coreShown.insert(coreShown.end(), tail.begin(), tail.end());
-    if (c.stdinText.empty()) {
-        n.argv = std::move(core);
-        n.shown = std::move(coreShown);
-        return n;
-    }
-    n.argv = {kPerl, "-e", notarytool_detach_script(), "--"};
-    n.shown = {kPerl, "-e", "<start without a terminal>", "--"};
-    n.argv.insert(n.argv.end(), core.begin(), core.end());
-    n.shown.insert(n.shown.end(), coreShown.begin(), coreShown.end());
+    n.argv = std::move(core);
+    n.shown = std::move(coreShown);
     n.stdinText = c.stdinText;
+    n.newSession = !c.stdinText.empty();
     return n;
 }
 
@@ -283,7 +277,7 @@ public:
     // Records the step; unless this is a dry run, runs it. An Error: the program could not start or the run was cancelled. A program
     // that exits with an error is a successful Result: the caller decides what that means.
     Result<ProcessResult> go(const std::string& title, std::vector<std::string> argv, std::vector<std::string> shown = {}, double timeoutSeconds = 0,
-                             std::string stdinText = {}) {
+                             std::string stdinText = {}, bool newSession = false) {
         SignStep step;
         step.title = title;
         step.command = shown.empty() ? argv : std::move(shown);
@@ -300,6 +294,7 @@ public:
         ProcessOptions po;
         po.argv = argv;
         po.stdinText = std::move(stdinText);
+        po.newSession = newSession;
         po.cancel = o_.cancel;
         po.timeoutSeconds = timeoutSeconds;
         po.onStdoutLine = line;
@@ -491,17 +486,6 @@ std::string nonmac_error_hint() {
 }
 
 }  // namespace
-
-const char* notarytool_detach_script() {
-    // perl -e <this> -- program args...: runs the program in a new session (no controlling terminal) as a child, passes its standard
-    // input, output and exit status through and, on SIGTERM / SIGINT / SIGHUP (a cancel), terminates the program's whole group first.
-    return "use POSIX qw(setsid WIFEXITED WEXITSTATUS WTERMSIG); "
-           "my $p = fork(); defined $p or exit 126; "
-           "if (!$p) { setsid(); exec { $ARGV[0] } @ARGV; exit 127; } "
-           "$SIG{$_} = sub { kill 'TERM', -$p; kill 'TERM', $p; } for qw(TERM INT HUP); "
-           "my $w; do { $w = waitpid($p, 0); } while ($w == -1 && $!{EINTR}); "
-           "exit($w == -1 ? 126 : WIFEXITED($?) ? WEXITSTATUS($?) : 128 + WTERMSIG($?));";
-}
 
 Json SignReport::to_json() const {
     Json j = Json::object();
@@ -977,7 +961,7 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
             if (r->exitCode != 0) return runner.failed(title, argv, *r, "Check the free disk space and that the folder of the zip is writable.");
         }
         const NotaryCommand submit = notary_command(credentials, {"submit", generic(submitZip)}, {"--wait", "--timeout", "40m", "--output-format", "json"});
-        auto sent = runner.go("Notarize (upload to Apple and wait for the verdict)", submit.argv, submit.shown, 45 * 60, submit.stdinText);
+        auto sent = runner.go("Notarize (upload to Apple and wait for the verdict)", submit.argv, submit.shown, 45 * 60, submit.stdinText, submit.newSession);
         std::error_code rm;
         stdfs::remove(os_path(submitZip), rm);
         if (!sent.ok()) return sent.error();
@@ -988,7 +972,7 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
                 std::string detail;
                 if (!answer.id.empty()) {  // the log says why Apple refused (an unsigned library, no hardened runtime...)
                     const NotaryCommand log = notary_command(credentials, {"log", answer.id}, {});
-                    if (auto got = runner.go("Fetch the notarization log", log.argv, log.shown, 300, log.stdinText); got.ok() && got->exitCode == 0) {
+                    if (auto got = runner.go("Fetch the notarization log", log.argv, log.shown, 300, log.stdinText, log.newSession); got.ok() && got->exitCode == 0) {
                         detail = got->stdoutText;
                         if (detail.size() > 3000) detail = detail.substr(0, 3000) + "...";
                     }
@@ -1099,7 +1083,8 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
         "makes missing credentials an error; false only signs. Returns {app, dryRun, identity, identityFrom, "
         "credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, [appStore: "
         "pkg, pkgSigned, installerIdentity, profile, entitlements], steps[{title, command, commandLine, ran, "
-        "exitCode}], warnings[], nextSteps[]}. The export is replaced by the next project.export: sign again "
+        "exitCode, env, stdinSecret}] (env lists the NAMES of the environment variables a step sets, never values; stdinSecret marks a step "
+        "whose password goes on its standard input), warnings[], nextSteps[]}. The export is replaced by the next project.export: sign again "
         "after every export. Details: docs_read {\"name\":\"exporting\"}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",

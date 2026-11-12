@@ -105,11 +105,6 @@ struct SignReport {
 // and quotes what the tool printed; the app may be signed already (signing again is safe).
 Result<SignReport> sign_macos(const SignMacosOptions& options);
 
-// The perl program sign.macos starts notarytool through when the Apple ID password goes on its standard input (notarytool has no
-// environment-variable form for --password): `perl -e <script> -- program args...` runs the program without a controlling terminal,
-// so it reads the password from stdin instead of /dev/tty. Public so that a test can run it.
-const char* notarytool_detach_script();
-
 // Registers sign.macos (-> MCP tool sign_macos, `factoria call`, editor console, fa.call) for the project at `projectDir`.
 void register_sign_commands(CommandRegistry& registry, const std::string& projectDir);
 
@@ -162,6 +157,12 @@ struct SignWindowsReport {
 
 // Signs the package (and the exe). An Error means it stopped: the message says which step failed and quotes what the tool printed.
 Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options);
+
+namespace detail {
+// A PowerShell single-quoted string for `utf8` (UTF-8 text): the ASCII ' and the typographic single quotes U+2018..U+201B, which
+// PowerShell reads as quotes too, are doubled. Exposed for the tests: a pure function, no file is needed to check it.
+std::string powershell_quote(const std::string& utf8);
+}  // namespace detail
 
 // Registers sign.windows for the project at `projectDir` (called by register_sign_commands).
 void register_sign_windows_command(CommandRegistry& registry, const std::string& projectDir);
