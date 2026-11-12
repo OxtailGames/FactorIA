@@ -229,8 +229,10 @@ TEST_CASE("contract Codex (from the docs): tools, the shell and file changes") {
 TEST_CASE("contract Codex (from the docs): a command refused by the sandbox") {
     const Replay r = replay(ProviderKind::Codex, kCodex, "sandbox_denied.jsonl");
     const AgentEvent* e = r.first(AgentEvent::Type::ToolEnd, "shell");
-    NEED(r, e && e->isError, "a non-zero `command_execution.exit_code` is not read as a failed call");
-    NEED(r, e && rtext(e->toolResult).find("sandbox") != std::string::npos, "`aggregated_output` of the refused command");
+    NEED(r, e && e->isError, "a `command_execution` with status \"declined\" (exit_code null) is not read as a failed call");
+    const AgentEvent* me = r.first(AgentEvent::Type::ToolEnd, "project_validate");
+    NEED(r, me && me->isError, "an `mcp_tool_call` with status \"failed\" is not read as a failed call");
+    NEED(r, me && rtext(me->toolResult).find("tool call refused") != std::string::npos, "`mcp_tool_call.error.message` is not read into the tool result");
     NEED(r, !r.resultIsError && r.sawResult, "the run after a refused command still ends with turn.completed");
 }
 
