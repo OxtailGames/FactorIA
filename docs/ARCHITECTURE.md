@@ -209,6 +209,14 @@ the file is inside it): the runtime's file commands use it for the path they als
 `scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `input.record` (`path`), `anim.*` (`path`), `mesh.save`
 (`save_mesh_glb(data, path, allowAnywhere)`; a game script's `mesh.save` is always confined to the project) refuse `..`, absolute paths, `.git/` and `.factoria/` (except `.factoria/tmp/`) for an MCP client
 or an agent and check the path before any other work (`input.record` keeps its recording when the path is refused).
+`prefab.save` (`path`) and `scene.format` (`paths`) are confined the same way, and so is the editor's own `scene.save`.
+`scene.import_ascii` and `scene.ascii_edit` declare `{read, state}` because their `dryRun` only reads: the handler asks for
+`writeProject` (`require_capability`) as soon as the call would write (a `path` or `file`, or `save`), so `dryRun: true` works
+for a read-only MCP client. `require_capability` words the refusal as the dispatcher does (the caller's hint, the game's
+`{read, state}` floor).
+The registry is walked by `tools/cli/tests/command_paths_test.cpp`: every command declares its capabilities, and every
+schema property marked `"x-fa-path": "write"` refuses `../outside.txt` and an absolute path for an MCP client without creating
+anything outside the project; a new command that writes a caller's path is covered by marking its property.
 
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
 `cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state}`: the play commands that the `--read-only` filter serves change the game; the filter
@@ -294,13 +302,16 @@ after resolving symlinks (`weakly_canonical`) the result must still be inside, s
 refused too. An absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless
 `allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent. With
 `WriteRoot::Project` the project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule)
-are closed to a relative path and to an absolute one alike (`managed_path_denied`), judged on the path as the caller wrote it
-and again on the real one after symlinks, with the names folded to lower case on every system (a case-insensitive volume
-makes `.GIT` the same folder on Linux too); a command that picks such a target itself (selections, previews, review files
+are closed to a relative path and to an absolute one alike (`managed_path_denied`): a path is refused when EITHER its
+normalized spelling OR its canonical form (after symlinks) is managed, so a link `meta -> .factoria` and a link
+`.factoria -> data` both fail; names are folded to lower case on every system (a case-insensitive volume makes `.GIT` the same
+folder on Linux too) and lose a trailing dot or space (Windows strips it: `.git.` is `.git`); a command that picks such a target itself (selections, previews, review files
 under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first segment of a relative path and, on
 Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move between them), a name Windows
-cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension) or a
-name ending in a dot or a space. Other names compare without regard to case on Windows and macOS; on Linux they compare byte
+cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1`-`COM9`, `LPT1`-`LPT9`, and `COM`/`LPT`
+with a superscript 1, 2 or 3, with or without an extension) or a name ending in a dot or a space. That rule is about
+CREATING a name: it applies to the segments that do not exist yet, so a file that already has such a name (made on Linux)
+can still be read, and deleted. Other names compare without regard to case on Windows and macOS; on Linux they compare byte
 for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's
 real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three entry points:
 `resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to write anywhere

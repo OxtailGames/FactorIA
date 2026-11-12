@@ -75,8 +75,7 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
                           "vfx.play", "game.screenshot", "anim.filmstrip", "vfx.filmstrip", "script.eval", "game.state", "nav.find_path", "audio.music"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     // ...and what it may not.
-    for (const char* n : {"scene.save", "input.record", "mesh.save", "prefab.save", "scene.format", "anim.set_keys",
-                          "scene.import_ascii", "storage.clear"})
+    for (const char* n : {"scene.save", "input.record", "mesh.save", "prefab.save", "scene.format", "anim.set_keys", "storage.clear"})
         CHECK_FALSE_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     CHECK(caps("storage.clear").has(Capability::WriteProject));  // the game's own save files; an MCP agent resets a game with it
     CHECK(caps("scene.save").has(Capability::WriteProject));
@@ -302,6 +301,29 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
             CHECK(error_code(e.commands().call(w.command, w.args(".factoria/" + name))) == "managed_path_denied");
             // A plain project path is not refused by the path rules.
             CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/" + name)))), w.command);
+        }
+        // The Windows spellings are refused on every system (a project moves between them), and a link into a managed folder too.
+        std::error_code lec;
+        stdfs::create_directories(p.dir / ".factoria", lec);
+        stdfs::create_directory_symlink(p.dir / ".factoria", p.dir / "meta", lec);
+        const bool linked = !lec;
+        for (const WriterCase& w : cases) {
+            CAPTURE(w.command);
+            const std::string name = std::string("x") + w.ext;
+            CHECK(error_code(e.commands().call(w.command, w.args("scenes\\..\\..\\" + name))) == "path_outside_root");
+            CHECK(error_code(e.commands().call(w.command, w.args("..\\" + name))) == "path_outside_root");
+            CHECK(error_code(e.commands().call(w.command, w.args("C:" + name))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args("C:/" + name))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args("C:\\" + name))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args("\\\\server\\share\\" + name))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args(".GIT/" + name))) == "managed_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args(".Factoria/" + name))) == "managed_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args(".git./" + name))) == "managed_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args("a/../.git/" + name))) == "managed_path_denied");
+            if (linked) CHECK(error_code(e.commands().call(w.command, w.args("meta/" + name))) == "managed_path_denied");
+            // A name Windows cannot create is refused for a new file ("conx.scene.json" is a normal name).
+            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/con" + name)))), w.command);
+            CHECK(error_code(e.commands().call(w.command, w.args("out/nul.x/" + name))) == "invalid_path");
         }
         // input.record: a refused path leaves the recording running; a good one stops it.
         REQUIRE(e.commands().call("input.record", Json::object({{"action", "start"}})).ok);

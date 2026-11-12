@@ -137,6 +137,60 @@ TEST_CASE("resolve_for_write: names Windows cannot create are invalid_path on ev
     }
 }
 
+TEST_CASE("resolve_for_write: COM and LPT with a superscript digit are device names too") {
+    Confined c;
+    for (const char8_t* bad : {u8"COM¹", u8"com².txt", u8"assets/LPT³", u8"lpt¹.tar.gz", u8"CONIN$", u8"conout$.txt"}) {
+        const std::string name = text_of(bad);
+        CAPTURE(name);
+        CHECK(code_of(fs::resolve_for_write(name, fs::WriteRoot::Project, false)) == "invalid_path");
+    }
+    for (const char8_t* ok : {u8"COM´", u8"com¹¹.txt", u8"comx¹"}) CHECK(fs::resolve_for_write(text_of(ok), fs::WriteRoot::Project, false).ok());
+}
+
+#ifndef _WIN32
+TEST_CASE("resolve_for_write: a name Windows cannot create is only refused where this call would create it") {
+    Confined c;
+    // Files made on Linux: they can be read and deleted (resolve_project_path and fs.delete resolve them with this function).
+    stdfs::create_directories(c.proj / "odd.");
+    for (const char* name : {"CON.txt", "trail.", "odd./inner.txt"}) {
+        std::ofstream(c.proj / name) << "x";
+    }
+    for (const char* existing : {"CON.txt", "trail.", "odd.", "odd./inner.txt"}) {
+        CAPTURE(existing);
+        CHECK(fs::resolve_for_write(existing, fs::WriteRoot::Project, false).ok());
+        CHECK(fs::resolve_for_write(existing, fs::WriteRoot::Project, false, fs::ManagedFolders::Allow).ok());
+    }
+    // A new name next to them is still refused, and so is a new file below the odd folder when its own name is odd.
+    CHECK(code_of(fs::resolve_for_write("NUL.txt", fs::WriteRoot::Project, false)) == "invalid_path");
+    CHECK(code_of(fs::resolve_for_write("odd./aux.txt", fs::WriteRoot::Project, false)) == "invalid_path");
+    CHECK(code_of(fs::resolve_for_write("newdir./f.txt", fs::WriteRoot::Project, false, fs::ManagedFolders::Allow)) == "invalid_path");
+    CHECK(fs::resolve_for_write("odd./fine.txt", fs::WriteRoot::Project, false).ok());
+}
+#endif
+
+TEST_CASE("resolve_for_write: a managed folder is refused by its spelling too, not only by where it leads") {
+    Confined c;
+    // Windows strips a trailing dot or space: these are the version-control folder and .factoria/ there.
+    for (const char* bad : {".git./config", ".git /config", ".factoria./x.json", "a/../.GIT./x", ".Factoria/x.json", ".GIT/x"}) {
+        CAPTURE(bad);
+        const std::string code = code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, false));
+        CHECK((code == "managed_path_denied" || code == "invalid_path"));
+        CHECK(code_of(fs::resolve_for_write(bad, fs::WriteRoot::Project, true)) == code);
+    }
+    CHECK(code_of(fs::resolve_for_write(".git./config", fs::WriteRoot::Project, false)) == "managed_path_denied");
+    CHECK(fs::resolve_for_write(".factoria/tmp/x.json", fs::WriteRoot::Project, false).ok());
+    // A link `.factoria -> data` leads to a normal folder, but the caller named .factoria: refused. The link the other way
+    // (meta -> .factoria) is refused by where it leads.
+    stdfs::create_directories(c.proj / "data");
+    if (make_link(c.proj / "data", c.proj / ".factoria", true)) {
+        CHECK(code_of(fs::resolve_for_write(".factoria/x.json", fs::WriteRoot::Project, false)) == "managed_path_denied");
+        CHECK(code_of(fs::resolve_for_write(".factoria/x.json", fs::WriteRoot::Project, true)) == "managed_path_denied");
+        CHECK(code_of(fs::resolve_for_write(fs::path_to_utf8(c.proj / ".factoria" / "x.json"), fs::WriteRoot::Project, true)) == "managed_path_denied");
+        CHECK(fs::resolve_for_write(".factoria/x.json", fs::WriteRoot::Project, false, fs::ManagedFolders::Allow).ok());
+        CHECK(fs::resolve_for_write("data/x.json", fs::WriteRoot::Project, false).ok());
+    }
+}
+
 TEST_CASE("resolve_for_write: NUL bytes, drives and streams in a relative path are invalid_path") {
     Confined c;
     using namespace std::string_literals;
