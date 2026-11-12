@@ -10,6 +10,7 @@
 #include "fa/ai/cli_agent.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/audio_analysis.h"
+#include "fa/tooling/tooling.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -337,4 +338,44 @@ TEST_CASE("role capabilities: the commands that look at an asset are read-only t
         CHECK(r.error["code"] == "capability_denied");
         CHECK_FALSE(std::filesystem::exists(dir.path / "assets" / "own.png"));
     }
+}
+
+TEST_CASE("role capabilities: checkpoint.read `out` and feedback.check `reject` write files, so a critic or reviewer is refused them") {
+    TempDir dir;
+    CommandRegistry reg;
+    register_tooling_commands(reg, dir.str());
+    const CommandInfo* checkpointRead = info_of(reg, "checkpoint.read");
+    const CommandInfo* feedbackCheck = info_of(reg, "feedback.check");
+    REQUIRE(checkpointRead != nullptr);
+    REQUIRE(feedbackCheck != nullptr);
+    // Both are offered to the read-only roles (they only read by default) ...
+    CHECK(is_read_only_tool(*checkpointRead));
+    CHECK(is_read_only_tool(*feedbackCheck));
+    // ... but the part that writes needs writeProject, which those roles' scope lacks.
+    std::filesystem::create_directories(dir.path / "assets");
+    {
+        std::ofstream keep(dir.path / "assets" / "keep.txt");
+        keep << "original";
+    }
+    {
+        std::ofstream fb(dir.path / "ENGINE_FEEDBACK.json");
+        fb << R"({"entries":[]})";
+    }
+    for (const char* role : {kRoleReviewer, kRoleArtCritic}) {
+        CAPTURE(role);
+        CommandCallerScope caller(CommandCaller::Agent);
+        CommandCapabilityScope caps(role_capabilities(role), role_denial_hint(role));
+        const CommandResult out = reg.call("checkpoint.read", Json::object({{"id", "20260101-000000-1"}, {"path", "scripts/a.js"}, {"out", "assets/keep.txt"}}));
+        REQUIRE_FALSE(out.ok);
+        CHECK(out.error["code"] == "capability_denied");
+        const CommandResult reject = reg.call("feedback.check", Json::object({{"entries", true}, {"reject", true}}));
+        REQUIRE_FALSE(reject.ok);
+        CHECK(reject.error["code"] == "capability_denied");
+        // Reading stays possible.
+        CHECK(reg.call("feedback.check", Json::object({{"entries", true}})).ok);
+    }
+    std::ifstream in(dir.path / "assets" / "keep.txt");
+    std::stringstream text;
+    text << in.rdbuf();
+    CHECK(text.str() == "original");
 }

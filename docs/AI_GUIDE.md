@@ -206,7 +206,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | scene | `bones_create`, `load_cancel`, `load_status`, `prefab_save`, `scene_ascii_edit`, `scene_destroy`, `scene_format`, `scene_get_entity`, `scene_import_ascii`, `scene_list_entities`, `scene_load`, `scene_place_ascii`, `scene_preload`, `scene_reload`, `scene_remove_component`, `scene_save`, `scene_set_component`, `scene_set_parent`, `scene_spawn`, `skin_auto_weights`, `skin_bind`, `skin_set_weights`, `tilemap_cell_at`, `tilemap_cell_to_world`, `tilemap_generate`, `tilemap_generate_cancel`, `tilemap_generate_start`, `tilemap_generate_step`, `tilemap_paint_terrain`, `tilemap_retile`, `tilemap_set_terrains`, `tilemap_set_tile`, `tilemap_terrains` | Edit the running world: entities, components, parents, prefabs, tilemaps, skins, scene load and background loads. |
 | screen | `screen_set_safe_area` | Pretend device screen features (safe area, notch). |
 | script | `script_errors`, `script_eval`, `script_reload`, `script_trace`, `storage_clear`, `storage_list` | Scripts: evaluate JavaScript, reload modules, list errors, trace. |
-| setup | `setup_install`, `setup_status` | Check and install what an export needs on this computer. |
+| setup | `setup_install`, `setup_status` | Check what an export needs on this computer (`setup_install` is the user's call: an AI is refused, tell the user to press the editor's setup button or run `factoria setup`). |
 | shader | `shader_compile` | Compile custom material shaders for several platforms. |
 | sign | `sign_macos`, `sign_windows` | Sign the exported macOS app and Windows package. |
 | skills | `skills_list`, `skills_new`, `skills_read` | List, read and create skills (topic guides). |
