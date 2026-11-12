@@ -374,24 +374,28 @@ std::vector<std::string> scene_files() {
     return out;
 }
 
-// `path` / `from`: a project-relative scene file. Absolute paths are refused (the project folder is the sandbox of the
-// file mode); the file that is WRITTEN also has to be somewhere commands may write (fs::check_writable).
+// `path` / `from`: a project-relative scene file. `from` is read, so an absolute path is refused (the project folder is the
+// sandbox of the file mode). `path` is WRITTEN: it goes through resolve_caller_project_path (writeProject, inside the project,
+// not .git or .factoria/ except .factoria/tmp/; an absolute path only for a caller that may write anywhere).
 std::string scene_file_arg(const Json& v, const char* key, bool forWrite) {
     const std::string k = key;
     if (!v.is_string() || v.get<std::string>().empty())
         bad_arg("'" + k + "' must be a project-relative scene file path, got " + describe_json_value(v),
                 "Example: \"" + k + "\": \"scenes/level1.scene.json\".");
     const std::string raw = v.get<std::string>();
-    if (fs::is_absolute(raw))
-        bad_arg("'" + k + "' must be project-relative, but '" + raw + "' is an absolute path",
-                "Use the path inside the project, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
-    auto norm = fs::normalize_checked(raw);
-    if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
-    const std::string& path = norm.value();
+    std::string path;
+    if (forWrite) {
+        path = resolve_caller_project_path(raw, "scene.import_ascii");
+    } else {
+        if (fs::is_absolute(raw))
+            bad_arg("'" + k + "' must be project-relative, but '" + raw + "' is an absolute path",
+                    "Use the path inside the project, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
+        auto norm = fs::normalize_checked(raw);
+        if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
+        path = norm.value();
+    }
     if (path.empty() || fs::is_directory(path))
-        bad_arg("'" + k + "' is '" + raw + "', which is a folder, not a scene file", "Name the file, e.g. \"scenes/level1.scene.json\".");
-    if (forWrite)
-        if (auto w = fs::check_writable(path); !w.ok()) bad_arg("'" + k + "': " + w.error().message, w.error().hint);
+        bad_arg("'" + k + "' is '" + raw + "', which is a folder, not a scene file", "Name the file, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
     return path;
 }
 
@@ -1149,9 +1153,8 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
     if (!a.contains("ops") || !a["ops"].is_array() || a["ops"].empty())
         bad_arg("'ops' must be a non-empty array of operations",
                 "Example: \"ops\": [{\"op\": \"fill\", \"rect\": [0, 5, 3, 1], \"glyph\": \"#\"}]. Ops: fill, replace, insertColumns, deleteColumns, put.");
-    auto norm = fs::normalize_checked(a["file"].get<std::string>());
-    if (!norm.ok()) bad_arg("'file': " + norm.error().message, norm.error().hint);
-    const std::string file = norm.value();
+    // `file` is rewritten: judged first, before it is read or anything is built.
+    const std::string file = resolve_caller_project_path(a["file"].get<std::string>(), "scene.ascii_edit");
     if (!fs::exists(file)) {
         std::vector<std::string> jsons = fs::list("", true, ".json");
         throw CommandError("not_found", "'file' '" + file + "' does not exist. " + did_you_mean(file, jsons),
@@ -1316,7 +1319,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
                "replace":{"type":"boolean","default":true,
                           "description":"Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them."},
-               "path":{"type":"string","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
+               "path":{"type":"string","x-fa-path":"write","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
                "from":{"type":"string","description":"File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist."},
                "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`."},
                "edits":{"type":"object",
@@ -1387,7 +1390,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "cells), dryRun, rows? (dryRun)} plus the import result when it ran (its `path` and `saved` name "
          "the scene file).",
          parse_schema(R"json({"type":"object","required":["file","ops"],"properties":{
-               "file":{"type":"string","description":"Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...)."},
+               "file":{"type":"string","x-fa-path":"write","description":"Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere)."},
                "ops":{"type":"array","minItems":1,"description":"Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row | above}. 0-based, row 0 = top.",
                       "items":{"type":"object","required":["op"],"properties":{
                           "op":{"type":"string","enum":["fill","replace","insertColumns","deleteColumns","put"],"description":"Which operation."},

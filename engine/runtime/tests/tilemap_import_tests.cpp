@@ -1105,8 +1105,13 @@ TEST_CASE("import_ascii path: arguments are checked, and writes follow the same 
     fails(R"({"dryRun":true})", "'dryRun' needs 'path'");
     fails(R"({"path":""})", "'path'");
     fails(R"({"path":"scenes"})", "folder");
+    {
+        // An absolute path is the command-line user's to name; an MCP client or an agent stays inside the project.
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        fails(R"({"path":"../outside.scene.json"})", "escapes");
+        fails(R"({"path":"/tmp/abs.scene.json"})", "absolute");
+    }
     fails(R"({"path":"../outside.scene.json"})", "escapes");
-    fails(R"({"path":"/tmp/abs.scene.json"})", "absolute");
     fails(R"({"path":"scenes/a.scene.json","from":"/etc/x.scene.json"})", "absolute");
     // .factoria/ is managed by the engine: only .factoria/tmp/ is writable (scene.save, fs.write and fs.delete agree).
     for (const char* bad : {".factoria/screenshots/a.scene.json", ".factoria/save/a.scene.json", ".factoria/a.scene.json"}) {
@@ -1134,7 +1139,7 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     Session s("save_rule");
     auto bad = s.call("scene.save", Json{{"path", ".factoria/test/x.scene.json"}});
     REQUIRE_FALSE(bad.ok);
-    CHECK(bad.error["code"] == "invalid_argument");
+    CHECK(bad.error["code"] == "managed_path_denied");
     CHECK(contains(error_text(bad), ".factoria/test/x.scene.json"));
     CHECK(contains(error_text(bad), ".factoria/tmp/"));
     CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/test"));

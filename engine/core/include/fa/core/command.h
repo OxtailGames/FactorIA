@@ -185,6 +185,9 @@ void require_capability(Capability needed, std::string_view command, std::string
 // returns the absolute UTF-8 path to write, or throws CommandError with the path error's code (path_outside_root,
 // absolute_path_denied, managed_path_denied...), message and hint.
 std::string resolve_caller_write_path(std::string_view path, std::string_view command);
+// The same, returned in the form the project's file API takes (fs::project_spelling): relative to the project when the
+// file lies inside it, else absolute. For a command that reads the file back, names it in its result or keeps it in a map.
+std::string resolve_caller_project_path(std::string_view path, std::string_view command);
 
 // What a "capability_denied" refusal is about, handed to a CapabilityHintProvider.
 struct CapabilityDenial {
@@ -222,9 +225,38 @@ private:
     std::shared_ptr<const CapabilityHintProvider> previousHint_;
 };
 
+// A process whose capabilities are narrower than its caller kind's: the CLI agents factoria starts for a role get
+// FACTORIA_CAPABILITIES (the role's set, names separated by commas; "none" = the empty set) and FACTORIA_ROLE (its name, for the
+// words of a refusal) in their environment, and a `factoria mcp` or `factoria call` they run has no thread scope to read. While a
+// CommandCapabilityFloor lives, caller_capabilities() is never wider than `granted` on ANY thread of the process. Like the
+// scopes it only narrows (a floor inside another one keeps the intersection) and its optional `hint` words the refusals on threads
+// whose own scope has no hint provider (the innermost floor with one wins). An unparsable variable is the empty set: a restriction
+// that cannot be read is not dropped.
+inline constexpr const char* kCapabilitiesEnvVar = "FACTORIA_CAPABILITIES";
+inline constexpr const char* kRoleEnvVar = "FACTORIA_ROLE";
+
+class CommandCapabilityFloor {
+public:
+    explicit CommandCapabilityFloor(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
+    ~CommandCapabilityFloor();
+    CommandCapabilityFloor(const CommandCapabilityFloor&) = delete;
+    CommandCapabilityFloor& operator=(const CommandCapabilityFloor&) = delete;
+
+private:
+    CapabilitySet previous_;
+    std::shared_ptr<const CapabilityHintProvider> previousHint_;
+};
+
+// What FACTORIA_CAPABILITIES says: nullopt when unset or empty; "none" is the empty set; otherwise CapabilitySet::parse_list, and a
+// text that does not parse (an unknown name) is the EMPTY set (fail closed).
+std::optional<CapabilitySet> command_capabilities_from_env_value(const char* value);
+std::optional<CapabilitySet> command_capabilities_from_env();  // reads kCapabilitiesEnvVar
+// The text to put in kCapabilitiesEnvVar for `set` ("read,state"; "none" for the empty set).
+std::string capabilities_env_value(CapabilitySet set);
+
 // Who is calling and what they may do, as one value a job queue or the editor's main-thread queue captures on the calling
 // thread (command_context()) and installs again on the thread that runs the command (CommandContextScope), the way
-// command_caller() is handed over today.
+// command_caller() is handed over today. The words of a refusal (the hint provider) travel with it.
 struct CommandContext {
     CommandCaller caller = CommandCaller::User;
     CapabilitySet capabilities = CapabilitySet::all();

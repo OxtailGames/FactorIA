@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "fa/ai/session.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
@@ -368,6 +369,25 @@ void Editor::autotest_pre_frame() {
         if (atMarshalDone_ && atThread_.joinable()) atThread_.join();
         atMarshalRun_.reset();
         at_check(atMarshalDone_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
+        // A review run's endpoint holds only what observes and plays: no ai.* command (ai.run, ai.review, ai.settings.set...) and
+        // nothing that edits (scene.save); a builder's run keeps ai.run.
+        {
+            AiRun critic("autotest-critic");
+            critic.role = "reviewer";
+            auto criticProxy = make_proxy_registry(critic);
+            const auto listed = [&](const char* name) { return criticProxy->has(name); };
+            at_check(!listed("ai.run") && !listed("ai.review") && !listed("ai.settings.set") && !listed("scene.save"),
+                     "a reviewer's MCP registry lists no ai.run, ai.review, ai.settings.set or scene.save");
+            at_check(!criticProxy->call("ai.settings.set", Json::object()).ok && !criticProxy->call("scene.save", Json::object()).ok,
+                     "...and none of them can be called");
+            at_check(listed("scene.list_entities"), "...but the commands that look are there");
+            bool onlyReadOnly = true;
+            for (const CommandInfo* ci : criticProxy->list()) onlyReadOnly = onlyReadOnly && ai::is_read_only_tool(*ci);
+            at_check(onlyReadOnly, "...and every command it holds is one that observes or plays");
+            AiRun builder("autotest-builder");
+            builder.role = "worker";
+            at_check(make_proxy_registry(builder)->has("ai.run"), "a builder's MCP registry keeps ai.run");
+        }
     } else if (f == 24) {
         at_check(save_scene_now() && !dirty(), "save scene clears the dirty flag");
         auto loaded = load_json_file(fs::join(projectDir_, scenePath_));

@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,6 +14,8 @@
 
 #include "fa/ai/extensions.h"
 #include "fa/ai/types.h"
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/json_schema.h"
 
 namespace fa::ai {
@@ -205,6 +208,21 @@ bool is_known_role(std::string_view role);
 // artCritic and reviewer: they look and play and give an opinion, they never change the project (SessionOptions::role
 // enforces it: only read-only tools, no file edits).
 bool is_review_role(std::string_view role);
+// What a role's tool calls may do (core/capability.h), enforced by AgentSession (every tool call runs inside a
+// CommandCapabilityScope with this set, on top of the Agent caller), by the tools it offers (a command the set does not cover is
+// not offered), by the MCP endpoint of the editor's run and by the environment of the CLI agents it starts (FACTORIA_CAPABILITIES).
+//   orchestrator, worker, fast, artist, audio: capability_sets::agent() (all but writeAnywhere and publish).
+//   artCritic, reviewer: {read, state} (the value of capability_sets::mcp_read_only()) and only is_read_only_tool commands. They
+//   look and play; "state" is the running game (game.step, game.input). They have no writeProject: game.screenshot, anim.filmstrip
+//   and vfx.filmstrip work without a `path` (they keep the image in memory / under .factoria/) and are refused with capability_denied
+//   when given one, and the registry refuses every command that edits the project (scene.save...) even if one were offered. Never
+//   writeProject, writeAnywhere, network, process, spend or publish.
+// An unknown role gets the critics' set (what cannot be read is not widened).
+CapabilitySet role_capabilities(std::string_view role);
+// The words of a capability_denied hint for a call of `role`: a CapabilityHintProvider (install it with the role's
+// CommandCapabilityScope or CommandCapabilityFloor) whose hint names the role, the capability set it was given and what to do (ask
+// the user, or use a builder role). Null for an unknown role (the registry's generic hint).
+std::shared_ptr<const CapabilityHintProvider> role_denial_hint(std::string_view role);
 // The roles the orchestrator may hand a task to (ai_run / agent_delegate): worker, fast, artist, audio. The critics and
 // the reviewers run only when the USER asks (the editor's review buttons, `factoria ai review`, ai.review).
 bool is_delegable_role(std::string_view role);

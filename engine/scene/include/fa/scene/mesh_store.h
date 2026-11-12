@@ -151,8 +151,10 @@ Json mesh_info_json(const MeshStore::Entry& e);
 // "runtime:N" id) is an error.
 Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& data, const std::string& glbPath);
 
-// Writes the mesh as a .glb at `path` (project-relative, must end in .glb and be a place commands may write) and returns
-// the normalized path. The file loads back as a normal model with the mesh's submeshes and materials.
-Result<std::string> save_mesh_glb(const MeshData& data, const std::string& path);
+// Writes the mesh as a .glb at `path` (project-relative, must end in .glb and be inside the project, not in .git or
+// .factoria/ except .factoria/tmp/; fs::resolve_for_write) and returns the path in the project's spelling. An absolute
+// path is refused unless `allowAnywhere` (the caller may write anywhere: the command-line user). The file loads back as a
+// normal model with the mesh's submeshes and materials.
+Result<std::string> save_mesh_glb(const MeshData& data, const std::string& path, bool allowAnywhere = false);
 
 }  // namespace fa

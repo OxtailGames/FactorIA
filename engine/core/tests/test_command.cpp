@@ -733,6 +733,90 @@ TEST_CASE("capabilities: a context captured on one thread is restored on another
     CHECK(outcomeWithout == "ok");
 }
 
+TEST_CASE("capabilities: FACTORIA_CAPABILITIES parses, and an unreadable value is the empty set") {
+    CHECK_FALSE(command_capabilities_from_env_value(nullptr).has_value());
+    CHECK_FALSE(command_capabilities_from_env_value("").has_value());
+    CHECK(*command_capabilities_from_env_value("read,state") == CapabilitySet{Capability::Read, Capability::State});
+    CHECK(*command_capabilities_from_env_value("none") == CapabilitySet());
+    CHECK(*command_capabilities_from_env_value("read,wirteProject") == CapabilitySet());  // fail closed
+    CHECK(capabilities_env_value(CapabilitySet()) == "none");
+    CHECK(capabilities_env_value(CapabilitySet{Capability::Read, Capability::State}) == "read,state");
+    for (const CapabilitySet& s : {capability_sets::agent(), capability_sets::mcp_read_only(), CapabilitySet()})
+        CHECK(*command_capabilities_from_env_value(capabilities_env_value(s).c_str()) == s);
+}
+
+namespace {
+// A hint provider that says a fixed text with the refused command's name.
+struct TextHint final : CapabilityHintProvider {
+    explicit TextHint(std::string text) : text_(std::move(text)) {}
+    std::string hint(const CapabilityDenial& denial) const override { return text_ + " [" + denial.command.name + "]"; }
+    std::string text_;
+};
+std::shared_ptr<const CapabilityHintProvider> text_hint(std::string text) { return std::make_shared<TextHint>(std::move(text)); }
+}  // namespace
+
+TEST_CASE("capabilities: a process floor narrows on every thread, never widens, and words the refusals") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.project", false);
+    add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Publish});
+    add_cap_command(reg, "t.reader", true);
+    std::string codeOnThread, messageOnThread, hintOnThread;
+    bool readerOnThread = false;
+    {
+        CommandCapabilityFloor floor(CapabilitySet{Capability::Read, Capability::State}, text_hint("The reviewer role may not."));
+        CHECK(caller_capabilities() == CapabilitySet({Capability::Read, Capability::State}));
+        {
+            CommandCapabilityFloor wider(CapabilitySet::all());  // inside another floor: the intersection
+            CHECK(caller_capabilities() == CapabilitySet({Capability::Read, Capability::State}));
+        }
+        std::thread t([&] {  // a thread with no scope of its own (a `factoria mcp` worker)
+            const CommandResult r = reg.call("t.project");
+            codeOnThread = r.error["code"].get<std::string>();
+            messageOnThread = r.error["message"].get<std::string>();
+            hintOnThread = r.error["hint"].get<std::string>();
+            readerOnThread = reg.call("t.reader").ok;
+        });
+        t.join();
+        {
+            CommandCallerScope agent(CommandCaller::Agent);  // the Agent set is wider than the floor: the floor wins
+            CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+        }
+    }
+    CHECK(readerOnThread);
+    CHECK(codeOnThread == "capability_denied");
+    CHECK(messageOnThread.find("t.project") != std::string::npos);
+    CHECK(hintOnThread == "The reviewer role may not. [t.project]");
+    CHECK(reg.call("t.project").ok);  // the floor ended
+}
+
+TEST_CASE("capabilities: a thread's hint provider beats the floor's, a nested scope without one keeps it, and it travels in the context") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.project", false);
+    CommandCapabilityFloor floor(CapabilitySet::all(), text_hint("floor"));
+    const auto hint_of = [&] { return reg.call("t.project").error["hint"].get<std::string>(); };
+    {
+        CommandCapabilityScope ro(CapabilitySet{Capability::Read}, text_hint("critic"));
+        CHECK(hint_of() == "critic [t.project]");
+        {
+            CommandCapabilityScope inner(CapabilitySet{Capability::Read});  // no provider of its own: the outer one stays
+            CHECK(hint_of() == "critic [t.project]");
+        }
+        const CommandContext captured = command_context();
+        REQUIRE(captured.hint);
+        std::string hintThere;
+        std::thread t([&] {
+            CommandContextScope scope(captured);
+            hintThere = hint_of();
+        });
+        t.join();
+        CHECK(hintThere == "critic [t.project]");
+    }
+    {
+        CommandCapabilityScope ro(CapabilitySet{Capability::Read});  // no provider on the thread: the floor's words
+        CHECK(hint_of() == "floor [t.project]");
+    }
+}
+
 TEST_CASE("capabilities: names, JSON and parsing, with did-you-mean on an unknown name") {
     const CapabilitySet set{Capability::State, Capability::Read, Capability::Publish};
     CHECK(set.names() == std::vector<std::string>{"read", "state", "publish"});
