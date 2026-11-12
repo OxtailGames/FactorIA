@@ -54,7 +54,7 @@ Returns the content `path` (project-relative, forward slashes) had at checkpoint
 |---|---|---|---|
 | `id` | string | yes | A checkpoint id from checkpoint.list. |
 | `path` | string | yes | File to read, relative to the project folder, forward slashes: scripts/player.js. |
-| `out` | string | no | Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit. |
+| `out` | string | no | Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## `checkpoint.restore` (modifies state)
 
@@ -85,7 +85,7 @@ File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuMedian:
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | no | Budget file, project-relative and inside the project (an absolute path only from the command line). Default "perf.json". |
+| `file` | string | no | Budget file, project-relative and inside the project (an absolute path only from the command line). Default "perf.json". Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `frames` | integer | no | Frames per run; stored in the file (default: the file's value, else 300). |
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
@@ -106,7 +106,7 @@ The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCall
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
+| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". Path the command reads. |
 | `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
 | `requireBaseline` | boolean | no | Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything. Default false. |
 | `budgets` | object | no | Absolute caps that fail whatever the baseline says (they replace the same keys of the file's "budgets"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs. |
@@ -161,12 +161,12 @@ The replay is applied by frame number to the window's frames at their real durat
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app` | string | yes | The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute). |
-| `input` | string | no | An input replay JSON ({"frames":{"0":{"press":["jump"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs. |
+| `app` | string | yes | The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute). Path the command reads. |
+| `input` | string | no | An input replay JSON ({"frames":{"0":{"press":["jump"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs. Path the command reads. |
 | `orientation` | string ["portrait","landscape"] | no | Turn the screen to this orientation about a second after the start. |
 | `device` | string | no | The simulator: a UDID or a name or part of one ("iPad Pro 13-inch"). Default: a booted iPhone, else the first iPhone of the newest iOS runtime. |
 | `bundleId` | string | no | The app's bundle id. Default: read from the app's Info.plist. |
-| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line). |
+| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `seconds` | integer | no | How long to wait for the replay to finish. Default 90. |
 | `settleMilliseconds` | integer | no | Wait this long after the last replay frame before the screenshot. Default 1500. |
 | `dryRun` | boolean | no | Return the simctl commands and run nothing. Default false. |
@@ -198,7 +198,7 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `dir` | string | yes | Target folder (created; must be empty or new). |
+| `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
@@ -218,11 +218,11 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platform` | string | no | linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria. |
-| `out` | string | no | Parent folder of the export, relative to the project folder and inside it (an absolute path only from the command line). Default: build/export. |
+| `out` | string | no | Parent folder of the export, relative to the project folder and inside it (an absolute path only from the command line). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
-| `player` | string | no | The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another. |
+| `player` | string | no | The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another. Path the command reads. |
 | `singleFile` | boolean | no | Web only: write ONE html file, <slug>-web/<slug>.html, with the player's JavaScript, the wasm, the icon and the game inlined (base64), that runs offline from a double click (file://) in a browser with no server. No zip, no loose files besides FACTORIA_NOTICES.txt. Refused with an error that says how to fix it when the page would be over singleFileMaxMb, or when the web player needs a server (a threaded build with shared memory needs cross-origin isolation headers, which a file cannot have). The CLI flag is --single-file. Default false. |
 | `singleFileMaxMb` | number | no | With singleFile: the biggest page to write, in megabytes (1 MB = 1048576 bytes; a fraction such as 1.5 is accepted, rounded to the nearest byte), from 1 to 256 (below 1 is refused); the size is worked out from the files BEFORE the page is built, so a game over it fails fast. Default 64. Browsers get slow with pages over about 100 MB, a page of 256 MB is about the biggest string a browser's JavaScript can hold, and base64 makes every file a third bigger. The CLI flag is --single-file-max-mb. |
 | `allowMissingPlugins` | boolean | no | Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is "optional" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins. Default false. |
@@ -250,7 +250,7 @@ Writes .github/workflows/factoria.yml into the game's folder. On every push to m
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platforms` | array | no | Which exports the workflow makes: linux, windows, macos (aliases win, mac, osx also work). Default: all three. |
-| `path` | string | no | The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml. |
+| `path` | string | no | The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `workingDirectory` | string | no | The game's folder relative to the repository root when factoria.json is not at the root of the repository. Default ".". |
 | `version` | string | no | The FactorIA release the workflow downloads: "latest" or a version such as 0.1.6. Default: the version of this factoria (a build from source: latest, with a warning). |
 | `overwrite` | boolean | no | Replace the file when it exists and differs. Without it that is an error. Default false. |
@@ -272,7 +272,7 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 |---|---|---|---|
 | `name` | string | yes | The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>. |
 | `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
-| `path` | string | no | Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts. |
+| `path` | string | no | Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
@@ -291,7 +291,7 @@ The server stops with the process or with {"stop":true}; it lives in the process
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `lan` | boolean | no | Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. Default false. |
+| `lan` | boolean | no | Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. true needs the publish capability (the editor's AI agent does not have it: it asks the user to run the command). Default false. |
 | `stop` | boolean | no | Stop the server and close its connections (instead of starting it). Cannot be combined with the other arguments. The server also stops when the process ends. Default false. |
 | `player` | string | no | The folder with factoria_player.js and factoria_player.wasm to serve instead of the installed web player, relative to the project folder or absolute (like project.export). Default "". |
 | `allowPlayerMismatch` | boolean | no | Serve a web player built from another commit than this factoria (like project.export). Default false. |

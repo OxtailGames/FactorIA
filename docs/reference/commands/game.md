@@ -104,7 +104,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `scale` | number | no | Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom. |
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom. |
 | `zoom` | number | no | Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide). |
@@ -173,7 +173,7 @@ Capabilities: read, state, writeProject
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
-| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). |
+| `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## `render.inspect`
 
@@ -266,7 +266,7 @@ Without `path` the picture is temporary (the MCP server shows it then deletes th
 | `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
 | `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
 | `columns` | integer | no | Pictures per row (default: nearly square). |
-| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). |
+| `path` | string | no | Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ## `vfx.list`
 

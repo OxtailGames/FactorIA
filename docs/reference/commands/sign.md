@@ -16,12 +16,12 @@ Identity: `identity` ("Developer ID Application: Your Name (TEAMID)"; `security 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `app` | string | no | The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). |
-| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
+| `app` | string | no | The .app to sign IN PLACE, relative to the project, inside it and outside .git and .factoria. Default: build/export/<game-slug>-macos/<Name>.app (the export of this game). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `identity` | string | no | The signing identity: the name of a 'Developer ID Application' certificate or its SHA-1 hash; "-" = ad hoc. Default: FACTORIA_MACOS_SIGN_IDENTITY, else sign.macos.identity of ~/.factoria/export.json. |
 | `distribution` | string ["developerId","appStore"] | no | developerId = sign, notarize and zip for sharing outside the store; appStore = sandbox, sign for the Mac App Store and build the signed .pkg (needs provisioningProfile and installerIdentity, unless identity is "-"). Default "developerId". |
 | `installerIdentity` | string | no | appStore: the '3rd Party Mac Developer Installer' / 'Mac Installer Distribution' certificate that signs the .pkg. Default: FACTORIA_MACOS_INSTALLER_IDENTITY, else sign.macos.installerIdentity of ~/.factoria/export.json. |
-| `pkg` | string | no | appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg. |
+| `pkg` | string | no | appStore: where the .pkg goes, relative to the project. Default: next to the export folder, <game-slug>-macos.pkg. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `keychain` | string | no | A keychain file that holds the certificate (or the notary profile). Default: FACTORIA_MACOS_KEYCHAIN, else the user's keychains. |
 | `provisioningProfile` | string | no | A .provisionprofile to embed in the app (needed for the capabilities the plugins ask for: Game Center, iCloud). With it the export's <slug>.entitlements are applied. Absolute path, or relative to the project. |
 | `entitlements` | string | no | An entitlements file for the app. Default: the export's <slug>.entitlements, used only with a provisioningProfile. Absolute path, or relative to the project. |
@@ -32,7 +32,7 @@ Identity: `identity` ("Developer ID Application: Your Name (TEAMID)"; `security 
 | `apiIssuer` | string | no | Issuer id of a team API key (not needed for an individual key). Default: FACTORIA_NOTARY_API_ISSUER. |
 | `appleId` | string | no | Apple ID for notarization. Default: FACTORIA_APPLE_ID (or APPLE_ID). The app-specific password is read from FACTORIA_APPLE_APP_PASSWORD only. |
 | `teamId` | string | no | Apple Team ID (10 characters) for notarization with an Apple ID. Default: FACTORIA_APPLE_TEAM_ID (or APPLE_TEAM_ID). |
-| `zip` | string | no | Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip. |
+| `zip` | string | no | Where the zip to share goes, relative to the project. Default: next to the export folder, <game-slug>-macos.zip. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign and send nothing. Works on any computer. Default false. |
 
 ## `sign.windows` (modifies state)
@@ -49,8 +49,8 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `msix` | string | no | The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix. |
-| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. |
+| `msix` | string | no | The .msix to sign, relative to the project. Default: build/export/<game-slug>-windows.msix. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `out` | string | no | Parent folder of the export, relative to the project (the `out` of project.export). Default: build/export. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `exe` | boolean | no | Also sign the game's .exe in build/export/<game-slug>-windows/ (for a game shared as a folder or a zip). The package is not changed by it. Default false. |
 | `pfx` | string | no | The code-signing certificate (.pfx), absolute or relative to the project. Default: FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json. The password is read from FACTORIA_WINDOWS_PFX_PASSWORD only. |
 | `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |

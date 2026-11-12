@@ -60,7 +60,7 @@ A prefab describes the reusable thing, not this instance, so the file does NOT c
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Id (or name) of the entity to save; its children are saved with it. |
-| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. |
+| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file when it already exists. Without it an existing file is an error. Default false. |
 
 ## `scene.ascii_edit` (modifies state)
@@ -77,7 +77,7 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). |
+| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
@@ -141,7 +141,7 @@ Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an is
 | `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
-| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
+| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
 | `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Needs no writeProject: `path` is only read. Default false. |
 | `edits` | object | no | File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {"camera": {"Camera": {"clearColor": [0.5, 0.7, 0.9, 1]}}}). Add "$merge": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}. A wrong entity/component/field fails and nothing is written. |
@@ -180,7 +180,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 
 ## `scene.place_ascii` (modifies state)
 
-Not released yet (on main after 0.24.0).
+Since 0.25.0.
 
 Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file.
 
@@ -244,7 +244,7 @@ Writes canonical scene JSON (only non-default fields, except settings.gravity2D 
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene. |
+| `path` | string | no | Project-relative output path, inside the project (absolute paths need writeAnywhere, the managed folders are refused). Default: the current scene. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `includeSpawned` | boolean | no | Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load. Default false. |
 
 ## `scene.set_component` (modifies state)

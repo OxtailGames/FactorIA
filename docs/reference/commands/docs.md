@@ -89,5 +89,5 @@ Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the sc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `out` | string | yes | Docs folder to write into, usually "docs". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory. |
+| `out` | string | yes | Docs folder to write into, usually "docs". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
