@@ -409,7 +409,8 @@ The data the in-game player reads (it is in `assets.json`, under the asset's `im
   "name": "base", "kind": "layer", "intensity": 0, "tracks": ["pad","bass"], "buses": [] } } }
 ```
 
-`music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix.
+`music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix. Add `"stream": "auto" | "always" | "never"` to the mix's `music` block to choose
+whether the stems stream ("Live and stems"); only `.ogg` stems (`format: "ogg"`) can.
 
 ## Playing a song in a game
 
@@ -435,6 +436,8 @@ theme.crossfadeTo("assets/music/calm.song.json", { quantize: "section", bars: 2 
 **Layers and intensity.** The song's layers ("Layers and stems") are the stems; each has a threshold, the layer's `intensity`. A layer is silent
 below `threshold - layerRange`, full at its threshold and fades between (smoothstep); a layer at 0 always plays. A change of `intensity` takes effect
 on the boundary of `layerQuantize` and each layer then fades over `layerFade` seconds. A song with no layers is one stem that always plays.
+`entity.music.intensity` and `requestedIntensity` are the last value set (at once); `appliedIntensity` (and `status.intensity`) is the one the layers follow, which changes
+on that boundary. The two differ in between: read `requestedIntensity` for what the script asked and `appliedIntensity` for what is audible.
 
 **Sections.** The player knows the song's sections and the order of their passes (`sections`, `section`, `bar`, `beat` of the component and of
 `entity.music`). `loop: true` stays in the song's loop sections (repeats included) until a section change or a stop; a song without a loop section
@@ -452,8 +455,20 @@ section pass. A request that arrives exactly on a boundary lands on it. A change
 A clip stinger is an ordinary voice: stopping the player does not stop it. It counts toward the 64 voices of the mixer with priority 192, above the default 128 of `audio.play` and `AudioSource`, so when all voices play it replaces a sound effect and is not replaced by one (docs/SOUND.md, "Voice stealing"); set `priority` 193..255 on an effect that must still win.
 
 **Crossfades between songs.** Setting `MusicPlayer.song` while it plays, or `crossfadeTo(song)`, waits for the boundary of the song that plays, then the old song fades
-out and the new one in over `crossfadeBars` bars **of the old song** (so the length follows its tempo); the new song starts at `section` or its beginning and keeps its own
-tempo. `music.play(song)` is the hard start instead: what played is cut after a short fade. Both fail at once, with a hint, for a song file that does not exist.
+out and the new one in over `crossfadeBars` bars **of the old song** (so the length follows its tempo); the new song keeps its own tempo. `crossfadeTo(song)` starts it at its
+`section` or at its beginning, never at the component's `startSection` (that names a section of the first song, and the other song may not have it); setting the component's
+`song` field starts it at `startSection`. `music.play(song)` is the hard start instead: what played is cut after a short fade. Both fail at once, with a hint, for a song file that does not exist.
+
+**Where a change lands, and what waits.** `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`: the audio frame the change takes effect on (the
+`frame` of the `section` or `crossfade` event it fires, and `time` = `frame` / the device rate) and the quantize it used. `frame` and `time` are `null` while nothing plays or the
+song is still loading. The frame is worked out from the mixer's latest report: exact on the null device (headless runs and tests), which moves only with the game clock, and
+within a few milliseconds with a sound device, which keeps playing between the report and the call. Until it lands, `status.pendingSong` and `status.pendingSection` (also
+`audio.music_state`, and `entity.music.pendingSong` and `pendingSection`) name the song and section the next queued jump or crossfade goes to and `pendingAt` is its frame; all
+three are `null` when nothing waits. A song asked for that the mixer does not have yet (still loading) shows its `pendingSong` with no `pendingAt`. While a crossfade is pending
+`song` and `section` are still the audible ones, and the component's `song` field is already the new song. A player that is replaced by the next scene's one (a scene load) hands
+the music it is playing over: the new player adopts it when it plays the same song, and **drops the changes the old one had queued** (a crossfade or section change that was
+waiting for a bar line does not fire in the new scene). If the crossfade had already started, the new player adopts the song it was fading to. If the new scene wants another song,
+it crossfades to it instead.
 
 **Events.** A player sends game events: `music.ready` (`mode`), `music.beat` (`bar`, `beat`, `section`, `index`), `music.bar` (`bar`, `section`, `count`),
 `music.section` (`section`, `pass`, `bar`), `music.loop` (`count`), `music.ended` (`stopped`), `music.stinger` (`kind`, `section`) and `music.crossfade`. Every
@@ -470,16 +485,52 @@ player; `world.on("music.beat", fn)` to all.
   renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once); when the cache passes
   128 MB the ones nothing plays are dropped, the least recently played first.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
-  Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
-- **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,
-  and always live when the song has no stem files. `device_info()` (docs/MOBILE.md) is what decides, and the `game.setDevice` override of a script (docs/SCRIPTING.md)
-  reaches it: a test that sets a `tier: "low"` phone gets the stems, one that sets a desktop gets live. A player that is already running takes the new mode at its next beat
+  A stem of 20 s or more that is an `.ogg` at 44100 Hz streams: the engine keeps its encoded file and a window of a few seconds of decoded audio, and the audio service thread
+  fills the window ahead of the music (see "What the music costs in memory"); shorter stems, stems in another format and stems it cannot stream are decoded whole.
+  Without stem files, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
+- **auto** (default): stems whenever the song has stem files and they are current, on every device (a streamed stem costs a window, not 10 MB a minute, and there is nothing to render); live when it has none.
+  The stems are current when the song file is the one `music.render` rendered them from: the mix entry records the song's sha256 (`provenance.recipe.inputs`) and `auto` compares it with the file when a player starts or fetches
+  the song. A song edited since (even by a note that keeps its length) plays live, with one warning in the log ("run music.render"), and `activeMode` reads `live`; `music.render` makes the stems current again. `mode: "stems"` plays the files whatever the song says.
+  Up to 0.22 a desktop rendered live even when stem files existed; set `mode: "live"` on the player to keep that. On a phone or tablet that is not high-tier, on any low-tier
+  device and on the web (no worker thread to render on) a song without stem files still logs that auto would use stems there. `device_info()` (docs/MOBILE.md) and the
+  `game.setDevice` override of a script (docs/SCRIPTING.md) still reach the choice. A player that is already running takes the new mode at its next beat
   (it crossfades to the other kind of render in the section that sounds); `mode: "stems"` or `"live"` is still the way to fix it in a scene.
+- **Streaming rule and override.** `stream` in the `import.music` block of the song's mix entry (the one with `role: "mix"`; add it by hand, `music.render` keeps it when it renders again) says whether that song streams: `"auto"` (default: the stems of 20 s or more),
+  `"always"` (every ogg stem, also a short one) or `"never"` (decode every stem whole). Another value logs a warning and is taken as `"auto"`. A stem that cannot stream (not `.ogg`, not 44100 Hz,
+  more than 2 channels, unknown length, an undecodable tail) is decoded whole whatever the setting, and `"always"` logs why. Live mode never streams: it renders from the document.
 
 Both are as loud as the song's master says. Stems carry the mix's gain, so the style guide's music loudness (`loudness: "style"`, "The mixer") is part of them; a live render
 reads the same target (`audio.loudnessLufs.music` of the project's style guide in `assets.json`) when the master says `"style"`, so the two sound equally loud. A project with no
 such target, `loudness: "off"` and a number behave the same in both. Everything else is the same bytes: the live render is the one `music.render` writes (the loop's tail folded onto its start, so the wrap is seamless; a song that ends with an
 outro plays its tail out, or a 20 ms fade when more music follows the outro).
+
+### What the music costs in memory
+
+A stem decoded whole is 16-bit stereo at 44100 Hz: 176400 bytes per second, **10.1 MiB per minute per stem**. A streamed stem holds a window of 32 chunks of 8192 frames
+(6 s of float stereo, 2 MiB), the decoder's scratch buffer and its encoded `.ogg` (typically well under 1 MiB a minute): about **2.5 to 3.5 MiB per stem, whatever its length**.
+Every song played stays cached until the 128 MiB budget drops the ones nothing plays. All sizes here are binary (1 MiB = 1048576 bytes), as the `...MB` fields of `perf.measure`, `perf.profile` and the editor's Profiler panel.
+
+| Song | Stems | One minute | Three minutes |
+| --- | --- | --- | --- |
+| one flat mix, whole (live, or stems under 20 s) | 1 | 10.1 MiB | 30.3 MiB |
+| 4 layers, whole | 4 | 40.4 MiB | 121 MiB |
+| 4 layers + mix stem, whole | 5 | 50.5 MiB | 152 MiB |
+| 4 layers, streamed (stems) | 4 | about 10 to 14 MiB | about 10 to 14 MiB |
+| 4 layers + mix stem, streamed | 5 | about 12 to 18 MiB | about 12 to 18 MiB |
+
+(Sections are slices of the same stems, they add nothing.) Where to read it: `audio.music_state` has `cache` (per song: `song`, `mode`, `bytes`, `streamed`, `underruns`, and `stems` with each stem's `name`, `bytes` and `streamed`) and `cacheBytes`;
+`game.state` has `audio.musicBytes`, `streamedSongs`, `musicUnderruns` and `musicUnderrunFrames`; `perf.profile` has `memory.*.musicMB` (the editor's Profiler panel shows it next to the audio total) and `perf.measure` the sample's `musicMB`, which are also part
+of `audioDecodedMB`. A streamed stem counts its window, scratch and encoded bytes, not the whole song, and the number is constant for its life.
+What `musicBytes` / `cacheBytes` count: the songs in the cache, the sources a player still plays after the cache let go of them (a song that changed on disk, until its crossfade ends) and the loads that finished but are not in the cache yet;
+a load that is still decoding is not counted (its size is not known until it ends). `musicUnderruns` counts every streamed stem the cache ever took, also one that has left it. In `perf.measure`, `musicMB` is the largest value seen
+after any frame; `audioDecodedMB` (clips, streaming buffers and music) is read every 8th frame and at the end, so a spike of a few frames in between can be missed.
+
+How a streamed stem plays: the mixer reads only decoded chunks and never decodes, waits or allocates in its callback. Each time it publishes the music's state it also publishes, per stem, where it is
+about to read (the playing position, the target of a queued section jump or crossfade, the loop's start). The **audio service thread** (one per audio device, started with it) reads that and decodes the
+chunks 2.2 s ahead of each of those places, every 2 to 10 ms, so the music does not depend on the game thread: a long scene load, a breakpoint or a minimized window does not silence it. A section jump,
+a loop wrap and a crossfade land on the same sample as with a whole song. The first chunks are decoded before the song plays, and the game decodes the target's first chunks before it sends a jump, stinger or
+crossfade (if the service thread is decoding that stem at that moment, the game waits for the chunk it is on, a millisecond or so, never for the whole refill; so a jump with `quantize: "none"` never plays dry). That decode of two chunks per stem runs on the game thread: for Kindlewatch's night song (four stems) it took under 1 ms per jump on a laptop. The null device
+(headless runs and tests) and the web decode a missing chunk on the spot in the mixer, so their output is the same on every machine. If a chunk is still missing when the real device needs it (a very slow disk or an overloaded machine), that stem plays silence for the frames it lacks (the music does not wait, so the other stems stay in time) and `underruns` / `musicUnderruns` / `musicUnderrunFrames` count it; it comes back in time once its chunks are decoded.
 
 ### Hot reload
 
@@ -509,8 +560,8 @@ allocates nothing for the player: the playheads, the queue of changes and the ev
 
 | Command | What it does |
 | --- | --- |
-| `audio.music_state` | Every player (or one `entity`): song, mode, ready, playing, section, bar, beat, intensity (the one the layers follow: a change shows from its `layerQuantize` boundary on, while `entity.music.intensity` is the last one set), the gain of each layer, pending changes. Read-only. |
-| `audio.music` | `action` play, stop, setIntensity, goToSection, playStinger or crossfadeTo with their arguments: the same calls as `entity.music`, to try the music while the game runs. |
+| `audio.music_state` | Every player (or one `entity`): song, mode, ready, playing, section, bar, beat, intensity and appliedIntensity (the one the layers follow: a change shows from its `layerQuantize` boundary on), requestedIntensity (the last one set), the gain of each layer, pending changes with `pendingSong`, `pendingSection` and `pendingAt`. Read-only. |
+| `audio.music` | `action` play, stop, setIntensity, goToSection, playStinger or crossfadeTo with their arguments: the same calls as `entity.music`, to try the music while the game runs. `setIntensity`, `goToSection` and `crossfadeTo` also answer `change` (`{frame, time, quantize}`). |
 
 ## MIDI
 
@@ -703,10 +754,10 @@ music.playStinger({ clip: "assets/sfx/hurt.wav", quantize: "none", volume: 0.7, 
 music.stop({ fade: 0.8 });
 ```
 
-The example's tests (`tests/neon.test.js`, "adaptive score") check that the song is in `calm` with only the base layer at the start, that more enemies on the field raise `entity.music.intensity`
-and fade the drum layer and then the arpeggio in (`status.stemGains`), that clearing the wave drops them again, that a wave moves the section to `battle` on a bar line and back to `calm`, that the
-wave horn and a hit are stingers, and that dying stops the music. On the null device the mixer moves exactly the time the game clock gives it, so the tests step frames and read the answer; they
-never wait for the clock. Note that `status.intensity` is the value the layers are following (it changes on the `layerQuantize` boundary) while `entity.music.intensity` is the last one set.
+The example's tests (`tests/neon.test.js`, "adaptive score") check that the song is in `calm` with only the base layer at the start, that more enemies on the field raise `requestedIntensity`
+and fade the drum layer and then the arpeggio in (`appliedIntensity` and `status.stemGains`), that clearing the wave drops them again, that a wave queues a jump to `battle` (`pendingSection`,
+`pendingAt`) that lands on a bar line, and the same back to `calm`, that the wave horn and a hit are stingers, and that dying stops the music. On the null device the mixer moves exactly the time
+the game clock gives it, so the tests step frames and read the answer; they never wait for the clock.
 
 ## Errors
 

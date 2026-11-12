@@ -111,11 +111,23 @@ TEST_CASE("entity.music: intensity, sections, stingers and stop") {
     CHECK(gains.size() == 2);  // the rhythm and harmony layers
     for (const Json& g : gains) CHECK(g.get<double>() == doctest::Approx(1.0).epsilon(0.01));
 
-    ev(h, "e.music.goToSection('outro', { quantize: 'bar', fade: 0.1 });");
+    // The call answers where the jump lands, and the status says the same until it does.
+    const Json go = ev(h, "globalThis.go = e.music.goToSection('outro', { quantize: 'bar', fade: 0.1 }); go");
+    REQUIRE(go.is_object());
+    CHECK(go["quantize"] == "bar");
+    REQUIRE(go["frame"].is_number());
+    CHECK(go["time"].get<double>() == doctest::Approx(go["frame"].get<double>() / 44100.0));
     CHECK(num(h, "e.music.status.pending") == 1);
+    CHECK(ev(h, "e.music.pendingSong").get<std::string>() == "music/test.song.json");
+    CHECK(ev(h, "e.music.pendingSection").get<std::string>() == "outro");
+    CHECK(num(h, "e.music.pendingAt") == go["frame"].get<double>());
+    CHECK(num(h, "e.music.appliedIntensity") == doctest::Approx(1.0));
+    CHECK(num(h, "e.music.requestedIntensity") == doctest::Approx(1.0));
     run(h, 130);  // past the end of bar 1, at 2 s
     CHECK(ev(h, "e.music.section").get<std::string>() == "outro");
     CHECK(num(h, "e.music.status.pending") == 0);
+    CHECK(ev(h, "e.music.pendingSong").is_null());
+    CHECK(ev(h, "e.music.pendingAt").is_null());
 
     ev(h, "e.music.playStinger({ section: 'intro', quantize: 'beat', duck: 0.5 });");
     CHECK(num(h, "e.music.status.pending") >= 1);

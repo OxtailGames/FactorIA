@@ -3,6 +3,8 @@
 // recipe, staleness, validation and the teaching errors.
 #include <doctest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -368,4 +370,52 @@ TEST_CASE("rig schema: schemas/rig.schema.json is the schema the catalog builds,
     broken = sample;
     broken["skin"]["edits"][0]["op"] = "paint";
     CHECK_FALSE(validate_json(*schema, broken).empty());
+}
+
+TEST_CASE("rig.bake mergeParts: parts that share a material become one submesh, the vertices and so the pose stay the same, and the choice is kept") {
+    AssetsProject p;
+    write_all(p.file(kModel), kPerson);
+    const Json created = p.ok("rig.create", create_args());
+    CHECK(created["bake"]["state"] == "baked");
+    const std::vector<std::uint8_t> unmerged = bytes_of(p.file(kGlb));
+
+    const Json r = p.ok("rig.bake", {{"path", kRig}, {"mergeParts", true}});
+    REQUIRE(r["baked"].size() == 1);
+    CHECK(r["baked"][0]["mergeParts"] == true);
+    CHECK(r["baked"][0]["submeshesBefore"] == 8);
+    CHECK(r["baked"][0]["submeshes"] == 1);
+    CHECK(bytes_of(p.file(kGlb)) != unmerged);
+    CHECK(p.manifest()["assets"][kGlb]["provenance"]["recipe"]["args"]["mergeParts"] == true);
+
+    // omitted: the last bake's choice is repeated; false turns it off again and gives the first bytes back
+    p.ok("rig.bake", {{"path", kRig}});
+    CHECK(p.manifest()["assets"][kGlb]["provenance"]["recipe"]["args"]["mergeParts"] == true);
+    p.ok("rig.bake", {{"path", kRig}, {"mergeParts", false}});
+    CHECK(bytes_of(p.file(kGlb)) == unmerged);
+    // with no path, an explicit mergeParts bakes only the documents whose choice changes: the others would write the same bytes
+    CHECK(p.ok("rig.bake", {{"mergeParts", false}})["count"] == 0);
+    CHECK(p.ok("rig.bake", {{"mergeParts", true}})["count"] == 1);
+    CHECK(p.ok("rig.bake", {{"mergeParts", true}})["count"] == 0);
+    p.ok("rig.bake", {{"path", kRig}, {"mergeParts", false}});
+
+    // the merge itself: same vertex arrays, same set of triangles, one submesh per material
+    auto doc = load_rig_document(p.dir, kRig);
+    REQUIRE(doc.ok());
+    auto eval = rig_evaluate(p.dir, *doc, true);
+    REQUIRE(eval.ok());
+    MeshData merged = eval->mesh;
+    CHECK(rig_merge_parts(merged) == 1);
+    CHECK(merged.positions == eval->mesh.positions);
+    CHECK(merged.indices.size() == eval->mesh.indices.size());
+    CHECK(merged.submeshes.size() == 1);
+    CHECK(merged.submeshes[0].count == merged.indices.size());
+    CHECK(merged.submeshes[0].part.find("head") != std::string::npos);
+    auto triangles = [](const MeshData& m) {
+        std::vector<std::array<std::uint32_t, 3>> t;
+        for (const MeshSubmesh& s : m.submeshes)
+            for (std::uint32_t i = s.start; i < s.start + s.count; i += 3) t.push_back({m.indices[i], m.indices[i + 1], m.indices[i + 2]});
+        std::sort(t.begin(), t.end());
+        return t;
+    };
+    CHECK(triangles(merged) == triangles(eval->mesh));
 }

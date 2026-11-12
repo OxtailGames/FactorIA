@@ -1,12 +1,16 @@
 // fa/scene/bones2d.h: 2D bones, skinned sprites (SpriteSkin) and IK2D.
 #include <doctest.h>
 
+#include <atomic>
 #include <cmath>
+#include <memory>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 
 #include "fa/core/image.h"
+#include "fa/core/log.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
@@ -636,4 +640,137 @@ TEST_CASE("bones2d: the components survive a save and a load") {
     CHECK(ik->solver == IKSolver::Ccd);
     CHECK(ik->bend == IKBend::Negative);
     CHECK(ik->target == w2.find_by_id("target"));
+}
+
+// ----------------------------------------------------------------------------------------------------- ground snapping ----
+namespace {
+// A fake floor: height(x) below which the ray finds the ground; records what it was asked.
+struct FakeGround {
+    std::function<float(float)> height;
+    int calls = 0;
+    Entity lastIgnore;
+    GroundRaycast2D fn() {
+        return [this](Vec2 from, Vec2 to, std::int32_t, Entity ignore) -> std::optional<Vec2> {
+            ++calls;
+            lastIgnore = ignore;
+            const float h = height(from.x);
+            if (h > from.y || h < to.y) return std::nullopt;  // the floor is outside the segment
+            return Vec2{from.x, h};
+        };
+    }
+};
+}  // namespace
+
+TEST_CASE("ik2d ground: flat ground, offset and lift above the rest height") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    ik.groundReach = 30;
+    ik.groundOffset = 2;
+    ik.groundRest = 10;  // planted at 10 over the root's origin (y 0)
+    FakeGround g{[](float) { return 0.0f; }};
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(2).epsilon(1e-3));  // planted: hit 0 + offset 2, no lift (target.y == rest)
+    CHECK(r.tip().x == doctest::Approx(60).epsilon(1e-3));
+    CHECK(r.w.world_position(r.target).y == doctest::Approx(10));  // the target entity is not moved
+    CHECK(g.lastIgnore == r.body);                                 // the chain's character is ignored
+    r.set_pos(r.target, 60, 16);                                   // swing: 6 over the rest height
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(8).epsilon(1e-3));          // 0 + 2 + 6
+    r.set_pos(r.target, 60, 4);                                    // below the rest height: no negative lift
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(2).epsilon(1e-3));
+}
+
+TEST_CASE("ik2d ground: a step up, a step down within reach and beyond it") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    ik.groundReach = 20;
+    ik.groundRest = 10;
+    FakeGround g{[](float x) { return x < 50 ? 0.0f : 8.0f; }};  // 8 high step from x = 50
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(8).epsilon(1e-3));
+    FakeGround down{[](float) { return -8.0f; }};  // within reach (the ray goes down to y = -10)
+    r.set_rot(r.b0, 0);
+    r.set_rot(r.b1, 0);
+    REQUIRE(solve_ik2d(r.w, r.b1, down.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(-8).epsilon(1e-3));
+    FakeGround far{[](float) { return -40.0f; }};  // beyond reach: no hit, the target is used as it is
+    REQUIRE(solve_ik2d(r.w, r.b1, far.fn()).ok());
+    CHECK(r.tip().y == doctest::Approx(10).epsilon(1e-3));
+}
+
+TEST_CASE("ik2d ground: mask 0 and a null callback leave the target alone") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    FakeGround g{[](float) { return 0.0f; }};
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());  // groundMask 0 = off
+    CHECK(g.calls == 0);
+    CHECK(r.tip().y == doctest::Approx(10).epsilon(1e-3));
+    ik.groundMask = 1;
+    ik.groundRest = 10;
+    REQUIRE(solve_ik2d(r.w, r.b1).ok());  // no callback: no physics, feet left alone
+    CHECK(r.tip().y == doctest::Approx(10).epsilon(1e-3));
+    update_ik2d(r.w, g.fn());
+    CHECK(g.calls == 1);
+    CHECK(r.tip().y == doctest::Approx(0).epsilon(1e-3));
+}
+
+TEST_CASE("ik2d ground: the character is the nearest ancestor with a RigidBody2D, not the topmost one") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    ik.groundReach = 30;
+    ik.groundRest = 10;
+    FakeGround g{[](float) { return 0.0f; }};
+    // The character stands in a container (the level) that also holds the terrain, and the container sits 100 up.
+    const Entity level = r.w.create("level", "level");
+    r.set_pos(level, 0, 100);
+    r.w.set_parent(r.body, level);
+    r.w.add<RigidBody2D>(r.body);
+    r.set_pos(r.body, 0, -100);  // the character's origin stays at world y 0
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(g.lastIgnore == r.body);                       // the container (and its terrain) is not ignored
+    CHECK(r.tip().y == doctest::Approx(0).epsilon(1e-3));  // rest = body.y (0) + 10 = the target height: planted on the floor
+    // Without a RigidBody2D the topmost ancestor is the character, as before.
+    r.w.remove<RigidBody2D>(r.body);
+    REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
+    CHECK(g.lastIgnore == level);
+}
+
+TEST_CASE("ik2d ground: a ray that never hits warns once and says so") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 1;
+    FakeGround none{[](float) { return -1000.0f; }};
+    auto seen = std::make_shared<std::atomic<int>>(0);
+    const int sink = add_log_sink([seen](const LogEntry& en) {
+        if (en.category == "animation" && en.message.find("ground ray has hit nothing") != std::string::npos) ++*seen;
+    });
+    for (int i = 0; i < 400; ++i) update_ik2d(r.w, none.fn());
+    remove_log_sink(sink);
+    CHECK(seen->load() == 1);  // logged exactly once
+    const IK2D* got = r.w.get<IK2D>(r.b1);
+    REQUIRE(got != nullptr);
+    CHECK_FALSE(got->groundHit);
+    CHECK(got->warnedGround);
+}
+
+TEST_CASE("ik2d ground: the fields survive a save and a load") {
+    Rig r;
+    IK2D& ik = r.ik({60, 10});
+    ik.groundMask = 5;
+    ik.groundReach = 12;
+    ik.groundOffset = 1.5f;
+    ik.groundRest = -3;
+    const Json scene = save_scene(r.w);
+    World w2;
+    CHECK(load_scene(w2, scene, "test").ok());
+    const IK2D* got = w2.get<IK2D>(w2.find_by_id("b1"));
+    REQUIRE(got != nullptr);
+    CHECK(got->groundMask == 5);
+    CHECK(got->groundReach == 12);
+    CHECK(got->groundOffset == 1.5f);
+    CHECK(got->groundRest == -3);
 }

@@ -366,12 +366,12 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http",
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "actions", "back", "clipboard", "http",
                                                        "loadUnits"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
+                     " A frame entry takes press, release, keys, actions, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -412,6 +412,21 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
                 note("'loadUnits' " + u.dump() + " is out of range: it was clamped to " + std::to_string(n) + " (0.." +
                      std::to_string(BackgroundLoader::kMaxReplayUnits) + ")");
             I.replayLoadUnits = int(n);
+        }
+    }
+    if (entry.contains("actions")) {
+        // Actions forced down or released by name (what game.input {"press": ["move_left"]} did when it was recorded).
+        if (!entry["actions"].is_object()) {
+            note("'actions' must be an object like {\"move_left\": true}");
+        } else {
+            for (auto it = entry["actions"].begin(); it != entry["actions"].end(); ++it) {
+                if (!it->is_boolean()) { note("action '" + it.key() + "' must be true or false"); continue; }
+                if (!I.input.has_action(it.key())) {
+                    note("unknown action '" + it.key() + "' (ignored). " + did_you_mean(it.key(), I.input.action_names()));
+                    continue;
+                }
+                I.input.set_action_override(it.key(), it->get<bool>());
+            }
         }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
@@ -589,8 +604,15 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     int ran = 0;
     std::vector<double> cpuMs;  // CPU time of each frame (process CPU, not wall clock): report["perf"]
     int maxDrawCalls = 0, maxEntities = 0, maxTriangles = 0, maxLights = 0;
-    std::uint64_t maxTextureBytes = 0;
+    std::uint64_t maxTextureBytes = 0, maxMusicBytes = 0, maxAudioBytes = 0;
+    int samples = 0;
     auto sample_render = [&] {  // the numbers perf.measure / perf.check budget: the max over the run
+        maxMusicBytes = std::max<std::uint64_t>(maxMusicBytes, I.audio.music_bytes());
+        // stats() builds a report, so all the decoded audio is read every 8th call (music alone: every call) and at the end of the run.
+        if (samples++ % 8 == 0) {
+            const auto decoded = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+            maxAudioBytes = std::max<std::uint64_t>(maxAudioBytes, decoded);
+        }
         Renderer* r = engine.renderer();
         if (!r) return;
         const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
@@ -695,6 +717,12 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         perf["triangles"] = maxTriangles;
         perf["lights"] = maxLights;
         perf["textureMB"] = std::round(double(maxTextureBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
+        {  // reported, never gated: the decoded audio (clips and music) and the music alone, max over the run
+            const auto decodedNow = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+            const std::uint64_t audioBytes = std::max({maxAudioBytes, maxMusicBytes, decodedNow});
+            perf["audioDecodedMB"] = std::round(double(audioBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
+            perf["musicMB"] = std::round(double(maxMusicBytes) / (1024.0 * 1024.0) * 100.0) / 100.0;
+        }
         perf["graphics"] = I.renderer ? Json(I.gpu ? I.gpu->description() : "window") : Json("none");
         // CPU ms from the start of Engine::init to the end of the first frame (what perf.measure / the startup budget read).
         if (const double startupMs = engine.startup_timeline().startup_cpu_ms(); startupMs >= 0) perf["startupMs"] = std::round(startupMs * 10.0) / 10.0;

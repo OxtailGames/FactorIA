@@ -3,7 +3,7 @@
 // carries when he stands next to it, loses fuel when a wolf bites it, and shows its fuel in its light, its flames and
 // the crackle. Wolves slow down inside its light (inLight). When the fuel reaches 0 it sends "fire_out".
 import { Behaviour, world, audio } from "factoria";
-import { flatDistance, playAt } from "./common.js";
+import { flatDistance } from "./common.js";
 
 export default class Campfire extends Behaviour {
   /** The most fuel it holds. */

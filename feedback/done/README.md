@@ -78,3 +78,4 @@ decisions later work has to respect stay in [ROADMAP.md](../ROADMAP.md).
 - [M90](M90.md): M90. Quick fixes the review found (M; 5 packages)
 - [M91](M91.md): M91. A runtime that does not depend on the renderer (L; 4 packages)
 - [M100](M100.md): M100. Errors and tests a game AI can trust (L; 10 packages)
+- [M101](M101.md): M101. Found by the example games, 2026-10-29..11-08 (L; 10 packages)

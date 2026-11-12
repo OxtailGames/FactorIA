@@ -23,4 +23,7 @@ int fa_vorbis_read(void* v, int channels, float* out, int frames) {
 
 int fa_vorbis_rewind(void* v) { return stb_vorbis_seek_start((stb_vorbis*)v); }
 
+/* Sample-accurate: the next read returns frame `frame` (the same samples a front-to-back decode makes there). */
+int fa_vorbis_seek(void* v, unsigned int frame) { return stb_vorbis_seek((stb_vorbis*)v, frame); }
+
 void fa_vorbis_close(void* v) { stb_vorbis_close((stb_vorbis*)v); }

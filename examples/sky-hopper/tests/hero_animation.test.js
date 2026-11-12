@@ -67,12 +67,12 @@ test("the mirror: the rig turns with the direction and keeps the knees forward",
 
 test("the IK feet reach the ground while the hero stands and walks", () => {
   const p = load();
-  const sole = () => ["f", "b"].map((s) => part(p, "ik_" + s).worldPosition.y);
+  const sole = () => ["f", "b"].map((s) => part(p, "foot_" + s).worldPosition.y);
   const check = () => {
     for (const s of ["f", "b"]) {
-      const t = part(p, "ik_" + s).worldPosition;
+      const t = part(p, "foot_" + s).worldPosition;
       const shin = part(p, "shin_" + s);
-      expect(shin.worldPosition.y).toBeGreaterThan(t.y); // the knee-ankle chain ends at the target, above the sole
+      expect(shin.worldPosition.y).toBeGreaterThan(t.y); // the knee-ankle chain ends at the foot, above the sole
     }
   };
   check();

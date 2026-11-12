@@ -154,6 +154,8 @@ public:
     };
     const OnionSettings& onion_settings() const { return onionSettings_; }
     void set_onion_settings(const OnionSettings& s);
+    // Change the canvas (image.resize), ONE undo step; `anchor` is one of the nine names (top-left ... bottom-right), `fill` a colour or "".
+    ImageEditOutcome resize_canvas(int width, int height, const std::string& anchor, const std::string& fill);
     // Frame edits (image.frame.*), each ONE undo step; they select the frame the edit leaves the user on.
     ImageEditOutcome add_frame(bool duplicate);                     // after the current frame: a copy of it, or an empty one
     ImageEditOutcome remove_frame(int frame);

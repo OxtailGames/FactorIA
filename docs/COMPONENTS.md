@@ -139,7 +139,8 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `firstFrame` | int | `0` | First frame of the clip (inclusive, row-major index). |
 | `lastFrame` | int | `0` | Last frame of the clip (inclusive, row-major index). |
 | `fps` | float | `10.0` | Playback speed in frames per second. Range 0.0..1000.0. |
-| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. |
+| `loop` | bool | `true` | Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`. |
+| `loopMode` | enum: inherit \| loop \| once | `"inherit"` | Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`. (since 0.23.0) |
 | `playing` | bool | `true` | Set false to pause, true to play. |
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \| reverse \| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
@@ -189,6 +190,10 @@ Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the 
 | `bend` | enum: positive \| negative | `"positive"` | twoBone: which way the middle joint (the elbow, the knee) bends. positive = this bone's rotation.z ends up counter-clockwise (greater) from the one above it, negative = clockwise. A character facing right with a knee in front usually wants one of them; flipping the whole character (a negative Transform.scale.x) is taken into account, so the knee stays in front. |
 | `weight` | float | `1.0` | 0 to 1. 1 = the chain takes the solved pose; 0 = the animated pose stays; in between blends each bone's angle the short way round. Fade it in while a foot is planted, out in the air. Range 0.0..1.0. |
 | `solver` | enum: twoBone \| ccd | `"twoBone"` | twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`. |
+| `groundMask` | int | `0` | Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0. (since 0.23.0) |
+| `groundReach` | float | `24.0` | Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default. Range 0.0..10000.0. (since 0.23.0) |
+| `groundOffset` | float | `0.0` | Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default. (since 0.23.0) |
+| `groundRest` | float | `0.0` | Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default. (since 0.23.0) |
 
 ### Shape2D
 
@@ -361,6 +366,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `metallic` | float | `0.0` | 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `roughness` | float | `0.6` | 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light emitted by the surface regardless of lighting (glow). Black = none. |
+| `emissiveStrength` | float | `1.0` | HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch. Range 0.0..100.0. (since 0.23.0) |
 | `unlit` | bool | `false` | true = ignore lighting and draw the flat base color. |
 | `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. |
 | `receiveShadows` | bool | `true` | Receive shadows from shadow-casting lights. |
@@ -627,7 +633,10 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `playOnStart` | bool | `false` | Start playing when the entity spawns / the scene loads. |
 | `playing` | bool | `false` | Runtime state: true while a voice is playing. Set true to play, false to stop. Runtime-only (not saved). |
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
-| `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0. Range 0.0..1000000.0. |
+| `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it. Range 0.0..1000000.0. |
+| `rolloff` | enum: linear \| inverse \| exponential | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}). (since 0.23.0) |
+| `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`. Range 0.0..1000000.0. (since 0.23.0) |
+| `rolloffFactor` | float | `1.0` | Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away. Range 0.0..100.0. (since 0.23.0) |
 | `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (since 0.21.0) |
 
 ### MusicPlayer
@@ -639,7 +648,7 @@ Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `song` | asset (music) | `""` | Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). |
-| `mode` | enum: auto \| live \| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md). |
+| `mode` | enum: auto \| live \| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files and they are current, live when it has none or when the song was edited after music.render (live, with a warning, so the edit is heard; docs/MUSIC.md). |
 | `volume` | float | `0.8` | Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms. Range 0.0..1.0. |
 | `bus` | string | `"music"` | Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply. |
 | `intensity` | float | `0.0` | 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays. Range 0.0..1.0. |
@@ -967,7 +976,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
 | `stick` | enum: left \| right | `"left"` | Which stick of the touch pad it moves. |
 | `knobColor` | color | `[1.0,1.0,1.0,0.6]` | Colour of the knob, a disc 45% as wide as the stick. |
-| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
+| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch. |
 | `value` | vec2 | `[0.0,0.0]` | Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: a finger holds the stick. Read-only. Runtime-only (not saved). |
 | `shown` | bool | `false` | Runtime: drawn this frame (see touchOnly). Read-only. Runtime-only (not saved). |
@@ -1003,7 +1012,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `markup` | bool | `false` | true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text". (since 0.3.0) |
 | `bold` | bool | `false` | true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight. (since 0.3.0) |
 | `textColor` | color | `[1.0,1.0,1.0,0.9]` | Label colour. |
-| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). |
+| `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch. |
 | `pressed` | bool | `false` | Runtime: a finger holds the button. Read-only. Runtime-only (not saved). |
 | `shown` | bool | `false` | Runtime: drawn this frame (see touchOnly). Read-only. Runtime-only (not saved). |
 
@@ -1745,7 +1754,7 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
 | `track` | object | yes |  |
 
-### `anim3d.add_event`
+### `anim3d.add_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1762,7 +1771,7 @@ The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animato
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-### `anim3d.create`
+### `anim3d.create` (modifies state)
 
 Since 0.16.0.
 
@@ -1780,7 +1789,7 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 | `doc` | string | no | What the clip shows and when it is used. |
 | `overwrite` | boolean | no | Replace the file if it exists. |
 
-### `anim3d.generate`
+### `anim3d.generate` (modifies state)
 
 Since 0.16.0.
 
@@ -1819,7 +1828,7 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 | `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
 | `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 
-### `anim3d.mirror_pose`
+### `anim3d.mirror_pose` (modifies state)
 
 Since 0.16.0.
 
@@ -1836,7 +1845,7 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 | `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
 | `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
 
-### `anim3d.move_keys`
+### `anim3d.move_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -1871,7 +1880,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 | `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-### `anim3d.remove_event`
+### `anim3d.remove_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1884,7 +1893,7 @@ Remove an event from a 3D clip.
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
 
-### `anim3d.remove_keys`
+### `anim3d.remove_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -1897,7 +1906,7 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
-### `anim3d.remove_track`
+### `anim3d.remove_track` (modifies state)
 
 Since 0.16.0.
 
@@ -1911,20 +1920,21 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
-### `anim3d.restore`
+### `anim3d.restore` (modifies state)
 
 Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
-Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
+Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly (it needs `origin` and `date`), null removes it; with `clip: null` it is ignored (the record is removed with the file); without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `clip` | any | yes | The whole clip document to write, or null to delete the file. |
+| `provenance` | any | no | The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it. |
 
-### `anim3d.retarget`
+### `anim3d.retarget` (modifies state)
 
 Since 0.16.0.
 
@@ -1943,7 +1953,7 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
-### `anim3d.set_clip`
+### `anim3d.set_clip` (modifies state)
 
 Since 0.16.0.
 
@@ -1959,7 +1969,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 | `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
 | `doc` | string | no | What the clip shows. |
 
-### `anim3d.set_event`
+### `anim3d.set_event` (modifies state)
 
 Since 0.16.0.
 
@@ -1977,7 +1987,7 @@ Move, rename or change the data or the game feel actions of an event of a 3D cli
 | `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
-### `anim3d.set_interp`
+### `anim3d.set_interp` (modifies state)
 
 Since 0.16.0.
 
@@ -1991,7 +2001,7 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 | `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 | `interp` | string | yes | linear, step, bezier or an easing name. |
 
-### `anim3d.set_keys`
+### `anim3d.set_keys` (modifies state)
 
 Since 0.16.0.
 
@@ -2142,7 +2152,7 @@ Measure every sound of the project together: loudness per bus, music masking eff
 
 Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Example: {"targets":{"music":-16,"sfx":-14}}
 
-Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
+Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature; a .wav with loop points, as an audio document's `loop` step writes it, is judged across the join it plays, the crossfade, not across the file's ends); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. A sound that is only an input of an audio document's recipe (a recording the document is baked from) and that no scene or script plays is not judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, findings, sounds (one row of numbers per sound), skipped, targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2684,14 +2694,14 @@ Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
 
-Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` "" or null, are kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path of an existing file under assets/. |
+| `path` | string | yes | Project-relative path of an existing file under assets/ (or a 3D clip, *.anim.json, anywhere in the project). |
 | `origin` | string ["generated","imported","original"] | yes | generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game. |
 | `ai` | boolean | no | Whether AI made the content. Default: true for origin generated, false otherwise. |
-| `kind` | string ["image","sound","music","voice","model3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. |
+| `kind` | string ["image","sound","music","voice","model3d","anim3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. anim3d: a 3D bone clip (*.anim.json), which the anim3d commands record themselves. |
 | `provider` | string | no | Tool or provider that made it ("openai", "suno", "Aseprite"...). |
 | `model` | string | no | Model that made it, for AI-made assets. |
 | `prompt` | string | no | The prompt it was made from, for AI-made assets. |
@@ -2702,6 +2712,7 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 | `source` | string | no | Where an imported asset came from: a URL or the original file. |
 | `date` | string | no | YYYY-MM-DD. Default: today. |
 | `notes` | string | no | Anything else, such as edits made by hand. |
+| `role` | any ["ui","icon","effect","",null] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. "" or null takes the role back. docs.read ASSETS, "Scoping the style rules". |
 
 ### `assets.slice_sheet` (modifies state)
 
@@ -2913,7 +2924,9 @@ Since 0.16.0.
 
 Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
 
-The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary. `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}
+The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary (from its beginning unless `section` is given). `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`, `pendingSong`, `pendingSection` and `pendingAt`); setIntensity, goToSection and crossfadeTo answer `change`: {frame, time, quantize}, the audio frame it lands on (null before the song plays or while it loads). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}. More: docs/MUSIC.md, "Playing a song in a game".
+
+The frame of setIntensity is a prediction: a stuck device may drop an intensity change (the engine sends the player's intensity again when the device recovers, to the layerQuantize boundary of that moment), so read audio.music_state for what applied.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2940,7 +2953,9 @@ Since 0.16.0.
 
 What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
 
-Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, volume, bus, stems, stemGains, pending, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `stemGains` is the gain each layer has now (it follows `intensity` with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). Example: audio.music_state {"entity":"music"}
+Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, appliedIntensity, requestedIntensity, volume, bus, stems, stemGains, pending, pendingSong, pendingSection, pendingAt, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `song` and `section` are what is audible now; `pendingSong`, `pendingSection` and `pendingAt` (the audio frame, as in the events' `frame`) say where the next queued section change or crossfade lands (null when none waits). While a crossfade's song is still loading, `pendingSong` is set and `pendingAt` is null; a song that failed to load shows in `error`, not as pending. `intensity` = `appliedIntensity` is the value the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last one asked for (the component's). Example: audio.music_state {"entity":"music"}. The other fields and the music's memory: docs/MUSIC.md, "What the music costs in memory".
+
+`stemGains` is the gain each layer has now (it follows the intensity with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). `cache` lists the songs the music cache holds, {song, mode, bytes, streamed, underruns, stems: [{name, bytes, streamed}]}, and `cacheBytes` adds them up, plus the sources a player still plays after the cache let go of them and the loads that finished but are not cached yet: this is the memory of the music (also `musicBytes` in game.state's audio and `musicMB` in perf.profile / perf.measure). A stem with `streamed: true` plays from its encoded ogg (in memory) through a small window of decoded chunks, so its `bytes` are that window plus the encoded file, not the whole song decoded; `streamed` of a song says any of its stems is, and `underruns` (per song, all its stems together) counts the blocks in which a window was not ready (that stem played silence).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3611,6 +3626,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 `region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale and cropped (lines, text and shapes are sharp, the HUD is included); above 4 the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks, nothing blurred). The result is round(width * zoom) x round(height * zoom), at most 8192 px a side; the region is clamped to the view. `zoom` without `region` magnifies the whole view the same way.
 `frames` makes a FILMSTRIP: one PNG with a grid of pictures, each labelled with its frame number ("f130 +4" = game frame 130, 4 frames after the start). The first picture is the game now, then the game is STEPPED `everyFrames` frames (default 1) and captured again until `frames` frames have passed, so frames 48 and everyFrames 4 give 13 tiles and leave the game 48 frames further. At most 64 tiles. `region` and `zoom` apply to every tile (the same region each time); without `zoom` the tiles are sized so the sheet is about 2048 px wide (never enlarged). `columns` sets the grid width (default: nearly square). Use it to see a whole transition or animation at once. A tween or script keeps running while it steps: it shows what the game does, it does not freeze anything. The result adds `tiles` [{frame, offset}], `columns`, `rows`, `tileWidth`, `tileHeight` and `zoom`.
 `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Needs graphics.
+`forceTouch` true shows the touch interface first (the touch-only TouchStick and TouchButton, which a desktop hides): it is set just before the picture and put back afterwards (ui.force_touch {"enabled":true} keeps it on).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3622,6 +3638,7 @@ Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screensho
 | `everyFrames` | integer | no | Filmstrip: frames between two pictures (default 1). frames / everyFrames + 1 pictures, at most 64. |
 | `columns` | integer | no | Filmstrip: tiles per row (default: the grid closest to square). |
 | `simulate` | string ["none","greyscale","protanopia","deuteranopia","tritanopia"] | no | Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged. Default "none". |
+| `forceTouch` | boolean | no | true: show the touch interface (the touch-only TouchStick and TouchButton) before the picture; false: the real last input. Only for this call: the previous setting is restored afterwards (ui.force_touch keeps it). |
 
 ### `game.state`
 
@@ -3729,7 +3746,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 | `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
 
-### `ik3d.key`
+### `ik3d.key` (modifies state)
 
 Since 0.16.0.
 
@@ -3795,6 +3812,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 | `description` | string | no | A sentence for people and AIs about the picture. |
 | `palette` | any | no | For indexed (pixel-art) layers: "style" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each "#rrggbb" or {"name", "color"}; at most 81. See docs.read IMAGES, "Pixel art". |
 | `ramps` | array | no | Colour ramps for shading by index: lists of palette colours (index, name or "#rrggbb") from the darkest to the lightest, e.g. [["skin-dark","skin","skin-light"]]. |
+| `output` | string | no | The PNG the document bakes to, project-relative, ending in .png (e.g. "assets/art/enemy.png" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png. |
 | `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
 | `bake` | boolean | no | Also draw the PNG. Default true. |
 
@@ -4377,6 +4395,23 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 | `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
+### `image.resize` (modifies state)
+
+Since 0.23.0.
+
+Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
+
+Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the same pixels and it no longer covers the added area (a warning names it). Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be made again (a warning). One undo step. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `width` | integer | yes | New canvas width in pixels. |
+| `height` | integer | yes | New canvas height in pixels. |
+| `anchor` | string ["top-left","top","top-right","left","center","right","bottom-left","bottom","bottom-right"] | no | The part of the old canvas that stays put; the canvas grows or is cropped on the opposite sides. Default "center". |
+| `fill` | any | no | Colour of the area a bigger canvas adds: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Default transparent. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
 ### `image.save` (modifies state)
 
 Since 0.16.0.
@@ -4877,9 +4912,9 @@ Since 0.16.0.
 
 Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
 
-Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
+Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
 
-The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
+`collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -4887,7 +4922,7 @@ The result is checked before anything is written, then the bake writes <name>.gl
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
 | `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
 | `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
-| `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution}. |
+| `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution, part, radius, height}. |
 | `platforms` | array | no | Budgets to check: desktop, mobile, web. |
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
 | `bake` | boolean | no | Bake after writing. Default true. |
@@ -5525,7 +5560,7 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
-Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less; perf.check gates on the median and the p95, the average and the maximum are only reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame) and textureMB (GPU texture memory), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every 8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5540,7 +5575,7 @@ Since 0.2.0.
 
 Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.
 
-Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the profiler on and returns {runner, graphics, profile}. profile = {frames, clock:"wall", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, world.on handlers and promise jobs are the bucket "(timers, events and promises)"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}}. Example: {"frames":300,"input":"replays/play.json"}.
+Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the profiler on and returns {runner, graphics, profile}. profile = {frames, clock:"wall", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, world.on handlers and promise jobs are the bucket "(timers, events and promises)"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: {"frames":300,"input":"replays/play.json"}.
 
 Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds every onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames load assets. Use `input` (an input replay) to reach the heavy part of the game. The profiler only measures: game.state, replays and saves are identical with it on. The editor's play sessions record the same section in play.report, and View > Profiler shows it live.
 
@@ -5969,7 +6004,7 @@ Check the whole project for errors: project file, scenes, assets, input bindings
 
 Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. Example: {}
 
-Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, a name imported from "factoria" that does not exist, a member the engine's objects lack (physics.raycats), a literal component name that is wrong, a module whose top level throws, and a colour array that mixes 0..1 and 0..255 (docs/SCRIPTING.md, "What factoria validate checks in a script").
+Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in `notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, `notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about a scene entity that repeats a prefab's components inline instead of being an instance of it (the copy does not follow later changes of the prefab; the hint gives the {id, prefab, differences} entry that replaces it), and about an instance that also saves two or more components with the prefab's own values. It looks at the entities of scenes (children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the rest in one more warning. Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, a name imported from "factoria" that does not exist, a member the engine's objects lack (physics.raycats), a literal component name that is wrong, a module whose top level throws, and a colour array that mixes 0..1 and 0..255, or that has channels over 1 (none over 8) and none in 0..1, so it reads as almost black (for MeshRenderer.emissive the warning points to emissiveStrength) (docs/SCRIPTING.md, "What factoria validate checks in a script").
 
 ## publish
 
@@ -6208,7 +6243,9 @@ Since 0.16.0.
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
-Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/hero.rig.json"}
+Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `mergeParts` joins parts that share a material (fewer draw calls). Example: {} or {"path":"assets/models/hero.rig.json"}
+
+`mergeParts` welds the skinned parts that share a material into one submesh after the fit (a rigged character of 8 parts with 2 materials then draws in 2 calls per pass instead of 8): only the index list is regrouped, so the weights, joints and bind pose are the same and a posed frame looks the same; the result lists `submeshesBefore` and `submeshes`, and the part names of a merged submesh are joined with "+". The choice is kept in the recipe, so a later bake or `factoria export` repeats it. `factoria export` bakes the stale documents first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6216,6 +6253,7 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 | `force` | boolean | no | Bake documents that are fresh too. Default false. |
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no rig document baked. Default false. |
+| `mergeParts` | boolean | no | Weld the skinned parts that share a material into one submesh (fewer draw calls). Left out: what the last bake of the document used (false the first time); the choice is kept in the recipe. |
 
 ### `rig.create` (modifies state)
 
@@ -6349,7 +6387,7 @@ Build a Tilemap level and the objects standing on it (coins, enemies, spawn poin
 
 Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing).
 
-Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an isometric map's position is its TOP corner, and objects stand at the centres of its diamonds); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an isometric map's position is its TOP corner, and objects stand at the centres of its diamonds); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches is written as its prefab plus the differences (the edit). `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6425,7 +6463,7 @@ Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id
 
 Save the running world to a scene file (current scene path by default).
 
-Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}. Entities a script created at runtime (world.spawn, world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities made with scene.spawn, the editor or other authoring commands are always saved.
+Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}. Entities a script created at runtime (world.spawn, world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities made with scene.spawn, the editor or other authoring commands are always saved. An entity made from a prefab (a scene entry {"prefab": ...}, scene.spawn with `prefab`) is written as {"id", "prefab", only the fields that differ from the prefab} so later changes of the prefab file still reach the scene; the rare instance whose differences that form cannot express (a part of the prefab removed, a child added under a part of it) is written inline and listed under `expandedPrefabs` with the reason.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6589,11 +6627,12 @@ Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
-Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
+Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). `path` (one patch or a list) bakes only those patches, with the same rules (stale or missing only, `force` renders them anyway). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
+| `path` | any | no | Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project. |
 | `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
 | `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
 
@@ -7082,6 +7121,36 @@ List the keys of the game's save storage (storage.set): the ones the running gam
 
 Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse. Example: storage.list {}
 
+## assets
+
+### `style.ignore` (modifies state)
+
+Since 0.23.0.
+
+Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
+
+Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets.check_art, project.validate) do not judge those rules for the asset. `path` is a project-relative file, a folder ending in a slash ("assets/ui/") or a glob ("assets/fx/**"). `rules` names the rules to skip: outline (outline.color, outline.width), value (value.min, value.max), saturation, lightDirection, texelsPerUnit, pixelArt (pixelArt.edges, pixelArt.colours), palette (palette.offShare); without `rules` every rule is skipped for the path (the old plain-path entry). Naming only the rules that do not fit keeps the others checking, so a real problem is not hidden. assets.check_art still checks a file you name, and lists what it left out under `styleSkipped` with the reason. To skip by kind of asset instead, give it a role: style.set_role or assets.set_provenance `role`. `remove: true` takes an entry (or, with `rules`, those rules of it) back. Example: {"path":"assets/art/flame.png","rules":["texelsPerUnit","lightDirection"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob (* and ? stay inside a folder, ** crosses folders). |
+| `rules` | array | no | Rules to skip: outline, outline.color, outline.width, value, value.min, value.max, saturation, saturation.min, saturation.max, lightDirection, texelsPerUnit, pixelArt, pixelArt.edges, pixelArt.colours, palette, palette.offShare. Omit for every rule. |
+| `remove` | boolean | no | Take the entry back (with `rules`: only those rules). Default false. |
+
+### `style.set_role` (modifies state)
+
+Since 0.23.0.
+
+Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
+
+Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back with assets.set_provenance `role` "". Example: {"path":"assets/ui/**","role":"ui"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob ("assets/ui/**"). |
+| `role` | string ["ui","icon","effect"] | no | What the pictures are for. Required unless `remove`. |
+| `remove` | boolean | no | Delete the role of this path. Default false. |
+
 ## scene
 
 ### `tilemap.cell_at`
@@ -7120,7 +7189,7 @@ Generate a level from an example with Wave Function Collapse: a grid that only c
 
 Learns from a small example level and makes a new, bigger one that looks like it, the same on every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object {rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the one with the fewest options left, so every n x n window of the result also exists in the sample (with `symmetry` also in its rotations and mirrors); a bigger n copies larger pieces, a smaller n mixes more freely. Example: tilemap.generate {"sample":["........","..##....","..##..#.","......#.","..#.....","........"],"legend":{"#":0},"size":[32,20],"seed":7,"n":3,"symmetry":8,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]}}
 
-`tiled` ignores n and symmetry (they are not even checked) and reads which tiles may touch from the autotile rules (Tilemap.terrains, tilemap.set_terrains, image.tileset.build) of the sample's Tilemap, of `into`, or from `terrains`; the sample only sets how often each tile is picked, and blob47 corners are fixed afterwards like tilemap.retile. Without rules it fails and says how to add them. `symmetry` 1 (default) uses the sample as drawn, 2 adds its mirror image, 4 its three turns, 8 turns and mirrors (use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges (a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, `counts` [{tile, min?, max?}], `place` [{tile, count?, where?, from?, on?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a terrain name; a list of them means any of them. A tile the sample never shows cannot be fixed, counted or forbidden. A missing minimum is repaired on the next attempt by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off). A MAXIMUM STEERS THE SOLVER: once that many cells are decided to hold the tile, it is taken out of every cell still open, so a tile the sample draws once (an entrance '@', an exit '>') does not turn up two to four times and refuse attempt after attempt; a grid that is over a maximum anyway is refused and restarted, and so is any other miss. PLACE puts markers in the FINISHED level: {tile:'>', where:'farthest', from:'@', on:['.']} writes the exit on the floor cell with the longest WALKING distance from the entrance (`where`: farthest, nearest or random; `count` cells; the walk is the one `reachability` describes, so farthest / nearest need it). Entries run in order, so "entrance anywhere, exit farthest from it" is two entries (the second names the first's tile in `from`). The tile may be a legend glyph the sample rows never draw (then the solver never produces it and only `place` can: the usual way to get exactly one entrance and one exit); `on` says which tiles a marker may replace (left out: any walkable cell, never a fixed cell or an earlier marker). Every choice (random cells, ties) comes from the level's seed. An entry that finds too few cells refuses the attempt and the next seed is tried; the result's constraints.placed lists the cells (and distances). The counts and the reachability check judge the grid AFTER it is placed, so a marker that blocks the way is caught. (Not the script API's top-level `place`, which places the objects of the sample.) REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished level (`solidTiles` and `costs` are the final tile numbers, after the tiled model's blob47 corners are fixed; `counts` and `toTiles` look at the cells as the generator decided them, before that re-tiling); a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) and `maxSeconds` (default 1800, a pure safety net far above the work cap: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells, placed?: [{tile, where, count, at:[[x,y]...], distances?, from?}]}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which places the objects of the sample; with this command call scene.import_ascii on the returned rows and legend).
+`tiled` ignores n and symmetry (they are not even checked) and reads which tiles may touch from the autotile rules (Tilemap.terrains, tilemap.set_terrains, image.tileset.build) of the sample's Tilemap, of `into`, or from `terrains`; the sample only sets how often each tile is picked, and blob47 corners are fixed afterwards like tilemap.retile. Without rules it fails and says how to add them. `symmetry` 1 (default) uses the sample as drawn, 2 adds its mirror image, 4 its three turns, 8 turns and mirrors (use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges (a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, `counts` [{tile, min?, max?}], `place` [{tile, count?, where?, from?, on?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a terrain name; a list of them means any of them. A tile the sample never shows cannot be fixed, counted or forbidden. A missing minimum is repaired on the next attempt by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off). A MAXIMUM STEERS THE SOLVER: once that many cells are decided to hold the tile, it is taken out of every cell still open, so a tile the sample draws once (an entrance '@', an exit '>') does not turn up two to four times and refuse attempt after attempt; a grid that is over a maximum anyway is refused and restarted, and so is any other miss. PLACE puts markers in the FINISHED level: {tile:'>', where:'farthest', from:'@', on:['.']} writes the exit on the floor cell with the longest WALKING distance from the entrance (`where`: farthest, nearest or random; `count` cells; the walk is the one `reachability` describes, so farthest / nearest need it). Entries run in order, so "entrance anywhere, exit farthest from it" is two entries (the second names the first's tile in `from`). The tile may be a legend glyph the sample rows never draw (then the solver never produces it and only `place` can: the usual way to get exactly one entrance and one exit); `on` says which tiles a marker may replace (left out: any walkable cell, never a fixed cell or an earlier marker). Every choice (random cells, ties) comes from the level's seed. An entry that finds too few cells refuses the attempt and the next seed is tried; the result's constraints.placed lists the cells (and distances). The counts and the reachability check judge the grid AFTER it is placed, so a marker that blocks the way is caught. (Not the script API's top-level `place`, which places the objects of the sample.) REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished level (`solidTiles` and `costs` are the final tile numbers, after the tiled model's blob47 corners are fixed; `counts` and `toTiles` look at the cells as the generator decided them, before that re-tiling); a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) and `maxSeconds` (default 1800, a pure safety net far above the work cap: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells, placed?: [{tile, where, count, at:[[x,y]...], distances?, from?}]}, reachability?, stats: {attempts, contradictions, rejected, cutOff (of the rejected, those refused for areas cut off by allConnected), patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which places the objects of the sample; with this command call scene.import_ascii on the returned rows and legend).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7315,6 +7384,18 @@ Since 0.2.0.
 Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
+
+### `ui.force_touch` (modifies state)
+
+Since 0.23.0.
+
+Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
+
+TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a finger: those controls are shown at once (no step needed), `input.lastDevice` says "touch" and prompts and tooltips follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. Example: ui.force_touch {"enabled":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
 
 ### `ui.set_mirror_rtl` (modifies state)
 
@@ -8928,6 +9009,9 @@ declare module "factoria" {
      * Every entity with this name, in creation order. Skips the ones destroyed this frame.
      */
     findAll(name: string): Entity[];
+    /**
+     * Every alive entity that has this tag, in creation order, without the ones destroyed this frame.
+     */
     findByTag(tag: string): Entity[];
     /**
      * All alive entities in creation order, without the ones destroyed this frame.
@@ -9340,6 +9424,31 @@ declare module "factoria" {
      * @since 0.21.0
      */
     priority?: number;
+    /**
+     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
+     * @since 0.23.0
+     */
+    position?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
+     * @since 0.23.0
+     */
+    rolloff?: "linear" | "inverse" | "exponential";
+    /**
+     * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
+     * @since 0.23.0
+     */
+    refDistance?: number;
+    /**
+     * With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position.
+     * @since 0.23.0
+     */
+    rolloffFactor?: number;
+    /**
+     * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
+     * @since 0.23.0
+     */
+    range?: number;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
@@ -13178,6 +13287,11 @@ declare module "factoria" {
      */
     mode: "forward" | "reverse" | "pingpong";
     /**
+     * What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded.
+     * @since 0.23.0
+     */
+    loopMode: "inherit" | "loop" | "once";
+    /**
      * Index in the sheet's grid (row-major from the top-left) of the frame shown.
      * @since 0.6.0
      */
@@ -13334,6 +13448,28 @@ declare module "factoria" {
   }
 
   /**
+   * What music.setIntensity, goToSection and crossfadeTo return: where the change lands. The frame is worked out from the mixer's latest state, so it is exact on the null device (headless runs, tests) and a block or two off with a sound device that has not caught up; the "section" or "crossfade" event carries the real one.
+   * @since 0.23.0
+   */
+  export interface MusicChange {
+    /**
+     * The audio frame the change lands on (the same count as `frame` in the music events and audio.music_state's mixedFrames); null when it cannot be placed yet (nothing plays, or the song is still loading).
+     * @since 0.23.0
+     */
+    frame: number | null;
+    /**
+     * That frame in seconds of the audio clock; null with the frame.
+     * @since 0.23.0
+     */
+    time: number | null;
+    /**
+     * The boundary used: the one given or the player's own default.
+     * @since 0.23.0
+     */
+    quantize: "none" | "beat" | "bar" | "section";
+  }
+
+  /**
    * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
    * @since 0.16.0
    */
@@ -13349,35 +13485,35 @@ declare module "factoria" {
      */
     stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
-     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
+     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade. `entity.music.intensity` is the new value at once; `appliedIntensity` (and `status.intensity`) is the one the layers follow, which changes at that boundary. Returns where the layers start to follow it: {frame, time, quantize} (frame and time are null before the song plays).
      * @since 0.16.0
      */
-    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
+    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): MusicChange;
     /**
-     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
+     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the audible song does not have, listing the ones it has. Before the song is loaded it only sets where it will start. Returns {frame, time, quantize}: the audio frame the jump lands on, the `frame` of the "section" event it fires (null when nothing plays yet); `pendingSection` and `pendingAt` show it until then.
      * @since 0.16.0
      */
-    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
+    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): MusicChange;
     /**
      * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
      * @since 0.16.0
      */
     playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
     /**
-     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
+     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default the beginning of that song, never the component's startSection). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song. The component's `song` field is the new song at once while the old one stays audible until the boundary: `status.song` is the audible one and `pendingSong` the queued one. Returns {frame, time, quantize}: the audio frame the crossfade starts on (null while the song loads or when nothing plays). A scene loaded before that frame drops the change.
      * @since 0.16.0
      */
-    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
+    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): MusicChange;
     /**
      * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
      * @since 0.16.0
      */
     on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
     /**
-     * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
+     * A snapshot of the player (what audio.music_state shows). `song` and `section` are what is audible now. `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `pendingSong`, `pendingSection` and `pendingAt` (an audio frame, as `frame` in the events) say where the next queued section change or crossfade lands, null when none waits (a song asked for but not scheduled yet has no `pendingAt`). `intensity` = `appliedIntensity` is what the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last value set. `error` why it could not start.
      * @since 0.16.0
      */
-    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
+    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; appliedIntensity: number; requestedIntensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; pendingSong: string | null; pendingSection: string | null; pendingAt: number | null; heads: number; error: string };
     /**
      * True once the song is loaded and can sound.
      * @since 0.16.0
@@ -13389,7 +13525,7 @@ declare module "factoria" {
      */
     readonly playing: boolean;
     /**
-     * The song that plays (or is loading).
+     * The song that is audible now (status.song), or the one asked for while nothing plays. After crossfadeTo it is still the old song until the crossfade starts: pendingSong is the new one (the component's `song` field is already the new one).
      * @since 0.16.0
      */
     readonly song: string;
@@ -13414,10 +13550,35 @@ declare module "factoria" {
      */
     readonly tempo: number;
     /**
-     * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
+     * MusicPlayer.intensity: the value last set (= requestedIntensity), not what the layers follow (appliedIntensity) nor their fades (status.stemGains).
      * @since 0.16.0
      */
     readonly intensity: number;
+    /**
+     * The intensity last set (MusicPlayer.intensity): the layers follow it from the layerQuantize boundary on.
+     * @since 0.23.0
+     */
+    readonly requestedIntensity: number;
+    /**
+     * The intensity the layers follow now (status.intensity); it changes on the layerQuantize boundary after a setIntensity, so it differs from `intensity` until then.
+     * @since 0.23.0
+     */
+    readonly appliedIntensity: number;
+    /**
+     * The song the next queued section change or crossfade lands in (status.pendingSong); null when none waits. `song` stays the audible one until then.
+     * @since 0.23.0
+     */
+    readonly pendingSong: string | null;
+    /**
+     * The section that queued change lands in (status.pendingSection); null when none waits.
+     * @since 0.23.0
+     */
+    readonly pendingSection: string | null;
+    /**
+     * The audio frame that queued change lands on (the `frame` of the "section" or "crossfade" event it fires); null when none waits or it is not scheduled yet.
+     * @since 0.23.0
+     */
+    readonly pendingAt: number | null;
     /**
      * The section names of the song, in order; empty until it is loaded.
      * @since 0.16.0
@@ -14293,9 +14454,14 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.
      */
     loop: boolean;
+    /**
+     * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
+     * @since 0.23.0
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Set false to pause, true to play.
      */
@@ -14428,6 +14594,26 @@ declare module "factoria" {
      * @since 0.7.0
      */
     solver: "twoBone" | "ccd";
+    /**
+     * Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.
+     * @since 0.23.0
+     */
+    groundMask: number;
+    /**
+     * Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default.
+     * @since 0.23.0
+     */
+    groundReach: number;
+    /**
+     * Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default.
+     * @since 0.23.0
+     */
+    groundOffset: number;
+    /**
+     * Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.
+     * @since 0.23.0
+     */
+    groundRest: number;
   }
   /**
    * Untextured 2D primitive for prototypes, UI panels and debug visuals.
@@ -15098,6 +15284,11 @@ declare module "factoria" {
      */
     get emissive(): Color;
     set emissive(value: ColorLike);
+    /**
+     * HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch.
+     * @since 0.23.0
+     */
+    emissiveStrength: number;
     /**
      * true = ignore lighting and draw the flat base color.
      */
@@ -15948,9 +16139,24 @@ declare module "factoria" {
      */
     spatial: boolean;
     /**
-     * Spatial only: distance in world units where the volume reaches 0.
+     * Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it.
      */
     range: number;
+    /**
+     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
+     * @since 0.23.0
+     */
+    rolloff: "linear" | "inverse" | "exponential";
+    /**
+     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
+     * @since 0.23.0
+     */
+    refDistance: number;
+    /**
+     * Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.
+     * @since 0.23.0
+     */
+    rolloffFactor: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
      * @since 0.21.0
@@ -15970,7 +16176,7 @@ declare module "factoria" {
      */
     song: string;
     /**
-     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files and they are current, live when it has none or when the song was edited after music.render (live, with a warning, so the edit is heard; docs/MUSIC.md).
      * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
@@ -17300,7 +17506,7 @@ declare module "factoria" {
     get knobColor(): Color;
     set knobColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -17449,7 +17655,7 @@ declare module "factoria" {
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -18160,15 +18366,15 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
-    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
+    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
@@ -18181,7 +18387,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; priority?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential"; refDistance?: number; rolloffFactor?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
@@ -18768,7 +18974,20 @@ declare module "factoria:test" {
      * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
      */
     touchEnd(id?: number): void;
+    /**
+     * Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame.
+     */
     find(idOrName: string): Entity | null;
+    /**
+     * Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame.
+     * @since 0.23.0
+     */
+    findAll(name: string): Entity[];
+    /**
+     * Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag("wolf").length.
+     * @since 0.23.0
+     */
+    findByTag(tag: string): Entity[];
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**

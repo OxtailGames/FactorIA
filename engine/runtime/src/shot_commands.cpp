@@ -1,5 +1,6 @@
 // The commands that look at the picture: game.screenshot (whole view, a magnified region, a filmstrip of frames),
 // render.inspect (luminance profile along a line and the hard steps in it) and render.pick (what draws a pixel).
+#include <optional>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -95,7 +96,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
            "`simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a "
            "colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in "
            "linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to "
-           "check that hazards, pickups and buttons read without their colour. Needs graphics.",
+           "check that hazards, pickups and buttons read without their colour. Needs graphics.\n"
+           "`forceTouch` true shows the touch interface first (the touch-only TouchStick and TouchButton, which a desktop hides): "
+           "it is set just before the picture and put back afterwards (ui.force_touch {\"enabled\":true} keeps it on).",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Output PNG (project-relative or absolute). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it."},
                "scale":{"type":"number","minimum":0.25,"maximum":4,"description":"Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom."},
@@ -104,10 +107,17 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                "frames":{"type":"integer","minimum":1,"maximum":2000,"description":"Filmstrip: the game advances this many frames in total, captured every everyFrames, into one labelled grid PNG."},
                "everyFrames":{"type":"integer","minimum":1,"description":"Filmstrip: frames between two pictures (default 1). frames / everyFrames + 1 pictures, at most 64."},
                "columns":{"type":"integer","minimum":1,"maximum":64,"description":"Filmstrip: tiles per row (default: the grid closest to square)."},
-               "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."}}})"),
+               "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."},
+               "forceTouch":{"type":"boolean","description":"true: show the touch interface (the touch-only TouchStick and TouchButton) before the picture; false: the real last input. Only for this call: the previous setting is restored afterwards (ui.force_touch keeps it)."}}})"),
            true, "game"},
           [&engine, &I](const Json& a) {
-              check_args_known(a, {"path", "scale", "region", "zoom", "frames", "everyFrames", "columns", "simulate"}, "game.screenshot");
+              check_args_known(a, {"path", "scale", "region", "zoom", "frames", "everyFrames", "columns", "simulate", "forceTouch"}, "game.screenshot");
+              std::optional<bool> forceTouch;
+              if (a.contains("forceTouch")) {
+                  if (!a["forceTouch"].is_boolean())
+                      throw CommandError("invalid_argument", "forceTouch must be true or false.", "Example: game.screenshot {\"forceTouch\":true}");
+                  forceTouch = a["forceTouch"].get<bool>();
+              }
               const std::string given = a.contains("path") && a["path"].is_string() ? a["path"].get<std::string>() : std::string();
               const bool temporary = given.empty();
               if (a.contains("scale") && a.contains("zoom"))
@@ -135,6 +145,14 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("invalid_argument", "everyFrames and columns belong to a filmstrip.", "Add `frames` (the number of frames to cover), e.g. {\"frames\":48,\"everyFrames\":4}.");
               if (!I.renderer)  // the same message as before: no renderer, no picture
                   throw CommandError("unavailable", "No renderer: the engine runs with graphics=false.", "Screenshots need graphics (headless needs Mesa/EGL).");
+              // Applied only now that every argument is valid, and put back when the call ends (this command is read-only).
+              struct ForceTouchScope {
+                  Engine& engine;
+                  bool previous;
+                  bool changed;
+                  ~ForceTouchScope() { if (changed) engine.set_force_touch(previous); }
+              } touchScope{engine, engine.input().force_touch(), forceTouch.has_value()};
+              if (forceTouch) engine.set_force_touch(*forceTouch);
               const Vec2 view{float(I.renderer->target_width()), float(I.renderer->target_height())};
               std::string err;
               Image img;

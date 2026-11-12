@@ -209,9 +209,13 @@
                             "maxAngle": 0
                           },
                           "IK2D": {
-                            "target": "ik_b",
+                            "target": "gait_b",
                             "bend": "negative",
-                            "solver": "twoBone"
+                            "solver": "twoBone",
+                            "groundMask": 1,
+                            "groundReach": 40,
+                            "groundOffset": 2.5,
+                            "groundRest": -20.5
                           },
                           "Sprite": {
                             "texture": "assets/parts_atlas.png",
@@ -222,7 +226,27 @@
                             "pixelArt": false,
                             "color": [0.72, 0.72, 0.82, 1]
                           }
-                        }
+                        },
+                        "children": [
+                          {
+                            "name": "foot_b",
+                            "components": {
+                              "Transform": {
+                                "position": [10, 0, 0],
+                                "rotation": [0, 0, 90]
+                              },
+                              "Sprite": {
+                                "texture": "assets/parts_atlas.png",
+                                "region": [2, 106, 16, 10],
+                                "size": [8, 5],
+                                "pivot": [0.19, 0.5],
+                                "layer": 3,
+                                "pixelArt": false,
+                                "color": [0.72, 0.72, 0.82, 1]
+                              }
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -258,9 +282,13 @@
                             "maxAngle": 0
                           },
                           "IK2D": {
-                            "target": "ik_f",
+                            "target": "gait_f",
                             "bend": "negative",
-                            "solver": "twoBone"
+                            "solver": "twoBone",
+                            "groundMask": 1,
+                            "groundReach": 40,
+                            "groundOffset": 2.5,
+                            "groundRest": -20.5
                           },
                           "Sprite": {
                             "texture": "assets/parts_atlas.png",
@@ -270,7 +298,26 @@
                             "layer": 7,
                             "pixelArt": false
                           }
-                        }
+                        },
+                        "children": [
+                          {
+                            "name": "foot_f",
+                            "components": {
+                              "Transform": {
+                                "position": [10, 0, 0],
+                                "rotation": [0, 0, 90]
+                              },
+                              "Sprite": {
+                                "texture": "assets/parts_atlas.png",
+                                "region": [2, 106, 16, 10],
+                                "size": [8, 5],
+                                "pivot": [0.19, 0.5],
+                                "layer": 7,
+                                "pixelArt": false
+                              }
+                            }
+                          }
+                        ]
                       }
                     ]
                   }
@@ -316,7 +363,8 @@
               "Transform": {
                 "position": [-3, -20.5, 0]
               }
-            }
+            },
+            "id": "gait_b"
           },
           {
             "name": "gait_f",
@@ -324,62 +372,8 @@
               "Transform": {
                 "position": [3, -20.5, 0]
               }
-            }
-          },
-          {
-            "name": "ik_b",
-            "components": {
-              "Transform": {
-                "position": [-3, -20.5, 0]
-              }
             },
-            "id": "ik_b",
-            "children": [
-              {
-                "name": "foot",
-                "components": {
-                  "Transform": {
-                    "position": [0, 0, 0]
-                  },
-                  "Sprite": {
-                    "texture": "assets/parts_atlas.png",
-                    "region": [2, 106, 16, 10],
-                    "size": [8, 5],
-                    "pivot": [0.19, 0.5],
-                    "layer": 3,
-                    "pixelArt": false,
-                    "color": [0.72, 0.72, 0.82, 1]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "name": "ik_f",
-            "components": {
-              "Transform": {
-                "position": [3, -20.5, 0]
-              }
-            },
-            "id": "ik_f",
-            "children": [
-              {
-                "name": "foot",
-                "components": {
-                  "Transform": {
-                    "position": [0, 0, 0]
-                  },
-                  "Sprite": {
-                    "texture": "assets/parts_atlas.png",
-                    "region": [2, 106, 16, 10],
-                    "size": [8, 5],
-                    "pivot": [0.19, 0.5],
-                    "layer": 7,
-                    "pixelArt": false
-                  }
-                }
-              }
-            ]
+            "id": "gait_f"
           }
         ]
       }

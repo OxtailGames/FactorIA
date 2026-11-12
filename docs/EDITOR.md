@@ -826,7 +826,7 @@ Every edit runs the same `image.*` command an AI would call (`image.layer.*`, `i
 brush, fill and transform use the code of `fa/tooling/image_paint.h`, so a stroke, a fill or a selection made with the mouse is the
 same pixels the command writes. The picture on the canvas is drawn by the one compositor (`composite_image_document`), never a second
 one. An edit writes the document (and the layer's PNG) as it happens; the baked picture next to the document is written only by
-**Save** (the toolbar shows "baked", or "not baked (stale)" and so on), like `image.save`.
+**Save** (the toolbar shows "baked" or "not baked"; the tooltip of "not baked" says why: stale, missing...), like `image.save`.
 
 - **Toolbar.** The document (a menu of the project's `*.image.json`), **New** (a name and a square size: `image.create` makes `assets/<name>.image.json` with a white background layer),
   **Save**, **Reload** (re-reads the files; the panel also re-reads them by itself when they change on disk and no gesture is
@@ -1204,7 +1204,7 @@ menu to pose it with a different baked `*.rig.glb`). Nothing here needs a scene 
   one colour per bone) shows how the mesh is skinned. A sheet is a picture made when the button was pressed: the window warns when
   the clip has changed since, and only the button redraws it. The weights need the `*.rig.json` the rig was baked from.
 - **Undo.** Every write is a command (`anim3d.*`, `ik3d.key`), so it appears on the Console and an AI can make the same edit. Each
-  returns the call that undoes it (`anim3d.restore` with the whole previous document) and the panel puts it on the editor's undo
+  returns the call that undoes it (`anim3d.restore` with the whole previous document and the clip's previous `provenance` record) and the panel puts it on the editor's undo
   stack with the scene edits (Ctrl+Z): a key, a drag, a generated clip are each one step. The clip file on disk is already written;
   the panel reads it again when it changes outside the panel (a command from the Console, the AI, a script).
 

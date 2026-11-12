@@ -185,7 +185,7 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
 constexpr const char* kTouchOnlyDoc =
     "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice \"touch\"; "
     "a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on "
-    "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).";
+    "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.";
 
 // autoSize of Button, Toggle and Slider.
 constexpr const char* kAutoSizeDoc =
@@ -553,7 +553,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("firstFrame", &SpriteAnimator::firstFrame, "First frame of the clip (inclusive, row-major index).")
         .field("lastFrame", &SpriteAnimator::lastFrame, "Last frame of the clip (inclusive, row-major index).")
         .field("fps", &SpriteAnimator::fps, "Playback speed in frames per second.").range(0, 1000)
-        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.")
+        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.")
+        .enum_field("loopMode", &SpriteAnimator::loopMode, {"inherit", "loop", "once"},
+                    "Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop "
+                    "flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last "
+                    "frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. "
+                    "Anything but inherit wins over `loop`.")
         .field("playing", &SpriteAnimator::playing, "Set false to pause, true to play.")
         .field("clip", &SpriteAnimator::clip,
                "Name of a clip of the Sprite texture's `sheet` entry in assets.json (\"run\"); \"\" = none, the numeric fields alone. "
@@ -665,7 +670,33 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("solver", &IK2D::solver, {"twoBone", "ccd"},
                     "twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' "
                     "length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, "
-                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.");
+                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.")
+        .field("groundMask", &IK2D::groundMask,
+               "Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, "
+               "the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from "
+               "`groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + "
+               "`groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. "
+               "No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always "
+               "vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a "
+               "RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character "
+               "and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report "
+               "(ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve "
+               "commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.")
+        .field("groundReach", &IK2D::groundReach,
+               "Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away "
+               "than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. "
+               "The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can "
+               "be the first hit: keep it smaller than the gap to any ceiling. 24 by default.").range(0, 10000)
+        .field("groundOffset", &IK2D::groundOffset,
+               "Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's "
+               "height above the sole). World units: not scaled by the root's scale. 0 by default.")
+        .field("groundRest", &IK2D::groundRest,
+               "Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, "
+               "else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; "
+               "negative for a foot below the origin). A walk clip lifts the marker while "
+               "a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the "
+               "swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. "
+               "Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.");
 
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
@@ -1131,6 +1162,11 @@ void register_builtin_components(TypeRegistry& r) {
         .field("roughness", &MeshRenderer::roughness,
                "0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.").range(0, 1)
         .field("emissive", &MeshRenderer::emissive, "Light emitted by the surface regardless of lighting (glow). Black = none.")
+        .field("emissiveStrength", &MeshRenderer::emissiveStrength,
+               "HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; "
+               "above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read "
+               "as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. "
+               "Meshes that differ only here are not drawn in the same batch.").range(0, 100)
         .field("unlit", &MeshRenderer::unlit, "true = ignore lighting and draw the flat base color.")
         .field("castShadows", &MeshRenderer::castShadows, "Cast shadows from shadow-casting lights.")
         .field("receiveShadows", &MeshRenderer::receiveShadows, "Receive shadows from shadow-casting lights.")
@@ -1655,7 +1691,22 @@ void register_builtin_components(TypeRegistry& r) {
         .field("playOnStart", &AudioSource::playOnStart, "Start playing when the entity spawns / the scene loads.")
         .field("playing", &AudioSource::playing, "Runtime state: true while a voice is playing. Set true to play, false to stop.").runtime_only()
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
-        .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000)
+        .field("range", &AudioSource::range,
+               "Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). "
+               "The AudioListener's zoom multiplies it.").range(0, 1000000)
+        .enum_field("rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential"},
+                    "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, "
+                    "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is "
+                    "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). "
+                    "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set "
+                    "`range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).")
+        .field("refDistance", &AudioSource::refDistance,
+               "Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear "
+               "starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is "
+               "held just under it (99.9% of range), so linear drops to 0 right before `range`.").range(0, 1000000)
+        .field("rolloffFactor", &AudioSource::rolloffFactor,
+               "Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, "
+               "less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.").range(0, 100)
         .field("priority", &AudioSource::priority,
                "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest "
                "priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise "
@@ -1674,8 +1725,8 @@ void register_builtin_components(TypeRegistry& r) {
         .asset_field("song", &MusicPlayer::song, "music", "Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize).")
         .enum_field("mode", &MusicPlayer::mode, {"auto", "live", "stems"},
                     "How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). "
-                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. "
-                    "auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).")
+                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. "
+                    "auto: stems whenever the song has stem files and they are current, live when it has none or when the song was edited after music.render (live, with a warning, so the edit is heard; docs/MUSIC.md).")
         .field("volume", &MusicPlayer::volume, "Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.").range(0, 1)
         .field("bus", &MusicPlayer::bus, "Mixer bus the music is summed into: \"music\" (default), \"sfx\", \"ui\" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.")
         .field("intensity", &MusicPlayer::intensity, "0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.").range(0, 1)

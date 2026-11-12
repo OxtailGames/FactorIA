@@ -16,7 +16,9 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -132,12 +134,18 @@ void invalidate_sprite_outlines(std::string_view texture = {});
 void skin_outline_dimensions(const SkinBox& box, int detail, int& columns, int& rows);
 
 // -------------------------------------------------------------------------------------------------------------------- IK --
+// What ground snapping (IK2D.groundMask) asks of the physics world: the first collider the segment `from` -> `to` (world space)
+// hits, as its point; `ignore` is the entity whose colliders (and its descendants') do not count. The engine builds it from
+// Physics::raycast2d (scene cannot include physics). A null callback = ground snapping is off, feet are left alone.
+using GroundRaycast2D = std::function<std::optional<Vec2>(Vec2 from, Vec2 to, std::int32_t mask, Entity ignore)>;
 // Solves the IK2D on `e` now: moves the tip of the chain to the target, within the angle limits, and writes the bones'
-// Transform.rotation.z (blended by IK2D.weight). Returns the distance left between the tip and the target in world units
-// (0 = reached), or an error that teaches (no Bone2D, no target, a chain that is shorter than it says).
-Result<float> solve_ik2d(World& w, Entity e);
+// Transform.rotation.z (blended by IK2D.weight). Returns the distance left between the tip and the point it aims at in world units
+// (0 = reached): with ground snapping that point is the grounded aim (the floor hit + groundOffset + the lift), NOT the target
+// entity's position, so a planted foot reads 0 even when the marker is far above the floor; the anim.check finding
+// `ik_out_of_reach` is judged on this value. Or an error that teaches (no Bone2D, no target, a chain that is shorter than it says).
+Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground = {});
 // Solves every active IK2D in the order the components were added. The engine calls it every fixed step right after the
 // animators have posed the bones. Problems are logged once per component.
-void update_ik2d(World& w);
+void update_ik2d(World& w, const GroundRaycast2D& ground = {});
 
 }  // namespace fa

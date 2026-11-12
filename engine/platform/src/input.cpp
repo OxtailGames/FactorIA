@@ -1295,7 +1295,7 @@ std::string Input::button_name(std::string_view bindingOrAction, int pad) const 
     const GamepadType type = gamepad_type(pad);
     auto it = actions_.find(std::string(bindingOrAction));
     if (it == actions_.end()) return binding_label(bindingOrAction, type);
-    const bool wantPad = lastDevice_ == InputDevice::Gamepad;
+    const bool wantPad = last_device() == InputDevice::Gamepad;
     const Binding* pick = nullptr;
     for (const Binding& b : it->second) {
         const bool isPad = b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis;
@@ -1429,9 +1429,19 @@ Vec2 Input::vector(std::string_view left, std::string_view right, std::string_vi
     return v;
 }
 
+std::vector<std::string> Input::action_overrides() const {
+    std::vector<std::string> names;
+    for (const auto& [name, down] : overrides_)
+        if (down) names.push_back(name);
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
 void Input::set_action_override(std::string_view action, bool down) {
     std::string name(action);
     bool was = overrides_.count(name) != 0;
+    if (down != was)
+        if (InputObserver* o = tap()) o->observe_action(name, down);
     if (down) {
         if (!was)
             for (Layer& l : layers_) l.overridePressed[name] = true;
@@ -1444,6 +1454,8 @@ void Input::set_action_override(std::string_view action, bool down) {
 }
 
 void Input::clear_action_overrides() {
+    if (InputObserver* o = tap())
+        for (const auto& [name, v] : overrides_) o->observe_action(name, false);
     for (const auto& [name, v] : overrides_)
         for (Layer& l : layers_) l.overrideReleased[name] = true;
     overrides_.clear();

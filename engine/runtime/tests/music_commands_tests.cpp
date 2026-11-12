@@ -106,6 +106,9 @@ TEST_CASE("audio.music_state: the player of the scene plays, and audio.music dri
     CHECK(r.result["players"][0]["section"] == "intro");
     CHECK(r.result["players"][0]["sections"] == Json::parse(R"(["intro","main","outro"])"));
     CHECK(r.result["mixedFrames"].get<std::uint64_t>() > 0);
+    REQUIRE(r.result["cache"].size() == 1);  // the memory of the music: one song, its bytes per stem
+    CHECK(r.result["cache"][0]["bytes"].get<std::uint64_t>() == r.result["cacheBytes"].get<std::uint64_t>());
+    CHECK(r.result["cacheBytes"].get<std::uint64_t>() > 0);
 
     r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
     REQUIRE(r.ok);
@@ -117,6 +120,16 @@ TEST_CASE("audio.music_state: the player of the scene plays, and audio.music dri
     r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"goToSection","section":"outro","quantize":"bar","fade":0.1})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["player"]["pending"] == 1);
+    // The answer says where the jump lands; audio.music_state keeps saying so until it does.
+    REQUIRE(r.result["change"]["frame"].is_number());
+    CHECK(r.result["change"]["quantize"] == "bar");
+    const Json frame = r.result["change"]["frame"];
+    r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
+    CHECK(r.result["players"][0]["pendingSong"].is_string());
+    CHECK(r.result["players"][0]["pendingSection"] == "outro");
+    CHECK(r.result["players"][0]["pendingAt"] == frame);
+    CHECK(r.result["players"][0]["appliedIntensity"] == 1.0);
+    CHECK(r.result["players"][0]["requestedIntensity"] == 1.0);
     e.step(130);  // 2.2 s: the bar line at 2 s passed
     r = c.call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
     CHECK(r.result["players"][0]["section"] == "outro");
@@ -189,7 +202,7 @@ TEST_CASE("hot reload: a song edited on disk reaches the player that plays it (a
     e.shutdown();
 }
 
-TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: stems on a pretended phone, live again after game.setDevice()") {
+TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: a song with stem files plays them on a desktop, a pretended phone and after game.setDevice()") {
     TempProject p("device");
     // The stems music.render would leave, and the assets.json entry that tells where they are.
     {
@@ -232,15 +245,15 @@ TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: stems on a pretend
 import { test, expect, game } from "factoria:test";
 import { world } from "factoria";
 const mode = () => world.find('theme').music.status.mode;
-test('auto follows the pretended device', () => {
+test('auto plays the stem files whatever the pretended device', () => {
   game.step(30);
-  expect(mode()).toBe('live');   // a headless run reports a desktop
+  expect(mode()).toBe('stems');   // a headless run reports a desktop; the song has stem files
   game.setDevice({ formFactor: 'phone', tier: 'low' });
   game.step(240);
   expect(mode()).toBe('stems');
   game.setDevice({});
   game.step(240);
-  expect(mode()).toBe('live');
+  expect(mode()).toBe('stems');
 });
 )";
     Engine e;

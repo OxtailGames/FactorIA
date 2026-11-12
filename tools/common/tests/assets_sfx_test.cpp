@@ -4,6 +4,7 @@
 
 #include "asset_test_helpers.h"
 #include "fa/audio/analysis.h"
+#include "fa/core/hash.h"
 #include <set>
 
 #include "fa/tooling/scaffold.h"
@@ -417,4 +418,94 @@ TEST_CASE("sfx.edit: set, add, move and remove by JSON pointer, written only whe
     CHECK(read_all(p.file(file)) == before);
     const Json op = failed_call(p, "sfx.edit", {{"path", file}, {"op", "swap"}, {"pointer", "/length"}});
     CHECK(op["error"]["code"] == "invalid_arguments");
+}
+
+TEST_CASE("sfx.bake: `path` bakes only those patches, and assets.regenerate says what it compared when it skips an up-to-date sound") {
+    AssetsProject p;
+    auto call = [&](const std::string& name, const Json& args) { return p.registry.call(name, args); };
+    auto ok = [&](const std::string& name, const Json& args) { return p.ok(name, args); };
+    const auto file = [&](const std::string& rel) { return p.file(rel); };
+    write_all(file("assets/audio/a.sfx.json"), kBlip);
+    write_all(file("assets/audio/b.sfx.json"), kBlip);
+    write_all(file("assets/audio/c.sfx.json"), kBlip);
+
+    const Json one = ok("sfx.bake", {{"path", "assets/audio/a.sfx.json"}});
+    REQUIRE(one["count"] == 1);
+    CHECK(one["baked"][0]["patch"] == "assets/audio/a.sfx.json");
+    CHECK(std::filesystem::exists(file("assets/audio/a.wav")));
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/b.wav")));
+
+    const Json two = ok("sfx.bake", {{"path", Json::array({"assets/audio/b.sfx.json", "assets/audio/a.sfx.json"})}});
+    CHECK(two["count"] == 1);  // a is up to date
+    CHECK(two["unchanged"].size() == 1);
+    CHECK(std::filesystem::exists(file("assets/audio/b.wav")));
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/c.wav")));
+
+    CommandResult missing = call("sfx.bake", {{"path", "assets/audio/nope.sfx.json"}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error["code"] == "not_found");
+    CHECK_FALSE(std::filesystem::exists(file("assets/audio/c.wav")));
+    CHECK_FALSE(call("sfx.bake", {{"path", "assets/audio/a.wav"}}).ok);
+    CHECK_FALSE(call("sfx.bake", {{"path", Json::array()}}).ok);
+
+    // regenerate: the answer for an up-to-date sound lists the inputs it hashed
+    const Json again = ok("assets.regenerate", {{"stale", true}});
+    CHECK(again["count"] == 0);
+    REQUIRE(again["skipped"].size() >= 1);
+    const Json& s = again["skipped"][0];
+    CHECK(s["reason"].get<std::string>().find("up to date") == 0);
+    REQUIRE(s["compared"].is_array());
+    REQUIRE(s["compared"].size() >= 1);
+    CHECK(s["compared"][0]["path"].get<std::string>().find(".sfx.json") != std::string::npos);
+    CHECK(s["compared"][0]["sha256"].get<std::string>().size() == 64);
+    CHECK(s["comparedCount"] == s["compared"].size());
+}
+
+TEST_CASE("assets.regenerate: the compared list is bounded and the missing inputs are listed") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/a.sfx.json"), kBlip);
+    p.ok("sfx.bake", Json::object());
+    // Give the recipe 11 more inputs (12 in all), as a big mix would have.
+    auto manifest = parse_json(read_all(p.file("assets.json")), "assets.json");
+    REQUIRE(manifest.ok());
+    Json& inputs = (*manifest)["assets"]["assets/audio/a.wav"]["provenance"]["recipe"]["inputs"];
+    REQUIRE(inputs.is_array());
+    for (int i = 0; i < 11; ++i) {
+        const std::string rel = "assets/raw/in" + std::to_string(i) + ".txt";
+        write_all(p.file(rel), "x" + std::to_string(i));
+        auto hash = sha256_file_hex(p.file(rel));
+        REQUIRE(hash.ok());
+        inputs.push_back(Json::object({{"path", rel}, {"sha256", *hash}}));
+    }
+    write_all(p.file("assets.json"), manifest->dump(2));
+    const Json again = p.ok("assets.regenerate", {{"stale", true}});
+    REQUIRE(again["skipped"].size() == 1);
+    const Json& s = again["skipped"][0];
+    CHECK(s["comparedCount"] == 12);
+    CHECK(s["compared"].size() == 8);
+
+    // Three inputs gone: the failure names them (the first 8 at most) and counts them.
+    for (int i : {2, 5, 9}) std::filesystem::remove(p.file("assets/raw/in" + std::to_string(i) + ".txt"));
+    const Json gone = p.ok("assets.regenerate", {{"stale", true}});
+    REQUIRE(gone["failed"].size() == 1);
+    const Json& f = gone["failed"][0];
+    CHECK(f["error"]["code"] == "missing_input");
+    CHECK(f["missingCount"] == 3);
+    REQUIRE(f["missingInputs"].size() == 3);
+    CHECK(f["missingInputs"][1] == "assets/raw/in5.txt");
+}
+
+TEST_CASE("sfx.bake: a path with backslashes or another case bakes the patch and its variants, with shared normalization") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/pop.sfx.json"),
+              R"({"format": "factoria.sfx/1", "length": 0.2, "tail": 0.02, "variations": {"count": 3, "seed": 4, "spread": {"filter": 1.5}},
+                  "layers": [{"oscillators": [{"wave": "noise", "color": "white"}], "filter": {"mode": "lowpass", "cutoff": 1500}}],
+                  "master": {"normalize": {"mode": "lufs", "target": -20, "ceilingDb": -3, "shared": true}}})");
+    // Backslashes and another case than the file's: the same patch (patches are matched case-insensitively, as Windows would).
+    const Json r = p.ok("sfx.bake", {{"path", "assets\\AUDIO\\POP.sfx.json"}});
+    CHECK(r["count"] == 4);  // the sound and its 3 variants
+    for (const char* name : {"pop.wav", "pop_01.wav", "pop_02.wav", "pop_03.wav"})
+        CHECK(std::filesystem::exists(p.file(std::string("assets/audio/") + name)));
+    const Json again = p.ok("sfx.bake", Json::object());
+    CHECK(again["count"] == 0);
 }

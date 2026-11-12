@@ -11,6 +11,7 @@
 
 #include "assets_internal.h"
 #include "assets_shots.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim3d.h"
 #include "fa/scene/anim3d_gen.h"
@@ -124,10 +125,49 @@ void check_can_write(const char* command, const std::string& projectDir, const s
         fail("exists", std::string(command) + ": '" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another path.");
 }
 
-void write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json) {
+// Writes the clip and its record in assets.json. `made` is the provenance of a clip a command made again from a recipe (anim3d.generate,
+// anim3d.retarget); null for every edit: the clip then keeps its record, minus the recipe (a stale hand edit must not be overwritten by
+// assets.regenerate), and a clip without a record gets "original" (made by hand with the anim3d commands).
+// Returns the provenance the clip had before (null when it had none): the undo puts it back. `exact` (anim3d.restore) sets the provenance to `made`
+// as it is, null removing it, instead of the rules above.
+Json write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json, const Json& made = nullptr, bool exact = false) {
+    require_usable_manifest(projectDir);  // before any file changes: a broken assets.json must not leave a written clip and an error
     std::string err;
     if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     clear_anim3d_cache();  // the next load reads the file again, whatever its modification time says
+    ProjectRootGuard root(projectDir);
+    Json previous = nullptr;
+    auto r = assets::update_entry(rel, [&](Json& e) {
+        if (e.contains("provenance") && e["provenance"].is_object()) previous = e["provenance"];
+        if (exact) {
+            if (made.is_object()) e["provenance"] = made;
+            else e.erase("provenance");
+            return;
+        }
+        if (made.is_object()) {
+            e["provenance"] = made;
+            return;
+        }
+        if (e.contains("provenance") && e["provenance"].is_object()) {
+            Json& p = e["provenance"];
+            if (p.contains("recipe")) {
+                p.erase("recipe");
+                const std::string note = "Edited by hand with the anim3d commands after it was made; the recipe was removed so assets.regenerate does not overwrite the edit.";
+                p["notes"] = p.contains("notes") && p["notes"].is_string() ? p["notes"].get<std::string>() + " " + note : note;
+            }
+            return;
+        }
+        e["provenance"] = obj({{"origin", "original"}, {"ai", false}, {"kind", "anim3d"}, {"provider", "factoria anim3d"}, {"license", "CC0-1.0"}, {"author", "factoria"},
+                               {"notes", "Keyed with the anim3d commands."}, {"date", assets::today()}});
+    });
+    if (!r.ok()) fail("failed", "The clip '" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+    return previous;
+}
+
+// The provenance of a clip anim3d.generate or anim3d.retarget made: the recipe holds the call and the SHA-256 of the rigs and the source clip.
+Json made_clip_provenance(const std::string& projectDir, const char* command, Json recipeArgs, const std::vector<std::string>& inputs, const std::string& notes) {
+    return obj({{"origin", "original"}, {"ai", false}, {"kind", "anim3d"}, {"provider", std::string("factoria ") + command}, {"license", "CC0-1.0"}, {"author", "factoria"},
+                {"notes", notes}, {"date", assets::today()}, {"recipe", make_recipe(projectDir, command, std::move(recipeArgs), inputs)}});
 }
 
 // The clip file as it is now, or null when it does not exist or is not readable JSON: what anim3d.restore puts back.
@@ -140,8 +180,9 @@ Json clip_before(const std::string& projectDir, const std::string& rel) {
 
 // {command, args} that puts the clip back to `before` (null = the file did not exist: delete it). Every writing anim3d.* command returns it
 // as `undo`, so an editor or an AI can step back; the result of calling it carries the undo that goes forward again.
-Json undo_restore(const std::string& rel, const Json& before) {
-    return obj({{"command", "anim3d.restore"}, {"args", obj({{"path", rel}, {"clip", before}})}});
+// `provenance` is the record the clip had in assets.json (null = none), so the undo puts the recipe back too.
+Json undo_restore(const std::string& rel, const Json& before, const Json& provenance) {
+    return obj({{"command", "anim3d.restore"}, {"args", obj({{"path", rel}, {"clip", before}, {"provenance", provenance}})}});
 }
 
 // ---- rigs ---------------------------------------------------------------------------------------------------------------------------------
@@ -281,8 +322,8 @@ Json anim3d_create_command(const std::string& projectDir, const Json& a) {
     parse_clip_or_fail(doc, rel);
     check_can_write("anim3d.create", projectDir, rel, tooling_detail::arg_bool(a, "overwrite", false));
     const Json before = clip_before(projectDir, rel);
-    write_clip_json(projectDir, rel, doc);
-    Json r = obj({{"path", rel}, {"duration", duration}, {"loop", doc["loop"]}, {"rotation", rotation}, {"undo", undo_restore(rel, before)}});
+    const Json prevProv = write_clip_json(projectDir, rel, doc);
+    Json r = obj({{"path", rel}, {"duration", duration}, {"loop", doc["loop"]}, {"rotation", rotation}, {"undo", undo_restore(rel, before, prevProv)}});
     r["nextSteps"] = Json::array({"anim3d.set_keys {\"path\":\"" + rel + "\",\"bone\":\"spine_1\",\"keys\":[{\"t\":0,\"value\":[0,0,0]},{\"t\":0.5,\"value\":[10,0,0],\"interp\":\"quadInOut\"}]} adds the keys of one bone (euler degrees: pitch, yaw, roll).",
                                   "anim3d.generate writes a whole walk, run, idle, swing or hit clip from a rig instead."});
     return r;
@@ -401,8 +442,8 @@ Json anim3d_set_keys_command(const std::string& projectDir, const Json& a) {
     }
     std::stable_sort(keys.begin(), keys.end(), [](const Json& x, const Json& y) { return x["t"].get<double>() < y["t"].get<double>(); });
     const auto clip = parse_clip_or_fail(doc, rel);  // a refused edit leaves the file as it was
-    write_clip_json(projectDir, rel, anim3d_to_json(*clip));
-    Json r = obj({{"path", rel}, {"bone", bone}, {"channel", anim3d_channel_name(channel)}, {"added", added}, {"replaced", replaced}, {"duration", round_to(clip->duration, 4)}, {"undo", undo_restore(rel, before)}});
+    const Json prevProv = write_clip_json(projectDir, rel, anim3d_to_json(*clip));
+    Json r = obj({{"path", rel}, {"bone", bone}, {"channel", anim3d_channel_name(channel)}, {"added", added}, {"replaced", replaced}, {"duration", round_to(clip->duration, 4)}, {"undo", undo_restore(rel, before, prevProv)}});
     for (const Anim3DTrack& t : clip->tracks)
         if (t.bone == bone && t.channel == channel) r["keys"] = t.keys.size();
     r["nextSteps"] = Json::array({"anim3d.preview {\"path\":\"" + rel + "\",\"rig\":...} draws the clip as a filmstrip; keys at the same time as an existing one replace it."});
@@ -439,8 +480,8 @@ Json anim3d_remove_track_command(const std::string& projectDir, const Json& a) {
     }
     doc["tracks"] = kept;
     const auto clip = parse_clip_or_fail(doc, rel);
-    write_clip_json(projectDir, rel, anim3d_to_json(*clip));
-    Json r = obj({{"path", rel}, {"bone", bone}, {"removed", removed}, {"tracks", clip->tracks.size()}, {"undo", undo_restore(rel, before)}});
+    const Json prevProv = write_clip_json(projectDir, rel, anim3d_to_json(*clip));
+    Json r = obj({{"path", rel}, {"bone", bone}, {"removed", removed}, {"tracks", clip->tracks.size()}, {"undo", undo_restore(rel, before, prevProv)}});
     r["nextSteps"] = Json::array({"anim3d.set_keys adds a track back."});
     return r;
 }
@@ -454,13 +495,14 @@ Json round_floats(const std::array<float, 4>& v, int comps) {
 }
 
 // Checks the edited document with the loader's rules (a refused edit leaves the file as it was), writes it canonical and builds the result.
-Json commit_clip(const std::string& projectDir, const std::string& rel, const Json& before, const Json& edited, Json extra = Json::object()) {
+// `exactProvenance` (anim3d.restore only) sets the clip's record to that object, or removes it when null, instead of the usual rules.
+Json commit_clip(const std::string& projectDir, const std::string& rel, const Json& before, const Json& edited, Json extra = Json::object(), const Json* exactProvenance = nullptr) {
     const auto clip = parse_clip_or_fail(edited, rel);
-    write_clip_json(projectDir, rel, anim3d_to_json(*clip));
+    const Json prevProv = write_clip_json(projectDir, rel, anim3d_to_json(*clip), exactProvenance ? *exactProvenance : Json(nullptr), exactProvenance != nullptr);
     Json r = clip_summary(*clip);
     r["path"] = rel;
     for (auto it = extra.begin(); it != extra.end(); ++it) r[it.key()] = *it;
-    r["undo"] = undo_restore(rel, before);
+    r["undo"] = undo_restore(rel, before, prevProv);
     return r;
 }
 
@@ -550,9 +592,23 @@ std::pair<int, int> locate_key(const char* command, const Json& doc, const KeyRe
 }
 
 Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("anim3d.restore", a, "", {"path", "clip"});
+    check_arg_keys("anim3d.restore", a, "", {"path", "clip", "provenance"});
     const std::string rel = clip_path_arg("anim3d.restore", a, "path");
     if (!a.contains("clip")) fail("invalid_argument", "anim3d.restore: give `clip`, the whole document to write, or null to delete the file.", "Every writing anim3d.* command returns the call that undoes it as `undo`.");
+    const bool hasProv = a.contains("provenance");
+    if (hasProv && !a["provenance"].is_null()) {
+        const Json& pv = a["provenance"];
+        if (!pv.is_object())
+            fail("invalid_argument", "anim3d.restore: `provenance` is " + describe_json_value(pv) + ", not an object or null.", "Pass the `provenance` the undo returned, or leave it out.");
+        const std::string origin = pv.contains("origin") && pv["origin"].is_string() ? pv["origin"].get<std::string>() : std::string();
+        if (origin != "generated" && origin != "imported" && origin != "original")
+            fail("invalid_argument", "anim3d.restore: /provenance/origin is " + (pv.contains("origin") ? describe_json_value(pv["origin"]) : std::string("missing")) + ", not \"generated\", \"imported\" or \"original\".",
+                 "A provenance record needs `origin` and `date` (schemas/assets.schema.json); pass the `provenance` the undo returned.");
+        if (!pv.contains("date") || !pv["date"].is_string())
+            fail("invalid_argument", "anim3d.restore: /provenance/date is " + (pv.contains("date") ? describe_json_value(pv["date"]) : std::string("missing")) + ", not a string like \"2026-01-31\".",
+                 "A provenance record needs `origin` and `date` (schemas/assets.schema.json); pass the `provenance` the undo returned.");
+    }
+    require_usable_manifest(projectDir);
     const Json before = clip_before(projectDir, rel);
     if (a["clip"].is_null()) {
         const stdfs::path file = project_file(projectDir, rel);
@@ -561,11 +617,21 @@ Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
         stdfs::remove(file, ec);
         if (ec) fail("failed", "anim3d.restore: cannot delete '" + rel + "': " + ec.message(), "Check that the file is not open elsewhere.");
         clear_anim3d_cache();
-        return obj({{"path", rel}, {"deleted", true}, {"undo", undo_restore(rel, before)}});
+        // the record goes with the file (a record of a missing clip would keep a recipe assets.regenerate runs again); the undo puts it back
+        Json previous = nullptr;
+        ProjectRootGuard root(projectDir);
+        auto upd = assets::update_entry(rel, [&](Json& e) {
+            if (e.contains("provenance") && e["provenance"].is_object()) previous = e["provenance"];
+            e.erase("provenance");
+        });
+        if (!upd.ok()) fail("failed", "The clip '" + rel + "' was deleted, but assets.json was not updated: " + upd.error().message, upd.error().hint);
+        Json deleted = obj({{"path", rel}, {"deleted", true}, {"undo", undo_restore(rel, before, previous)}});
+        if (hasProv && !a["provenance"].is_null()) deleted["warnings"] = Json::array({"`provenance` was ignored: deleting a clip removes its record too."});
+        return deleted;
     }
     if (!a["clip"].is_object() || !is_anim3d_json(a["clip"]))
         fail("invalid_argument", "anim3d.restore: `clip` is " + describe_json_value(a["clip"]) + ", not a 3D clip document.", "Pass the whole document (format \"" + std::string(kAnim3DFormat) + "\") or null.");
-    return commit_clip(projectDir, rel, before, a["clip"]);
+    return commit_clip(projectDir, rel, before, a["clip"], Json::object(), hasProv ? &a["provenance"] : nullptr);
 }
 
 Json anim3d_move_keys_command(const std::string& projectDir, const Json& a) {
@@ -919,10 +985,12 @@ Json anim3d_generate_command(const std::string& projectDir, const Json& a) {
     const Json json = anim3d_to_json(clip);
     parse_clip_or_fail(json, out);  // what was made reads back
     const Json before = clip_before(projectDir, out);
-    write_clip_json(projectDir, out, json);
+    const Json recorded = made_clip_provenance(projectDir, "anim3d.generate", recipe_args(a, {{"rig", rig.path}, {"kind", kind}, {"params", params}, {"out", out}}), {rig.path},
+                                           "Generated from " + rig.path + ": " + kind + ".");
+    const Json prevProv = write_clip_json(projectDir, out, json, recorded);
     Json r = clip_summary(clip);
     r["path"] = out;
-    r["undo"] = undo_restore(out, before);
+    r["undo"] = undo_restore(out, before, prevProv);
     r["kind"] = kind;
     r["rig"] = rig.path;
     r["generated"] = clip.generated;
@@ -962,10 +1030,15 @@ Json anim3d_retarget_command(const std::string& projectDir, const Json& a) {
     const Json json = anim3d_to_json(result.clip);
     parse_clip_or_fail(json, out);
     const Json before = clip_before(projectDir, out);
-    write_clip_json(projectDir, out, json);
+    std::vector<std::string> inputs{recipe_path(rel), from.path};
+    if (to.path != from.path) inputs.push_back(to.path);
+    const Json recorded = made_clip_provenance(projectDir, "anim3d.retarget",
+                                           recipe_args(a, {{"path", recipe_path(rel)}, {"from", from.path}, {"to", to.path}, {"out", out}}), inputs,
+                                           "Retargeted from " + rel + " (" + from.path + ") to " + to.path + ".");
+    const Json prevProv = write_clip_json(projectDir, out, json, recorded);
     Json r = clip_summary(result.clip);
     r["path"] = out;
-    r["undo"] = undo_restore(out, before);
+    r["undo"] = undo_restore(out, before, prevProv);
     r["from"] = from.path;
     r["to"] = to.path;
     r["scale"] = round_to(result.scale, 4);
@@ -1221,6 +1294,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.create";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.";
         info.description =
             "Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is \"euler\" (keys are [pitch, yaw, roll] degrees, the default) or \"quat\" (keys are [x, y, z, w]). `rig` (optional) records the rig the clip is for and its template "
@@ -1254,6 +1328,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.set_keys";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.";
         info.description =
             "Edits one track (`bone` + `channel`, made when it does not exist): each key is {t, value, interp, in, out} as in the file (schemas/anim3d.schema.json). `value` is [x, y, z] (rotation: pitch, yaw, roll degrees; translation: an offset from the "
@@ -1274,6 +1349,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.remove_track";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).";
         info.description = "The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {\"path\":\"anim/hero_walk.anim.json\",\"bone\":\"hand_l\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "bone"})},
@@ -1285,6 +1361,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.generate";
         info.category = "anim";
+        info.readOnly = false;  // it writes a clip, and assets.regenerate only runs commands that write
         info.summary = "Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.";
         info.description =
             "Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key "
@@ -1314,6 +1391,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.retarget";
         info.category = "anim";
+        info.readOnly = false;
         info.summary = "Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.";
         info.description =
             "Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not "
@@ -1365,18 +1443,21 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.restore";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.";
         info.description =
-            "Every writing anim3d.* command returns `undo` = {command: \"anim3d.restore\", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a "
-            "command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}";
+            "Every writing anim3d.* command returns `undo` = {command: \"anim3d.restore\", args: {path, clip, provenance}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file and its record in assets.json (the undo of a "
+            "command that created it). `provenance` is the record the clip had in assets.json (the recipe included): restoring writes it back exactly (it needs `origin` and `date`), null removes it; with `clip: null` it is ignored (the record is removed with the file); without it a restore keeps the record the usual way. The manifest is checked first. Its own result carries the `undo` that goes forward again (redo). Example: {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "clip"})},
-                                         {"properties", obj({{"path", pathProp}, {"clip", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The whole clip document to write, or null to delete the file."}})}})}});
+                                         {"properties", obj({{"path", pathProp}, {"clip", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The whole clip document to write, or null to delete the file."}})},
+                                                                  {"provenance", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The assets.json provenance record to put back as it is (null removes it); the undo of a call returns it."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_restore_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;
         info.name = "anim3d.move_keys";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.";
         info.description =
             "`keys` selects keys as [{bone, channel?, t}]; each moves to t + dt (rounded to 0.1 ms). A key may not leave the clip: before 0 is an error, past the duration is an error unless `extendDuration`. Two moved keys of one track landing on the same time is an error; "
@@ -1390,6 +1471,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.remove_keys";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.";
         info.description = "`keys` selects keys as [{bone, channel?, t}] (anim3d.info lists the tracks; a time within 1 ms matches). Result: the clip summary plus {removed, tracksRemoved, undo}. "
                            "Example: {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}]}" + kUndoNote;
@@ -1400,6 +1482,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.set_interp";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).";
         info.description = "`keys` selects keys as [{bone, channel?, t}]; `interp` is linear, step, bezier (smooth tangents through the neighbours) or an easing name (quadIn, quadOut, quadInOut, backOut, elasticOut... as tween()). "
                            "A quaternion clip takes linear, step or an easing. Result: the clip summary plus {changed, interp, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}],\"interp\":\"quadInOut\"}" + kUndoNote;
@@ -1411,6 +1494,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.set_clip";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Set the duration, loop, ground speed or description of a 3D clip.";
         info.description = "Give any of `duration` (seconds; shorter than the last key or event is refused), `loop`, `groundSpeed` (model units per second the planted feet move back at; 0 = in place) and `doc`. Result: the clip summary plus {undo}. "
                            "Example: {\"path\":\"anim/hero_walk.anim.json\",\"duration\":1.2,\"loop\":false}" + kUndoNote;
@@ -1423,6 +1507,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.add_event";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.";
         info.description = "The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array "
                            "(hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, \"Effects as data\") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless "
@@ -1436,6 +1521,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.set_event";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Move, rename or change the data or the game feel actions of an event of a 3D clip.";
         info.description = "`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. "
                            "Result: the clip summary plus {undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"},\"t\":0.25}" + kUndoNote;
@@ -1448,6 +1534,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.remove_event";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Remove an event from a 3D clip.";
         info.description = "`event` is the event's index in the clip's events, or {t, name?}. Result: the clip summary plus {removed, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"event\":0}" + kUndoNote;
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "event"})}, {"properties", obj({{"path", pathProp}, {"event", eventRefProp}})}});
@@ -1457,6 +1544,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.mirror_pose";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).";
         info.description =
             "Samples the clip at `time`, mirrors the pose across the character's mid plane and writes it as keys at `to` (default `time`) for every bone the clip animates: `from` \"swap\" (default) puts each side's pose on the other side and mirrors the bones with no side "
@@ -1474,6 +1562,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "ik3d.key";
         info.category = "anim";
+        info.readOnly = false;  // it writes the clip and its record in assets.json
         info.summary = "Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.";
         info.description =
             "Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers with [x, y, z] targets in the model's space, as ik3d.solve) and writes rotation keys at that time for every bone the solver changed (translation for a foot solver that lowers the pelvis). "

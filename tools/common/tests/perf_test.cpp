@@ -247,6 +247,22 @@ TEST_CASE("perf samples round-trip through JSON") {
     CHECK(perf_sample_from_json(Json("not an object")).frames == 0);
 }
 
+TEST_CASE("perf samples: the audio memory is reported by a measurement and never written to a baseline entry") {
+    PerfSample s = sample(1.5, 2.5, 64.5, 7, 9);
+    s.audioDecodedMB = 31.256;
+    s.musicMB = 12.5;
+    const Json measured = perf_sample_json(s);
+    CHECK(measured["audioDecodedMB"].get<double>() == doctest::Approx(31.26));
+    CHECK(measured["musicMB"].get<double>() == doctest::Approx(12.5));
+    const PerfSample back = perf_sample_from_json(measured);
+    CHECK(back.audioDecodedMB == doctest::Approx(31.26));
+    CHECK(back.musicMB == doctest::Approx(12.5));
+    const Json baseline = perf_sample_json(s, false);
+    CHECK_FALSE(baseline.contains("audioDecodedMB"));
+    CHECK_FALSE(baseline.contains("musicMB"));
+    CHECK_FALSE(perf_sample_json(sample(1, 1, 1, 1, 1)).contains("musicMB"));   // not recorded: not invented
+}
+
 TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
 #if defined(_WIN32)
     _putenv_s("FACTORIA_PERF_RUNNER", "");

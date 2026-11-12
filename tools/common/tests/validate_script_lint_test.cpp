@@ -174,6 +174,40 @@ TEST_CASE("validate scripts: a colour that mixes 0..1 and 0..255 warns with the 
     CHECK(err.find("0..255 when any channel is over 1") != std::string::npos);
 }
 
+TEST_CASE("validate scripts: an emissive colour over 1 warns that it is read as 0..255 and points to emissiveStrength") {
+    testing::TempDir tmp;
+    const std::string dir = make_game(tmp);
+    auto scene = load_json_file(dir + "/scenes/main.scene.json");
+    REQUIRE(scene.ok());
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "mixed", "components": {"MeshRenderer": {"emissive": [1.5, 1, 0.4, 1]}}})"));
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "dark", "components": {"MeshRenderer": {"emissive": [2, 2, 2]}}})"));
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "fine", "components": {"MeshRenderer": {"emissive": [1, 0.8, 0.4, 1], "emissiveStrength": 3}}})"));
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "bytes", "components": {"MeshRenderer": {"emissive": [255, 200, 100]}}})"));
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "shape", "components": {"Shape2D": {"size": [1, 1], "color": [2, 2, 2]}}})"));
+    REQUIRE(save_scene_json_file(dir + "/scenes/main.scene.json", *scene).ok());
+    const ValidationReport r = validate_project(dir);
+    int emissiveWarnings = 0, shapeWarnings = 0;
+    for (const ValidationIssue& w : r.warnings) {
+        if (w.pointer.find("/MeshRenderer/emissive") != std::string::npos) {
+            ++emissiveWarnings;
+            CHECK(w.message.find("0..255") != std::string::npos);
+            CHECK(w.message.find("MeshRenderer.emissiveStrength") != std::string::npos);
+        }
+        if (w.pointer.find("/Shape2D/color") != std::string::npos) {
+            ++shapeWarnings;
+            CHECK(w.message.find("almost black") != std::string::npos);
+            CHECK(w.message.find("emissiveStrength") == std::string::npos);  // only an emissive colour has a strength to point to
+        }
+    }
+    CHECK(emissiveWarnings == 2);  // [1.5, 1, 0.4, 1] and [2, 2, 2]; the colour with a strength and the bytes are fine
+    CHECK(shapeWarnings == 1);
+}
+
 TEST_CASE("validate scripts: a default import of factoria is the whole module and its members are checked") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);

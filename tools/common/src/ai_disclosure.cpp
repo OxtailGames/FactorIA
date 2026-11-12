@@ -14,9 +14,9 @@ namespace fa {
 namespace {
 
 // In the order of the report.
-constexpr const char* kCategories[] = {"Art and images", "Sound effects", "Music", "Voice", "3D models",
+constexpr const char* kCategories[] = {"Art and images", "Sound effects", "Music", "Voice", "3D models", "3D animation",
                                        "Audio (sound effect, music or voice not recorded)"};
-constexpr const char* kKinds[] = {"image", "sound", "music", "voice", "model3d"};  // provenance.kind of the first five
+constexpr const char* kKinds[] = {"image", "sound", "music", "voice", "model3d", "anim3d"};  // provenance.kind of the first six
 
 std::string text_of(const Json& j, const char* key) {
     auto it = j.find(key);
@@ -42,7 +42,7 @@ std::string category_of(const std::string& path, const Json& provenance) {
     switch (assets::kind_of(path)) {
         case assets::AssetKind::Texture: return kCategories[0];
         case assets::AssetKind::Model: return kCategories[4];
-        default: return kCategories[5];
+        default: return kCategories[6];
     }
 }
 

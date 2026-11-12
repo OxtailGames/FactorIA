@@ -50,9 +50,9 @@ sources. The commands were called with `factoria call` from small scripts that w
 | The distant howl | `assets/audio/distant_howl.audio.json` | `audio.create` (a chain of steps) |
 | Music: title, night (sections intro / calm / hunt / outro; layers base, pulse, tension, voice), dawn, defeat | `assets/music/*.song.json` | `music.create`, `music.edit`, `music.check`, `music.render` (stems per layer, loop points) |
 
-The 3D clips written by `anim3d.*` have no record in `assets.json` (an engine gap, in the feedback file), so the assets
-test cannot prove their origin; their documents say which rig they were made for and, for generated ones, with which
-generator.
+The 3D clips under `anim/` have a record in `assets.json` too. A clip `anim3d.generate` made and nobody edited has a recipe
+(`assets.regenerate {"stale": true}` remakes it when its rig is fitted again); a clip keyed further by hand has a record
+without a recipe, because regenerating would drop the keys. The assets test checks both.
 
 ## How it plays and sounds
 
@@ -66,8 +66,8 @@ generator.
 - **Music** is one `MusicPlayer` with a director script: the intensity follows the danger (wolves alive, low fuel, the
   alpha), the song moves between its `calm` and `hunt` sections on the bar, the alpha's howl is a ducking stinger, and
   the game crossfades into the dawn song and the defeat song.
-- **Sounds**: one-shots are placed by `playAt` in `scripts/common.js` (attenuation and pan computed by hand, because
-  `audio.play` has no position).
+- **Sounds**: the wolves' one-shots are placed with `audio.play(path, { position, range })`, which
+  attenuates and pans them from the camera's `AudioListener`.
 - **Menus** are the engine's menu kit (`project.add_menu_kit`: title, options, credits, pause, loading) plus the end
   panel of the game; the text is in `locales/en.json`.
 

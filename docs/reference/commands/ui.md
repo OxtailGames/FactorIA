@@ -46,6 +46,18 @@ Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
+## `ui.force_touch` (modifies state)
+
+Since 0.23.0.
+
+Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.
+
+TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a finger: those controls are shown at once (no step needed), `input.lastDevice` says "touch" and prompts and tooltips follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. Example: ui.force_touch {"enabled":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
+
 ## `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.

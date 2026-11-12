@@ -459,6 +459,28 @@ void sfx_measure_loudness(const std::vector<std::vector<double>>& channels, int 
     measure_channels(list, rate, lufs, peak);
 }
 
+Result<double> sfx_shared_gain_db(const SfxPatch& patch, const SfxRenderOptions& options) {
+    const SfxNormalize norm = options.normalize ? *options.normalize : patch.normalize;
+    SfxRenderOptions raw = options;
+    raw.normalize = SfxNormalize{SfxNormalizeMode::None, 0.0, 0.0, false};
+    raw.velocity = 1.0;  // the gain levels the sound, not the hit: the caller's velocity stays on top of it
+    raw.sharedGainDb.reset();
+    double best = 1e9;  // the lowest gain is the loudest variant's
+    const int count = std::max(1, patch.variations.count);
+    for (int v = 0; v < count; ++v) {
+        raw.variant = patch.variations.count > 0 ? v : -1;
+        auto a = render_sfx(patch, raw);
+        if (!a) return a.error();
+        if (norm.mode == SfxNormalizeMode::None || a->peakDb <= -150.0) continue;
+        double g;
+        if (norm.mode == SfxNormalizeMode::Peak) g = std::clamp(norm.target - a->peakDb, -60.0, 60.0);
+        else if (a->lufs > -70.0) g = std::min(std::clamp(norm.target - a->lufs, -24.0, 24.0), norm.ceilingDb - a->peakDb);
+        else continue;
+        best = std::min(best, g);
+    }
+    return best > 1e8 ? 0.0 : best;
+}
+
 Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& options) {
     // Macros and variants change a copy of the patch; a patch without them is rendered as it is, bit for bit as before.
     const sfx_detail::MacroValues macros = sfx_detail::effective_macros(base, options.macros);
@@ -466,6 +488,24 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
     if (hasVariant && (base.variations.count <= 0 || options.variant >= base.variations.count))
         return make_error(base.variations.count <= 0 ? "the patch declares no variations" : std::format("variant {} does not exist: the patch has {}", options.variant + 1, base.variations.count),
                           "Declare \"variations\": {\"count\": 6} in the patch; variants are numbered from 1.");
+    if (hasVariant && (options.normalize ? options.normalize->shared : base.normalize.shared)) {
+        // One gain for all the variants: found on the loudest, applied to this one with the level stage off.
+        const SfxNormalize norm = options.normalize ? *options.normalize : base.normalize;
+        double g = 0.0;
+        if (norm.mode != SfxNormalizeMode::None) {
+            if (options.sharedGainDb) {
+                g = *options.sharedGainDb;
+            } else {
+                auto r = sfx_shared_gain_db(base, options);
+                if (!r) return r.error();
+                g = *r;
+            }
+        }
+        SfxRenderOptions flat = options;
+        flat.normalize = SfxNormalize{SfxNormalizeMode::None, 0.0, 0.0, false};
+        flat.velocity = options.velocity * db_to_gain(g);
+        return render_sfx(base, flat);
+    }
     SfxPatch work;
     const SfxPatch* use = &base;
     double macroTranspose = 1.0, velocity = options.velocity;

@@ -857,6 +857,31 @@ of Google Play and the App Store. The result lists every `written` file with its
 factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}'
 ```
 
+
+#### Scoping the style rules
+
+The rules fit the art of the game, not every picture in the folder: an interface picture is never on a mesh and a flame lights
+itself. Three ways to leave a rule out, from the narrowest:
+
+- `style.ignore {path, rules?}` records an entry in `style.ignore`: `path` is a file, a folder ending in a slash or a glob
+  (`assets/fx/**`). With `rules` (`outline`, `value`, `saturation`, `lightDirection`, `texelsPerUnit`, `pixelArt`, `palette`, or a
+  sub-rule such as `value.max`; a name also covers the rules under it) only those rules are skipped and the others still check, so
+  a real problem is not hidden; without `rules` every rule is skipped for the path (the plain-string entry). `remove: true` takes an
+  entry, or the named rules of it, back. In assets.json: `"ignore": ["assets/old/**", {"path": "assets/fx/spark.png", "rules": ["outline"]}]`.
+  An entry with no `rules` already skips every rule, so naming rules for it changes nothing (the result says so in `notes`); to
+  narrow it, remove the entry and add the rules. Skipping every rule for a path that had only some rules widens the entry (also said in `notes`).
+  `path` is a project path: a `..` segment is refused, a name such as `a..b.png` is fine.
+- A **role**: `style.set_role {path, role}` writes `style.roles` (`{"assets/ui/**": "ui"}`; `remove: true` deletes the glob), and
+  `assets.set_provenance` accepts `role` for one asset (it wins over a glob; assets.set_provenance without `role` keeps it, and
+  `assets.regenerate`, importing the file again, `assets.generate_image`, `assets.generate_texture` and `assets.draw_icon` over the file keep it too). `role: ""` (or null) in
+  `assets.set_provenance` takes the asset's role back. `ui` and `icon` turn off `texelsPerUnit` and `lightDirection`;
+  `effect` also turns off `outline`, `value` and `saturation`. The other rules keep checking.
+- `texelsPerUnit` is only judged for textures a scene draws; a texture no scene uses is left out already.
+
+`assets.check_art` still checks a file you name, applies the rule-level entries and roles, and lists what it left out under
+`styleSkipped` (`{rule, reason}`: the `style.ignore` entry, or the role and whether it came from provenance or a glob) and
+`role` (`{role, from}`); `factoria validate` applies the same scope.
+
 ## Recipes: make an asset again
 
 The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
@@ -884,7 +909,17 @@ of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
   `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
   size, and for sheets the layout before and after. `{"all": true}` does every asset with a recipe, `{"stale": true}` only
   those whose `inputs` no longer match (you edited the SVG), and `dryRun: true` lists what would run and changes nothing.
-  There is no list of commands: any `assets.*` command that records a recipe works.
+  An asset that `{"stale": true}` leaves alone is listed in `skipped` with `reason: "up to date..."` and `compared`: the
+  inputs it hashed now (`{path, sha256}`, the same hash the recipe recorded) and the style-guide values it compared, so
+  an "up to date" answer shows what it looked at: only the files in the recipe's `inputs`, not any file the command could read.
+  `compared` lists at most 8 entries and `comparedCount` is how many there are in all. An asset whose inputs no longer exist is
+  in `failed` with code `missing_input`, `missingInputs` (the first 8 paths) and `missingCount`.
+  `assets.check_mix` takes the loop points of a sound from assets.json `import.loopStart`/`loopEnd` first (a `loopEnd` past the
+  end of the file is the end) and from a WAV's `smpl` chunk only as a fallback; the engine plays only the assets.json points.
+  There is no list of commands: any `assets.*` command that records a recipe works, and so do `anim3d.generate` and
+  `anim3d.retarget` (a clip's inputs are its rig, plus the source clip and the source rig for a retarget: a re-fit of the rig
+  makes the clips stale). An edit of a clip (`anim3d.set_keys` and the other editing commands) removes its recipe, so
+  regenerate never overwrites a hand edit; the record says so in its notes. `assets.set_provenance` takes the kind `anim3d`.
 - An asset that reads another (a sheet sliced from a picture made from an SVG) is made after it, and `stale` looks again at
   its inputs when its turn comes, so the whole chain follows one edit. Several files made by one call (an icon and its
   foreground, a texture and its normal map, the capsules of a store) are made once. What a person recorded (license, author,
@@ -1066,8 +1101,9 @@ same track holds about 40 KB of decoded audio however long it is. `auto` streams
 `always` and `never` decide by hand (`never` for a sound that must start with no decoding at all, `always` for a long
 ambience). Looping restarts the decoder, pitch and fades work as for any other sound, and a streamed sound plays exactly
 like the same sound decoded whole. It applies to `audio.play`, `audio.music`, `SceneSettings.music` and `AudioSource`.
-`game.state` reports both under `audio`: `decodedBytes` (PCM held by loaded sounds plus the buffers of the voices that
-stream) and `streamedClips` (the loaded sounds that stream), so a test can check that a long track really streams.
+`game.state` reports both under `audio`: `decodedBytes` (PCM held by loaded sounds, the buffers of the voices that stream and
+the decoded music; `musicBytes` is the music alone, docs/MUSIC.md) and `streamedClips` (the loaded sounds that stream), so a
+test can check that a long track really streams.
 
 **Loudness.** FactorIA measures integrated loudness the way broadcasters do (ITU-R BS.1770-4 / EBU R128: K-weighted, in
 400 ms blocks, gated at -70 LUFS and 10 LU below the average) and the sample peak in dBFS. A mono sound counts on both

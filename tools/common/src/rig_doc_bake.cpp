@@ -37,7 +37,45 @@ Json manifest_entry(const std::string& projectDir, const std::string& rel) {
     return assets::entry(rel);
 }
 
+bool same_material(const MeshMaterial& a, const MeshMaterial& b) {
+    return a.name == b.name && a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b && a.color.a == b.color.a && a.texture == b.texture &&
+           a.metallic == b.metallic && a.roughness == b.roughness && a.emissive.r == b.emissive.r && a.emissive.g == b.emissive.g && a.emissive.b == b.emissive.b &&
+           a.doubleSided == b.doubleSided && a.blend == b.blend;
+}
+
 }  // namespace
+
+std::size_t rig_merge_parts(MeshData& mesh) {
+    std::vector<std::vector<std::size_t>> groups;  // submesh numbers per material, in order of first appearance
+    for (std::size_t s = 0; s < mesh.submeshes.size(); ++s) {
+        std::size_t g = 0;
+        for (; g < groups.size(); ++g)
+            if (same_material(mesh.submeshes[groups[g][0]].material, mesh.submeshes[s].material)) break;
+        if (g == groups.size()) groups.emplace_back();
+        groups[g].push_back(s);
+    }
+    if (groups.size() == mesh.submeshes.size()) return mesh.submeshes.size();
+    std::vector<std::uint32_t> indices;
+    std::vector<MeshSubmesh> out;
+    for (const std::vector<std::size_t>& group : groups) {
+        MeshSubmesh joined = mesh.submeshes[group[0]];
+        joined.start = std::uint32_t(indices.size());
+        joined.part.clear();
+        std::vector<std::string> names;
+        for (std::size_t s : group) {
+            const MeshSubmesh& sm = mesh.submeshes[s];
+            const std::size_t end = std::min<std::size_t>(std::size_t(sm.start) + sm.count, mesh.indices.size());
+            for (std::size_t i = sm.start; i < end; ++i) indices.push_back(mesh.indices[i]);
+            if (!sm.part.empty() && std::find(names.begin(), names.end(), sm.part) == names.end()) names.push_back(sm.part);
+        }
+        joined.count = std::uint32_t(indices.size()) - joined.start;
+        joined.part = join(names, "+");
+        out.push_back(std::move(joined));
+    }
+    mesh.indices = std::move(indices);
+    mesh.submeshes = std::move(out);
+    return mesh.submeshes.size();
+}
 
 std::string rig_document_output(const RigDoc& doc, const std::string& relIn) {
     if (!doc.outputPath.empty()) return normalized(doc.outputPath);
@@ -197,6 +235,18 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
 
     auto eval = rig_evaluate(projectDir, *doc, true);
     if (!eval.ok()) return make_error(rel + ": " + eval.error().message, eval.error().hint);
+    bool merge = false;
+    if (options.mergeParts) merge = *options.mergeParts;
+    else {
+        const Json old = assets_detail::recipe_of(manifest_entry(projectDir, result.output));
+        merge = old.is_object() && old.value("command", std::string()) == kBakeCommand && old.contains("args") && old["args"].is_object() && old["args"].value("mergeParts", false);
+    }
+    result.mergeParts = merge;
+    result.submeshesBefore = result.submeshesAfter = eval->mesh.submeshes.size();
+    if (merge) {
+        result.submeshesAfter = rig_merge_parts(eval->mesh);
+        if (result.submeshesAfter == result.submeshesBefore) eval->warnings.push_back("mergeParts: no two parts share a material, so nothing was merged.");
+    }
     auto bytes = rig_to_glb(eval->mesh, eval->fit, result.output, &eval->skin.weights);
     if (!bytes.ok()) return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
     result.sha256 = sha256_hex(bytes->data(), bytes->size());
@@ -249,7 +299,7 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
                                   {"source", rel},
                                   {"notes", notes},
                                   {"date", assets::today()}});
-        prov["recipe"] = assets_detail::make_recipe(projectDir, kBakeCommand, Json::object({{"path", rel}}), inputs);
+        prov["recipe"] = assets_detail::make_recipe(projectDir, kBakeCommand, merge ? Json::object({{"path", rel}, {"mergeParts", true}}) : Json::object({{"path", rel}}), inputs);
         result.provenance = prov;
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");

@@ -156,13 +156,20 @@ without deleting it.
 
 ### Normalization
 
-`master.normalize` is `{mode, target, ceilingDb}`:
+`master.normalize` is `{mode, target, ceilingDb, shared}`:
 
 - `lufs` (default, target -18): the gain is chosen so the integrated loudness (BS.1770 K-weighting, gated; the same measure as
   `assets.spectrogram` and `factoria validate`) reaches the target, but never so loud that the peak passes `ceilingDb` (default -1).
   Very short sounds can end up quieter than the target because of that ceiling.
 - `peak`: the loudest sample reaches `target` dBFS (default -3).
 - `none`: the level the layers add up to. Use it for instruments that other tools will level.
+
+With `variations`, each variant is levelled alone by default, so every variant reaches the target and the differences in
+loudness between them (the variant `gainDb` aside) are gone. `"shared": true` finds one gain on the loudest variant (the one that
+needs the least gain to reach the target, ceiling included) and applies it to all of them: the variants keep their ratios and none
+passes the target. It applies to `sfx.render {variant}`, `{variants: true}` and `sfx.bake`. Finding the gain costs one extra
+render of every variant: once per patch in a `variants: true` render or a `sfx.bake`, once per call for a single `variant`. A
+`velocity` is applied on top of the shared gain (the gain is found at velocity 1, so a quiet hit stays quiet).
 
 The output is clamped to -1..1; the WAV is 16-bit mono.
 
@@ -179,7 +186,7 @@ The output is clamped to -1..1; the WAV is 16-bit mono.
 | `sfx.preset {name?, path?, overwrite?}` | Lists the presets, returns one, or writes it to `path` (under `assets/`, ending in `.sfx.json`). |
 | `sfx.info {path \| patch \| preset, seed?}` | Validates a patch and returns all its problems (pointer, message, fix) or its layers, effects, base pitch, whether its baked sound exists or is stale, and the loudness, peak and length it renders to. Writes nothing. |
 | `sfx.render {path, out?, seed?, freq?, note?, length?, tail?, macros?, variant?, variants?, picture?, pictureOut?, width?, height?, overwrite?}` | Renders the patch to a mono 16-bit WAV (or Ogg Vorbis when `out` ends in `.ogg`). Returns `measurements` (`lufs`, `peakDb`, `seconds`, `centroidHz`, `riseSeconds`), `analysis` (the numbers of `assets.spectrogram` for the file as written) and the spectrogram picture (`$image`). |
-| `sfx.bake {force?, dryRun?, macros?}` | Renders every patch of the project whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
+| `sfx.bake {path?, force?, dryRun?, macros?}` | Renders every patch of the project (or only `path`, one patch or a list) whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
 | `sfx.tweak {path, macros, absolute?, render?, seed?, picture?}` | Turns macros by meaning, writes them to the patch and renders again; returns the measurements before and after. |
 | `sfx.edit {path, op, pointer, value?, index?, to?}` | Changes one field of a patch by JSON pointer: `set` a value, `remove` a field or array item, `add` an item to an array (at `index`, or the end) or `move` an array item to `to`. The patch is written only when the result still parses, so a mistake leaves the file as it was. The Sound panel's inspector runs it. |
 | `sfx.family {from, names \| preset, out?, overwrite?, render?, picture?}` | Writes a set of interface sounds from one base patch and shows them in one picture. |
@@ -367,7 +374,12 @@ carries on when playback wraps. The loop points are written to the baked file's 
 (`loopStart` and `loopEnd`, in seconds; docs/ASSETS.md), and a WAV also gets a `smpl` chunk with them. `AudioSource`, `audio.play` and
 `audio.music` with loop on wrap inside those points: whatever comes before `loopStart` plays once as an intro. Only `gain` and
 `normalize` may follow a `loop` step, because anything else would change the samples around the seam. A sound with loop points
-is decoded whole, not streamed.
+is decoded whole, not streamed. `assets.check_mix` judges `loop_seam_slope` and `loop_seam_jump` of such a sound across those loop
+points (the crossfade), not across the file's ends. It takes the points from assets.json (`import.loopStart`/`loopEnd`, a
+`loopEnd` past the end of the file counts as the end, as the engine plays it) first and from the `smpl` chunk only as a fallback;
+the engine itself never reads `smpl`, so a WAV that has the chunk but no import loop points is judged by its chunk while the
+game plays it whole. It does not judge a recording that is only an input of an audio document's
+recipe (it lists it under `skipped`).
 
 A song gets its loop points the same way: `music.render` writes the `smpl` chunk and `import.loopStart`/`loopEnd` for the song's loop sections, and one stem file per layer with the same
 points (docs/MUSIC.md, "Rendering a song for a game").
@@ -440,6 +452,44 @@ audio.create {"path":"assets/audio/wind_loop.audio.json","source":"assets/audio/
    measurements.loop {startSeconds 0.0, endSeconds 0.4853}; assets.json import: loopStart 0.0, loopEnd 0.485306
 audio.render {"path":"assets/audio/wind_loop.audio.json","stopAfter":0}
 -> the chain up to the trim: 0.585 s, before the seam
+```
+
+## A sound at a place
+
+`audio.play(path, { position: [x, y, z], range, rolloff })` plays a one-shot as if it came from a point of the world, with no
+entity: it uses what an `AudioSource` with `spatial: true` uses. The volume falls from `volume` at the
+listener to 0 at `range` world units (default 800, the `AudioSource.range` default; the listener's `zoom` stretches it; the curve is `rolloff`, below), and the pan follows
+the side of the listener's right axis the point is on (a point at half the range to the right pans fully right). The listener is the first active
+`AudioListener`, else the primary camera. A 2D game gives `[x, y]` (or `{x, y}`). With no listener the sound plays at
+`volume` and `pan` as given; a sound at or beyond the range plays nothing and `audio.play` returns 0 (a sound inside the range
+that is silent, for instance with a muted listener, still plays and returns an id, as `audio.play` does without a position).
+A `caption` of a sound that returns 0 for being out of range is not shown, unless you give `captionSeconds`. `volume` is the sound's
+own volume (multiplied by the attenuation), `pan` is replaced by the computed one; `variants`, `pitch`, `bus` and `priority` work as always.
+Position, volume and pan are computed once, when the sound starts: it does not follow the entity that made it. For a source that
+moves, or a looping sound at a place, use an `AudioSource` with `spatial: true` (and `loop: true`): `audio.play` with a `position` and
+`loop: true` throws, because the attenuation would stay frozen at the value of the start (and a sound out of range then would never play).
+In C++ it is `Audio::play_at(world, clip, params, position, range, rolloff, refDistance, rolloffFactor)` (game thread only: it reads the World).
+
+### Rolloff
+
+`rolloff` (`audio.play`) and `AudioSource.rolloff` choose how the volume falls with the distance `d` from the listener. The
+names follow Web Audio's `distanceModel` and OpenAL: `refDistance` (r) is the distance up to which the sound is at full volume and
+`rolloffFactor` (k, default 1) is how steep the curve is. `d` is taken as at least `r`.
+
+| `rolloff` | gain | notes |
+| --- | --- | --- |
+| `"linear"` (default) | `1 - k * (d - r) / (range - r)` | with the defaults (`r` 0, `k` 1) it is `1 - d/range`, what the engine always did |
+| `"inverse"` | `r / (r + k * (d - r))` | loud when close, long quiet tail; at `d = 2r` and `k = 1` it is 1/2 |
+| `"exponential"` | `(d / r) ^ -k` | `k = 1` is the same as inverse at `r`; higher `k` falls faster |
+
+`refDistance` 0 (the default) means 0 for `linear` and `range / 20` for `inverse` and `exponential` (they need a reference above 0).
+A `refDistance` at or above `range` is held at 99.9% of `range`: the sound stays at full volume up to there and `linear` then drops to 0 just
+before `range`. `inverse` and `exponential` never reach 0 by themselves, so every curve is cut at `range` (0 beyond it): choose a `range` where the
+chosen curve is already quiet. The listener's `zoom` stretches `range` and `refDistance` together. The mixer applies the value
+to the sound's volume, so it multiplies with `volume`, the bus and the listener's own `volume`.
+
+```js
+audio.play("assets/sfx/bell.wav", { position: [40, 0, 0], range: 400, rolloff: "inverse", refDistance: 20 });
 ```
 
 ## Voice stealing
@@ -518,6 +568,22 @@ each memory ordering is explained where it is used:
   ring with room for at least 2048. A ring that runs dry is an **underrun**: the voice plays silence for the rest of the block
   and waits where it is (no frame is skipped), the callback never waits for the decoder, and `stats()` counts `underruns` (one per
   voice and block) and `underrunFrames`. Only a game thread that stalls for longer than a ring lasts underruns.
+- **Streamed music.** A stem of a song that plays from stem files (docs/MUSIC.md, "Live and stems") streams when it is an `.ogg`
+  of 20 s or more at 44.1 kHz (`import.music.stream` overrides). It keeps a window of 32 chunks of 8192 frames (6 s) in 32 slots with
+  an atomic state each, shared by every head of the transport (the playing section, a section jump or a crossfade under way, a layer
+  fading in). The callback only pins a chunk, reads it and unpins it; it never decodes, waits or allocates. Each time it publishes the
+  transport's state it publishes, per stem (`MusicStemStream::publish_head`, relaxed atomics, no allocation), where that stem will read
+  (the position and, for a queued jump or crossfade, its target and the loop's start). The **music service thread** (`Impl::MusicService`
+  in audio.cpp, started by `init()` with a real device, joined by `shutdown()`) reads that every 2 ms while a chunk is missing and 10 ms
+  otherwise, takes the stem's claim, turns the heads into the chunks to keep (4 urgent and 12 ahead per head) and decodes the missing ones;
+  the farthest chunk is the one evicted. It needs neither the API lock nor a call of the game, so a game thread that stalls (a long scene
+  load, a breakpoint, a minimized window) does not dry the music, only a service thread that cannot run does. A chunk is a decode from a seek in
+  the ogg, exact to the sample. The first chunks are decoded on the thread that loads the song, and on the game thread when it plays or is told to
+  jump (`music_prime`, which waits for the claim for the time of one chunk when the service thread is decoding the stem: the decoder gives the
+  claim up between chunks when somebody waits for it, 500 ms safety net). A chunk still missing when the callback needs
+  it plays silence for that stem and block and counts an **underrun** per stem and block (`musicUnderruns`, `musicUnderrunFrames`, also
+  inside `underruns` / `underrunFrames`); the song's clock does not wait, so every other stem stays in time and the dry one comes back in time once its chunks are decoded. On the null device and the web the
+  mixer decodes the missing chunk itself (there is no service thread), so a headless run is the same on every machine.
 - **Music players.** Each `MusicPlayer` has its transport in the mixer (64 at most at once). The game reads the transport's
   state from a triple buffer (the newest whole copy) and its events from a ring of 2048 that the transport fills only as far as
   it has room: events are delayed, never dropped. `music_status` and the component's runtime fields are at most a block behind.
@@ -551,7 +617,14 @@ lines are made when it is switched on. Tests:
   the mixer converges; repeated Keep commands merge and no stop is lost). These tests were checked with
   ThreadSanitizer (`-fsanitize=thread`) when they were written; no CI job runs it.
 - `engine/audio/tests/test_music.cpp` loads a song on a job and plays intensity changes, a section jump, a stinger and a
-  crossfade with a device thread, with no allocation in the callback.
+  crossfade with a device thread, with no allocation in the callback. For streamed music it checks that a chunk decoded after
+  a seek equals the one decoded in order, that streamed and whole stems play the same events on the same frames (jumps and loops),
+  the bytes of a 4-layer song and the `import.music.stream` rule, that a dry window plays silence, is counted and recovers, that a
+  manual-device callback through jumps, a stinger and a crossfade allocates nothing, that a jump with no quantize while the service
+  holds the stem plays no dry block (`music_prime` waits for the claim), that the music keeps its window with no call of the game for
+  longer than the look-ahead, and that the callback, the game and the music service thread run together on a streamed song.
 
 The count covers `operator new` only, so a `malloc` inside the C decoders (stb_vorbis, minimp3, dr_wav, qoa) while the null
-device or the web decodes a dry stream in the callback is not covered.
+device or the web decodes a dry stream in the callback is not covered. The streamed-music tests use the manual device (the test
+calls the music service's pass and the callback itself, or starts its thread), so how the real device's timing behaves on a slow disk is not tested, and the new
+threaded test was not run under ThreadSanitizer.

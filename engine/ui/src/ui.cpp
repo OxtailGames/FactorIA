@@ -414,6 +414,8 @@ void UiSystem::drop_focus(World& w) {
     focus_ = kNullEntity;
 }
 
+void UiSystem::sync_touch_controls(World& w, Input& in, Vec2 design) { touch_controls(w, in, design); }
+
 void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMeasure& measure) {
     layout(w, design, measure);
     touch_controls(w, in, design);

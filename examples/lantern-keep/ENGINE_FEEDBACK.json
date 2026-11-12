@@ -1247,9 +1247,11 @@
       "suggestion": "Accept `output` in image.create.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
+      "engineIssue": "76bdc6bc",
       "notes": [
-        "2026-11-03: found while redrawing enemy.png and spikes.png as pixel-art documents with image.draw and image.pixel."
+        "2026-11-03: found while redrawing enemy.png and spikes.png as pixel-art documents with image.draw and image.pixel.",
+        "Fixed in 76bdc6bc (M101.6): image.create takes `output`. The two documents now live in assets/src/ with `output` naming their PNGs."
       ]
     }
   ]

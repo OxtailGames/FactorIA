@@ -179,16 +179,34 @@ std::string color_text(const std::array<double, 4>& v, std::size_t n) {
 
 // A colour written as numbers is read as 0..255 when ANY channel is over 1 (json_to<Color>), so [255, 255, 255, 1] is an
 // alpha of 1/255 (nearly invisible) and [1, 1, 1, 255] a black of 1/255. All bytes ([255, 128, 0, 255]) or all 0..1 is fine, and
-// a channel of 0 is the same in both.
-void check_color_array(Ctx& c, const std::string& file, const std::string& pointer, const Json& v) {
+// a channel of 0 is the same in both. A colour whose channels are over 1 but none over 8 ([2, 2, 2], [1.5, 3, 0]) has no channel
+// in 0..1 to make it a mix, and reads as under 4% bright: nobody writes bytes that dark on purpose, so it is warned too (the
+// try at "brighter than white"). `strengthField` is the HDR multiplier of an emissive colour (MeshRenderer.emissiveStrength),
+// named in the hint, or empty.
+void check_color_array(Ctx& c, const std::string& file, const std::string& pointer, const Json& v,
+                       const std::string& strengthField = {}) {
     if (!v.is_array() || v.size() < 3 || v.size() > 4) return;
     std::array<double, 4> ch{0, 0, 0, 1};
     bool over = false, small = false;
+    double largest = 0.0;
     for (std::size_t i = 0; i < v.size(); ++i) {
         if (!v[i].is_number()) return;
         ch[i] = v[i].get<double>();
         over = over || ch[i] > 1.0;
         small = small || (ch[i] > 0.0 && ch[i] <= 1.0);
+        largest = std::max(largest, ch[i]);
+    }
+    const std::string glow = strengthField.empty()
+        ? std::string()
+        : " To glow brighter than white keep the colour in 0..1 and raise " + strengthField + " (an HDR multiplier, 1 = as written).";
+    if (over && !small && largest <= 8.0) {  // [2, 2, 2]: nobody writes a 0..255 colour this dark on purpose
+        std::array<double, 4> bytes = ch;
+        for (std::size_t i = 0; i < v.size(); ++i) bytes[i] = ch[i] / 255.0;
+        c.warn(file, pointer,
+               "The colour " + color_text(ch, v.size()) + " has a channel over 1, so the engine reads it as 0..255 and divides every "
+               "channel by 255: it is " + color_text(bytes, v.size()) + " (0..1), almost black. A colour in 0..1 cannot be brighter than white." + glow,
+               "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+        return;
     }
     if (!over || !small) return;
     std::array<double, 4> bytes = ch, unit = ch;
@@ -200,8 +218,14 @@ void check_color_array(Ctx& c, const std::string& file, const std::string& point
            "The colour " + color_text(ch, v.size()) + " mixes channels over 1 with channels at most 1. The engine reads a colour as "
            "0..255 when any channel is over 1, so every channel is divided by 255: it is " + color_text(bytes, v.size()) +
            " (0..1). If you meant " + color_text(unit, v.size()) + " (the 0..1 reading of the small channels), it is not; if you "
-           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine.",
+           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine." + glow,
            "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+}
+
+bool has_field(const TypeInfo& t, const std::string& name) {
+    for (const FieldInfo& f : t.fields)
+        if (f.name == name) return true;
+    return false;
 }
 
 void check_component_assets(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
@@ -209,7 +233,7 @@ void check_component_assets(Ctx& c, const std::string& file, const std::string& 
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
     for (const FieldInfo& f : t->fields)
-        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name]);
+        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name], f.name == "emissive" && has_field(*t, "emissiveStrength") ? typeName + ".emissiveStrength" : std::string());
     for (const FieldInfo& f : t->fields) {
         if (f.kind != FieldKind::Asset || !fields.contains(f.name)) continue;
         check_asset_value(c, file, pointer + "/" + f.name, f, fields[f.name]);
@@ -500,6 +524,144 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
         int i = 0;
         for (const auto& ch : entity["children"]) check_entity_assets(c, file, pointer + "/children/" + std::to_string(i++), ch, scripts);
     }
+}
+
+// A scene entity that carries a copy of a prefab's components instead of being an instance of it: the copy does not follow
+// later changes of the prefab (SH/FB-0024). Prefabs whose root has a component besides Transform are indexed once; a scene
+// entity is only compared (diff_entity_with_prefab, the comparison scene.save uses) with the few prefabs whose component
+// keys it holds and that share its name or its exact component set.
+struct PrefabShape {
+    std::string path, name;
+    std::set<std::string> components;
+};
+
+std::vector<PrefabShape> index_prefab_shapes(const Ctx& c, const std::vector<std::string>& prefabFiles) {
+    std::vector<PrefabShape> out;
+    for (const std::string& rel : prefabFiles) {
+        auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
+        if (!text) continue;
+        auto parsed = parse_json(*text, rel);
+        if (!parsed.ok() || !parsed.value().is_object() || !parsed.value().contains("entity")) continue;
+        const Json& root = parsed.value()["entity"];
+        if (!root.is_object() || !root.contains("components") || !root["components"].is_object()) continue;
+        PrefabShape s;
+        s.path = rel;
+        if (root.contains("name") && root["name"].is_string()) s.name = root["name"].get<std::string>();
+        bool hasMore = false;
+        for (auto it = root["components"].begin(); it != root["components"].end(); ++it) {
+            s.components.insert(it.key());
+            if (it.key() != "Transform") hasMore = true;
+        }
+        if (hasMore) out.push_back(std::move(s));
+    }
+    return out;
+}
+
+// Past this many copies in one file the warnings are not listed one by one: one more says how many were left out.
+constexpr int kInlineCopyListed = 5;
+struct InlineCopyCount {
+    int warned = 0, unlisted = 0;
+};
+
+// The world entity that stands for `entry`, the JSON entry at position `index` of `siblings` (the world's roots or the
+// children of its parent): entries and entities are in the same order, so no id is needed (an entry without one, or a
+// duplicate id the world suffixed, still maps). A mismatch of ids means a skipped entry: null, nothing is compared.
+Entity world_entity_of(const World& world, const Json& entry, const std::vector<Entity>& siblings, std::size_t index) {
+    if (index >= siblings.size() || !entry.is_object()) return kNullEntity;
+    const Entity e = siblings[index];
+    if (entry.contains("id") && entry["id"].is_string()) {
+        const std::string want = entry["id"].get<std::string>(), got = world.info(e).id;
+        if (got != want && !(got.size() > want.size() && got.compare(0, want.size(), want) == 0 && got[want.size()] == '_')) return kNullEntity;
+    }
+    return e;
+}
+
+void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity, Entity e,
+                              World& world, const std::vector<PrefabShape>& shapes, PrefabBaseCache& cache,
+                              InlineCopyCount& count) {
+    if (!entity.is_object()) return;
+    const bool hasComps = entity.contains("components") && entity["components"].is_object() && !entity["components"].empty();
+    PrefabDiffOptions opts;
+    opts.cache = &cache;
+    if (e != kNullEntity && hasComps) {
+        if (entity.contains("prefab") && entity["prefab"].is_string()) {
+            // An instance that also saves two or more components whose fields all equal the prefab's.
+            opts.useMarks = true;
+            PrefabDiff d = diff_entity_with_prefab(world, e, entity["prefab"].get<std::string>(), opts);
+            if (d.expressible) {
+                const Json* differing = d.entry.contains("components") ? &d.entry["components"] : nullptr;
+                std::string list;
+                int repeated = 0;
+                for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it)
+                    if (!differing || !differing->contains(it.key())) { list += (repeated++ ? ", " : "") + it.key(); }
+                // One component repeated is usually a single override that happens to equal the prefab (scene.import_ascii
+                // legends do that); two or more are the prefab's content written out again.
+                if (repeated >= 2)
+                    c.warn(file, pointer + "/components",
+                           "This instance of '" + entity["prefab"].get<std::string>() + "' also saves " + list +
+                               " with the prefab's own values, so a later change of the prefab does not reach it.",
+                           "Delete the repeated component(s): an instance stores only what differs (scene.save writes it that way).");
+            }
+        } else {
+            const PrefabShape* best = nullptr;
+            PrefabDiff bestDiff;
+            const std::string name = entity.contains("name") && entity["name"].is_string() ? entity["name"].get<std::string>() : "";
+            std::set<std::string> keys;
+            for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) keys.insert(it.key());
+            // At most three candidates are compared: the prefabs that share the entity's name first, then the ones with
+            // exactly its component set.
+            std::vector<const PrefabShape*> candidates;
+            for (int pass = 0; pass < 2 && candidates.size() < 3; ++pass)
+                for (const PrefabShape& s : shapes) {
+                    if (candidates.size() >= 3) break;
+                    if (!std::includes(keys.begin(), keys.end(), s.components.begin(), s.components.end())) continue;
+                    const bool byName = !name.empty() && name == s.name;
+                    if (pass == 0 ? !byName : (byName || s.components != keys)) continue;
+                    candidates.push_back(&s);
+                }
+            for (const PrefabShape* sp : candidates) {
+                PrefabDiff d = diff_entity_with_prefab(world, e, sp->path, opts);
+                if (!d.expressible || d.changes > 2) continue;
+                if (!best || d.changes < bestDiff.changes) { best = sp; bestDiff = std::move(d); }
+            }
+            if (best) {
+                if (count.warned >= kInlineCopyListed) {
+                    ++count.unlisted;
+                    return;
+                }
+                ++count.warned;
+                const std::string id = world.info(e).id;
+                c.warn(file, pointer,
+                       "Entity '" + id + "' repeats the components of '" + best->path + "' inline (" +
+                           std::to_string(bestDiff.changes) + " difference(s)), so it will not follow later changes of the prefab.",
+                       "Make it an instance: replace the entry with " + bestDiff.entry.dump() +
+                           " (scene.save keeps prefab instances in that form), or create it with scene.spawn {\"prefab\": \"" +
+                           best->path + "\"} and delete this one.");
+                return;  // its children are the copy's parts
+            }
+        }
+    }
+    if (e != kNullEntity && entity.contains("children") && entity["children"].is_array()) {
+        const std::vector<Entity>& kids = world.children(e);
+        // An instance's own children come first and the entry's children are added after them.
+        const std::size_t n = entity["children"].size();
+        const bool instance = entity.contains("prefab");
+        if (instance ? kids.size() < n : kids.size() != n) return;
+        const std::size_t skip = instance ? kids.size() - n : 0;
+        std::size_t i = 0;
+        for (const auto& ch : entity["children"]) {
+            check_inline_prefab_copy(c, file, pointer + "/children/" + std::to_string(i), ch,
+                                     world_entity_of(world, ch, kids, skip + i), world, shapes, cache, count);
+            ++i;
+        }
+    }
+}
+
+void note_unlisted_inline_copies(Ctx& c, const std::string& file, const std::string& pointer, const InlineCopyCount& count) {
+    if (count.unlisted == 0) return;
+    c.warn(file, pointer, std::to_string(count.unlisted) + " more entities of this file repeat the components of a prefab inline (the first " +
+                         std::to_string(kInlineCopyListed) + " are listed above).",
+           "Replace the copies with prefab instances, or create them with scene.spawn {\"prefab\": ...}.");
 }
 
 // A scene or prefab file whose text differs from the layout the engine writes (scene.format's, shared through
@@ -1041,10 +1203,13 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         std::set<std::string> namedClips;  // the clip files Animators name (checked with the project's *.anim.json)
         for (const std::string& rel : project_scene_files())
             (ends_with(to_lower(rel), ".scene.json") ? sceneFiles : prefabFiles).push_back(rel);
+        const std::vector<PrefabShape> prefabShapes = index_prefab_shapes(c, prefabFiles);
+        PrefabBaseCache prefabCache;
         for (const auto& rel : sceneFiles) {
             ++c.report.scenesChecked;
             World world;  // registers built-in components
             LoadReport lr = load_scene_file(world, rel);
+            prefabCache.forget_world();  // the cache serves one World at a time
             for (const auto& m : lr.messages) {
                 ValidationIssue issue{m.source.empty() ? rel : m.source, m.pointer, m.message, m.hint};
                 // Normalize absolute sources to project-relative.
@@ -1066,6 +1231,22 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             validate_detail::check_ik3d(rel, world, j, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
+            // Entries and roots are matched by position: a scene where an entry is not an object, or whose entries and roots
+            // differ in number (the loader dropped one), is not compared.
+            const bool alignedRoots = j.is_object() && j.contains("entities") && j["entities"].is_array() &&
+                                      std::all_of(j["entities"].begin(), j["entities"].end(), [](const Json& x) { return x.is_object(); }) &&
+                                      world.roots().size() == j["entities"].size();
+            if (alignedRoots && !prefabShapes.empty()) {
+                const std::vector<Entity> roots = world.roots();
+                InlineCopyCount copies;
+                std::size_t i = 0;
+                for (const auto& e : j["entities"]) {
+                    check_inline_prefab_copy(c, rel, "/entities/" + std::to_string(i), e, world_entity_of(world, e, roots, i), world,
+                                             prefabShapes, prefabCache, copies);
+                    ++i;
+                }
+                note_unlisted_inline_copies(c, rel, "/entities", copies);
+            }
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
                 int i = 0;
                 for (const auto& e : j["entities"]) check_entity_assets(c, rel, "/entities/" + std::to_string(i++), e, scripts);
@@ -1080,11 +1261,29 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             {
                 World prefabWorld;
                 LoadReport ignored;
-                instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
+                prefabCache.forget_world();
+                const Entity prefabRoot = instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
                 prefabWorld.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
                 if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
                 validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
                 validate_detail::check_ik3d(rel, prefabWorld, parsed.value(), c.report);
+                // The prefab's own parts that repeat another prefab (the root is the prefab itself, not a copy).
+                const Json& pj = parsed.value();
+                if (!prefabShapes.empty() && !prefabRoot.is_null() && pj.is_object() && pj.contains("entity") && pj["entity"].is_object() &&
+                    pj["entity"].contains("children") && pj["entity"]["children"].is_array()) {
+                    const std::vector<Entity>& kids = prefabWorld.children(prefabRoot);
+                    const Json& entries = pj["entity"]["children"];
+                    InlineCopyCount copies;
+                    if (kids.size() == entries.size()) {
+                        std::size_t i = 0;
+                        for (const auto& ch : entries) {
+                            check_inline_prefab_copy(c, rel, "/entity/children/" + std::to_string(i), ch, world_entity_of(prefabWorld, ch, kids, i),
+                                                     prefabWorld, prefabShapes, prefabCache, copies);
+                            ++i;
+                        }
+                    }
+                    note_unlisted_inline_copies(c, rel, "/entity/children", copies);
+                }
             }
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
@@ -1247,7 +1446,12 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
                        "Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in "
                        "`notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, "
                        "`notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports "
-                       "a .json that a script imports and that is not valid JSON once, as that file with line and column.";
+                       "a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about a scene entity "
+                       "that repeats a prefab's components inline instead of being an instance of it (the copy does not follow later "
+                       "changes of the prefab; the hint gives the {id, prefab, differences} entry that replaces it), and about an "
+                       "instance that also saves two or more components with the prefab's own values. It looks at the entities of scenes "
+                       "(children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the rest "
+                       "in one more warning.";
     registry.add(info, [projectDir](const Json&) { return validate_project(projectDir).to_json(); });
 }
 

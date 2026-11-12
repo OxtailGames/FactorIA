@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 #include <string>
@@ -41,7 +42,13 @@ struct Metrics {
     int dominantBand = -1;  // the loudest band; -1 for a silent sound
     bool silent = true;     // no sample above -90 dBFS
 };
-Metrics measure(const DecodedAudio& audio);
+// `loop` = loop points in frames (end exclusive) the sound is played between (assets.json import.loopStart/loopEnd, which the engine
+// plays; for a WAV without them the `smpl` chunk of a `loop` step, which only this check reads): the seam
+// metrics then judge the join from the frame before `end` to `start` (what is heard when playback wraps) instead of the file's ends.
+struct LoopPoints {
+    std::size_t start = 0, end = 0;
+};
+Metrics measure(const DecodedAudio& audio, const std::optional<LoopPoints>& loop = std::nullopt);
 
 // A short-time Fourier transform of the mid channel on a log frequency axis, in dB (a full-scale sine reads 0 dB):
 // `db[row * columns + column]`, row 0 = `maxHz`, the last row = `minHz`.

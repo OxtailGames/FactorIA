@@ -55,7 +55,7 @@ logged. A green run means a script can finish the game, not that a person finds 
 | `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, skill `tile-levels`) |
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/vfx/*.vfx.json` | effect documents (`factoria.vfx/1`): emitters, a light flash and sounds on one timeline, played with `vfx.play`; here `gem_burst`, the pickup effect of a gem. Grade one with `vfx.check`, `vfx.budget` and `vfx.filmstrip` (in this 3D game it plays the effect a few metres in front of the main camera unless you give a `position`; `vfx.budget` projects the 3D emitters through that camera) |
-| `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `tools/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
+| `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `scripts/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
 | `REVIEW.md` | the note the art critics and game reviewers read first (never exported, skill `review-ready`) |

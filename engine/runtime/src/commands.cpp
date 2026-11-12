@@ -498,7 +498,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving "
            "them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass "
            "includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities "
-           "made with scene.spawn, the editor or other authoring commands are always saved.",
+           "made with scene.spawn, the editor or other authoring commands are always saved. An entity made from a prefab "
+           "(a scene entry {\"prefab\": ...}, scene.spawn with `prefab`) is written as {\"id\", \"prefab\", only the fields that "
+           "differ from the prefab} so later changes of the prefab file still reach the scene; the rare instance whose "
+           "differences that form cannot express (a part of the prefab removed, a child added under a part of it) is "
+           "written inline and listed under `expandedPrefabs` with the reason.",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Project-relative output path. Default: the current scene."},
                "includeSpawned":{"type":"boolean","default":false,"description":"Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load."}}})"),
@@ -509,11 +513,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
               if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
               SpawnedSkip skip;
-              auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip);
+              std::vector<PrefabExpanded> expanded;
+              auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded);
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
               if (I.currentScene.empty()) I.currentScene = path;
               Json out = Json::object({{"saved", path}, {"entityCount", I.world.entity_count() - skip.count}});
+              if (!expanded.empty()) {
+                  Json list = Json::array();
+                  for (std::size_t i = 0; i < expanded.size() && i < 10; ++i)
+                      list.push_back(Json::object({{"id", expanded[i].id}, {"prefab", expanded[i].prefab}, {"reason", expanded[i].reason}}));
+                  out["expandedPrefabs"] = Json::object({{"count", expanded.size()}, {"first", list}});
+                  out["prefabHint"] = "Wrote " + std::to_string(expanded.size()) + " prefab instance(s) as inline entities because a scene entry "
+                                      "{\"prefab\", differences} cannot say how they differ (see `reason`); they no longer follow later changes of "
+                                      "their prefab file. Undo that difference in the world (do not remove parts of the prefab from an instance) "
+                                      "and save again to keep them as instances.";
+              }
               if (skip.count > 0) {
                   out["skippedSpawned"] = Json::object({{"count", skip.count}, {"first", skip.labels}});
                   out["hint"] = "Left out " + std::to_string(skip.count) + " entities a script spawned at runtime (the script "
@@ -987,6 +1002,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine](const Json& a) {  // the schema has already checked the range
               engine.set_text_scale(a.at("scale").get<float>());
               return Json::object({{"textScale", engine.text_scale()}});
+          });
+
+    I.commands.add({"ui.force_touch", "Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch.",
+           "TouchStick and TouchButton with touchOnly (the default) are drawn only while the last input came from a finger, so a "
+           "desktop run or screenshot never shows them. With `enabled` true the game behaves as if the last input were always a "
+           "finger: those controls are shown at once (no step needed), `input.lastDevice` says \"touch\" and prompts and tooltips "
+           "follow it. It stays on until you turn it off with `enabled` false, whatever keys, mouse or pad do. It does not "
+           "send any finger: drive a control by touch with game.input {touch}, or with game.touch in a test. The same setting "
+           "as `factoria run --touch` and game.screenshot {forceTouch}. Look at the result with game.screenshot. "
+           "Example: ui.force_touch {\"enabled\":true}",
+           parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","default":true,"description":"true: force the touch interface on; false: back to following the real last input."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {
+              engine.set_force_touch(a.value("enabled", true));
+              return Json::object({{"forceTouch", engine.input().force_touch()}});
           });
 
     I.commands.add({"ui.set_scale", "Set the interface scale: every screen-space widget and Text gets bigger or smaller.",

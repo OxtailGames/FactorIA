@@ -160,6 +160,9 @@ public:
     // Does about `chunk` units of work. Adds what it did to `work` (one unit per cell visited per pass and per path searched: width *
     // height each, never time) and, with Refused, says why. Called again while it returns More.
     virtual Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) = 0;
+    // Set by the check together with a Refused verdict when the grid was refused because walkable areas are cut off from each other
+    // (reachability.allConnected). The generator counts those refusals in GenStats::cutOff and reads the flag after every step.
+    bool refusedCutOff = false;
 };
 
 // A step on a solved grid that may CHANGE it (the command's `constraints.place`: put exactly N cells of a marker where a rule
@@ -207,6 +210,7 @@ struct GenStats {
     int attempts = 0;                            // attempts started (the successful one included)
     int contradictions = 0;                      // attempts that ended in a cell with no pattern left
     int rejected = 0;                            // finished grids `accept` refused
+    int cutOff = 0;                              // of those, the ones refused because walkable areas were cut off (GridCheck::refusedCutOff)
     std::int64_t observations = 0;               // cells collapsed by choice
     std::int64_t propagations = 0;               // patterns removed from cells
     int patterns = 0;                            // patterns of the model

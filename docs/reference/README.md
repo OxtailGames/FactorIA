@@ -127,25 +127,25 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip, or replace its data or its game feel actions. _Since 0.7.0._
 - [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Since 0.7.0._
 - [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
-- [`anim3d.add_event`](commands/anim.md#anim3dadd_event): Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time. _Since 0.16.0._
-- [`anim3d.create`](commands/anim.md#anim3dcreate): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Since 0.16.0._
-- [`anim3d.generate`](commands/anim.md#anim3dgenerate): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
+- [`anim3d.add_event`](commands/anim.md#anim3dadd_event-modifies-state): Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time. _Since 0.16.0._
+- [`anim3d.create`](commands/anim.md#anim3dcreate-modifies-state): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Since 0.16.0._
+- [`anim3d.generate`](commands/anim.md#anim3dgenerate-modifies-state): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
 - [`anim3d.generators`](commands/anim.md#anim3dgenerators): List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults. _Since 0.16.0._
 - [`anim3d.info`](commands/anim.md#anim3dinfo): Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project. _Since 0.16.0._
-- [`anim3d.mirror_pose`](commands/anim.md#anim3dmirror_pose): Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r). _Since 0.16.0._
-- [`anim3d.move_keys`](commands/anim.md#anim3dmove_keys): Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on. _Since 0.16.0._
+- [`anim3d.mirror_pose`](commands/anim.md#anim3dmirror_pose-modifies-state): Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r). _Since 0.16.0._
+- [`anim3d.move_keys`](commands/anim.md#anim3dmove_keys-modifies-state): Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on. _Since 0.16.0._
 - [`anim3d.preview`](commands/anim.md#anim3dpreview): Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG. _Since 0.16.0._
-- [`anim3d.remove_event`](commands/anim.md#anim3dremove_event): Remove an event from a 3D clip. _Since 0.16.0._
-- [`anim3d.remove_keys`](commands/anim.md#anim3dremove_keys): Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away. _Since 0.16.0._
-- [`anim3d.remove_track`](commands/anim.md#anim3dremove_track): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Since 0.16.0._
-- [`anim3d.restore`](commands/anim.md#anim3drestore): Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits. _Since 0.16.0._
-- [`anim3d.retarget`](commands/anim.md#anim3dretarget): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
-- [`anim3d.set_clip`](commands/anim.md#anim3dset_clip): Set the duration, loop, ground speed or description of a 3D clip. _Since 0.16.0._
-- [`anim3d.set_event`](commands/anim.md#anim3dset_event): Move, rename or change the data or the game feel actions of an event of a 3D clip. _Since 0.16.0._
-- [`anim3d.set_interp`](commands/anim.md#anim3dset_interp): Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves). _Since 0.16.0._
-- [`anim3d.set_keys`](commands/anim.md#anim3dset_keys): Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it. _Since 0.16.0._
+- [`anim3d.remove_event`](commands/anim.md#anim3dremove_event-modifies-state): Remove an event from a 3D clip. _Since 0.16.0._
+- [`anim3d.remove_keys`](commands/anim.md#anim3dremove_keys-modifies-state): Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away. _Since 0.16.0._
+- [`anim3d.remove_track`](commands/anim.md#anim3dremove_track-modifies-state): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Since 0.16.0._
+- [`anim3d.restore`](commands/anim.md#anim3drestore-modifies-state): Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits. _Since 0.16.0._
+- [`anim3d.retarget`](commands/anim.md#anim3dretarget-modifies-state): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
+- [`anim3d.set_clip`](commands/anim.md#anim3dset_clip-modifies-state): Set the duration, loop, ground speed or description of a 3D clip. _Since 0.16.0._
+- [`anim3d.set_event`](commands/anim.md#anim3dset_event-modifies-state): Move, rename or change the data or the game feel actions of an event of a 3D clip. _Since 0.16.0._
+- [`anim3d.set_interp`](commands/anim.md#anim3dset_interp-modifies-state): Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves). _Since 0.16.0._
+- [`anim3d.set_keys`](commands/anim.md#anim3dset_keys-modifies-state): Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it. _Since 0.16.0._
 - [`ik3d.check`](commands/anim.md#ik3dcheck): Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end). _Since 0.16.0._
-- [`ik3d.key`](commands/anim.md#ik3dkey): Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain. _Since 0.16.0._
+- [`ik3d.key`](commands/anim.md#ik3dkey-modifies-state): Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain. _Since 0.16.0._
 - [`ik3d.solve`](commands/anim.md#ik3dsolve): Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up. _Since 0.16.0._
 
 ### [api](commands/api.md)
@@ -226,6 +226,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.pixel.rotate`](commands/assets.md#imagepixelrotate-modifies-state): Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur. _Since 0.16.0._
 - [`image.pixel.scale`](commands/assets.md#imagepixelscale-modifies-state): Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending. _Since 0.16.0._
 - [`image.pixel.shade`](commands/assets.md#imagepixelshade-modifies-state): Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition. _Since 0.16.0._
+- [`image.resize`](commands/assets.md#imageresize-modifies-state): Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake. _Since 0.23.0._
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Since 0.16.0._
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Since 0.16.0._
 - [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Since 0.16.0._
@@ -289,6 +290,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
 - [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Since 0.16.0._
 - [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Since 0.16.0._
+- [`style.ignore`](commands/assets.md#styleignore-modifies-state): Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore. _Since 0.23.0._
+- [`style.set_role`](commands/assets.md#styleset_role-modifies-state): Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them. _Since 0.23.0._
 - [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Since 0.16.0._
 - [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Since 0.16.0._
 - [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Since 0.16.0._
@@ -570,6 +573,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ui.caption`](commands/ui.md#uicaption-modifies-state): Show a subtitle line on the Captions component for a few seconds. _Since 0.2.0._
 - [`ui.check_layout`](commands/ui.md#uicheck_layout-modifies-state): Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen. _Since 0.2.0._
 - [`ui.clear_captions`](commands/ui.md#uiclear_captions-modifies-state): Remove every subtitle from the screen now. _Since 0.2.0._
+- [`ui.force_touch`](commands/ui.md#uiforce_touch-modifies-state): Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch. _Since 0.23.0._
 - [`ui.set_mirror_rtl`](commands/ui.md#uiset_mirror_rtl-modifies-state): Turn the mirroring of the screen-space UI in a right-to-left language on or off. _Since 0.3.0._
 - [`ui.set_scale`](commands/ui.md#uiset_scale-modifies-state): Set the interface scale: every screen-space widget and Text gets bigger or smaller. _Since 0.3.0._
 - [`ui.set_slider`](commands/ui.md#uiset_slider-modifies-state): Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent. _Since 0.3.0._

@@ -2,6 +2,7 @@
   "format": "factoria.image/1",
   "width": 32,
   "height": 32,
+  "output": "assets/spikes.png",
   "description": "Lantern Keep's floor spikes: three steel spikes with a dark outline on a base strip. Pixel art, 32x32.",
   "palette": [
     {

@@ -320,7 +320,11 @@
       ],
       "suggestion": "Let anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig .glb and the source clip) like rig.bake does, so assets.regenerate {stale:true} follows a re-fit of the rig.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "76bdc6bc",
+      "notes": [
+        "Fixed in 76bdc6bc (M101.6): anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig, and for a retarget the source clip), assets.set_provenance takes kind anim3d and assets.regenerate {stale:true} remakes the clips after a re-fit. The two hand-written records were replaced by the commands' own."
+      ]
     },
     {
       "id": "FB-0014",
@@ -340,7 +344,11 @@
       ],
       "suggestion": "Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: rig.bake {mergeParts} regroups the skinned submeshes by material. The scout bakes with it (8 submeshes -> 2); the example's drawCalls go 30 -> 18 (tools/cli/tests/perf/gem-roller.perf.json)."
+      ]
     },
     {
       "id": "FB-0015",
@@ -385,8 +393,10 @@
       ],
       "suggestion": "Have the export (and validate) warn when a game script calls fa.call with a literal command name that only a project tool registers, naming the file and line, and say in docs which commands a shipped game has. The example should bake the scattered gems into the scene, or move the scatter code into a game module that both the tool and the script import.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
+      "engineIssue": "e10a8c7d",
       "notes": [
+        "Fixed in e10a8c7d: validate and the export already warned about fa.call of a tool command (shared check in js_scan); Gem Roller now imports scripts/scatter_gems.js from game.js and the tool, so the exported game places its gems.",
         "Seen while checking the format 2 pack (M70.4b) with an exported gem-roller player."
       ]
     }

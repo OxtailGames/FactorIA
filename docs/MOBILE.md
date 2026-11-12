@@ -647,7 +647,12 @@ with `"jump": ["Space", "GamepadA"]`, `"move_left": ["A", "GamepadLeftStickLeft"
 - **When**: with `touchOnly` (the default) they are drawn only while the player uses touch (`input.lastDevice` is
   `"touch"`; a phone starts that way), so they disappear when the player picks up a real pad or the keyboard and come back
   on the next touch. A finger landing on one always works. `touchOnly: false` draws them on any device: desktop previews,
-  screenshots, tests.
+  screenshots, tests. To judge the layout on a desktop without editing the scene, force the touch interface: `factoria run
+  --touch` (windowed or `--headless`), the command `ui.force_touch {"enabled": true}` or `game.screenshot {"forceTouch": true}`.
+  All three set one switch: the game behaves as if the last input were always a finger (`input.lastDevice` says `"touch"`,
+  the controls and touch prompts are shown at once, no step needed) until `ui.force_touch {"enabled": false}`. (`game.screenshot
+  {"forceTouch"}` sets it only for that picture and puts the previous setting back afterwards.) It sends no
+  finger; drive the controls with `game.touch` as below.
 - **Fingers**: each control takes the finger that lands on it and keeps it until it lifts, even when the finger slides
   off (the stick stays at full tilt in that direction). Several fingers work at once: move and jump together. A finger a
   control holds is the pad's: it is not in `input.touches`, does not fire `"Touch"` or move the mouse, so a game's own
