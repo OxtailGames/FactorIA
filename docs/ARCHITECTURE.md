@@ -186,7 +186,7 @@ these (JSON names are camelCase):
 |---|---|
 | `read` | reads project or engine state |
 | `state` | changes the running game or the open scene in memory only, writes no file |
-| `writeProject` | writes files inside the project |
+| `writeProject` | writes files inside the project, including the game's own save folder (`storage.clear` needs it) |
 | `writeAnywhere` | writes outside the project (absolute paths, the user's folders and settings) |
 | `network` | talks to a remote service |
 | `process` | starts an external program |
@@ -195,8 +195,16 @@ these (JSON names are camelCase):
 
 A command that declares nothing gets a set derived from `readOnly` when it is added: `{read}` if read-only, otherwise
 `{read, state, writeProject}` (never one of the dangerous four, so a command that needs one must declare it);
-`CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities` (camelCase names) and
-`capabilitiesDeclared` (bool). The same two fields appear in
+`CommandInfo::capabilitiesDeclared` tells which. A command declares its own set in one of two ways: a module that registers many
+commands calls `declare_command_capabilities(registry, {{"name", set}, ...})` once with a table right after its `add()` calls (it
+logs an error for a row naming a command that is not registered), and `CommandRegistry::declare_capabilities(name, set)` does
+it for one command. Both flag the command as declared and **recompute `readOnly` from the set** (`readOnly` is true only for
+`{read}`, whatever `add()` was given), so the flag and the set never disagree. A JS tool (`capabilities: [...]` in its default
+export) and a native plugin (`set_command_capabilities`) do the same; if a JS tool also says `readOnly: true` next to more than
+`{read}`, the engine logs one warning that names the tool, since `readOnly` is derived. An empty set is refused everywhere
+(`capabilities: []`, `[]` from a plugin, an empty set in a table): a command needs at least `read`, and the error says so; the
+command keeps what it had. `process` is for a program the command itself runs; a platform helper behind a game feature (the
+speech helper `spd-say` that `ui.speak` starts on Linux) counts as `state`. `describe()` lists them under `capabilities` (camelCase names) and `capabilitiesDeclared` (bool). The same two fields appear in
 `api.commands`, `factoria commands [--json]`, `factoria api --json` (api.json); every command page of the generated reference
 has a "Capabilities:" line ("not declared yet" while `capabilitiesDeclared` is false); an MCP tool carries them in its
 `_meta` (`factoria/capabilities`, `factoria/capabilitiesDeclared`) and `tool_describe` returns them per command.
@@ -241,8 +249,9 @@ that runs `factoria` from its own shell sees what its tool list shows. The edito
 set itself (`endpointRole`) and, for a review role, serves only the `is_read_only_tool` commands: the `ai.*` commands it
 registers for builders (`ai.run`, `ai.settings.set`...) are neither listed nor callable.
 
-`CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND): a command whose
-capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability
+`CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND) and **before a
+command interceptor** (the AI hooks) sees the call: a command whose capabilities are not all granted fails with code
+`capability_denied`, and a denied call never reaches `before` or `after` of an interceptor. The message names the command, each missing capability
 with its meaning, the caller and the granted set; the hint says where each caller gets what (the CLI user has all, `factoria mcp`
 without `--read-only` all but `writeAnywhere`, a game script `{read, state}`, a test can ask for more with `capabilities` in
 its test options); `error.data` has `command`, `missing`, `needs` and `granted`. The default hint is generic; a caller that

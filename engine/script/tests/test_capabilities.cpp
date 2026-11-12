@@ -3,6 +3,10 @@
 // project tool keeps the set of whoever called the tool.
 #include <doctest.h>
 
+#include <string>
+#include <vector>
+
+#include "fa/core/log.h"
 #include "test_host.h"
 
 using namespace fa;
@@ -285,4 +289,150 @@ TEST_CASE("capabilities: eval runs with the caller's set") {
     CommandCapabilityScope narrow(capability_sets::game_player());
     auto denied = h.scripts.eval("fa.call('fake.write', {})");
     CHECK_FALSE(denied.ok());
+}
+
+TEST_CASE("capabilities: a tool with `capabilities: []` is refused, and readOnly next to more than read is warned about") {
+    TestHost h("cap_tool_empty");
+    h.file("tools/empty.js", "export default { name: 'empty', summary: 's', capabilities: [], run() { return 1; } };");
+    h.file("tools/loud.js", "export default { name: 'loud', summary: 's', readOnly: true, capabilities: ['read', 'state'], run() { return 1; } };");
+    h.file("tools/quiet.js", "export default { name: 'quiet', summary: 's', readOnly: true, capabilities: ['read'], run() { return 1; } };");
+    std::vector<std::string> warnings;
+    const int sink = add_log_sink([&](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "script") warnings.push_back(e.message);
+    });
+    REQUIRE(h.start());
+    remove_log_sink(sink);
+    CHECK_FALSE(h.cmds.has("project.empty"));
+    bool taught = false;
+    for (const auto& e : h.scripts.errors())
+        if (contains(e.message, "tool 'empty'") && contains(e.message, "at least \"read\"") && contains(e.message, "/capabilities")) taught = true;
+    CHECK(taught);
+    // readOnly is derived from the set: the loud tool is not read-only, and its warning names it.
+    REQUIRE(h.cmds.has("project.loud"));
+    CHECK_FALSE(h.cmds.info("project.loud")->readOnly);
+    CHECK(h.cmds.info("project.quiet")->readOnly);
+    int named = 0;
+    for (const std::string& w : warnings) {
+        if (contains(w.c_str(), "'loud'")) {
+            ++named;
+            CHECK(contains(w.c_str(), "readOnly"));
+            CHECK(contains(w.c_str(), "derived"));
+        }
+        CHECK_FALSE(contains(w.c_str(), "'quiet'"));
+    }
+    CHECK(named == 1);
+}
+
+// Pins what docs/SCRIPTING.md says ("Promise continuations and listeners run with the set of whoever pumps the jobs"): the job
+// queue does not remember who queued a job, so a game continuation that an eval (or a tool, or a test) pumps runs with the
+// caller's set, while one pumped by the frame loop (game.step) runs with the game's.
+TEST_CASE("capabilities: a game promise continuation runs with the set of whoever pumps the jobs") {
+    TestHost h("cap_jobs");
+    int ran = 0;
+    add_fake_commands(h, ran);
+    h.file("scripts/waiter.js", R"JS(
+import { Behaviour, fa } from "factoria";
+function attempt(key) { try { fa.call("fake.write", {}); globalThis.C[key] = "ok"; } catch (e) { globalThis.C[key] = e.code; } }
+export default class Waiter extends Behaviour {
+  onStart() {
+    globalThis.C = {};
+    new Promise((r) => { globalThis.byEval = r; }).then(() => attempt("eval"));
+    new Promise((r) => { globalThis.byFrame = r; }).then(() => attempt("frame"));
+  }
+  onUpdate() { if (globalThis.releaseFrame) { globalThis.releaseFrame = false; globalThis.byFrame(); } }
+}
+)JS");
+    h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
+      { "id": "w", "components": { "Script": { "path": "scripts/waiter.js" } } } ] })");
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    h.step_frames(1);
+    // Released by an eval for the user (all capabilities): the eval pumps the continuation with ITS set.
+    REQUIRE(h.scripts.eval("globalThis.byEval(); 1").ok());
+    // Released from a behaviour callback: the frame loop pumps it with the game's set.
+    REQUIRE(h.scripts.eval("globalThis.releaseFrame = true; 1").ok());
+    h.step_frames(1);
+    auto c = h.scripts.eval("globalThis.C");
+    REQUIRE(c.ok());
+    CHECK((*c)["eval"] == "ok");
+    CHECK((*c)["frame"] == "capability_denied");
+}
+
+TEST_CASE("capabilities: a module first imported by a test keeps the game's set at its top level") {
+    TestHost h("cap_import_in_test");
+    int ran = 0;
+    add_fake_commands(h, ran);
+    h.file("scripts/top.js", R"JS(
+import { Behaviour, fa } from "factoria";
+let r = "ok";
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
+globalThis.TOP = r;
+export default class Top extends Behaviour {}
+)JS");
+    h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
+      { "id": "t", "components": { "Script": { "path": "scripts/top.js" } } } ] })");
+    // The refusal is worded for whoever's set the code ran under ("Game scripts get ..." for the game, a test's own words for a
+    // test), so the hint tells which one a module's top level ran as. Static imports of the test file: a game module, and a helper whose own import is a game module (transitive). The test
+    // file's `capabilities` option grants writeProject to its tests, not to the top level of what it imports.
+    const char* record = R"JS(
+import { fa } from "factoria";
+let r = "ok";
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
+)JS";
+    h.file("scripts/static_game.js", std::string(record) + "globalThis.STATIC = r;\nexport const value = 1;\n");
+    h.file("scripts/deep_game.js", std::string(record) + "globalThis.DEEP = r;\nexport const deep = 2;\n");
+    h.file("tests/helper.js", "import { deep } from \"scripts/deep_game.js\";\nexport const helper = deep + 1;\n");
+    h.file("tests/top.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { fa } from "factoria";
+import { value } from "scripts/static_game.js";
+import { helper } from "tests/helper.js";
+test("the test itself may write", () => { fa.call("fake.write", {}); }, { capabilities: ["writeProject"] });
+test("modules the test file imports statically (and what they import) run their top level as game code", () => {
+  expect(value).toBe(1);
+  expect(helper).toBe(3);
+  expect(globalThis.STATIC).toContain("Game scripts get {read, state}");
+  expect(globalThis.DEEP).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+test("a behaviour module first loaded here runs its top level as game code", () => {
+  game.load("scenes/main.scene.json");
+  game.step(1);
+  expect(globalThis.TOP).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/top.test.js"});
+    for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
+    CHECK(rep.ok());
+    CHECK(rep.passed == 3);
+}
+
+TEST_CASE("capabilities: a module compiled by check_syntax and first evaluated by a test still runs its top level as game code") {
+    TestHost h("cap_import_after_syntax_check");
+    int ran = 0;
+    add_fake_commands(h, ran);
+    // scripts/a.js imports scripts/b.js: check_syntax compiles b.js without evaluating it, so when the test file imports b.js
+    // later the loader is not called for it again, and only the recorded import edges still lead to it.
+    h.file("scripts/b.js", R"JS(
+import { fa } from "factoria";
+let r = "ok";
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
+globalThis.B = r;
+export const b = 1;
+)JS");
+    h.file("scripts/a.js", "import { b } from \"scripts/b.js\";\nexport const a = b + 1;\n");
+    h.file("tests/b.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { b } from "scripts/b.js";
+test("a module compiled earlier by check_syntax runs its top level as game code", () => {
+  expect(b).toBe(1);
+  expect(globalThis.B).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+)JS");
+    REQUIRE(h.start());
+    REQUIRE(h.scripts.check_syntax("scripts/a.js").ok());
+    TestReport rep = h.scripts.run_tests({"tests/b.test.js"});
+    for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
+    CHECK(rep.ok());
+    CHECK(rep.passed == 1);
 }

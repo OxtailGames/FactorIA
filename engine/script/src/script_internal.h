@@ -168,6 +168,10 @@ struct ScriptSystem::Impl {
     std::map<std::string, int> versions;  // project path -> reload counter (0 = pristine)
     std::map<std::string, std::set<std::string>> importers;  // path -> modules that import it
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
+    // Static imports of every project module that was compiled, in source order: module name (with ?v=) -> names it imports.
+    // Filled by normalize_module for every import it resolves, whether the loader then loads the target or finds it already
+    // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated.
+    std::map<std::string, std::vector<std::string>> moduleImports;
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;
     std::map<std::string, std::int64_t> moduleMtime;  // file mtime when each module was last read
@@ -329,7 +333,9 @@ struct ScriptSystem::Impl {
     std::string module_name_for(const std::string& path) const;    // adds ?v= when reloaded
     // Imports a project module (project-relative path). Returns namespace (valid until module cache is cleared).
     void explain_missing_api(ScriptError& e);  // adds which module/export or method the player lacks
-    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr);  // returned value is DUPLICATED, caller frees
+    // Returned value is DUPLICATED, caller frees. The top level of the module runs with `topLevel`'s set: Game for every module (a
+    // module first imported while a test or a tool runs is still game code), Test only for the test file run_tests imports.
+    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr, CapMode topLevel = CapMode::Game);
     std::vector<std::string> bump_module_versions(const std::string& path);  // returns affected paths
 
     // ================= conversion
