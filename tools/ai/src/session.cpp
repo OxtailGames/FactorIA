@@ -176,8 +176,9 @@ bool is_read_only_tool(const CommandInfo& info) {
                                         // file of the project, so the read-only roles may start it. Only the reviewer's prompt
                                         // tells it to (the art critic has no use for it).
                                         "play.auto",
-                                        // One PNG of poses / frames under .factoria/ (writeProject, so no longer readOnly): the art
-                                        // critic and the reviewers look at an animation or an effect with them.
+                                        // One PNG of poses / frames (a filmstrip): {read, state}, so not readOnly. By default it is
+                                        // an engine-chosen temporary picture under .factoria/; a `path` needs writeProject, which
+                                        // these roles lack. The art critic and the reviewers look at an animation or an effect.
                                         "anim.filmstrip", "vfx.filmstrip",
                                         // The commands that look at an asset or a sound (M92.1b2a): they are {read,state}, not readOnly,
                                         // because each can also keep its picture at a caller-given path. By default they write only an

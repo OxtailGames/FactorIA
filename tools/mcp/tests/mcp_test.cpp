@@ -1321,3 +1321,81 @@ TEST_CASE("mcp: tool hints come from the capabilities") {
     check("test_spend", false, true, true);
     check("test_edit_memory", false, false, false);
 }
+
+TEST_CASE("mcp: readOnlyHint is false for a {read} command with an optional output path or a run-time write") {
+    Fixture f;
+    auto add = [&](const char* name, const char* schema) {
+        CommandInfo i;
+        i.name = name;
+        i.summary = "Reads.";
+        i.readOnly = true;
+        if (*schema) i.inputSchema = Json::parse(schema);
+        f.registry.add(i, [](const Json&) { return Json::object(); });
+        REQUIRE(f.registry.declare_capabilities(name, capability_sets::reads()));
+    };
+    add("test.plain_read", R"({"type":"object","properties":{"path":{"type":"string","x-fa-path":"read"}}})");
+    add("test.read_out", R"({"type":"object","properties":{"out":{"type":"string","x-fa-path":"write"}}})");
+    add("test.read_nested_out",
+        R"({"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"to":{"type":"string","x-fa-path":"write"}}}}}})");
+    add("feedback.check", "");  // `reject` asks for writeProject at run time, with no path in the schema
+    f.initialize();
+    CHECK(tool_annotations(f, "test_plain_read")["readOnlyHint"] == true);
+    for (const char* n : {"test_read_out", "test_read_nested_out", "feedback_check"}) {
+        const Json a = tool_annotations(f, n);
+        INFO(n);
+        CHECK(a["readOnlyHint"] == false);
+        CHECK(a["destructiveHint"] == false);  // it writes only what the caller names, inside the project
+        CHECK(a["openWorldHint"] == false);
+    }
+    // openWorldHint follows network/publish/spend; `process` starts a local program, which is not the outside world.
+    add_cap_tool(f, "test.proc", CapabilitySet{Capability::Read, Capability::Process});
+    add_cap_tool(f, "test.out", CapabilitySet{Capability::Read, Capability::WriteAnywhere});
+    add_cap_tool(f, "test.pub", CapabilitySet{Capability::Read, Capability::Publish});
+    CHECK(tool_annotations(f, "test_proc")["openWorldHint"] == false);
+    CHECK(tool_annotations(f, "test_out")["destructiveHint"] == true);
+    CHECK(tool_annotations(f, "test_pub")["destructiveHint"] == true);
+    CHECK(tool_annotations(f, "test_pub")["openWorldHint"] == true);
+}
+
+TEST_CASE("mcp: _meta and tool_describe carry the declared capabilities") {
+    Fixture f;
+    add_cap_tool(f, "test.declared", capability_sets::edits_project());
+    f.initialize();
+    const Json listed = f.rpc("tools/list");
+    bool found = false;
+    for (const Json& t : listed["result"]["tools"])
+        if (t["name"] == "test_declared") {
+            found = true;
+            CHECK(t["_meta"]["factoria/capabilitiesDeclared"] == true);
+            CHECK(t["_meta"]["factoria/capabilities"] == capability_sets::edits_project().to_json());
+        }
+    CHECK(found);
+    CHECK(f.server.set_tool_profile({"core"}).empty());  // tool_describe belongs to the tools profile
+    const Json described = result_json(f.call("tool_describe", {{"commands", Json::array({"test.declared"})}})["result"]);
+    REQUIRE(described["commands"].size() == 1);
+    const Json& d = described["commands"][0];
+    CHECK(d["capabilitiesDeclared"] == true);
+    CHECK(d["capabilities"] == capability_sets::edits_project().to_json());
+    CHECK(d["readOnly"] == false);
+    CHECK(d["tool"] == "test_declared");
+}
+
+TEST_CASE("mcp: the tools profile path works on a read-only server") {
+    Fixture f;
+    auto stepped = std::make_shared<int>(0), saved = std::make_shared<int>(0);
+    add_cap_tool(f, "game.step", capability_sets::changes_state(), false, stepped);
+    add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
+    f.server.set_command_filter([](const CommandInfo& info) { return info.readOnly || info.name == "game.step"; });
+    f.server.set_capabilities(capability_sets::mcp_read_only());
+    f.initialize();
+    CHECK(f.server.set_tool_profile({"core"}).empty());
+    const Json ran = f.call("tool_call", {{"command", "game.step"}})["result"];
+    CHECK(ran["isError"] == false);
+    CHECK(*stepped == 1);
+    const Json refused = f.call("tool_call", {{"command", "scene.save"}})["result"];
+    CHECK(refused["isError"] == true);
+    CHECK(*saved == 0);
+    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"scene.save"})}})["result"]).contains("unknown"));
+    const Json tools = f.rpc("tools/list");
+    for (const Json& t : tools["result"]["tools"]) CHECK(t["name"] != "scene_save");
+}

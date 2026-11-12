@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- MCP, AI sessions and CLI contract tests polish (M92.POLISH-D): `readOnlyHint` is false for a `{read}` command with an optional output path (`x-fa-path` `write`) or a run-time write (`feedback.check` `reject`), docs/MCP.md says what `_meta` and `tool_describe` carry, the `--read-only` wording matches `{read, state}`, `factoria commands <name>` documents its `Capabilities:` line, the CLI contract tests cover the session id, thinking, sub-agents, 1-hour cache writes and unconnected MCP servers, and the feedback server has a `networkOf` table test.
 - Feedback server limits (M92.POLISH-C): `ALLOW_NO_CLIENT_IP` is on only for `1` or `true`, an empty `CF-Connecting-IP` counts as missing, IPv6 clients share one bucket per /64 and IPv4-mapped addresses key like the IPv4; the README says the whole-server counters can be used up by one abuser and what the owner can do.
 - Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
   refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
@@ -22,7 +23,7 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   `writeAnywhere`, and the `user` scope of `ai.settings.set` and `skills.new` also asks for `writeAnywhere`. `ai.models`,
   `ai.providers`, `ai.tool_servers` and `assets.review` are no longer read-only tools (they start a program or call a paid service).
 - The MCP server enforces a capability set on every tool call: `factoria mcp` grants all but `writeAnywhere`, and
-  `--read-only` grants `{read, state, writeProject}` and refuses the tools it does not serve (`tool_not_available`). Tool
+  `--read-only` grants `{read, state}` and refuses the tools it does not serve (`tool_not_available`). Tool
   hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`
   is no longer reported as destructive.
 - `setup.install` is the user's call (`writeAnywhere`: an MCP client or an agent gets `capability_denied`; an AI calls `setup.status` and tells the user to press the editor's setup button or run `factoria setup`), and `checkpoint.read` `out` / `feedback.check` `reject` are refused to the read-only roles (tested).

@@ -2,6 +2,7 @@
 // how each was recorded) replayed through the SAME code the engine runs on a live CLI (CliStreamParser, list_models,
 // detect_providers). A CLI update that changes its output format fails here, with the fixture and the field named, not in a
 // user's run. Fixtures of the CLIs that are not installed here ("-docs" folders) are written from their documentation.
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -108,8 +109,23 @@ void check_claude_common(const Replay& r) {
     NEED(r, r.usage.cacheReadTokens + r.usage.cacheCreationTokens + r.usage.inputTokens > 0,
          "`usage.input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` are not read");
     NEED(r, r.turns >= 1, "`result.num_turns` is not read");
-    NEED(r, r.last_usage([](const AgentEvent& e) { return e.contextWindow; }) == 200000,
-         "`result.modelUsage.<model>.contextWindow` is not read");
+    // The window the parser reports is the one of the model that used the most tokens in the fixture's own modelUsage.
+    u64 expectedWindow = 0;
+    double most = -1;
+    const Json res = raw_event(r, "result");
+    if (res.contains("modelUsage") && res["modelUsage"].is_object()) {
+        for (const auto& [model, m] : res["modelUsage"].items()) {
+            const double used = m.value("inputTokens", 0.0) + m.value("outputTokens", 0.0) + m.value("cacheReadInputTokens", 0.0) +
+                                m.value("cacheCreationInputTokens", 0.0);
+            if (used > most) {
+                most = used;
+                expectedWindow = static_cast<u64>(m.value("contextWindow", 0.0));
+            }
+        }
+    }
+    NEED(r, expectedWindow > 0, "the fixture's `result.modelUsage.<model>.contextWindow` is gone");
+    NEED(r, r.last_usage([](const AgentEvent& e) { return e.contextWindow; }) == expectedWindow,
+         "`result.modelUsage.<model>.contextWindow` is not read (fixture says " << expectedWindow << ")");
     NEED(r, r.last_usage([](const AgentEvent& e) { return e.contextTokens; }) > 0,
          "the context tokens of the last assistant message (`message.usage`) are not read");
     // The keys of the first `assistant` event: the parser needs these to count tokens once per message.
@@ -142,6 +158,7 @@ TEST_CASE("contract Claude Code: a tool use") {
     const Replay r = replay(ProviderKind::ClaudeCode, kClaude, "tool_use.jsonl");
     check_claude_common(r);
     NEED(r, r.finalText.find("banana") != std::string::npos, "the final text lost the tool's answer");
+    NEED(r, r.first(AgentEvent::Type::ThinkingDelta) != nullptr, "assistant `thinking` blocks are not read (ThinkingDelta)");
     NEED(r, !r.resultIsError, "a successful run is read as an error");
     const AgentEvent* s = r.first(AgentEvent::Type::ToolStart, "Read");
     NEED(r, s != nullptr, "no ToolStart for the assistant `tool_use` block (`name`)");
@@ -170,12 +187,8 @@ TEST_CASE("contract Claude Code: a tool refused by the permission mode") {
         NEED(r, rtext(e->toolResult).find("requested permissions") != std::string::npos,
              "the refusal text (`tool_result.content`, \"Claude requested permissions...\") changed or is not read");
     }
-    // `result.permission_denials` and the `permission_denied` system event are the CLI's own report of the refusal.
-    const Json res = raw_event(r, "result");
-    NEED(r, res.contains("permission_denials") && res["permission_denials"].is_array() && res["permission_denials"].size() == 1 &&
-                res["permission_denials"][0].value("tool_name", "") == "Write",
-         "`result.permission_denials[].tool_name` changed");
-    NEED(r, raw_event(r, "system", "permission_denied").is_object(), "the system/permission_denied event is gone");
+    // `result.permission_denials` and the `system/permission_denied` event are the CLI's own report of the refusal; the parser
+    // reads neither (the errored tool_result above is what the engine uses), so they are not checked here (fixtures README).
 }
 
 TEST_CASE("contract Claude Code: the turn limit is an error result") {
@@ -195,6 +208,107 @@ TEST_CASE("contract Claude Code: --version") {
     const Replay r = replay(ProviderKind::ClaudeCode, kClaude, "plain.jsonl");
     const Json init = raw_event(r, "system", "init");
     NEED(r, init.value("claude_code_version", "") == "2.1.318", "system/init `claude_code_version` changed");
+}
+
+namespace {
+// Feeds the given stdout lines to a fresh Claude Code parser.
+struct Fed {
+    CliStreamParser parser{ProviderKind::ClaudeCode};
+    std::vector<AgentEvent> events;
+    void feed(const std::string& line) { parser.feed_line(line, events); }
+};
+
+// The first line of a fixture that is an event of this type, as the CLI printed it.
+std::string raw_line(const std::string& folder, const std::string& file, const std::string& type, const std::string& subtype = {}) {
+    for (auto line : fa::split(read_file(fixture_path(folder, file)), '\n')) {
+        Json j = Json::parse(line, nullptr, false);
+        if (!j.is_object() || j.value("type", "") != type) continue;
+        if (!subtype.empty() && j.value("subtype", "") != subtype) continue;
+        return std::string(line);
+    }
+    return {};
+}
+}  // namespace
+
+TEST_CASE("contract Claude Code: the session id comes from system/init, and result.session_id wins when it has one") {
+    const std::string init = raw_line(kClaude, "plain.jsonl", "system", "init");
+    const std::string result = raw_line(kClaude, "plain.jsonl", "result");
+    REQUIRE(!init.empty());
+    REQUIRE(!result.empty());
+    const std::string initId = Json::parse(init).value("session_id", "");
+    REQUIRE(!initId.empty());
+    {
+        Fed f;  // init only (a run cut short): the id of init
+        f.feed(init);
+        CHECK_MESSAGE(f.parser.session_id() == initId, "plain.jsonl: system/init `session_id` is not the session id");
+    }
+    {
+        Fed f;  // a result without an id keeps the id of init
+        f.feed(init);
+        Json r = Json::parse(result);
+        r.erase("session_id");
+        f.feed(r.dump());
+        CHECK_MESSAGE(f.parser.session_id() == initId, "plain.jsonl: a result without `session_id` lost the id of init");
+    }
+    {
+        Fed f;  // a result with another id: the engine resumes the one of the result
+        f.feed(init);
+        Json r = Json::parse(result);
+        r["session_id"] = "11111111-1111-4111-8111-111111111111";
+        f.feed(r.dump());
+        CHECK_MESSAGE(f.parser.session_id() == "11111111-1111-4111-8111-111111111111", "plain.jsonl: `result.session_id` is not read");
+    }
+    {
+        Fed f;  // no init at all: the id of the result
+        f.feed(result);
+        CHECK_MESSAGE(f.parser.session_id() == Json::parse(result).value("session_id", ""), "plain.jsonl: `result.session_id` alone is not read");
+    }
+}
+
+TEST_CASE("contract Claude Code: cache_creation ephemeral_1h_input_tokens raise the estimated cost") {
+    const std::string line = raw_line(kClaude, "plain.jsonl", "assistant");
+    REQUIRE(!line.empty());
+    const Json a = Json::parse(line);
+    const Json* cc = a["message"]["usage"].contains("cache_creation") ? &a["message"]["usage"]["cache_creation"] : nullptr;
+    const bool has1h = cc && cc->value("ephemeral_1h_input_tokens", 0) > 0;
+    REQUIRE_MESSAGE(has1h, "plain.jsonl: the assistant usage lost `cache_creation.ephemeral_1h_input_tokens`");
+    Json without = a;
+    without["message"]["usage"]["cache_creation"]["ephemeral_1h_input_tokens"] = 0;
+    Fed with1h, without1h;
+    with1h.feed(line);
+    without1h.feed(without.dump());
+    CHECK_MESSAGE(with1h.parser.cost_usd() > without1h.parser.cost_usd(),
+                  "plain.jsonl: `message.usage.cache_creation.ephemeral_1h_input_tokens` does not change the estimated cost");
+}
+
+TEST_CASE("contract Claude Code: a sub-agent's assistant message (parent_tool_use_id) is not the main context") {
+    const std::string line = raw_line(kClaude, "plain.jsonl", "assistant");
+    REQUIRE(!line.empty());
+    auto context_of = [](const Fed& f) {
+        u64 v = 0;
+        for (const auto& e : f.events) v = std::max<u64>(v, e.contextTokens);
+        return v;
+    };
+    Fed main;
+    main.feed(line);
+    CHECK_MESSAGE(context_of(main) > 0, "plain.jsonl: the assistant `message.usage` gives no context tokens");
+    Json sub = Json::parse(line);
+    sub["parent_tool_use_id"] = "toolu_FIXTURE9999";
+    Fed fed;
+    fed.feed(sub.dump());
+    CHECK_MESSAGE(context_of(fed) == 0, "plain.jsonl: an assistant event with `parent_tool_use_id` counts as the main context");
+}
+
+TEST_CASE("contract Claude Code: system/init names an MCP server that is not connected") {
+    Json init = Json::parse(raw_line(kClaude, "plain.jsonl", "system", "init"));
+    init["mcp_servers"] = Json::array({Json::object({{"name", "factoria"}, {"status", "failed"}}),
+                                       Json::object({{"name", "other"}, {"status", "connected"}})});
+    Fed f;
+    f.feed(init.dump());
+    REQUIRE(!f.events.empty());
+    CHECK_MESSAGE(f.events[0].text.find("MCP server 'factoria' is failed") != std::string::npos,
+                  "plain.jsonl: `system/init.mcp_servers[].status` != connected is not reported");
+    CHECK_MESSAGE(f.events[0].text.find("other") == std::string::npos, "a connected MCP server is reported as a problem");
 }
 
 TEST_CASE("contract Codex (from the docs): a text answer") {
@@ -308,10 +422,18 @@ TEST_CASE("contract: the --version line the doctor shows") {
     const std::string claude = replay_cli(dir, "claude", fixture_path(kClaude, "version.txt"), false);
     const std::string codex = replay_cli(dir, "codex", fixture_path(kCodex, "version.txt"), false);
     o.which = [&](const std::string& n) { return n == "claude" ? claude : n == "codex" ? codex : std::string(); };
+    int matched = 0;
     for (const auto& s : detect_providers(cfg, o)) {
-        if (s.name == "claude-code") CHECK_MESSAGE(s.version == "2.1.318 (Claude Code)", "claude-code-2.1.318/version.txt: got \"" << s.version << "\"");
-        if (s.name == "codex") CHECK_MESSAGE(s.version == "codex-cli 0.46.0", "codex-docs/version.txt: got \"" << s.version << "\"");
+        if (s.name == "claude-code") {
+            ++matched;
+            CHECK_MESSAGE(s.version == "2.1.318 (Claude Code)", "claude-code-2.1.318/version.txt: got \"" << s.version << "\"");
+        }
+        if (s.name == "codex") {
+            ++matched;
+            CHECK_MESSAGE(s.version == "codex-cli 0.46.0", "codex-docs/version.txt: got \"" << s.version << "\"");
+        }
     }
+    CHECK_MESSAGE(matched == 2, "detect_providers found " << matched << " of the 2 providers the fixtures stand in for");
 }
 
 #endif
