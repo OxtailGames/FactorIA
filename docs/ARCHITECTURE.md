@@ -310,8 +310,9 @@ under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the f
 Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move between them), a name Windows
 cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1`-`COM9`, `LPT1`-`LPT9`, and `COM`/`LPT`
 with a superscript 1, 2 or 3, with or without an extension) or a name ending in a dot or a space. That rule is about
-CREATING a name: it applies to the segments that do not exist yet, so a file that already has such a name (made on Linux)
-can still be read, and deleted. Other names compare without regard to case on Windows and macOS; on Linux they compare byte
+CREATING a name: on Linux and macOS it applies to every segment that is not an existing regular file, folder or link, so a
+file that already has such a name (made on Linux) can still be read, and deleted. On Windows it applies to every segment, as
+such a file cannot be there (`NUL` exists in every folder, with an extension too, and `scenes.` is `scenes`). Other names compare without regard to case on Windows and macOS; on Linux they compare byte
 for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's
 real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three entry points:
 `resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to write anywhere
