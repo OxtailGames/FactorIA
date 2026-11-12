@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- The MCP server enforces a capability set on every tool call: `factoria mcp` grants all but `writeAnywhere`, and
+  `--read-only` grants `{read, state, writeProject}` and refuses the tools it does not serve (`tool_not_available`). Tool
+  hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`
+  is no longer reported as destructive.
 - The feedback server limits every write route per installation, per network and for the whole server (verdicts and
   sign-ins gained network and global caps), and refuses write requests without `CF-Connecting-IP` (`missing_client_ip`)
   unless `ALLOW_NO_CLIENT_IP` is set for local development.

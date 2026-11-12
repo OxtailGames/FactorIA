@@ -673,6 +673,8 @@ TEST_CASE("capabilities: the caller kinds grant their named sets") {
     {
         CommandCapabilityScope ro(capability_sets::mcp_read_only());
         CHECK_FALSE(reg.call("t.project").ok);
+        CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+        CHECK(reg.call("t.outside").error["code"] == "capability_denied");
     }
     CHECK(capability_sets::game_player() == CapabilitySet{Capability::Read, Capability::State});
     CHECK(capability_sets::editor_play() == capability_sets::game_player());
