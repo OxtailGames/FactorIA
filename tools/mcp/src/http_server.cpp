@@ -63,7 +63,7 @@ bool reply(Socket s, int status, const char* reason, const std::string& body, bo
 
 // A request (a method and an id), alone or in a batch: what must get a response, unless it was cancelled.
 bool carries_request(const std::string& body) {
-    const Json parsed = Json::parse(body, nullptr, false);
+    const Json parsed = parse_json_lenient(body);
     auto is_request = [](const Json& m) {
         return m.is_object() && m.contains("method") && m.contains("id") && !m["id"].is_null();
     };
@@ -76,7 +76,7 @@ bool carries_request(const std::string& body) {
 std::optional<std::string> handler_failure(const std::string& body, const std::string& what) {
     ::fa::log(LogLevel::Error, "mcp", "The MCP endpoint's handler failed: " + what);
     if (!carries_request(body)) return std::nullopt;
-    const Json parsed = Json::parse(body, nullptr, false);
+    const Json parsed = parse_json_lenient(body);
     Json id = nullptr;
     if (parsed.is_object()) {
         const auto it = parsed.find("id");

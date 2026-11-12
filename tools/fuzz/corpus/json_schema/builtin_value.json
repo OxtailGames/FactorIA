@@ -1,0 +1,1 @@
+{"name":"hero_1","n":7,"list":[{"id":1,"kids":[{"id":2},{"kids":"no"}]}],"mode":"b","fixed":{"k":[1,2]},"either":0.5,"any":{"id":3},"free":{"a":1,"b":"x"}}

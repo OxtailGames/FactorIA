@@ -172,6 +172,10 @@ public:
     // Opens `file` and reads its index. The errors say what is wrong with the file (not a pack, cut short, damaged,
     // written by a newer FactorIA) and how to fix it (export the game again with this FactorIA version).
     static Result<std::shared_ptr<const PackReader>> open(const std::filesystem::path& file, const PackOpenOptions& options = {});
+    // Opens a pack that is already in memory (a download, a test, a fuzz input): `bytes` is moved into the reader, which
+    // answers every read from it. The same checks as open(): any byte string is either a pack or an error, never a
+    // crash. `name` stands for the file in the error messages. Nothing is registered with the Windows file rules.
+    static Result<std::shared_ptr<const PackReader>> open_memory(std::vector<std::uint8_t> bytes, std::string name = "(memory)");
 
     bool contains(std::string_view path) const;       // a file; `path` is normalized, project-relative
     bool is_directory(std::string_view path) const;   // "" (the root) or a folder with at least one file below it
@@ -194,7 +198,7 @@ public:
     // A fixed number (the pack file's modification time when it was opened) for every file: a pack never changes.
     std::int64_t modified_time() const { return mtime_; }
     std::uint32_t format_version() const { return version_; }
-    bool mapped() const { return map_ != nullptr; }  // reads come from a memory mapping (else positional reads)
+    bool mapped() const { return map_ != nullptr; }  // reads come from memory: a mapping or open_memory (else positional reads)
     // The data region in pack order: each file's path, in the order its bytes lie in the pack (tests, `factoria` tools).
     std::vector<std::string> data_order() const;
 
@@ -211,6 +215,11 @@ public:
 
 private:
     PackReader() = default;
+    // What open() and open_memory() share: checks the header, the footer and the index of the `fileSize` bytes read_at()
+    // serves, then (a file only: `file` is not null) maps the pack and registers it.
+    static Result<std::shared_ptr<const PackReader>> finish_open(std::shared_ptr<PackReader> pack, const std::string& name,
+                                                                 std::uint64_t fileSize, const std::filesystem::path* file,
+                                                                 const PackOpenOptions& options);
     struct Entry {
         std::string path;
         Codec codec = Codec::Store;
@@ -239,7 +248,8 @@ private:
     std::int64_t mtime_ = 0;
     std::intptr_t native_ = -1;    // the open file (HANDLE or descriptor), shared by every reader thread
     std::intptr_t mapping_ = 0;    // Windows: the file mapping object
-    const std::uint8_t* map_ = nullptr;  // the whole pack, when mapped
+    const std::uint8_t* map_ = nullptr;  // the whole pack, when mapped (or held in memory_)
+    std::vector<std::uint8_t> memory_;   // open_memory: the pack's bytes, which map_ points into
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
     mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};

@@ -1,0 +1,1 @@
+{"id":"root","name":"R","tags":["a","b"],"active":false,"components":{"Transform":{"position":[0,1,2]},"Sprite":{}},"children":[{"id":"k1","components":{"Transform":{}},"children":[{"id":"k2"}]},{"id":"root"},{"prefab":"x.prefab.json","overrides":{"k":{"name":"z"}}}]}

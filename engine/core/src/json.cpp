@@ -132,7 +132,40 @@ std::string describe_json_value(const Json& j) {
     return kind + text;
 }
 
+std::ptrdiff_t json_nesting_overflow(std::string_view text, int limit) {
+    int depth = 0;
+    bool inString = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            if (c == '\\') ++i;  // the escaped character, which may be a quote
+            else if (c == '"') inString = false;
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '[' || c == '{') {
+            if (++depth > limit) return std::ptrdiff_t(i);
+        } else if ((c == ']' || c == '}') && depth > 0) {
+            --depth;
+        }
+    }
+    return -1;
+}
+
+Json parse_json_lenient(std::string_view text) {
+    if (json_nesting_overflow(text) >= 0) return Json(Json::value_t::discarded);
+    return Json::parse(text.begin(), text.end(), nullptr, false);
+}
+
 Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
+    // Before the parser builds anything: the library parses without recursion, but every later use of the value recurses.
+    if (const std::ptrdiff_t deep = json_nesting_overflow(text); deep >= 0) {
+        auto [line, col] = line_col(text, std::size_t(deep));
+        return make_error(std::string(sourceName) + ":" + std::to_string(line) + ":" + std::to_string(col) +
+                              ": invalid JSON: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels",
+                          "Arrays and objects may be nested at most " + std::to_string(kMaxJsonDepth) +
+                              " levels deep; a file this deep is almost always a runaway generator or a broken edit. "
+                              "Flatten the data (use ids to refer to other entries) or split it into several files.");
+    }
     try {
         return Json::parse(text.begin(), text.end());
     } catch (const Json::parse_error& e) {
@@ -145,6 +178,14 @@ Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
         std::string msg = std::string(sourceName) + ":" + std::to_string(line) + ":" + std::to_string(col) +
                           ": invalid JSON: " + what;
         return make_error(std::move(msg), parse_hint(text, byte, what));
+    } catch (const Json::exception& e) {
+        // Valid syntax the library cannot hold: a number outside the range of a double (1e999) is out_of_range.406, thrown
+        // from the parser itself. (Found by the fuzz target `json`.)
+        std::string what = e.what();
+        if (what.rfind("[json.exception.", 0) == 0)
+            if (const std::size_t close = what.find("] "); close != std::string::npos) what = what.substr(close + 2);
+        return make_error(std::string(sourceName) + ": invalid JSON: " + what,
+                          "Write numbers inside the range of a double (about -1.8e308 to 1.8e308); a number such as 1e999 cannot be read.");
     }
 }
 
