@@ -865,13 +865,19 @@ stdfs::path write_root_dir(WriteRoot r) {
 }
 
 // The error for a path inside a managed folder of the project (the version-control folder, `.factoria/` except its scratch
-// folder), or nullopt. `canon` is canonical and below `projectCanon`, whose `projectCount` elements it starts with.
-std::optional<Error> managed_denial(const stdfs::path& projectCanon, const stdfs::path& canon, std::size_t projectCount) {
+// folder), or nullopt. `p` is judged by its elements below `projectCanon`; it is the canonical path or the normalized spelling
+// the caller gave, and a caller's path is refused when EITHER form is managed (a link `meta -> .factoria` and a link
+// `.factoria -> data` are both caught). A path that is not below the project is not judged. Windows strips a trailing dot or
+// space from every name, so ".git." and ".git " are the version-control folder too.
+std::optional<Error> managed_denial(const stdfs::path& projectCanon, const stdfs::path& p) {
+    std::size_t projectCount = 0;
+    if (!is_under_root(projectCanon, p, &projectCount)) return std::nullopt;
     std::string rel;
     std::size_t index = 0;
-    for (const stdfs::path& part : canon) {
-        const std::string t = path_to_utf8(part);
+    for (const stdfs::path& part : p) {
+        std::string t = path_to_utf8(part);
         if (t.empty() || index++ < projectCount) continue;
+        while (t.size() > 1 && (t.back() == '.' || t.back() == ' ')) t.pop_back();
         rel += (rel.empty() ? "" : "/") + t;
     }
     if (rel.empty()) return std::nullopt;
@@ -897,7 +903,12 @@ std::string unportable_name(const std::string& seg) {
     static const char* const devices[] = {"con", "prn", "aux", "nul"};
     for (const char* d : devices)
         if (stem == d) return "is the name of a Windows device";
+    if (stem == "conin$" || stem == "conout$") return "is the name of a Windows device";
     if (stem.size() == 4 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) && stem[3] >= '1' && stem[3] <= '9')
+        return "is the name of a Windows device";
+    // COM1-3 and LPT1-3 also exist with a superscript digit (U+00B9, U+00B2, U+00B3: UTF-8 C2 B9, C2 B2, C2 B3).
+    if (stem.size() == 5 && (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) && static_cast<unsigned char>(stem[3]) == 0xC2 &&
+        (static_cast<unsigned char>(stem[4]) == 0xB9 || static_cast<unsigned char>(stem[4]) == 0xB2 || static_cast<unsigned char>(stem[4]) == 0xB3))
         return "is the name of a Windows device";
     return {};
 }
@@ -986,12 +997,34 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
             if (drive || colon)
                 return write_error("invalid_path", "Path '" + given + "' has the segment '" + seg + "', which names a drive or a stream" + where,
                                    "Remove the ':' from the name: a relative path is a list of folder and file names.");
-            if (std::string why = unportable_name(seg); !why.empty())
-                return write_error("invalid_path", "Path '" + given + "' has the name '" + seg + "', which " + why + where,
-                                   "Rename it: the project has to work on Windows too (no CON, PRN, AUX, NUL, COM1-9, LPT1-9, and no name ending in a dot or a space).");
         }
         stdfs::path full = rootCanon;
         if (!out.empty()) full /= path_from_utf8(fa::join(out, "/"));
+        // The managed folders of the project, judged on the spelling the caller gave (a link `.factoria -> data` would hide it
+        // from the canonical form) and below on the canonical path (a link `meta -> .factoria` would hide it from this one).
+        if (root == WriteRoot::Project && managed == ManagedFolders::Refuse) {
+            if (auto denied = managed_denial(rootCanon, full)) return *denied;
+        }
+        // A name that Windows cannot create is refused when this call would CREATE it, never when it is already there: a
+        // project that holds such a file (made on Linux) can still read it and delete it. "Already there" means a regular file,
+        // a folder or a link that was statted without error; anything else (not found, an error, a FIFO, a device) does not
+        // count. On Windows the exemption does not exist: such a file cannot be there (NUL, CON, COM1... "exist" in every
+        // folder, with or without an extension, and a trailing dot or space is stripped, so `scenes.` would be `scenes`).
+        {
+            stdfs::path walkName = rootCanon;
+            for (const std::string& seg : out) {
+                walkName /= path_from_utf8(seg);
+#ifndef _WIN32
+                std::error_code nec;
+                const stdfs::file_type kind = stdfs::symlink_status(os_path(walkName), nec).type();
+                if (!nec && (kind == stdfs::file_type::regular || kind == stdfs::file_type::directory || kind == stdfs::file_type::symlink))
+                    continue;
+#endif
+                if (std::string why = unportable_name(seg); !why.empty())
+                    return write_error("invalid_path", "Path '" + given + "' has the name '" + seg + "', which " + why + where,
+                                       "Rename it: the project has to work on Windows too (no CON, PRN, AUX, NUL, COM1-9, LPT1-9, and no name ending in a dot or a space).");
+            }
+        }
         stdfs::path canon = canonical_of(full, ec);
         if (ec) return write_error("path_unresolvable", "Cannot resolve path '" + given + "': " + ec.message(), "Check the path for invalid characters.");
         std::size_t rootCount = 0;
@@ -1001,7 +1034,7 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
         }
         // The managed folders of the project, judged on the canonical path (so a link into them counts).
         if (root == WriteRoot::Project && managed == ManagedFolders::Refuse) {
-            if (auto denied = managed_denial(rootCanon, canon, rootCount)) return *denied;
+            if (auto denied = managed_denial(rootCanon, canon)) return *denied;
         }
         // A symbolic link that points nowhere is not resolved by weakly_canonical, but writing through it would create the
         // file at its target: refuse every link left in the part below the root.
@@ -1087,9 +1120,13 @@ Result<stdfs::path> resolve_for_write_in(const stdfs::path& rootDir, WriteRoot r
     // even to this caller. The save and export folders are exempt when they are inside them: they are what this call is for.
     if (managed == ManagedFolders::Refuse) {
         const stdfs::path projectCanon = root == WriteRoot::Project ? rootCanon : canonical_of(project_root(), ec);
-        std::size_t projectCount = 0;
-        if (!ec && is_under_root(projectCanon, canon, &projectCount) && (root == WriteRoot::Project || !is_under_root(rootCanon, canon))) {
-            if (auto denied = managed_denial(projectCanon, canon, projectCount)) return *denied;
+        if (!ec && (root == WriteRoot::Project || !is_under_root(rootCanon, canon))) {
+            if (auto denied = managed_denial(projectCanon, canon)) return *denied;
+            // The spelling too (normalized, links not resolved): a link `.factoria -> data` is still `.factoria`. It is judged
+            // against the project folder as the canonical form spells it and as the caller may have (a project below a link).
+            const stdfs::path spelled = path_from_utf8(prefix + fa::join(out, "/"));
+            if (auto denied = managed_denial(projectCanon, spelled)) return *denied;
+            if (auto denied = managed_denial(root == WriteRoot::Project ? rootDir : project_root(), spelled)) return *denied;
         }
     }
     return canon;

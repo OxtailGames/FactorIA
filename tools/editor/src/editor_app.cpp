@@ -725,14 +725,14 @@ void Editor::install_command_overrides() {
     if (const CommandInfo* ci = reg.info("scene.save")) {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
-            const std::string path = a.value("path", scenePath_);
-            // This override applies the write rules itself: inside the project (an absolute path only for a caller that may write
-            // anywhere), and not in the managed folders (.git, .factoria/ except .factoria/tmp), which resolve_for_write refuses
-            // by default. (The engine's own scene.save does not apply them yet; a later package of M92 moves it to the same call.)
-            auto target = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
-            if (!target.ok()) throw CommandError("invalid_argument", target.error().message, target.error().hint);
+            const std::string requested = a.value("path", scenePath_);
+            if (requested.empty()) throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+            // The same rules as the engine's scene.save: writeProject, inside the project (an absolute path only for a caller that
+            // may write anywhere), not in the managed folders (.git, .factoria/ except .factoria/tmp); the error codes are those of
+            // fs::resolve_for_write. `path` is the project-relative spelling.
+            const std::string path = resolve_caller_project_path(requested, "scene.save");
             std::vector<PrefabExpanded> expanded;
-            auto r = save_scene_file(world(), fs::path_to_utf8(target.value()), false, nullptr, &expanded);
+            auto r = save_scene_file(world(), path, false, nullptr, &expanded);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
             if (path == scenePath_) dirty_ = false;
             Json out = Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
