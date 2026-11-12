@@ -97,8 +97,12 @@ std::string joined_command(const std::vector<std::string>& v) {
 struct Calls {
     std::vector<ProcessOptions> list;     // every call but the openssl ones
     std::vector<ProcessOptions> openssl;  // the (optional) check of the certificate's subject
+    bool present = false;           // the thumbprint step prints PRESENT=1: the certificate (with its key) is in the store already
     bool importedByUs = true;       // the import step prints IMPORTED=1 (false: the certificate was in the store already)
+    bool bom = false;               // Windows PowerShell can print a byte order mark before the first line
+    int thumbprintExit = 0;
     int importExit = 0;
+    bool importCancelled = false;   // the import is cancelled half way
     int signExit = 0;
     int removeExit = 0;
 
@@ -114,9 +118,13 @@ struct Calls {
             list.push_back(po);
             if (is_powershell(po)) {
                 const std::string script = decode_script(po.argv);
-                if (has_text(script, "Import-PfxCertificate")) {
+                if (has_text(script, "PRESENT=")) {  // step 1: the thumbprint
+                    pr.exitCode = thumbprintExit;
+                    pr.stdoutText = std::string(bom ? "\xEF\xBB\xBF" : "") + "THUMBPRINT=" + kThumbprint + "\r\nPRESENT=" + (present ? "1" : "0") + "\r\n";
+                } else if (has_text(script, "X509Store")) {  // step 2: the import
                     pr.exitCode = importExit;
-                    pr.stdoutText = std::string("THUMBPRINT=") + kThumbprint + "\r\nIMPORTED=" + (importedByUs ? "1" : "0") + "\r\n";
+                    pr.cancelled = importCancelled;
+                    pr.stdoutText = std::string("IMPORTED=") + (importedByUs ? "1" : "0") + "\r\n";
                 } else if (has_text(script, "Remove-Item")) {
                     pr.exitCode = removeExit;
                 }
@@ -155,23 +163,28 @@ TEST_CASE("sign.windows dry run on Windows: import the .pfx, sign by thumbprint,
     o.dryRun = true;
     auto r = sign_windows(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    REQUIRE(r->steps.size() == 3);
+    REQUIRE(r->steps.size() == 4);
 
-    const SignStep& import = r->steps[0];
+    const SignStep& thumbprint = r->steps[0];
+    CHECK(has_text(thumbprint.title, "Read the thumbprint"));
+    CHECK(thumbprint.env == std::vector<std::string>{kPasswordVar});
+    CHECK(has_text(joined_command(thumbprint.command), "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
+    CHECK_FALSE(has_text(joined_command(thumbprint.command), "X509Store"));  // it imports nothing
+
+    const SignStep& import = r->steps[1];
     CHECK(has_text(import.title, "Import the certificate"));
     CHECK(import.env == std::vector<std::string>{kPasswordVar});
     CHECK(has_text(joined_command(import.command), "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
-    CHECK(has_text(joined_command(import.command), "Import-PfxCertificate"));
-    CHECK(has_text(joined_command(import.command), "ConvertTo-SecureString"));
+    CHECK(has_text(joined_command(import.command), "X509Store"));
 
-    const SignStep& sign = r->steps[1];
+    const SignStep& sign = r->steps[2];
     const std::vector<std::string> want = {"sign", "/fd", "SHA256", "/sha1", "<thumbprint>", "/s", "My"};
     CHECK(std::search(sign.command.begin(), sign.command.end(), want.begin(), want.end()) != sign.command.end());
     CHECK(std::find(sign.command.begin(), sign.command.end(), "/p") == sign.command.end());
     CHECK(std::find(sign.command.begin(), sign.command.end(), "/f") == sign.command.end());
     CHECK(sign.env.empty());
 
-    const SignStep& remove = r->steps[2];
+    const SignStep& remove = r->steps[3];
     CHECK(has_text(remove.title, "Remove the imported certificate"));
     CHECK(has_text(joined_command(remove.command), "Remove-Item"));
 
@@ -181,7 +194,7 @@ TEST_CASE("sign.windows dry run on Windows: import the .pfx, sign by thumbprint,
     CHECK(has_text(r->to_json().dump(), kPasswordVar));  // the NAME of the variable is listed, never the value
 }
 
-TEST_CASE("sign.windows on Windows runs import, sign and remove in that order; the password is in the environment of the import only") {
+TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and removes in that order; the password is in the environment of the first two only") {
     WinGame g;
     Calls calls;
     SignWindowsOptions o = g.options("windows");
@@ -190,31 +203,61 @@ TEST_CASE("sign.windows on Windows runs import, sign and remove in that order; t
     o.progress = [&](const std::string& line) { shown.push_back(line); };
     auto r = sign_windows(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    REQUIRE(calls.list.size() >= 3);
+    REQUIRE(calls.list.size() == 4);
     check_no_secret_in_argv(calls);
 
-    // import
+    // 1. the thumbprint: imports nothing
     REQUIRE(is_powershell(calls.list[0]));
     CHECK(calls.list[0].env.count(kPasswordVar) == 1);
     CHECK(calls.list[0].env.at(kPasswordVar) == kSecret);
-    const std::string importScript = decode_script(calls.list[0].argv);
+    const std::string thumbprintScript = decode_script(calls.list[0].argv);
+    CHECK_FALSE(has_text(thumbprintScript, kSecret));
+    CHECK(has_text(thumbprintScript, "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
+    CHECK(has_text(thumbprintScript, "code.pfx"));
+    CHECK(has_text(thumbprintScript, "X509Certificate2Collection"));
+    CHECK(has_text(thumbprintScript, "HasPrivateKey"));
+    CHECK_FALSE(has_text(thumbprintScript, "X509Store"));
+    CHECK_FALSE(has_text(thumbprintScript, "Import-PfxCertificate"));
+    CHECK_FALSE(has_text(thumbprintScript, "Remove-Item"));
+    // 2. the import: only the certificate with the private key, through X509Store, under the named mutex
+    REQUIRE(is_powershell(calls.list[1]));
+    CHECK(calls.list[1].env.count(kPasswordVar) == 1);
+    const std::string importScript = decode_script(calls.list[1].argv);
     CHECK_FALSE(has_text(importScript, kSecret));
     CHECK(has_text(importScript, "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
-    CHECK(has_text(importScript, "code.pfx"));
-    // sign: by thumbprint, no password anywhere
-    REQUIRE(stdfs::path(calls.list[1].argv.at(0)).filename() == "signtool.exe");
+    CHECK(has_text(importScript, "X509Store('My', 'CurrentUser')"));
+    CHECK(has_text(importScript, "$_.Thumbprint -eq $t -and $_.HasPrivateKey"));  // "already there" counts only with its key
+    CHECK(has_text(importScript, std::string("'") + kThumbprint + "'"));
+    CHECK(has_text(importScript, "System.Threading.Mutex"));
+    CHECK_FALSE(has_text(importScript, "Import-PfxCertificate"));  // that would import the chain certificates too
+    // 3. sign: by thumbprint, no password anywhere
+    REQUIRE(stdfs::path(calls.list[2].argv.at(0)).filename() == "signtool.exe");
     const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};
-    CHECK(std::search(calls.list[1].argv.begin(), calls.list[1].argv.end(), want.begin(), want.end()) != calls.list[1].argv.end());
-    CHECK(calls.list[1].env.count(kPasswordVar) == 0);
-    // remove, by that thumbprint
+    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) != calls.list[2].argv.end());
+    CHECK(calls.list[2].env.count(kPasswordVar) == 0);
+    // 4. remove, by that thumbprint, under the same mutex
     REQUIRE(is_powershell(calls.list.back()));
     const std::string removeScript = decode_script(calls.list.back().argv);
     CHECK(has_text(removeScript, "Remove-Item"));
     CHECK(has_text(removeScript, kThumbprint));
+    CHECK(has_text(removeScript, "System.Threading.Mutex"));
     CHECK(calls.list.back().env.count(kPasswordVar) == 0);
-    CHECK(calls.list.size() == 3);
     for (const std::string& line : shown) CHECK_FALSE(has_text(line, kSecret));
     CHECK_FALSE(has_text(r->to_json().dump(), kSecret));
+}
+
+TEST_CASE("sign.windows parses the thumbprint when PowerShell prints a byte order mark and CRLF lines") {
+    WinGame g;
+    Calls calls;
+    calls.bom = true;
+    SignWindowsOptions o = g.options("windows");
+    o.run = calls.runner();
+    auto r = sign_windows(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    REQUIRE(calls.list.size() == 4);
+    const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};  // the whole thumbprint, nothing of the BOM or the CR
+    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) != calls.list[2].argv.end());
+    CHECK(has_text(decode_script(calls.list.back().argv), std::string("My\\") + kThumbprint + "'"));
 }
 
 TEST_CASE("sign.windows removes the imported certificate also when signtool fails, and keeps one that was in the store already") {
@@ -229,25 +272,36 @@ TEST_CASE("sign.windows removes the imported certificate also when signtool fail
         CHECK_FALSE(has_text(r.error().message + r.error().hint, kSecret));
         check_no_secret_in_argv(calls);
         const std::vector<std::string> scripts = calls.titles_of_powershell();
-        REQUIRE(scripts.size() == 2);
+        REQUIRE(scripts.size() == 3);  // thumbprint, import, remove
         CHECK(has_text(scripts.back(), "Remove-Item"));
         CHECK(has_text(scripts.back(), kThumbprint));
     }
-    {  // already in the store before the run: nothing to remove
+    {  // already in the store (with its key) before the run: nothing to remove
         Calls calls;
+        calls.present = true;
         calls.importedByUs = false;
         SignWindowsOptions o = g.options("windows");
         o.run = calls.runner();
         auto r = sign_windows(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const std::vector<std::string> scripts = calls.titles_of_powershell();
-        REQUIRE(scripts.size() == 1);
-        CHECK(has_text(scripts[0], "Import-PfxCertificate"));
+        REQUIRE(scripts.size() == 2);
+        CHECK(has_text(scripts[1], "X509Store"));
         for (const ProcessOptions& po : calls.list) CHECK_FALSE(has_text(decode_scripts_or_empty(po), "Remove-Item"));
     }
-    {  // the import fails (wrong password): the error teaches, shows no secret, and there is nothing to remove
+    {  // another run put it there between the two steps: the import says so, and it is not ours to remove
         Calls calls;
-        calls.importExit = 1;
+        calls.present = false;
+        calls.importedByUs = false;
+        SignWindowsOptions o = g.options("windows");
+        o.run = calls.runner();
+        auto r = sign_windows(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        for (const ProcessOptions& po : calls.list) CHECK_FALSE(has_text(decode_scripts_or_empty(po), "Remove-Item"));
+    }
+    {  // the thumbprint step fails (wrong password): the error teaches, shows no secret, nothing was imported, so nothing is removed
+        Calls calls;
+        calls.thumbprintExit = 1;
         SignWindowsOptions o = g.options("windows");
         o.run = calls.runner();
         auto r = sign_windows(o);
@@ -258,15 +312,77 @@ TEST_CASE("sign.windows removes the imported certificate also when signtool fail
     }
 }
 
-TEST_CASE("sign.windows without a password: the import step sets no variable and the script has no ConvertTo-SecureString") {
+TEST_CASE("sign.windows removes the certificate after an import that failed or was cancelled half way") {
+    WinGame g;
+    for (const bool cancelled : {false, true}) {
+        INFO("cancelled: " << cancelled);
+        Calls calls;
+        calls.importExit = cancelled ? 0 : 1;
+        calls.importCancelled = cancelled;
+        SignWindowsOptions o = g.options("windows");
+        o.run = calls.runner();
+        auto r = sign_windows(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK_FALSE(has_text(r.error().message + r.error().hint, kSecret));
+        if (cancelled) CHECK(has_text(r.error().message, "cancelled"));
+        else CHECK(has_text(r.error().hint, kPasswordVar));
+        const std::vector<std::string> scripts = calls.titles_of_powershell();
+        REQUIRE(scripts.size() == 3);  // thumbprint, import, remove: the import may have put the key in the store before it stopped
+        CHECK(has_text(scripts.back(), "Remove-Item"));
+        CHECK(has_text(scripts.back(), kThumbprint));
+        CHECK(calls.list.size() == 3);  // signtool never started
+    }
+}
+
+TEST_CASE("sign.windows: a certificate that could not be removed is named in the hint of the error that stopped the run") {
+    WinGame g;
+    Calls calls;
+    calls.signExit = 1;
+    calls.removeExit = 1;
+    SignWindowsOptions o = g.options("windows");
+    o.run = calls.runner();
+    auto r = sign_windows(o);
+    REQUIRE_FALSE(r.ok());
+    CHECK(has_text(r.error().message, "failed"));
+    CHECK(has_text(r.error().hint, "could not be removed"));
+    CHECK(has_text(r.error().hint, kThumbprint));
+    CHECK(has_text(r.error().hint, "certmgr.msc"));
+}
+
+TEST_CASE("sign.windows quotes a path for PowerShell: the ASCII quote and the typographic single quotes are doubled") {
+    WinGame g;
+    // ' U+2018 U+2019 U+201A U+201B (the literals are split: "a" after a hex escape would be read as part of it)
+    const std::string dir = g.tmp.sub("it's \xE2\x80\x98" "a\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9B x");
+    testing::write_all(dir + "/code.pfx", "not a real pfx");
+    SignWindowsOptions o = g.options("windows");
+    o.pfx = dir + "/code.pfx";
+    o.dryRun = true;
+    auto r = sign_windows(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const std::string script = r->steps.at(0).command.back();  // the command line shows the script as it is (UTF-8)
+    CHECK(has_text(script, "it''s "));
+    CHECK(has_text(script, "\xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99 "));
+    CHECK(has_text(script, "\xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x"));
+    CHECK_FALSE(has_text(script, "\xE2\x80\x98" "a\xE2\x80\x99 "));  // never a single one
+    // other characters that start with the same bytes are left alone (U+201C is a double quote)
+    const std::string other = g.tmp.sub("say \xE2\x80\x9C" "hi\xE2\x80\x9D");
+    testing::write_all(other + "/code.pfx", "not a real pfx");
+    o.pfx = other + "/code.pfx";
+    auto r2 = sign_windows(o);
+    REQUIRE_MESSAGE(r2.ok(), (r2.ok() ? "" : r2.error().to_string()));
+    CHECK(has_text(r2->steps.at(0).command.back(), "say \xE2\x80\x9C" "hi\xE2\x80\x9D/code.pfx'"));
+}
+
+TEST_CASE("sign.windows without a password: the steps set no variable and the scripts read none") {
     WinGame g;
     SignWindowsOptions o = g.options("windows", "");
     o.dryRun = true;
     auto r = sign_windows(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    REQUIRE(r->steps.size() == 3);
-    CHECK(r->steps[0].env.empty());
-    CHECK_FALSE(has_text(joined_command(r->steps[0].command), "ConvertTo-SecureString"));
+    REQUIRE(r->steps.size() == 4);
+    for (const SignStep& s : r->steps) CHECK(s.env.empty());
+    CHECK_FALSE(has_text(joined_command(r->steps[0].command), "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
+    CHECK_FALSE(has_text(joined_command(r->steps[1].command), "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
 }
 
 TEST_CASE("sign.windows with osslsigncode: the password goes on stdin (-readpass -), not in the argument list") {

@@ -8,6 +8,8 @@ Since 0.2.0.
 
 Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back.
 
+Capabilities: read, writeProject
+
 Copies the project's files into .factoria/checkpoints (content-addressed: a file that did not change since an earlier checkpoint is not copied again, so the second checkpoint of a project is cheap). Includes scripts, scenes, tests and assets; skips folders starting with '.', node_modules and a top-level build/. Keeps the newest 30 checkpoints. The editor makes one before every AI run (the Revert button of the AI Assistant), so call this yourself only before a risky change the user did not ask the editor to track. Returns {id, label, created (epoch seconds), files, bytes (size of the files), bytesStored (newly copied), filesHashed}. Example: {"label":"before the refactor"}.
 
 | Argument | Type | Required | Description |
@@ -19,6 +21,8 @@ Copies the project's files into .factoria/checkpoints (content-addressed: a file
 Since 0.2.0.
 
 Show which files changed since a checkpoint (modified, added, deleted).
+
+Capabilities: read
 
 Compares the files now with checkpoint `id`. Returns {modified, added, deleted} (project-relative paths) and counts. Changes nothing. Example: {"id":"20261022-153012-7"}.
 
@@ -32,13 +36,17 @@ Since 0.2.0.
 
 List the project's checkpoints, newest first.
 
+Capabilities: read
+
 Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limit}. Only the newest `limit` checkpoints are kept.
 
-## `checkpoint.read` (modifies state)
+## `checkpoint.read`
 
 Since 0.4.0.
 
 Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything.
+
+Capabilities: read
 
 Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
 
@@ -54,6 +62,8 @@ Since 0.2.0.
 
 Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
 
+Capabilities: read, writeProject
+
 Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). With `paths` only those files are put back as the checkpoint had them (a file the checkpoint holds is written back, a file the checkpoint does not hold is deleted) and every other file of the project stays untouched; the same safety checkpoint is made first. A path that is neither in the checkpoint nor in the project fails with a "did you mean" before anything changes; a listed file that already equals the checkpoint is left alone. Returns {modified, added, deleted (what was done), safetyCheckpointId}. Examples: {"id":"20261022-153012-7"}, {"id":"20261022-153012-7","paths":["scripts/player.js"]}.
 
 | Argument | Type | Required | Description |
@@ -66,6 +76,8 @@ Writes back the files that were modified or deleted since checkpoint `id` and de
 Since 0.2.0.
 
 Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
+
+Capabilities: read, writeProject
 
 Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. Example: {"frames":300,"input":"replays/play.json"}.
 
@@ -86,6 +98,8 @@ Since 0.2.0.
 
 Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
 
+Capabilities: read
+
 Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). The counters (draw calls, entities; triangles and lights when the baseline has them) are exact: one more than the baseline FAILS always (fewer passes). The median and p95 frame time and the peak memory have a wide band: past a warn limit the status is "warn" and the message says so, and only past the fail limit (about 6x for a time, +50% for memory, each with an absolute floor) does it FAIL, so a baseline is never refreshed to pass (docs/PERFORMANCE.md, "The band"). The average and the maximum are not gated; the message names the slowest frames. An entry with "provisional": true enforces only the counters. Texture memory fails past +10% and 1 MB. Example: {} or {"file":"perf.json"}.
 
 The file's "budgets" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU milliseconds the game may take from reading its files to its first frame (startupMs of the sample); the templates ship one with a wide margin, and the message tells how to bring start-up down. A time (cpuMsMedian, cpuMsP95, startupMs, maxStartupMs) past its fail limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time past its fail limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit (where it fails), warnLimit?, warned?, exceeded}], message, provisional?, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data.
@@ -103,6 +117,8 @@ Since 0.2.0.
 
 Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.
 
+Capabilities: read
+
 Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every 8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
 
 | Argument | Type | Required | Description |
@@ -117,6 +133,8 @@ Runs the project in a second headless engine inside this process, drawing every 
 Since 0.2.0.
 
 Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.
+
+Capabilities: read
 
 Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the project like perf.measure (drawing every frame with the GPU renderer when there is one) with the profiler on and returns {runner, graphics, profile}. profile = {frames, clock:"wall", frameMs:{avg,p95,max} (engine time of a frame), systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio, scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}}, behaviours: [{class, path, avgMs (per frame, counting the frames it did not run), maxMs, callsPerFrame}] slowest first (every per-behaviour callback counts: onStart, onUpdate, onFixedUpdate, onLateUpdate, collision/trigger handlers, onEvent; timers, world.on handlers and promise jobs are the bucket "(timers, events and promises)"), gpu: {avgMs, p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: {"frames":300,"input":"replays/play.json"}.
 
@@ -134,6 +152,8 @@ Times are wall-clock milliseconds and vary a little from run to run: compare the
 Since 0.3.0.
 
 Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot.
+
+Capabilities: read, writeProject, process
 
 Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player takes both itself: this command boots a simulator, installs `app` (the Simulator build of the player, ./build_ios.sh --simulator in the iOS export folder), launches it with the environment variables FA_INPUT_REPLAY (the replay `input.record` writes, the one `factoria run --input` plays) and FA_ORIENTATION (portrait or landscape; iOS refuses an orientation the Info.plist does not allow), waits for the player's "player: replay done after N frames" line (without `input`: for its 60-frame run marker), waits `settleMilliseconds` more, writes a PNG of the simulator's screen when `screenshot` is given and terminates the app. Example: {"app":"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app","input":"replays/play.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}.
 
@@ -157,6 +177,8 @@ Since 0.3.0.
 
 Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
 
+Capabilities: read, writeProject
+
 The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, tests/recipe.test.js) and the kit's strings are merged into locales/<language>.json for every language of factoria.json "localization" (added when the game has none). Scenes and prefabs are written in the canonical layout of scene.format. Parts that others need come along (the main menu needs core, options and credits) and are listed in `requiredBy`. The shop, ageGate and analyticsConsent parts are optional for the main menu: its Shop button, shop panel, age gate call and analytics question call are written only when those parts are added (all parts by default). A kit file the game already has and has changed is NOT touched unless `overwrite` is true: it is listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice changes nothing. String keys the game already has are never replaced, with or without `overwrite`; only missing ones are added. Examples: {} (all parts), {"parts":["pause"]}, {"parts":["main-menu","loading"],"overwrite":true}.
 
 A language the kit has no texts for gets the English ones. The "pause" part also adds the input action "pause" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], settings[], nextSteps[]}.
@@ -169,6 +191,8 @@ A language the kit has no texts for gets the English ones. The "pause" part also
 ## `project.create` (modifies state)
 
 Create a new game project from a template.
+
+Capabilities: read, writeProject
 
 Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
 
@@ -184,6 +208,8 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 Since 0.1.2.
 
 Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).
+
+Capabilities: read, writeProject, network, process
 
 Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, replaced on every call but only when it is empty or an earlier export wrote it; any other existing folder of that name is an error that says how to proceed, never deleted. The project itself is not modified, except that a layered image document (*.image.json) whose PNG is missing or stale is baked first. linux/windows/macos: the game plus the factoria_player runtime next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a Gradle project that is then BUILT with its own wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build takes minutes): `format` "apk" (default) or "aab" leaves <slug>[-debug].apk/.aab, reported as `artifact`; "gradle" only writes the project. ios: the game plus an Xcode/CMake project. web: a folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: signed with export.android.signing), `dryRun` true checks everything and writes nothing. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
 
@@ -207,6 +233,8 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 
 Show the project settings, input actions, current scene, scenes and scripts.
 
+Capabilities: read
+
 Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. Example: project.info {}
 
 ## `project.new_ci_workflow` (modifies state)
@@ -214,6 +242,8 @@ Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefab
 Since 0.2.0.
 
 Write a GitHub Actions workflow that validates, tests and exports the game on every push.
+
+Capabilities: read, writeProject
 
 Writes .github/workflows/factoria.yml into the game's folder. On every push to main or master and every pull request it installs FactorIA on an Ubuntu 24.04 runner (the release package of the SAME version as this factoria, checked against the SHA-256 GitHub lists; a build from source has no release of its own, so it follows the newest one and warns), installs the OpenGL/X11/Xvfb libraries, runs `factoria validate` and `factoria test` under xvfb-run, downloads the other players (`factoria setup players`), exports the game for Linux and Windows, and on a macOS runner for macOS, and uploads the exports as workflow artifacts (tar.gz; the Windows one is a zip). It never overwrites a file that differs unless `overwrite` is true (an identical file is left alone). Project templates do not carry the file: call this when the game goes on GitHub. A game in a subfolder of the repository: GitHub reads workflows only from the repository root, so write it with `workingDirectory` set to that folder and move the file to <repo>/.github/workflows/. Returns {path, written, dryRun, version, repo, platforms[], workflow (the YAML), warnings[], nextSteps[]}. Details: docs_read {"name":"exporting"}, "CI for your game". Examples: {}, {"platforms":["linux","windows"],"dryRun":true}, {"workingDirectory":"games/my-game","overwrite":true}.
 
@@ -231,6 +261,8 @@ Writes .github/workflows/factoria.yml into the game's folder. On every push to m
 Since 0.1.6.
 
 Create a native plugin (C/C++) for this game and declare it in factoria.json.
+
+Capabilities: read, writeProject
 
 Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
 
@@ -251,6 +283,8 @@ Since 0.18.0.
 
 Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.
 
+Capabilities: read, writeProject, network
+
 Exports the web build (the same as project.export {platform:"web"}, into build/serve-web/, so the real export folder is not touched; the web player must be installed: `factoria setup players --platforms web`) and serves it from a small HTTP server inside this process. It listens on 127.0.0.1 (this computer only) unless `lan` is true, on a random port, and the URL has a random token in its path: http://<address>:<port>/<token>/ (a request without the token is a 404). Returns {running, state, url (this computer), lanUrl and urls[] (lan), port, version, warnings[]}. While the server runs, a changed script, scene, asset or factoria.json exports the build again and every open page reloads itself (a banner on the page says when it is rebuilding or when the export failed); what the page logs (console.log/warn/error and uncaught errors) comes back to the log with category "phone" (read it with game.logs or in the editor console). With lan, open the URL on a phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code.
 
 The server stops with the process or with {"stop":true}; it lives in the process that runs it: the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when the call returns. Calling it again with the same project and `lan` returns the current status; with another `lan` it restarts the server (new port and token). In the editor the call never waits: it answers {running:false, state:"starting"} while the server starts and exports on a helper thread; call it again (same arguments) until state is "ready" (a start that failed is reported as an error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. Limits: 8 connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read {"name":"exporting"}, section Web, and MOBILE.md.
@@ -266,11 +300,15 @@ The server stops with the process or with {"stop":true}; it lives in the process
 
 List the project templates `project.create` can start from.
 
+Capabilities: read
+
 Returns [{name, description, dimension}]. Example: {}.
 
 ## `project.test` (modifies state)
 
 Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
+
+Capabilities: read, state
 
 Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). `files` runs only those test files: project-relative paths, folders or globs such as tests/ui*.test.js (a path that is not a *.test.js file is an error that says what to pass). Example: project.test {"filter":"player","files":["tests/saves.test.js"]}
 
@@ -282,6 +320,8 @@ Tests run inside this engine instance and change the world; reload the scene aft
 ## `project.validate`
 
 Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
+
+Capabilities: read
 
 Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. Example: {}
 

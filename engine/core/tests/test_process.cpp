@@ -11,6 +11,7 @@
 #endif
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -261,6 +262,119 @@ TEST_CASE("process: process_alive is false for a zombie (exited, not yet waited 
     CHECK(dead);
     waitpid(k, nullptr, 0);
     CHECK_FALSE(process_alive(k));
+}
+
+// ---- ProcessOptions::newSession --------------------------------------------------------------------------------------
+
+TEST_CASE("process: newSession gives the program a session of its own (no controlling terminal), default keeps ours") {
+    for (bool newSession : {false, true}) {
+        INFO("newSession " << newSession);
+        ProcessOptions po;
+        po.argv = {"sh", "-c", "sleep 0.5"};
+        po.newSession = newSession;
+        pid_t childPid = 0, childSid = -1, childGroup = -1;
+        po.onStart = [&](long long pid) {
+            childPid = static_cast<pid_t>(pid);
+            childSid = getsid(childPid);
+            childGroup = getpgid(childPid);
+        };
+        auto r = run_process(po);
+        REQUIRE(r);
+        CHECK(r->exitCode == 0);
+        REQUIRE(childPid > 0);
+        CHECK(childGroup == childPid);  // its own group either way: a cancel signals the whole tree
+        if (newSession) CHECK(childSid == childPid);  // a session leader
+        else CHECK(childSid == getsid(0));
+    }
+}
+
+TEST_CASE("process: newSession program reads the stdin text and cannot open /dev/tty") {
+    ProcessOptions po;
+    po.argv = {"sh", "-c", "read pw; echo \"got:$pw\"; (: < /dev/tty) 2>/dev/null && echo tty || echo notty; exit 3"};
+    po.stdinText = "secret\n";
+    po.newSession = true;
+    po.timeoutSeconds = 30;
+    auto r = run_process(po);
+    REQUIRE(r);
+    CHECK(r->exitCode == 3);
+    CHECK(r->stdoutText == "got:secret\nnotty\n");
+}
+
+namespace {
+
+// Starts `script` (a shell program that prints the pid of a grandchild on its first line), cancels as soon as that line is seen and
+// returns the result; `grandchild` is that pid. Waits (up to 10 s) for the OS to say the grandchild is gone.
+struct GrandchildRun {
+    ProcessResult result;
+    long long grandchild = 0;
+    bool gone = false;
+    double seconds = 0;
+};
+
+GrandchildRun run_and_cancel(const char* script, bool newSession) {
+    GrandchildRun out;
+    CancelFlag cancel{false};
+    ProcessOptions po;
+    po.argv = {"sh", "-c", script};
+    po.newSession = newSession;
+    po.cancel = &cancel;
+    po.onStdoutLine = [&](std::string_view l) {
+        if (out.grandchild == 0) out.grandchild = std::atoll(std::string(l).c_str());
+        cancel = true;
+    };
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = run_process(po);
+    out.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    REQUIRE(r);
+    out.result = *r;
+    for (int i = 0; i < 1000 && !out.gone; ++i) {
+        out.gone = !process_alive(out.grandchild);
+        if (!out.gone) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("process: a cancel reaches a grandchild, with and without newSession") {
+    for (bool newSession : {false, true}) {
+        INFO("newSession " << newSession);
+        auto run = run_and_cancel("sleep 30 & echo $!; wait", newSession);
+        CHECK(run.result.cancelled);
+        REQUIRE(run.grandchild > 1);
+        CHECK(run.gone);
+        CHECK(run.seconds < 10);
+    }
+}
+
+TEST_CASE("process: a program that ignores SIGTERM, and its grandchild, are killed after the grace period (newSession)") {
+    auto run = run_and_cancel("trap '' TERM; sleep 30 & echo $!; wait", true);
+    CHECK(run.result.cancelled);
+    REQUIRE(run.grandchild > 1);
+    CHECK(run.gone);
+    CHECK(run.seconds < 10);
+}
+
+TEST_CASE("process: a cancel sends SIGTERM first, so a program can clean up (trap) - newSession too") {
+    for (bool newSession : {false, true}) {
+        INFO("newSession " << newSession);
+        CancelFlag cancel{false};
+        ProcessOptions po;
+        po.argv = {"sh", "-c", "trap 'echo termed; exit 7' TERM; echo ready; while :; do sleep 0.1; done"};
+        po.newSession = newSession;
+        po.cancel = &cancel;
+        po.onStdoutLine = [&](std::string_view l) {
+            if (l == "ready") cancel = true;
+        };
+        const auto t0 = std::chrono::steady_clock::now();
+        auto r = run_process(po);
+        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        REQUIRE(r);
+        CHECK(r->cancelled);
+        CHECK(r->exitCode == 7);  // it ran its trap and exited by itself, not killed
+        CHECK(r->stdoutText == "ready\ntermed\n");
+        CHECK(secs < 10);
+    }
 }
 
 #endif  // !_WIN32

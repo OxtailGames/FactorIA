@@ -114,8 +114,9 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     set_cloexec(errPipe[0]);
     set_cloexec(execPipe[0]);
 
-    // The child's standard input: /dev/null, or an anonymous temporary file holding stdinText, so there is no pipe to
-    // keep writing while stdout is read.
+    // The child's standard input: /dev/null, or an anonymous temporary file (tmpfile(): created in the temp folder and already
+    // unlinked, so the secret is not left behind) holding stdinText. A file needs no pipe to keep writing while stdout is read,
+    // and the child can read all of it at once.
     int inFd = -1;
     if (!opt.stdinText.empty()) {
         std::FILE* f = std::tmpfile();
@@ -146,7 +147,10 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         return make_error(std::string("fork failed: ") + std::strerror(e));
     }
     if (pid == 0) {
-        setpgid(0, 0);  // own process group so we can kill the whole tree
+        // Own process group so we can kill the whole tree. setsid() makes a new group (pgid == pid) too, and fails for a group
+        // leader, so it replaces setpgid() rather than following it.
+        if (opt.newSession) setsid();
+        else setpgid(0, 0);
         if (inFd >= 0) dup2(inFd, 0);
         else {
             int devnull = open("/dev/null", O_RDONLY);
@@ -171,7 +175,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         _exit(127);
     }
     // parent
-    setpgid(pid, pid);
+    if (!opt.newSession) setpgid(pid, pid);  // (a session leader's group cannot be changed: setsid() in the child did it)
     if (inFd >= 0) close(inFd);
     close(outPipe[1]);
     close(errPipe[1]);
