@@ -323,9 +323,11 @@ TEST_CASE("capabilities: a tool with `capabilities: []` is refused, and readOnly
     CHECK(named == 1);
 }
 
-// Pins what docs/SCRIPTING.md says ("Promise continuations and listeners run with the set of whoever pumps the jobs"): the job
-// queue does not remember who queued a job, so a game continuation that an eval (or a tool, or a test) pumps runs with the
-// caller's set, while one pumped by the frame loop (game.step) runs with the game's.
+// Pins what docs/SCRIPTING.md says ("Promise continuations and listeners run with the set of whoever pumps the jobs"): the
+// job queue does not remember who queued a job, so a game continuation that an eval (or a tool, or a test) pumps runs
+// with the caller's set, while one pumped by the frame loop (game.step) runs with the game's. The test is meaningful
+// because the TestHost's eval runs as the user (no CommandCapabilityScope is installed, so it has the full set): the two
+// continuations differ only in who pumps them.
 TEST_CASE("capabilities: a game promise continuation runs with the set of whoever pumps the jobs") {
     TestHost h("cap_jobs");
     int ran = 0;
@@ -371,9 +373,10 @@ export default class Top extends Behaviour {}
 )JS");
     h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
       { "id": "t", "components": { "Script": { "path": "scripts/top.js" } } } ] })");
-    // The refusal is worded for whoever's set the code ran under ("Game scripts get ..." for the game, a test's own words for a
-    // test), so the hint tells which one a module's top level ran as. Static imports of the test file: a game module, and a helper whose own import is a game module (transitive). The test
-    // file's `capabilities` option grants writeProject to its tests, not to the top level of what it imports.
+    // The refusal is worded for whoever's set the code ran under ("Game scripts get ..." for the game, a test's own words
+    // for a test), so the hint tells which one a module's top level ran as. The test files import one module each: a game
+    // module (direct), and a helper whose own import is a game module (transitive). A test file's `capabilities` option
+    // grants writeProject to its tests, not to the top level of what it imports.
     const char* record = R"JS(
 import { fa } from "factoria";
 let r = "ok";
@@ -382,18 +385,26 @@ try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
     h.file("scripts/static_game.js", std::string(record) + "globalThis.STATIC = r;\nexport const value = 1;\n");
     h.file("scripts/deep_game.js", std::string(record) + "globalThis.DEEP = r;\nexport const deep = 2;\n");
     h.file("tests/helper.js", "import { deep } from \"scripts/deep_game.js\";\nexport const helper = deep + 1;\n");
+    h.file("tests/direct.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { value } from "scripts/static_game.js";
+test("a module the test file imports statically runs its top level as game code", () => {
+  expect(value).toBe(1);
+  expect(globalThis.STATIC).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+)JS");
+    h.file("tests/transitive.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { helper } from "tests/helper.js";
+test("what an imported helper imports runs its top level as game code", () => {
+  expect(helper).toBe(3);
+  expect(globalThis.DEEP).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
+)JS");
     h.file("tests/top.test.js", R"JS(
 import { test, expect, game } from "factoria:test";
 import { fa } from "factoria";
-import { value } from "scripts/static_game.js";
-import { helper } from "tests/helper.js";
 test("the test itself may write", () => { fa.call("fake.write", {}); }, { capabilities: ["writeProject"] });
-test("modules the test file imports statically (and what they import) run their top level as game code", () => {
-  expect(value).toBe(1);
-  expect(helper).toBe(3);
-  expect(globalThis.STATIC).toContain("Game scripts get {read, state}");
-  expect(globalThis.DEEP).toContain("Game scripts get {read, state}");
-}, { capabilities: ["writeProject"] });
 test("a behaviour module first loaded here runs its top level as game code", () => {
   game.load("scenes/main.scene.json");
   game.step(1);
@@ -401,18 +412,18 @@ test("a behaviour module first loaded here runs its top level as game code", () 
 }, { capabilities: ["writeProject"] });
 )JS");
     REQUIRE(h.start());
-    TestReport rep = h.scripts.run_tests({"tests/top.test.js"});
+    TestReport rep = h.scripts.run_tests({"tests/direct.test.js", "tests/transitive.test.js", "tests/top.test.js"});
     for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
     CHECK(rep.ok());
-    CHECK(rep.passed == 3);
+    CHECK(rep.passed == 4);
 }
 
-TEST_CASE("capabilities: a module compiled by check_syntax and first evaluated by a test still runs its top level as game code") {
+TEST_CASE("capabilities: a module compiled by check_syntax, first evaluated by a test, still runs as game code") {
     TestHost h("cap_import_after_syntax_check");
     int ran = 0;
     add_fake_commands(h, ran);
-    // scripts/a.js imports scripts/b.js: check_syntax compiles b.js without evaluating it, so when the test file imports b.js
-    // later the loader is not called for it again, and only the recorded import edges still lead to it.
+    // scripts/a.js imports scripts/b.js: check_syntax compiles b.js without evaluating it, so when the test file imports
+    // b.js later the loader is not called for it again, and only the recorded import edges still lead to it.
     h.file("scripts/b.js", R"JS(
 import { fa } from "factoria";
 let r = "ok";

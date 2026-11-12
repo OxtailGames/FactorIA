@@ -98,7 +98,24 @@ bool legacy_run_file(const std::string& name) {
     return take_number() && take_number() && !rest.empty();
 }
 
-// Entries of `dir` (the first kMaxSweptEntries) that `wanted` accepts and that are a day old, deleted.
+// True when something inside the folder `dir` was written within the stale age: a run still using its folder (it writes its
+// MCP config and settings there as it goes) must not lose it just because the folder itself, whose time only changes when an
+// entry is added or removed, is old. Only the first kMaxSweptEntries entries are looked at (a count, never a time).
+bool has_recent_content(const fsys::path& dir, fsys::file_time_type now) {
+    std::error_code ec;
+    fsys::recursive_directory_iterator it(dir, ec), end;
+    if (ec) return false;
+    for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
+        if (ec) break;
+        std::error_code tec;
+        const auto when = it->last_write_time(tec);
+        if (!tec && now - when <= kStaleRunFileAge) return true;
+    }
+    return false;
+}
+
+// Entries of `dir` (the first kMaxSweptEntries) that `wanted` accepts and that are a day old, deleted. A folder is spared
+// while anything inside it is younger than a day (has_recent_content): that is the rule for "a run may still be using it".
 template <class Wanted>
 void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
     std::error_code ec;
@@ -112,7 +129,11 @@ void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
         if (!wanted(name, it->path())) continue;
         std::error_code tec;
         const auto when = it->last_write_time(tec);
-        if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
+        if (tec || now - when <= kStaleRunFileAge) continue;
+        std::error_code sec;
+        if (fsys::symlink_status(it->path(), sec).type() == fsys::file_type::directory && has_recent_content(it->path(), now))
+            continue;
+        stale.push_back(it->path());
     }
     for (const fsys::path& p : stale) {
         std::error_code rec;
@@ -121,22 +142,26 @@ void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
 }
 
 void sweep_stale_run_files(const fsys::path& aiDir) {
+    // (sweep_stale_temp_run_dirs is declared in cli_agent.h)
     // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
     sweep_stale_in(aiDir, [](const std::string& name, const fsys::path&) {
         return name.rfind(kRunFilePrefix, 0) == 0 || legacy_run_file(name);
     });
-    // and the private folders a run made in the temporary folder when the project refused the owner-only write (a real
-    // folder only: a link of that name is left alone)
+    // and the private folders a run made in the temporary folder when the project refused the owner-only write
     const auto tmpBase = fs::temp_base();  // where fs::make_temp_dir makes them
     if (!tmpBase.ok()) return;
-    const fsys::path tmp = *tmpBase;
-    sweep_stale_in(tmp, [](const std::string& name, const fsys::path& p) {
+    sweep_stale_temp_run_dirs(*tmpBase);
+}
+}  // namespace
+
+void sweep_stale_temp_run_dirs(const std::filesystem::path& tmpBase) {
+    // a real folder only: a link of that name is left alone
+    sweep_stale_in(tmpBase, [](const std::string& name, const fsys::path& p) {
         if (name.rfind(kTempRunDirPrefix, 0) != 0) return false;
         std::error_code sec;
         return fsys::symlink_status(p, sec).type() == fsys::file_type::directory;
     });
 }
-}  // namespace
 
 std::string find_cli(const std::string& command, const EnvLookup& env) {
     if (std::string onPath = which(command); !onPath.empty() || command.find_first_of("/\\") != std::string::npos) {

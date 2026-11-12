@@ -346,7 +346,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), "
             "timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, "
             "UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around "
-            "every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
+            "every command of the registry; a call refused with capability_denied is not hooked), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
             "recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, "
             "reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {\"recent\":20}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{

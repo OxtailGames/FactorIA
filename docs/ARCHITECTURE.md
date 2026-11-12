@@ -259,7 +259,7 @@ registers for builders (`ai.run`, `ai.settings.set`...) are neither listed nor c
 
 `CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND) and **before a
 command interceptor** (the AI hooks) sees the call: a command whose capabilities are not all granted fails with code
-`capability_denied`, and a denied call never reaches `before` or `after` of an interceptor. The message names the command, each missing capability
+`capability_denied`, and a denied call never reaches `before` or `after` of an interceptor (the early check resolves the MCP spelling `scene_place_ascii` too; the one exception is a command that only exists after the `beforeCall_` reload, which `before` may see before the second check refuses it). The message names the command, each missing capability
 with its meaning, the caller and the granted set; the hint says where each caller gets what (the CLI user has all, `factoria mcp`
 without `--read-only` all but `writeAnywhere`, a game script `{read, state}`, a test can ask for more with `capabilities` in
 its test options); `error.data` has `command`, `missing`, `needs` and `granted`. The default hint is generic; a caller that

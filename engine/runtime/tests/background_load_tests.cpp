@@ -23,6 +23,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
+// setenv/putenv race with a getenv on another thread (the job pool and the loader threads read FA_JOB_THREADS). Declare it
+// BEFORE any Engine of the test, so the engine and its threads are gone when the destructor restores the variable.
 struct ScopedEnv {
     std::string name;
     std::string old;

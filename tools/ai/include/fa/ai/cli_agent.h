@@ -5,6 +5,7 @@
 // FactorIA never touches subscription credentials.
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <string>
@@ -244,5 +245,10 @@ public:
 private:
     ProviderConfig cfg_;
 };
+
+// Deletes the private run folders (`factoria-run_*`, real folders only) of `tmpBase` that are a day old AND hold nothing
+// written within the last day: a folder whose newest file is recent belongs to a run in progress and stays. Looks at the
+// first 4096 entries of `tmpBase`. A run does this for the temporary folder; it is exposed so a test can use its own folder.
+void sweep_stale_temp_run_dirs(const std::filesystem::path& tmpBase);
 
 }  // namespace fa::ai
