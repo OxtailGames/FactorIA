@@ -91,6 +91,15 @@ TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
             CHECK_MESSAGE(command_details_pointer(*c).find("docs_commands") != std::string::npos, c->name);
         }
         CHECK(withDetails > 50);
+        // The profile's loader tools carry the group list in their description: same budget.
+        {
+            McpServer profiled(host);
+            REQUIRE(profiled.set_tool_profile({"core"}).empty());
+            for (const Json& t : profiled.tools_json()) {
+                const std::size_t bytes = sent_bytes(t["description"].get<std::string>());
+                CHECK_MESSAGE(bytes <= kBudget, t["name"].get<std::string>() << ": " << bytes << " bytes");
+            }
+        }
         const Json listed = Json::parse(*resp);
         const Json& tools = listed["result"]["tools"];
         CHECK(tools.size() > 150);

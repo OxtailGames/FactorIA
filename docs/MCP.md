@@ -29,7 +29,8 @@ that.)
 
 ## What it exposes
 
-- **Tools**: every registered command. `scene.list_entities` becomes `scene_list_entities` (characters
+- **Tools**: every registered command (or, with `--tools core` or a group list, the core set and those groups plus
+  `tool_load` / `tool_describe` / `tool_call`: [Tool profiles](#tool-profiles)). `scene.list_entities` becomes `scene_list_entities` (characters
   other than letters, digits, `_`, `-` become `_`; at most 64 characters). The description is the
   command's summary + details; `readOnlyHint` / `destructiveHint` come from the command's `readOnly`
   flag. A result is sent once, as the whole JSON in a text block, on every protocol version (no `structuredContent`:
@@ -118,12 +119,37 @@ counted on 2026-11-09; `factoria commands` prints the list of your version, and 
 model's context: it defers the tools of MCP servers behind its own tool search, so the model sees their names and loads a
 definition when it needs it. Checked on 2.1.312 with the FactorIA server and a one-word prompt: the context after the first
 message was 39,920 tokens by default and 78,425 with `ENABLE_TOOL_SEARCH=false` (tool search off, every definition loaded).
-So FactorIA sets nothing for it: `claude-code` roles already get this saving, and the engine's own catalog
-([AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog)) is for the API providers, whose loop it runs itself.
+So the default profile (`all`) changes nothing for it: `claude-code` roles already get this saving.
 If an agent keeps missing a tool of the server, `"alwaysLoad": true` on the server's entry in the client's MCP config opts
 that server out of deferral. This is Claude Code's own behaviour and can change in its next versions; check it with the
-`ENABLE_TOOL_SEARCH` comparison above before relying on a figure. Other clients list every tool: a client that is not billed
-per token does not mind, one that is can start the server with `factoria mcp --read-only` for the smaller set.
+`ENABLE_TOOL_SEARCH` comparison above before relying on a figure. A client that has no tool search and is billed per token
+should pick a profile (next section); `factoria mcp --read-only` also gives a smaller set.
+
+### Tool profiles
+
+`factoria mcp --tools <profile>` chooses what `tools/list` offers (the same core set and group rules as the built-in agent's
+catalog, [AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog); `fa/tooling/tool_groups.h`):
+
+| Profile | `tools/list` | Size (0.23, `2d-empty`, about) | Pick it when |
+|---|---|---|---|
+| `all` (default) | every command | ~400 tools, ~1 MB of definitions | the client defers MCP tools (Claude Code), or tokens do not matter |
+| `core` | the 39 core commands (files, docs, the scene, running and looking at the game, validating, scripts) plus `tool_load`, `tool_describe`, `tool_call` | 42 tools, ~55 KB | the client loads every definition into the model's context and the work is the usual edit-run-look loop |
+| `core,anim,physics` | the core set plus the commands of those groups (a group is a command category, an exact command name such as `assets.slice_sheet`, `core` or `all`) | core plus the groups | you know which areas the session needs |
+
+An unknown group is refused at start (`--tools: Tool group 'phyiscs' matches no command category and no command. Did you
+mean 'physics'?`). Nothing is hidden for good: with a profile other than `all` the client still reaches every command (minus
+the user-only ones, and minus the writes when `--read-only` is set; both apply to everything below):
+
+- `tool_load` `{"groups": ["anim"]}` adds the groups to the session's list and sends `notifications/tools/list_changed`
+  (the server declares `tools.listChanged`). Its description names the categories with their command counts; without
+  `groups` it returns all of them with how many of their commands are listed.
+- `tool_describe` `{"commands": ["assets.slice_sheet"]}` returns the full definition (description and input schema) of any
+  command, loaded or not; `tool_call` `{"command": "assets.slice_sheet", "arguments": {...}}` runs any command with the
+  result of its own tool (progress, images and size cap included). Use them with a client that ignores `list_changed`.
+  Calling a command's own tool name directly also works while it is not listed.
+
+The groups loaded with `tool_load` last as long as the server process; a server that restarts itself in place after an
+update starts again from the `--tools` profile.
 
 Protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05.
 

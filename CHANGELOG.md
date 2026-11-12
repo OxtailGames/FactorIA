@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
 
 ## Unreleased
 
+- `factoria mcp --tools core` (or a comma list such as `core,anim,physics`) lists only the core commands and the
+  chosen groups, plus `tool_load`, `tool_describe` and `tool_call` to reach the rest, for MCP clients without tool
+  search that would load ~400 definitions. The default `all` changes nothing. The core list and the group rules moved
+  to `fa/tooling/tool_groups.h`, shared with the built-in agent's catalog.
+
 ## 0.23.0
 
 FactorIA 0.23.0 (M101) closes what the example games reported since late October. Music streams each stem from its
