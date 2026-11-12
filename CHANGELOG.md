@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- No signing or store password is an argument of a program FactorIA starts (the process list shows those). `sign.windows` on Windows imports the `.pfx` into the user's certificate store with PowerShell (password in its environment), signs with `signtool /sha1 <thumbprint> /s My` and removes the certificate again; with `osslsigncode` the password goes on stdin (`-readpass -`); `sign.macos` gives `notarytool` the Apple ID password on stdin. Steps list the names of their environment variables (`env`) and `stdinSecret`. GOG Pipeline Builder (`--password`) and `msstore reconfigure` (`--clientSecret`) leave no other way: `publish.gog` and `publish.microsoft` warn about it in the plan and docs/EXPORTING.md ("Secrets and the process list") explains it.
+
 ## 0.24.0
 
 FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB

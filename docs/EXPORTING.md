@@ -556,7 +556,8 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 
 The file is written with owner-only permissions on macOS and Linux because it can hold passwords (loading it warns when
 other users can read it). Passwords never go in `factoria.json` or in the files of an export. The Apple ID password of
-notarization is the one secret `sign.macos` takes, and only from the environment (`FACTORIA_APPLE_APP_PASSWORD`), never from this file.
+notarization is the one secret `sign.macos` takes, and only from the environment (`FACTORIA_APPLE_APP_PASSWORD`), never from this file. A secret is also never an
+argument of a program FactorIA starts (the process list shows those): see [Secrets and the process list](#secrets-and-the-process-list).
 
 ### Finding the Android toolchain
 
@@ -780,8 +781,8 @@ anywhere):
 The login for notarytool is the first of: a keychain profile, an API key, an Apple ID. The result is `{app, dryRun,
 identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, distribution, pkg,
 steps[], warnings[], nextSteps[]}` (`distribution: "appStore"` adds `installerIdentity`, `pkgSigned`, `entitlements` and `profile`); each step is `{title, command, commandLine, ran, exitCode}`. Nothing secret is ever an argument, is in
-`factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment
-and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
+`factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment,
+goes to `notarytool` on its standard input (a step with `stdinSecret: true`; `env` lists the NAMES of the variables a step sets) and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
 where Apple's tools keep it.
 
 `~/.factoria/export.json` (this computer only, [Machine settings](#machine-settings-factoriaexportjson)) may carry the
@@ -1607,6 +1608,17 @@ warning with a "did you mean".
 Store ids are copied from the partner sites as text or numbers. Unknown platforms are rejected with a "did you mean"
 (`windws` -> `windows`), and `android` and `ios` with the reason.
 
+### Secrets and the process list
+
+The command line of a running program is readable by every user of the computer (`ps`, Task Manager). So FactorIA gives each
+tool its secret by the safest route the tool has: the environment of the process (Gradle, `butler`, BuildPatchTool, `openssl
+-passin env:`, `keytool -storepass:env`, `signtool` through the certificate store), a file or key path (altool, `notarytool --key`, fastlane
+`--json_key`, `notarytool --keychain-profile`) or its standard input (`osslsigncode -readpass -`, `notarytool` for an Apple ID
+password: with no `--password` and no terminal it reads the password from stdin, and `sign.macos` starts it detached from the terminal
+with `perl`, which every Mac has). Reports and `dryRun` list only the NAMES of the environment variables a step sets (`env`) and say
+when a secret goes on stdin (`stdinSecret`). Two uploaders leave no other way, and FactorIA warns about them in the plan: GOG Pipeline
+Builder (`--password`) and the Microsoft Store CLI (`msstore reconfigure --clientSecret`).
+
 ### Secrets: environment variables and `~/.factoria/`
 
 A secret is never read from `factoria.json`, never written to a file of the project, never shown in a result, a progress line
@@ -1619,7 +1631,7 @@ or a log (the value is replaced by `<redacted>`), and never placed on a command 
 | Epic | the client secret | the environment variable `FACTORIA_EPIC_CLIENT_SECRET`. It reaches the tool in its environment and the command line only names the variable (`-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET`). |
 | App Store Connect | the API key | a `.p8` file outside the project: `FACTORIA_APPSTORE_API_KEY` is its path, `FACTORIA_APPSTORE_API_KEY_ID` its Key ID and `FACTORIA_APPSTORE_API_ISSUER` the Issuer ID (`FACTORIA_NOTARY_API_KEY`, `_KEY_ID`, `_ISSUER` of [`sign.macos`](#signing-and-notarizing-for-macos) work too). The file is never read, copied or shown: altool finds it in the folder named by its own `API_PRIVATE_KEYS_DIR`. |
 | Google Play | the service account key | a JSON file outside the project: `FACTORIA_GOOGLEPLAY_JSON_KEY` (or fastlane's `SUPPLY_JSON_KEY`) is its path. FactorIA checks that it is a service account key and passes the path to fastlane; the content is never shown. |
-| GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as an argument, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>`. |
+| GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand: then no password is on any command line), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as the argument `--password`, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>` and the plan carries a warning saying so. |
 
 ### Finding the tools
 
@@ -1809,10 +1821,14 @@ manifest `Publisher`.
 
 - With a certificate: `sign.windows {"pfx":"signing.pfx"}` signs the package (`signtool` on Windows, `osslsigncode` on the
   other computers; `FACTORIA_SIGNTOOL` and `FACTORIA_OSSLSIGNCODE` point at the tool). The password is only read from
-  `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument. The pfx can also be `FACTORIA_WINDOWS_PFX` or
+  `FACTORIA_WINDOWS_PFX_PASSWORD`, never from `factoria.json` or an argument, and no program gets it on its command line:
+  on Windows `signtool` has no other way to read a `.pfx` password than `/p`, so the `.pfx` is imported into your user
+  certificate store (`Cert:\CurrentUser\My`) by PowerShell, which reads the password from its environment, `signtool` signs with
+  `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails; a certificate that
+  was in the store before is left alone). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
   `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
   against the manifest `Publisher` and refuses when they differ. `exe: true` also signs the game's exe, for a game shared
-  as a folder or a zip. `dryRun` shows the command lines with the password as `<redacted>`.
+  as a folder or a zip. `dryRun` shows the three steps (import, sign, remove) and the NAMES of the variables each one sets, never a value.
 - Without one, on Windows: `sign.windows {"testCertificate":true}` creates a self-signed certificate with the right subject,
   signs the package and writes its public part (`<slug>-windows-test-certificate.cer`) next to it. Install the certificate once, in an
   administrator PowerShell: `Import-Certificate -FilePath <slug>-windows-test-certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`;
@@ -1830,7 +1846,7 @@ and then `msstore publish <folder> --inputFile <msix> --appId <productId> --noCo
 `factoria.json` is the 12-character Store ID (Partner Center > your app > Product identity). The credentials come from an Azure AD
 application you associate with Partner Center (Account settings > Tenants > Azure AD applications) and only from the environment:
 `FACTORIA_MSSTORE_TENANT_ID`, `FACTORIA_MSSTORE_SELLER_ID`, `FACTORIA_MSSTORE_CLIENT_ID` and `FACTORIA_MSSTORE_CLIENT_SECRET`
-(the secret is never shown: `<redacted>`). `releaseStatus: "draft"` (default) leaves the submission waiting in Partner
+(the secret is never shown: `<redacted>`). `msstore reconfigure` takes the client secret only as the argument `--clientSecret`, so it is visible in the process list for a few seconds; the plan carries a warning saying so (use an Azure AD application whose secret you can revoke). `releaseStatus: "draft"` (default) leaves the submission waiting in Partner
 Center (`--noCommit`); `completed` sends it to certification. The first submission of a new app is always by hand.
 FactorIA ran `msstore` only against a fake in its tests; a real upload needs a Partner Center account.
 
