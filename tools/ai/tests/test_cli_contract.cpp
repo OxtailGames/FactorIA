@@ -289,9 +289,9 @@ TEST_CASE("contract Claude Code: a sub-agent's assistant message (parent_tool_us
         for (const auto& e : f.events) v = std::max<u64>(v, e.contextTokens);
         return v;
     };
-    Fed main;
-    main.feed(line);
-    CHECK_MESSAGE(context_of(main) > 0, "plain.jsonl: the assistant `message.usage` gives no context tokens");
+    Fed mainFed;
+    mainFed.feed(line);
+    CHECK_MESSAGE(context_of(mainFed) > 0, "plain.jsonl: the assistant `message.usage` gives no context tokens");
     Json sub = Json::parse(line);
     sub["parent_tool_use_id"] = "toolu_FIXTURE9999";
     Fed fed;

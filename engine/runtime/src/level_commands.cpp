@@ -1343,7 +1343,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "anchor":{"type":"string","enum":["top-left","bottom-left","center"],
                          "description":"Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin."}}})json"),
          false, "scene"},
-        [&engine, &I](const Json& a) { return import_ascii(I, a); });
+        [&I](const Json& a) { return import_ascii(I, a); });
 
     // The running-world half of scene.import_ascii as a command of its own: it can never write a file, so it needs only {read, state}
     // and a game script may call it (tilemap.generate's `place` does). The file half (`path`, `from`, `edits`) and `save` write the

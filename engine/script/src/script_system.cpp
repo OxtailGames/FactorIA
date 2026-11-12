@@ -921,7 +921,14 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
         // the loader is not called for again), then evaluate the closure of the module's static imports, dependencies first, as
         // game code; the module itself is then the only one left to run under `topLevelMode`. A load or syntax error is left to
         // the real evaluation below, which reports it.
-        JSValue pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        // Nothing runs, but the loader reads and compiles files: it runs inside a guard and a debug entry like the evaluation.
+        JSValue pre;
+        {
+            auto preEntry = debug_entry(*this);
+            const size_t preDepth = push_guard("compiling " + path, 10.0);
+            pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+            pop_guard(preDepth);
+        }
         if (JS_IsException(pre)) {
             JS_FreeValue(ctx, JS_GetException(ctx));
         } else {
@@ -1019,6 +1026,9 @@ std::vector<std::string> ScriptSystem::Impl::bump_module_versions(const std::str
             for (const auto& imp : it->second) work.push_back(imp);
     }
     for (const auto& p : affected) {
+        // The edges are keyed by the versioned name, which the bump below retires; nothing looks the old name up again (its
+        // importers are in `affected` and lose their entries and namespaces too), so the entry only wastes memory.
+        moduleImports.erase(module_name_for(p));
         namespaces.erase(module_name_for(p));
         versions[p] += 1;
     }
