@@ -275,6 +275,7 @@ Json generate_loop(const std::string& projectDir, const Json& a) {
     check_arg_keys(cmd, a, "", {"path", "kind", "seconds", "sampleRate", "seed", "peak", "quality", "overwrite", "color", "cutoff", "level", "gusts", "crackles",
                                 "tick", "hum", "chords", "chordSeconds", "bass", "brightness", "arpeggio", "underNote", "underLevel"});
     const std::string path = project_audio_path(a, "path", cmd, {".wav", ".ogg"}, "assets/audio/wind.wav");
+    (void)project_write_file(projectDir, path);  // refused before the loop is synthesized: managed folders, links out of the project
     const std::string kind = to_lower(tooling_detail::arg_string(a, "kind", true));
     if (kind != "noise" && kind != "drone")
         fail("invalid_argument", "Unknown kind '" + kind + "'.", did_you_mean(kind, std::vector<std::string>{"noise", "drone"}) + " kind is \"noise\" (wind, fire, rain, a clock) or \"drone\" (pads and chords for music).");
@@ -348,7 +349,7 @@ Json generate_loop(const std::string& projectDir, const Json& a) {
         pcm = drone_loop(sp, std::uint64_t(seed), seconds, rate);
         notes = std::format("{} chord(s) of {} s, bass {}, brightness {}{}", sp.chords.size(), sp.chordSeconds, sp.bass, sp.brightness, sp.arpeggio.every > 0 ? ", arpeggio" : "");
     }
-    const stdfs::path file = project_file(projectDir, path);
+    const stdfs::path file = project_write_file(projectDir, path);
     std::error_code ec;
     if (!overwrite && stdfs::exists(file, ec)) fail("exists", "'" + path + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
@@ -382,7 +383,7 @@ Json convert_audio(const std::string& projectDir, const Json& a) {
                                             : fs::parent(path).empty() ? fs::stem(path) + ".ogg" : fs::parent(path) + "/" + fs::stem(path) + ".ogg";
     const double quality = number_arg(cmd, a, "quality", 0.6, 0, 1);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
-    const stdfs::path source = project_file(projectDir, path), dest = project_file(projectDir, to);
+    const stdfs::path source = project_file(projectDir, path), dest = project_write_file(projectDir, to);
     std::error_code ec;
     if (!stdfs::exists(source, ec)) fail("not_found", "'" + path + "' does not exist.", "Make or import the WAV first (assets.generate_loop, assets.synth_sound, assets.import).");
     if (!overwrite && stdfs::exists(dest, ec)) fail("exists", "'" + to + "' already exists.", "Pass overwrite: true to replace it, or choose another `to`.");
@@ -474,6 +475,7 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
                             "pattern":{"type":"array","items":{"type":["integer","null"]},"description":"Chord indexes to pluck in turn, looping; null is a rest; an index past the chord's end is an octave up."},
                             "gain":{"type":"number","default":0.2,"description":"Volume of the plucks against the pads."}}}
           }})");
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return generate_loop(projectDir, args); });
     }
     {
@@ -496,8 +498,15 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
             "quality":{"type":"number","minimum":0,"maximum":1,"default":0.6,"description":"0 to 1. Higher is bigger and closer to the WAV; 0.6 suits ambience, 0.8 music."},
             "overwrite":{"type":"boolean","default":false,"description":"Replace the Ogg when it already exists."}
           }})");
+        mark_paths(info.inputSchema, "read", {"path"});
+        mark_paths(info.inputSchema, "write", {"to"});
         registry.add(info, [projectDir](const Json& args) { return convert_audio(projectDir, args); });
     }
+    // Capabilities (capability.h): both write an audio file and its record in assets.json.
+    declare_command_capabilities(registry, {
+        {"assets.generate_loop", capability_sets::writes_project()},
+        {"assets.convert_audio", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa::assets_detail

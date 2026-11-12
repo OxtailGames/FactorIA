@@ -293,14 +293,14 @@ SfxAudio render_in_memory(const LoadedPatch& loaded, const RenderArgs& args, con
 }
 
 // The picture of a result: the spectrogram of one file, or the contact sheet of `rows`.
-void add_picture(const std::string& projectDir, const Json& a, Json& result, const std::string& soundPath, const std::string& title, const std::vector<audio_mix::SheetRow>& rows) {
+void add_picture(const std::string& projectDir, const Json& a, Json& result, const std::string& soundPath, const std::string& title, const std::vector<audio_mix::SheetRow>& rows, const char* command) {
     Json pic;
     if (rows.empty()) {
         Json picArgs = Json::object({{"path", soundPath}});
         for (const char* key : {"width", "height"})
             if (a.contains(key)) picArgs[key] = a[key];
         if (a.contains("pictureOut")) picArgs["out"] = a["pictureOut"];
-        pic = audio_mix::spectrogram_picture(projectDir, picArgs);
+        pic = audio_mix::spectrogram_picture(projectDir, picArgs, command);
         if (pic.contains("$image")) result["$image"] = pic["$image"];
         pic.erase("$image");
         pic.erase("nextSteps");
@@ -308,7 +308,7 @@ void add_picture(const std::string& projectDir, const Json& a, Json& result, con
         result["analysis"] = pic;  // the numbers of the file as written: integratedLufs, truePeakDb, clippedSamples, dominantBand...
         return;
     }
-    pic = audio_mix::spectrogram_sheet(projectDir, title, rows, a.value("width", 1000), a.value("pictureOut", std::string()));
+    pic = audio_mix::spectrogram_sheet(projectDir, title, rows, a.value("width", 1000), a.value("pictureOut", std::string()), command);
     if (pic.contains("$image")) result["$image"] = pic["$image"];
     if (pic.contains("picture")) result["picture"] = pic["picture"];
 }
@@ -322,6 +322,7 @@ Json loudness_json(const std::vector<double>& lufs) {
 Json sfx_render_command(const std::string& projectDir, const Json& a) {
     check_arg_keys(kRender, a, "", {"path", "out", "seed", "freq", "note", "length", "tail", "macros", "variant", "variants", "picture", "pictureOut", "width", "height", "overwrite"});
     const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
+    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, kRender);
     const std::string outArg = tooling_detail::arg_string(a, "out", false);
     RenderArgs args = render_args(kRender, a);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
@@ -351,7 +352,7 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
             lufs.push_back(b.audio.lufs);
         }
         Json result = Json::object({{"patch", rel}, {"count", count}, {"seed", args.seed}, {"variants", items}, {"loudness", loudness_json(lufs)}});
-        if (wantPicture) add_picture(projectDir, a, result, "", rel + ": " + std::to_string(count) + " variants", rows);
+        if (wantPicture) add_picture(projectDir, a, result, "", rel + ": " + std::to_string(count) + " variants", rows, "sfx.render");
         result["nextSteps"] = Json::array({"Each row of the picture is one variant: they should sound alike but not the same. Widen or narrow `variations.spread` in " + rel + " and render again.",
                                            "Play one per call: AudioSource {\"clip\": \"" + default_out(rel) + "\", \"variants\": " + std::to_string(count) + "} or audio.play(\"" + default_out(rel) + "\", {variants: " + std::to_string(count) + "})."});
         return result;
@@ -364,7 +365,7 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
     if (args.variant > 0) result["variant"] = args.variant;
     Json steps = Json::array();
     if (wantPicture) {
-        add_picture(projectDir, a, result, baked.out, "", {});
+        add_picture(projectDir, a, result, baked.out, "", {}, "sfx.render");
         steps.push_back("Read the picture: waveform on top, spectrogram (log frequency) in the middle, loudness at the bottom. Change a number in " + rel + " and call sfx.render again.");
     }
     if (baked.audio.peakDb > -0.5) steps.push_back("It peaks at " + std::format("{:.1f}", baked.audio.peakDb) + " dBFS: lower a layer `gain` or the master `normalize` target.");
@@ -503,6 +504,7 @@ void set_macro_value(Json& patchJson, const std::string& name, double value) {
 Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("sfx.tweak", a, "", {"path", "macros", "absolute", "render", "seed", "picture", "pictureOut", "width", "height"});
     const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
+    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, "sfx.tweak");
     if (!a.contains("macros") || !a["macros"].is_object() || a["macros"].empty())
         fail("invalid_argument", "sfx.tweak: `macros` must say what to turn, e.g. {\"brightness\": 0.2, \"tail\": -0.3}.",
              "Each value is added to the macro the patch declares (so +0.2 is a little brighter than now); with absolute: true it is the new value itself. Macros: " + join([] { std::vector<std::string> n; for (const SfxMacroInfo& m : sfx_macros()) n.push_back(m.name); return n; }(), ", ") + ".");
@@ -700,6 +702,7 @@ Json family_member(const Json& base, const FamilyRole& role, const std::string& 
 
 Json sfx_family_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("sfx.family", a, "", {"from", "names", "preset", "out", "overwrite", "render", "picture", "pictureOut", "width", "height"});
+    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, "sfx.family");
     const std::string baseRel = patch_path(tooling_detail::arg_string(a, "from", true), "from");
     std::vector<std::string> roleNames;
     for (const FamilyRole& r : family_roles()) roleNames.push_back(r.name);
@@ -776,7 +779,7 @@ Json sfx_family_command(const std::string& projectDir, const Json& a) {
     }
     Json result = Json::object({{"from", baseRel}, {"out", dir}, {"count", items.size()}, {"sounds", items}, {"loudness", loudness_json(lufs)}});
     Json steps = Json::array();
-    if (tooling_detail::arg_bool(a, "picture", true)) add_picture(projectDir, a, result, "", baseRel + ": family", rows);
+    if (tooling_detail::arg_bool(a, "picture", true)) add_picture(projectDir, a, result, "", baseRel + ": family", rows, "sfx.family");
     const double spread = result["loudness"].value("spreadLu", 0.0);
     if (spread > 3.0) steps.push_back("The sounds span " + std::format("{:.1f}", spread) + " LU: the very short ones hit the peak ceiling before the loudness target. Raise `ceilingDb` in the base's master.normalize (or use a longer base) and make the family again with overwrite: true.");
     steps.push_back("Each member is a patch of its own (copied from " + baseRel + "): edit it, or turn its knobs with sfx.tweak {\"path\":\"" + dir + "/click.sfx.json\",\"macros\":{\"brightness\":0.2}}.");
@@ -987,7 +990,7 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                          {"required", Json::array({"path"})},
                                          {"additionalProperties", false},
                                          {"properties", obj({{"path", str("The sound patch, project-relative, under assets/ and ending in .sfx.json, e.g. \"assets/audio/coin.sfx.json\".")},
-                                                             {"out", str("Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav.")},
+                                                             {"out", path_property("write", "Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav.")},
                                                              {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"default", 0}, {"description", "Added to the patch's seed: another take of every noise. The same seed always gives the same file."}})},
                                                              {"freq", number("Transpose the patch so its base pitch (the first pitched layer's pitch.freq) becomes this frequency in Hz. Fixed-frequency oscillators stay.", 20, 20000)},
                                                              {"note", str("The same as freq as a note name: \"C4\" (middle C), \"A4\" (440 Hz), \"C#3\", \"Bb2\".")},
@@ -997,10 +1000,11 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"variant", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 64}, {"description", "Render this variation (1-based) of a patch that declares `variations`; the default out is name_NN.wav."}})},
                                                              {"variants", boolean("Render every variation of the patch to name_01.wav, name_02.wav... and return one picture with a row per variant. Takes neither `out` nor `variant`.", false)},
                                                              {"picture", boolean("Return the spectrogram picture (`$image`) of the sound. Turn it off when rendering many.", true)},
-                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot.")},
+                                                             {"pictureOut", path_property("write", "Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot.")},
                                                              {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels (default 1000)."}})},
                                                              {"height", Json::object({{"type", "integer"}, {"minimum", 280}, {"maximum", 1600}, {"description", "Height of the picture in pixels (default 640)."}})},
                                                              {"overwrite", boolean("Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced).", false)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_render_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1022,6 +1026,7 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"path", Json::object({{"oneOf", Json::array({Json::object({{"type", "string"}}), Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}})})}, {"description", "Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project."}})},
                                                              {"macros", Json::object({{"type", "object"}, {"additionalProperties", number("Knob position.", -1, 1)}, {"description", "Macro values for every sound rendered by this call, e.g. {\"weight\": 0.4}. Forces the render and is kept in the recipes."}})},
                                                              {"dryRun", boolean("List what would be rendered and why, and write nothing.", false)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_bake_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1044,9 +1049,10 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"render", boolean("Render the sound again and compare the measurements. Turn it off to only edit the patch.", true)},
                                                              {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Seed of the renders (default 0)."}})},
                                                              {"picture", boolean("Return the spectrogram picture (`$image`).", true)},
-                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png).")},
+                                                             {"pictureOut", path_property("write", "Also keep the picture's PNG at this project path (ends in .png).")},
                                                              {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels."}})},
                                                              {"height", Json::object({{"type", "integer"}, {"minimum", 280}, {"maximum", 1600}, {"description", "Height of the picture in pixels."}})}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_tweak_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1069,6 +1075,7 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"value", Json::object({{"description", "The new value (set) or the element to insert (add). Any JSON."}})},
                                                              {"index", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "add: where to insert; move: the element to move."}})},
                                                              {"to", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "move: the element's new place."}})}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1090,12 +1097,13 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                          {"properties", obj({{"from", str("The base patch, project-relative, ending in .sfx.json: the timbre every sound shares.")},
                                                              {"names", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", "Which sounds to make: click, hover, confirm, cancel, error, open, close, notify."}})},
                                                              {"preset", str("\"ui\": make all eight sounds. Give this or `names`.")},
-                                                             {"out", str("Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family.")},
+                                                             {"out", path_property("write", "Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family.")},
                                                              {"overwrite", boolean("Replace patches and sounds that exist.", false)},
                                                              {"render", boolean("Bake each sound to a WAV too (default); false writes only the patches and measures them in memory.", true)},
                                                              {"picture", boolean("Return the contact sheet (`$image`): one row per sound.", true)},
-                                                             {"pictureOut", str("Also keep the sheet's PNG at this project path (ends in .png).")},
+                                                             {"pictureOut", path_property("write", "Also keep the sheet's PNG at this project path (ends in .png).")},
                                                              {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels (default 1000)."}})}})}});
+        mark_paths(info.inputSchema, "read", {"from"});
         registry.add(info, [projectDir](const Json& args) { return sfx_family_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1114,6 +1122,7 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                          {"properties", obj({{"name", str("The preset to return. Leave out to list them all.")},
                                                              {"path", str("Write the patch here: project-relative, under assets/, ending in .sfx.json.")},
                                                              {"overwrite", boolean("Replace the file when it exists.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_preset_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1134,8 +1143,14 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"patch", Json::object({{"type", "object"}, {"description", "The patch itself, as JSON, to check before writing it to a file."}})},
                                                              {"preset", str("The name of a preset (see sfx.preset).")},
                                                              {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Render this take for the measurements (default 0)."}})}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return sfx_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): every sfx command but sfx.info writes a patch or a sound of the project.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"sfx.render", writes_project()}, {"sfx.bake", writes_project()}, {"sfx.tweak", writes_project()},
+                                            {"sfx.edit", writes_project()}, {"sfx.family", writes_project()}, {"sfx.preset", writes_project()},
+                                            {"sfx.info", reads()}});
 }
 
 }  // namespace fa::assets_detail

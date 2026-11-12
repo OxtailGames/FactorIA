@@ -41,8 +41,9 @@ Json import_midi_file(const std::string& projectDir, const stdfs::path& source, 
     const std::string rel = song_path(out, "out");
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
-    if (!overwrite && stdfs::exists(project_file(projectDir, rel), ec))
+    if (!overwrite && stdfs::exists(project_write_file(projectDir, rel), ec))
         fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another `out`.");
+    (void)project_write_file(projectDir, rel);
     require_usable_manifest(projectDir);
 
     const std::string text = tooling_detail::read_file(source).value_or(std::string());
@@ -169,6 +170,8 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
                                                              {"license", str("License of the MIDI file (\"CC0\", \"CC-BY 4.0\"), for the credits.")},
                                                              {"author", str("Who made the MIDI file.")},
                                                              {"sourceUrl", str("The page the file came from, for the credits.")}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
+        mark_paths(info.inputSchema, "write", {"out"});
         registry.add(info, [projectDir](const Json& args) { return music_import_midi_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -188,8 +191,12 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
                                          {"properties", obj({{"path", str("The song, project-relative, under assets/ and ending in .song.json.")},
                                                              {"out", str("The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid.")},
                                                              {"overwrite", boolean("Replace the file when it exists.", false)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
+        mark_paths(info.inputSchema, "write", {"out"});
         registry.add(info, [projectDir](const Json& args) { return music_export_midi_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    using namespace capability_sets;  // capability.h: both write a file of the project
+    declare_command_capabilities(registry, {{kImport, writes_project()}, {kExport, writes_project()}});
 }
 
 }  // namespace fa::assets_detail::music

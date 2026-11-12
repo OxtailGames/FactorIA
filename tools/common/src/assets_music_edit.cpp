@@ -731,11 +731,12 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
 Json finish_edit(const std::string& projectDir, const Json& a, const std::string& rel, const Json& song, Json edits, const char* command) {
     SongDoc doc = check_song_json(song, rel, "Nothing was written.");
     const SongTimeline tl = expand_or_fail(doc, rel);
+    check_picture_out(projectDir, a, command);
     write_song(projectDir, rel, song);
     Json result = Json::object({{"path", rel}, {"edits", edits}});
     Json s = summary_json(doc, tl);
     for (auto it = s.begin(); it != s.end(); ++it) result[it.key()] = it.value();
-    if (arg_bool(a, "picture", false)) add_piano_roll(projectDir, a, doc, tl, result);
+    if (arg_bool(a, "picture", false)) add_piano_roll(projectDir, a, doc, tl, result, command);
     Json steps = Json::array();
     steps.push_back("music.check finds notes outside the key, clashes and mud; music.info draws the piano roll; music.preview renders the sound (a preview made before this edit is now stale).");
     (void)command;
@@ -806,7 +807,8 @@ Json music_notes_command(const std::string& projectDir, const Json& a) {
 Json music_create_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.create", a, "", {"path", "tempo", "meter", "key", "mode", "progression", "style", "bassStyle", "arpeggio", "swing", "doc", "seed", "overwrite", "picture", "pictureOut", "width", "fromBar", "bars"});
     const std::string rel = song_path(arg_string(a, "path", true));
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = project_write_file(projectDir, rel);
+    check_picture_out(projectDir, a, "music.create");
     std::error_code ec;
     if (!arg_bool(a, "overwrite", false) && stdfs::exists(file, ec))
         fail("exists", "'" + rel + "' already exists.", "Edit it with music.edit, or pass overwrite: true to start over.");
@@ -892,11 +894,12 @@ Json music_create_command(const std::string& projectDir, const Json& a) {
 
     SongDoc doc = check_song_json(song, rel, "music.create made an invalid song: this is a bug in the generator.");
     const SongTimeline tl = expand_or_fail(doc, rel);
+    check_picture_out(projectDir, a, "music.create");
     write_song(projectDir, rel, song);
     Json result = Json::object({{"path", rel}, {"created", true}, {"progression", prog.names}});
     Json s = summary_json(doc, tl);
     for (auto it = s.begin(); it != s.end(); ++it) result[it.key()] = it.value();
-    if (arg_bool(a, "picture", true)) add_piano_roll(projectDir, a, doc, tl, result);
+    if (arg_bool(a, "picture", true)) add_piano_roll(projectDir, a, doc, tl, result, "music.create");
     result["nextSteps"] = Json::array({"This is a starting point to change, not a finished piece: music.edit rewrites a pattern (set_pattern), the arrangement (arrange, mute) or the tempo (set_song).",
                                        "music.check finds problems before you listen; music.preview " + rel + " renders it to a WAV."});
     return result;
@@ -1201,7 +1204,7 @@ Json music_instrument_command(const std::string& projectDir, const Json& a) {
         auto norm = fs::normalize_checked(rel);
         if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/") || !ends_with(to_lower(*norm), ".sfx.json"))
             fail("invalid_argument", "music.instrument: `path` '" + rel + "' must be a .sfx.json under assets/.", "Example: \"assets/audio/my_pluck.sfx.json\".");
-        const stdfs::path file = project_file(projectDir, *norm);
+        const stdfs::path file = project_write_file(projectDir, *norm);
         std::error_code ec;
         if (!arg_bool(a, "overwrite", false) && stdfs::exists(file, ec)) fail("exists", "'" + *norm + "' already exists.", "Pass overwrite: true to replace it, or choose another path.");
         std::string err;
@@ -1240,6 +1243,8 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
         info.summary = summary;
         info.description = description;
         info.inputSchema = std::move(inputSchema);
+        mark_paths(info.inputSchema, readOnly ? "read" : "write", {"path"});
+        mark_paths(info.inputSchema, "write", {"pictureOut"});
         registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args.is_null() ? Json::object() : args); });
     };
     const Json pathArg = str("The song, project-relative, under assets/ and ending in .song.json, e.g. \"assets/music/theme.song.json\".");
@@ -1387,6 +1392,12 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
                                                    {"fill", boolean("Make the last beat of the last bar a tom fill.", false)},
                                                    {"meter", str("Meter. Default 4/4, or the song's.")}})))),
         music_drums_command);
+
+    // Capabilities (capability.h): the song commands that take `path` write the song document; the others only look.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"music.create", writes_project()}, {"music.edit", writes_project()}, {"music.instrument", writes_project()},
+                                            {"music.arpeggio", writes_project()}, {"music.bassline", writes_project()}, {"music.drums", writes_project()},
+                                            {"music.notes", reads()}, {"music.chord", reads()}, {"music.scale", reads()}});
 }
 
 }  // namespace fa::assets_detail::music

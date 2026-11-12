@@ -121,6 +121,7 @@ std::shared_ptr<const Anim3DClip> read_clip(const std::string& projectDir, const
 
 void check_can_write(const char* command, const std::string& projectDir, const std::string& rel, bool overwrite) {
     std::error_code ec;
+    (void)project_write_file(projectDir, rel);  // refused before any work: managed folders, links out of the project
     if (!overwrite && stdfs::exists(project_file(projectDir, rel), ec))
         fail("exists", std::string(command) + ": '" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another path.");
 }
@@ -133,7 +134,7 @@ void check_can_write(const char* command, const std::string& projectDir, const s
 Json write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json, const Json& made = nullptr, bool exact = false) {
     require_usable_manifest(projectDir);  // before any file changes: a broken assets.json must not leave a written clip and an error
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     clear_anim3d_cache();  // the next load reads the file again, whatever its modification time says
     ProjectRootGuard root(projectDir);
     Json previous = nullptr;
@@ -611,7 +612,7 @@ Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
     require_usable_manifest(projectDir);
     const Json before = clip_before(projectDir, rel);
     if (a["clip"].is_null()) {
-        const stdfs::path file = project_file(projectDir, rel);
+        const stdfs::path file = project_write_file(projectDir, rel);
         std::error_code ec;
         if (!stdfs::exists(file, ec)) fail("not_found", "anim3d.restore: '" + rel + "' does not exist, so there is nothing to delete.", "Nothing to undo here.");
         stdfs::remove(file, ec);
@@ -1111,12 +1112,15 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
         yaws.push_back(yaw);
     }
     std::string outRel;
+    stdfs::path outFile;
     if (a.contains("out") && !a["out"].is_null()) {
-        auto norm = a["out"].is_string() ? fs::normalize_checked(a["out"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
-        if (!norm.ok() || norm->empty() || to_lower(fs::extension(*norm)) != ".png")
+        if (!a["out"].is_string() || a["out"].get<std::string>().empty() || to_lower(fs::extension(a["out"].get<std::string>())) != ".png")
             fail("invalid_argument", "anim3d.preview: `out` must be a project-relative path ending in .png.", "Example: \"docs/review/walk.png\". Leave it out to only look at the picture (nothing is written to the project).");
-        outRel = *norm;
-        check_can_write("anim3d.preview", projectDir, outRel, tooling_detail::arg_bool(a, "overwrite", false));
+        outFile = caller_output_file(projectDir, a["out"].get<std::string>(), "anim3d.preview");  // before the render: writeProject, inside the project
+        outRel = output_spelling(a["out"].get<std::string>());
+        std::error_code ec;
+        if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(outFile, ec))
+            fail("exists", "anim3d.preview: '" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another path.");
     }
     const auto clip = read_clip(projectDir, rel);
     std::string rigArg;
@@ -1206,7 +1210,7 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
     if (!outRel.empty()) {
         const std::vector<std::uint8_t> png = encode_png(canvas.img);
         std::string err;
-        const stdfs::path out = project_file(projectDir, outRel);
+        const stdfs::path& out = outFile;
         if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
         result["written"] = outRel;
         result["$image"] = image_member(out, false);
@@ -1275,8 +1279,9 @@ Json ik3d_solve_command(const std::string& projectDir, const Json& a) {
 
 void register_anim3d_commands(CommandRegistry& registry, const std::string& projectDir) {
     const std::string kUndoNote = " The result carries `undo`: {command: \"anim3d.restore\", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.";
-    const Json rigProp = str_prop("The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative.");
-    const Json pathProp = str_prop("The 3D clip file, project-relative, ending in .anim.json.");
+    const Json rigProp = path_property("read", "The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative.");
+    const Json pathProp = path_property("write", "The 3D clip file, project-relative, ending in .anim.json.");
+    const Json pathReadProp = path_property("read", "The 3D clip file, project-relative, ending in .anim.json.");  // commands that only read it
     const Json channelProp = Json::object({{"type", "string"}, {"enum", Json::array({"rotation", "translation", "scale"})}, {"description", "Which channel of the bone (default rotation)."}});
     {
         CommandInfo info;
@@ -1321,7 +1326,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
             "Reads the clip with the loader's own rules, so a file the game could not play comes back as an error with the JSON pointer of each problem. The result gives the length, whether it loops, the ground speed, the tracks (bone, channel, key count, first and "
             "last time), the events and the contacts (stretches where a foot is on the ground), and, for a generated clip, `generated` (kind and parameters). With `rig` it also reports bones the rig does not have (with 'did you mean'). "
             "Example: {\"path\":\"anim/hero_walk.anim.json\",\"rig\":\"assets/models/hero.rig.glb\"}";
-        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"properties", obj({{"path", pathProp}, {"rig", rigProp}})}});
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"properties", obj({{"path", pathReadProp}, {"rig", rigProp}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -1382,7 +1387,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                          {"properties", obj({{"rig", rigProp},
                                                              {"kind", Json::object({{"type", "string"}, {"enum", Json::array({"walk", "run", "trot", "gallop", "idle", "swing", "hit"})}, {"description", "What to generate."}})},
                                                              {"params", obj_prop("The kind's parameters (anim3d.generators lists them): strideLength, cadence, bounce, armSwing, fps...")},
-                                                             {"out", str_prop("Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json.")},
+                                                             {"out", path_property("write", "Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json.")},
                                                              {"overwrite", bool_prop("Replace the file if it exists.")}})}});
         info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_generate_command(projectDir, args.is_null() ? Json::object() : args); });
@@ -1400,9 +1405,9 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
             "Example: {\"path\":\"anim/hero_walk.anim.json\",\"to\":\"assets/models/guard.rig.glb\",\"out\":\"anim/guard_walk.anim.json\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "to", "out"})},
                                          {"properties", obj({{"path", pathProp},
-                                                             {"from", str_prop("The rig the clip was made for (default: the rig recorded in the clip).")},
-                                                             {"to", str_prop("The rig to carry the clip to.")},
-                                                             {"out", str_prop("Where to write the retargeted clip (ending in .anim.json).")},
+                                                             {"from", path_property("read", "The rig the clip was made for (default: the rig recorded in the clip).")},
+                                                             {"to", path_property("read", "The rig to carry the clip to.")},
+                                                             {"out", path_property("write", "Where to write the retargeted clip (ending in .anim.json).")},
                                                              {"plantFeet", bool_prop("Solve the legs with a contact again so planted feet stay planted (default true).")},
                                                              {"scale", num_prop("Factor for root motion, ground speed and feet; 0 (default) = the ratio of the leg lengths.", 0, 100)},
                                                              {"fps", num_prop("Keys per second of the legs solved again (default 30).", 4, 120)},
@@ -1422,7 +1427,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
             "`yaw` picks the side (default -70: from the character's right and a little in front); `yaws` (a list, e.g. [-70, 0, 90]) draws one row of poses per side in one sheet, which is how a pose is checked from several angles at once; the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. "
             "Example: {\"path\":\"anim/hero_walk.anim.json\",\"rig\":\"assets/models/hero.rig.glb\",\"frames\":8}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path"})},
-                                         {"properties", obj({{"path", pathProp},
+                                         {"properties", obj({{"path", pathReadProp},
                                                              {"rig", rigProp},
                                                              {"frames", num_prop("How many poses, 2 to 12 (default 8), evenly spaced over the clip.", 2, 12)},
                                                              {"cell", num_prop("Pixels per side of each pose (default 200).", 96, 480)},
@@ -1430,7 +1435,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"yaws", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", 6}, {"items", Json::object({{"type", "number"}, {"minimum", -360}, {"maximum", 360}})},
                                                                                     {"description", "Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]."}})},
                                                              {"pitch", num_prop("Degrees above the horizon (default 10).", -80, 80)},
-                                                             {"out", str_prop("Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file.")},
+                                                             {"out", path_property("write", "Keep the picture as a PNG at this project-relative path (needs the writeProject capability). Left out, it is a temporary file under .factoria/.")},
                                                              {"overwrite", bool_prop("Replace the file at `out` if it exists.")}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_preview_command(projectDir, args.is_null() ? Json::object() : args); });
     }
@@ -1602,11 +1607,37 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"rig", "solver"})},
                                          {"properties", obj({{"rig", rigProp},
                                                              {"solver", obj_prop("One IK3D solver with fixed [x, y, z] targets.")},
-                                                             {"clip", str_prop("A 3D clip to pose the rig with first (default: the rest pose).")},
+                                                             {"clip", path_property("read", "A 3D clip to pose the rig with first (default: the rest pose).")},
                                                              {"time", num_prop("Seconds into `clip` (default 0).", 0, 3600)},
                                                              {"groundHeight", num_prop("Height of the flat ground a foot solver stands on (default 0).", -1000, 1000)}})}});
         registry.add(info, [projectDir](const Json& args) { return ik3d_solve_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+
+    // Capabilities (capability.h). The clip commands write a clip file and its record in assets.json and never touch the running game;
+    // anim3d.preview writes only a temporary picture under .factoria/ unless `out` is given, and then needs writeProject itself.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {
+        {"anim3d.generators", reads()},
+        {"anim3d.info", reads()},
+        {"anim3d.preview", changes_state()},
+        {"ik3d.check", reads()},
+        {"ik3d.solve", reads()},
+        {"anim3d.create", writes_project()},
+        {"anim3d.set_keys", writes_project()},
+        {"anim3d.remove_track", writes_project()},
+        {"anim3d.generate", writes_project()},
+        {"anim3d.retarget", writes_project()},
+        {"anim3d.restore", writes_project()},
+        {"anim3d.move_keys", writes_project()},
+        {"anim3d.remove_keys", writes_project()},
+        {"anim3d.set_interp", writes_project()},
+        {"anim3d.set_clip", writes_project()},
+        {"anim3d.add_event", writes_project()},
+        {"anim3d.set_event", writes_project()},
+        {"anim3d.remove_event", writes_project()},
+        {"anim3d.mirror_pose", writes_project()},
+        {"ik3d.key", writes_project()},
+    });
 }
 
 }  // namespace fa::assets_detail

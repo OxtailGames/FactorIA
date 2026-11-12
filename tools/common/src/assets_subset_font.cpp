@@ -225,6 +225,8 @@ void register_subset_font_command(CommandRegistry& registry, const std::string& 
         "axes":{"type":"object","description":"Where to pin the variable font's axes, tag to value: {\"wght\":400}. Default {\"wght\":400}. An axis not listed goes to its default.","additionalProperties":{"type":"number"}}
       }})");
     registry.add(info, [projectDir](const Json& args) { return subset_font(projectDir, args); });
+    // Capabilities (capability.h): the subset font and its assets.json entry are project files (the source font is only read).
+    declare_command_capabilities(registry, {{"assets.subset_font", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

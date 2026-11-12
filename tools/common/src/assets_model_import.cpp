@@ -209,7 +209,8 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
     const std::string docStem = docRel.substr(0, docRel.size() - std::string(kModelDocSuffix).size());
     const std::string meshRel = docStem + ".mesh.glb";
     std::error_code ec;
-    if (!overwrite && stdfs::exists(project_file(projectDir, docRel), ec))
+    (void)project_write_file(projectDir, meshRel);  // every file it will write is checked before the work starts
+    if (!overwrite && stdfs::exists(project_write_file(projectDir, docRel), ec))
         fail("exists", "model.import_clean: '" + docRel + "' already exists.", "Pass overwrite: true to replace it, or give another `out`.");
     require_usable_manifest(projectDir);
 
@@ -229,7 +230,7 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
             if (!imported.ok()) fail("failed", "model.import_clean: " + source + ": " + imported.error().message, imported.error().hint.empty() ? "Check that the .obj has `v` and `f` lines." : imported.error().hint);
             for (const OutFile& f : imported->files) {
                 std::string err;
-                if (!tooling_detail::write_file(project_file(projectDir, f.path), std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()), &err))
+                if (!tooling_detail::write_file(project_write_file(projectDir, f.path), std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()), &err))
                     fail("failed", "model.import_clean: cannot write '" + f.path + "': " + err, "Check that the folder is writable.");
             }
             for (const std::string& w : imported->warnings) notes.push_back(w);
@@ -248,7 +249,7 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
         if (e.material >= gm.materials.size()) continue;
         const std::string rel = std::format("{}.tex{}.{}", docStem, e.material + 1, e.extension);
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(e.bytes.data()), e.bytes.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(e.bytes.data()), e.bytes.size()), &err))
             fail("failed", "model.import_clean: cannot write '" + rel + "': " + err, "Check that the folder is writable.");
         gm.materials[e.material].texture = rel;
         for (std::size_t s = 0; s < gm.data.submeshes.size(); ++s)
@@ -298,7 +299,7 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
     if (!glb.ok()) fail("failed", "model.import_clean: " + glb.error().message, glb.error().hint);
     {
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, meshRel), std::string_view(reinterpret_cast<const char*>(glb->data()), glb->size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, meshRel), std::string_view(reinterpret_cast<const char*>(glb->data()), glb->size()), &err))
             fail("failed", "model.import_clean: cannot write '" + meshRel + "': " + err, "Check that the folder is writable.");
     }
     Json materials = Json::object();
@@ -338,7 +339,7 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
             throw CommandError("invalid_document", "model.import_clean: the document it made is not valid: " + parsed.error().message, parsed.error().hint, Json::object({{"path", docRel}, {"issues", list}}));
         }
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, docRel), dump_json(doc), &err)) fail("failed", "Cannot write '" + docRel + "': " + err, "Check that the folder is writable.");
+        if (!tooling_detail::write_file(project_write_file(projectDir, docRel), dump_json(doc), &err)) fail("failed", "Cannot write '" + docRel + "': " + err, "Check that the folder is writable.");
         result["output"] = model_document_output(*parsed, docRel);
     }
     result["path"] = docRel;
@@ -453,7 +454,11 @@ void register_model_import_clean_command(CommandRegistry& registry, const std::s
                {"unwrap", choice("Unwrap with xatlas into the document's uv section: auto (when the mesh has no uvs or was remeshed), always or never.", {"auto", "always", "never"}, "auto")},
                {"texelsPerUnit", num("Texels per metre of the unwrap (default the project's style guide, else 128).", 0)},
                {"bake", boolean("Bake the document to its .glb.", true)}})}});
+    mark_paths(info.inputSchema, "read", {"source", "reference"});
+    mark_paths(info.inputSchema, "write", {"out"});
     registry.add(info, [projectDir](const Json& args) { return model_import_clean_command(projectDir, args.is_null() ? Json::object() : args); });
+    using namespace capability_sets;  // capability.h: writes the cleaned mesh, its textures and the model document
+    declare_command_capabilities(registry, {{"model.import_clean", writes_project()}});
 }
 
 }  // namespace fa::assets_detail
