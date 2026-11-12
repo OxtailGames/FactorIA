@@ -4,6 +4,7 @@
 #include "fa/ai/process.h"
 #include "fa/core/strings.h"
 #include "fa/ai/cli_agent.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -19,6 +20,7 @@ Json ProviderStatus::to_json() const {
 static std::string probe_version(const std::string& exe) {
     ProcessOptions po;
     po.argv = {exe, "--version"};
+    po.inheritEnv = plain_inherit_env();
     po.timeoutSeconds = 5;
     auto r = run_process(po);
     if (!r || r->exitCode != 0) return {};

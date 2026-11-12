@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/core/fs.h"
@@ -84,6 +86,58 @@ TEST_CASE("config parsing merges over defaults") {
     CHECK(agent->kind == ProviderKind::GenericCli);
     CHECK(agent->argv.size() == 4);
     CHECK(cfg->provider("anthropic")->apiKeyEnv == "MY_ANTHROPIC_KEY");
+}
+
+TEST_CASE("inheritEnv: top level, provider and tool server lists are read, written back and passed to what they start") {
+    const Json j = Json::parse(R"({
+        "inheritEnv": ["AWS_PROFILE", "MYCORP_*"],
+        "providers": {"claude-code": {"inheritEnv": ["NODE_OPTIONS"]}},
+        "mcpServers": {"local": {"command": "node", "args": ["s.js"], "inheritEnv": ["LOCAL_TOKEN"]}}
+    })");
+    CHECK(validate_config_json(j).empty());
+    auto cfg = parse_config(j, "ai.json");
+    REQUIRE(cfg);
+    CHECK(cfg->inheritEnv == std::vector<std::string>{"AWS_PROFILE", "MYCORP_*"});
+    const ProviderConfig* cc = cfg->provider("claude-code");
+    REQUIRE(cc);
+    CHECK(cc->inheritEnv == std::vector<std::string>{"NODE_OPTIONS"});
+    CHECK(cc->inheritEnvGlobal == cfg->inheritEnv);  // every provider and tool server sees the global list
+    CHECK(cfg->provider("codex")->inheritEnvGlobal == cfg->inheritEnv);
+    REQUIRE(cfg->toolServers.size() == 1);
+    CHECK(cfg->toolServers[0].inheritEnv == std::vector<std::string>{"LOCAL_TOKEN"});
+
+    // written back, and read again as the same
+    const Json back = config_to_json(*cfg);
+    CHECK(back["inheritEnv"] == j["inheritEnv"]);
+    CHECK(back["providers"]["claude-code"]["inheritEnv"] == j["providers"]["claude-code"]["inheritEnv"]);
+    CHECK(back["mcpServers"]["local"]["inheritEnv"] == j["mcpServers"]["local"]["inheritEnv"]);
+    auto again = parse_config(back, "again");
+    REQUIRE(again);
+    CHECK(again->inheritEnv == cfg->inheritEnv);
+    // nothing listed: nothing written
+    CHECK_FALSE(config_to_json(default_config()).contains("inheritEnv"));
+
+    // a tool server is started with its own names plus the global ones
+    auto server = resolve_tool_server(cfg->toolServers[0], fake_env({}));
+    REQUIRE(server);
+    CHECK(std::find(server->inheritEnv.begin(), server->inheritEnv.end(), "LOCAL_TOKEN") != server->inheritEnv.end());
+    CHECK(std::find(server->inheritEnv.begin(), server->inheritEnv.end(), "AWS_PROFILE") != server->inheritEnv.end());
+}
+
+TEST_CASE("inheritEnv: a name that is not a variable name is an error with its JSON pointer and a fix") {
+    for (const char* bad : {R"({"inheritEnv": "AWS_PROFILE"})", R"({"inheritEnv": [5]})", R"({"inheritEnv": ["A=B"]})",
+                            R"({"inheritEnv": ["*"]})", R"({"inheritEnv": ["A B"]})", R"({"inheritEnv": [""]})",
+                            R"({"inheritEnv": ["MID*DLE"]})"}) {
+        INFO(bad);
+        const Json j = Json::parse(bad);
+        auto r = parse_config(j, "ai.json");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/inheritEnv") != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    auto p = parse_config(Json::parse(R"({"providers": {"codex": {"inheritEnv": ["A=B"]}}})"), "ai.json");
+    REQUIRE_FALSE(p.ok());
+    CHECK(p.error().message.find("/providers/codex/inheritEnv") != std::string::npos);
 }
 
 TEST_CASE("config errors: unknown role provider gets did-you-mean, custom provider needs type") {

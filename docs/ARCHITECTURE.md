@@ -250,6 +250,20 @@ that may be read uses `fs::replace_file` / `fs::remove_file` (they wait for read
 `std::filesystem::last_write_time`, and still reads once more after a change (a time that did not move does not prove the
 file did not change). With the mode off, the registry costs one atomic load per call.
 
+**Private files** (`core/private_file.h`): `fs::write_private(path, bytes)` writes a file only its owner can open (secrets: the
+AI config with a key, the feedback admin token) and `fs::make_private(path)` restricts a file another program made (the Android
+keystore). The file is created restricted from its first byte (`open` with 0600 on POSIX; on Windows a protected DACL whose only
+entry is the current user, set in `CreateFileW`) and replaces the old one with `fs::replace_file`, so no reader sees a
+half-written or a world-readable file. Do not write a secret with `fs::write_text` plus a later `chmod`.
+
+**Child environment** (`core/process.h`, `core/child_process.h`): by default a child inherits the whole environment. A child that
+runs text from a prompt, a project or a stranger (hooks, AI agents, tool servers) sets `ProcessOptions::inheritEnv` /
+`ChildOptions::inheritEnv`, an allow-list of names (or `PREFIX*`; case-insensitive on Windows): only those variables of the parent
+reach it, then `env` is added and `unsetEnv` removed. `fa::base_child_env()` is the list every child needs (`PATH`, `HOME`, the
+locale, temp folders, `SystemRoot`/`ComSpec`... on Windows) and `fa::child_env_allow(extra)` joins it with more names. tools/ai
+builds each provider's list (`tools/ai/src/ai_env.h`) and the user extends it with `inheritEnv` in ai.json
+(docs/AI_PROVIDERS.md, "Environment of the programs the AI starts"). An unset `inheritEnv` keeps the old behaviour.
+
 ### Block codecs: LZ4 and Zstandard (`core/compress.h`)
 `fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`) are the engine's own
 implementations of two public formats, with no outside library: the LZ4 **block** format (no frame; levels 1 to 12) and

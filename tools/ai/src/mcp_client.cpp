@@ -7,6 +7,7 @@
 
 #include "fa/ai/sse.h"
 #include "fa/core/hash.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -93,6 +94,7 @@ Result<std::unique_ptr<McpClient>> McpClient::connect(const ResolvedToolServer& 
         co.argv.push_back(server.command);
         for (const auto& a : server.args) co.argv.push_back(a);
         co.env = server.env;
+        co.inheritEnv = tool_server_inherit_env(server);  // not the whole environment: no API key or signing password unless listed
         auto child = ChildProcess::start(co);
         if (!child)
             return Error{"Tool server '" + server.name + "': " + child.error().message,

@@ -18,6 +18,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -191,6 +192,7 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     ProcessOptions po;
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    po.inheritEnv = provider_inherit_env(cfg);  // not the whole environment: no other provider's key, no signing password
     // A `factoria` this agent runs from its shell (`factoria call ai.settings.set ...`) is the agent's call, not the user's:
     // it reads this variable (CommandCallerFloor). A value the user already put in the environment stays (it can only be a
     // stricter or equal one: the CLI maps any value to Agent or Mcp), and so does one in the provider's own "env".

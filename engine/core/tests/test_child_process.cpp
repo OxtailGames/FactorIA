@@ -6,6 +6,11 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
+#ifndef _WIN32
+#include <stdlib.h>
+#endif
 
 #include "fa/core/child_process.h"
 #include "fa/core/fs.h"
@@ -67,6 +72,37 @@ TEST_CASE("child_process: the environment is the inherited one plus the override
     REQUIRE((*child)->write("env FA_ECHO_CHILD\n"));
     CHECK((*child)->read_line(line, 10) == ChildProcess::Read::Line);
     CHECK(line == exe);  // inherited
+}
+
+TEST_CASE("child_process: inheritEnv passes on only the variables it names, the overrides come on top") {
+    const std::string exe = echo_child();
+    if (exe.empty()) return;
+#ifdef _WIN32
+    _putenv_s("FA_CHILD_TEST_SECRET", "hunter2");
+#else
+    ::setenv("FA_CHILD_TEST_SECRET", "hunter2", 1);
+#endif
+    ChildOptions options;
+    options.argv = {exe};
+    options.env = {{"FA_CHILD_TEST_ADDED", "yes"}};
+    options.inheritEnv = child_env_allow({});
+    auto child = ChildProcess::start(options);
+#ifdef _WIN32
+    _putenv_s("FA_CHILD_TEST_SECRET", "");
+#else
+    ::unsetenv("FA_CHILD_TEST_SECRET");
+#endif
+    REQUIRE(child.ok());
+    std::string line;
+    for (const auto& [name, want] : std::vector<std::pair<std::string, std::string>>{
+             {"FA_CHILD_TEST_SECRET", "(unset)"}, {"FA_ECHO_CHILD", "(unset)"}, {"FA_CHILD_TEST_ADDED", "yes"}}) {
+        REQUIRE((*child)->write("env " + name + "\n"));
+        CHECK((*child)->read_line(line, 10) == ChildProcess::Read::Line);
+        CHECK_MESSAGE(line == want, name);
+    }
+    REQUIRE((*child)->write("env PATH\n"));
+    CHECK((*child)->read_line(line, 10) == ChildProcess::Read::Line);
+    CHECK(line != "(unset)");  // the base list keeps PATH
 }
 
 TEST_CASE("child_process: the working directory and the standard error") {
