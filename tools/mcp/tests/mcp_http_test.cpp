@@ -2,7 +2,16 @@
 // and the fake Claude Code of tools/ai/tests/fixtures calling a tool through the config the CLI agent writes for it.
 #include <doctest.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#define NOMINMAX
+#include <winsock2.h>
+#endif
+
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -244,15 +253,34 @@ struct RawClient {
             out.append(chunk, static_cast<std::size_t>(n));
         }
     }
-    // Everything until the server closes the connection (or the 30 s timeout).
+    // Everything until the server closes the connection (or the 30 s timeout). `ended` says how it ended, for a log:
+    // the server closed (0), or an error, a reset or the timeout (negative); `endedCode` is then the system error code
+    // (WSAGetLastError() on Windows, errno elsewhere: WSAECONNRESET, WSAECONNABORTED, WSAETIMEDOUT...).
+    mutable std::ptrdiff_t ended = 0;
+    mutable int endedCode = 0;
     std::string read_all() const {
         std::string out;
         char chunk[4096];
         for (;;) {
             const auto n = net::recv_some(s, chunk, sizeof chunk);
-            if (n <= 0) return out;
+            if (n <= 0) {
+                ended = n;
+                if (n < 0) endedCode = last_socket_error();
+                return out;
+            }
             out.append(chunk, static_cast<std::size_t>(n));
         }
+    }
+    static int last_socket_error() {
+#ifdef _WIN32
+        return ::WSAGetLastError();
+#else
+        return errno;
+#endif
+    }
+    std::string ended_text() const {
+        return ended == 0 ? "the server closed the connection"
+                          : "a receive error, reset or timeout, system error code " + std::to_string(endedCode);
     }
     static std::string post(const std::string& path, const std::string& body, bool close = true) {
         return "POST " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nAccept: application/json\r\n" +
@@ -445,6 +473,40 @@ TEST_CASE("MCP over loopback HTTP: malformed messages get JSON-RPC errors and a 
     server.stop();
 }
 
+// Closing a socket that still has unread input makes Windows and macOS send an RST, and the RST wipes an answer the client
+// has not read yet from its receive queue: the client sees "connection reset" and 0 bytes instead of the status line. Here
+// the extra bytes arrive while the handler runs, after the server read the request, so they are unread when it closes (what
+// a client that pipelines, or a cancelled request's client, can do). The server must end the connection gracefully.
+// This is a regression test on Windows only: Linux does not send the RST this way, so there it passes with or without the
+// lingering close. It does not reproduce the intermittent "read 0 bytes" of the cancelled-request test (that case has no
+// unread input).
+TEST_CASE("MCP over loopback HTTP: an answer that ends the connection survives input the server never read") {
+    std::atomic<bool> inHandler{false}, release{false};
+    McpHttpServer server;
+    auto started = server.start(
+        McpHttpServer::StreamHandler([&](std::string_view, const McpHttpServer::Notify&) -> std::optional<std::string> {
+            inHandler = true;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!release && std::chrono::steady_clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            return std::nullopt;  // no reply: a cancelled request, which gets 204 on a plain connection
+        }),
+        McpHttpOptions{});
+    REQUIRE(started);
+    RawClient c(port_of(*started));
+    REQUIRE(c.send(RawClient::post(path_of(*started), R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{}})")));
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!inHandler && std::chrono::steady_clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE(inHandler);
+    REQUIRE(c.send(std::string(2000, 'x')));  // after the request: nothing reads it
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // on loopback it is in the server's receive queue by now
+    release = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));  // the answer and the close are at the client before it reads
+    const std::string reply = c.read_all();
+    INFO("reply: " << reply.substr(0, 200) << " (" << reply.size() << " bytes, ended by " << c.ended_text() << ")");
+    CHECK(reply.find("HTTP/1.1 204") == 0);
+    server.stop();
+}
+
 TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the request; it gets no result") {
     if (!ai::http_has_libcurl() && ai::which("curl").empty()) {
         MESSAGE("no HTTP client (libcurl or the curl executable); skipped");
@@ -513,7 +575,8 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     // What the client saw, for a log that is all there is to learn from (a reply wiped by a connection reset, a 408 after
     // the receive timeout, or nothing at all look different here).
     INFO("cancel notification status " << cancelReply.status << "; waited " << waitedMs << " ms for the plain client's reply; it read "
-                                       << plainReply.size() << " bytes: " << plainReply.substr(0, 200));
+                                       << plainReply.size() << " bytes: " << plainReply.substr(0, 200) << "; it ended by "
+                                       << plain.ended_text());
     CHECK(plainReply.find("HTTP/1.1 204") == 0);
     CHECK(plainReply.find("Content-Length") == std::string::npos);
     CHECK(sawCancel);

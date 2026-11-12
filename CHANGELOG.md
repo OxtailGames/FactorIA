@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- The editor's MCP endpoint closes a connection gently after any answer that ends it (`Connection: close`, an error, a
+  stream): it stops sending, reads what the client still sends (for up to 500 ms, which keeps its connection slot that
+  long) and then closes, as it did after 413 only. On Windows and macOS closing a socket with unread input sends an RST
+  that can wipe the answer from the client's receive queue. This covers the case of input the server never read; the
+  intermittent "read 0 bytes" instead of the `204` of a cancelled request has no unread input and stays open (ROADMAP).
 - Coverage (M93.4): `-DFA_COVERAGE=ON` (Clang) instruments the build for llvm-cov and `scripts/coverage-report.sh <build-dir>` turns the profiles of a ctest run, the editor autotest included, into a table per module (Markdown and JSON) and an HTML report. The new informative CI job `coverage` uploads both and writes the table to its summary. docs/BUILDING.md, "Coverage".
 - Warnings as errors in CI (M93.3a): the CI jobs (Linux, Linux sniper, Windows, macOS, iOS, Android and Web, and
   `scripts/ci-local.sh`) configure with `-DFA_WARNINGS_AS_ERRORS=ON`, so a compiler warning in the engine, the tools, the
