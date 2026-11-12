@@ -31,8 +31,9 @@ std::string first_line(const std::string& s, std::size_t maxChars) {
     return line;
 }
 
-bool eligible(const CommandInfo& info, bool readOnly) {
+bool eligible(const CommandInfo& info, bool readOnly, CapabilitySet granted) {
     if (is_agent_tool_excluded(info.name)) return false;
+    if (!granted.has_all(info.capabilities)) return false;  // a tool the role cannot call is not offered
     return !readOnly || is_read_only_tool(info);
 }
 
@@ -107,7 +108,7 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
     ToolPlan plan;
     std::vector<const CommandInfo*> infos;
     for (const CommandInfo* info : registry.list()) {  // sorted by name
-        if (!eligible(*info, options.readOnly)) continue;
+        if (!eligible(*info, options.readOnly, options.granted)) continue;
         infos.push_back(info);
     }
     // A group is a command category, the exact name of a command, or "all".
@@ -171,7 +172,7 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
 }
 
 const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly, std::string& why,
-                                   std::string& hint) {
+                                   std::string& hint, CapabilitySet granted) {
     why.clear();
     hint.clear();
     const CommandInfo* found = nullptr;
@@ -195,16 +196,22 @@ const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_
         hint = "You only look and play. Say what should change in your report instead.";
         return nullptr;
     }
+    if (const CapabilitySet missing = found->capabilities.missing_from(granted); !missing.empty()) {
+        why = "Command '" + found->name + "' needs the capability " + missing.to_string() + ", which this role is not granted";
+        hint = "Ask the user to run `factoria call " + found->name + "` themselves, or do the work with the commands you have.";
+        return nullptr;
+    }
     return found;
 }
 
-Json describe_commands(const CommandRegistry& registry, const std::vector<std::string>& names, bool readOnly, bool& ok) {
+Json describe_commands(const CommandRegistry& registry, const std::vector<std::string>& names, bool readOnly, bool& ok,
+                       CapabilitySet granted) {
     Json commands = Json::array();
     Json unknown = Json::array();
     std::set<std::string> done;
     for (const std::string& n : names) {
         std::string why, hint;
-        const CommandInfo* info = resolve_command(registry, n, readOnly, why, hint);
+        const CommandInfo* info = resolve_command(registry, n, readOnly, why, hint, granted);
         if (!info) {
             Json u = Json::object({{"name", n}, {"message", why}});
             if (!hint.empty()) u["hint"] = hint;

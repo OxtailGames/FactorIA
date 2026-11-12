@@ -175,9 +175,14 @@ bool is_read_only_tool(const CommandInfo& info) {
                                         // a session under .factoria/sessions/ (play.sessions / play.report read it); it changes no
                                         // file of the project, so the read-only roles may start it. Only the reviewer's prompt
                                         // tells it to (the art critic has no use for it).
-                                        "play.auto"};
+                                        "play.auto",
+                                        // One PNG of poses / frames under .factoria/ (writeProject, so no longer readOnly): the art
+                                        // critic and the reviewers look at an animation or an effect with them.
+                                        "anim.filmstrip", "vfx.filmstrip"};
     for (const char* name : kPlay) {
-        if (info.name == name) return true;
+        // The play commands also have to fit the critics' capability set (role_capabilities): one that declares more (a process,
+        // the network) is not a play command, whatever its name.
+        if (info.name == name) return role_capabilities(kRoleReviewer).has_all(info.capabilities);
     }
     return false;
 }
@@ -192,12 +197,17 @@ std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, s
     std::vector<std::string> out = {"Agent", "Task"};
     if (!canDelegate) out.push_back("mcp__factoria__ai_run");
     out.push_back("mcp__factoria__ai_review");
-    if (is_review_role(role)) {
+    const bool review = is_review_role(role);
+    const CapabilitySet granted = role_capabilities(role);
+    if (review) {
         for (const char* t : {"Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"}) out.push_back(t);
-        for (const CommandInfo* info : registry.list()) {
-            if (info->name == "ai.run" || info->name == "ai.review") continue;  // already listed
-            if (!is_read_only_tool(*info)) out.push_back("mcp__factoria__" + mcp_tool_name_for(info->name));
-        }
+    }
+    for (const CommandInfo* info : registry.list()) {
+        if (info->name == "ai.run" || info->name == "ai.review") continue;  // already listed
+        // A critic gets the observing and playing commands; every role loses the commands its capabilities do not cover
+        // (the editor's endpoint and `factoria mcp` refuse them too: FACTORIA_CAPABILITIES).
+        if ((review && !is_read_only_tool(*info)) || !granted.has_all(info->capabilities))
+            out.push_back("mcp__factoria__" + mcp_tool_name_for(info->name));
     }
     return out;
 }
@@ -437,6 +447,8 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     // artCritic and reviewer, the tools that edit, are switched off (cli_disallowed_tools).
     req.disallowedTools = cli_disallowed_tools(registry_, role, canDelegate);
     req.readOnly = is_review_role(role);
+    req.role = role;
+    req.capabilities = role_capabilities(role);  // reaches the factoria the CLI starts (FACTORIA_CAPABILITIES)
     req.webDomains = asset_source_hosts(config_.assetSources);  // Claude Code: WebFetch for these sites, only these with onlyListed
     req.webOnlyListed = config_.assetSources.onlyListed;
     req.toolServers = resolvedServers;
@@ -546,6 +558,7 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
                                       const ToolPlan* plan) {
     const bool catalog = plan && plan->useCatalog;
     const bool readOnlyRole = is_review_role(role);
+    const CapabilitySet granted = role_capabilities(role);
     // tool_call runs a command under the command's own name: the events, the read-only check and the argument errors below
     // see the command, not the wrapper. A call the wrapper cannot resolve keeps its own name and fails further down.
     ToolCall call = original;
@@ -564,7 +577,7 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
             wrapHint = "Pass the command's arguments as an object, or {} when it takes none.";
         } else {
             std::string why, hint;
-            if (const CommandInfo* info = resolve_command(registry_, command, readOnlyRole, why, hint)) {
+            if (const CommandInfo* info = resolve_command(registry_, command, readOnlyRole, why, hint, granted)) {
                 call.name = tool_name_for_command(info->name);
                 call.input = args && args->is_object() ? *args : Json::object();
                 viaCall = true;
@@ -617,7 +630,7 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
                         "Call tool_describe {\"commands\": [\"assets.slice_sheet\"]}.");
         }
         bool ok = false;
-        Json described = describe_commands(registry_, names, readOnlyRole, ok);
+        Json described = describe_commands(registry_, names, readOnlyRole, ok, granted);
         tr.isError = !ok;
         tr.content = clip_text(dump(described), kMaxToolResultChars);
         return finish(tr, described);
@@ -672,6 +685,8 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
     CommandResult cr;
     {
         CommandCallerScope caller(CommandCaller::Agent);  // the model's call, not the user's (ai.settings.set scope "user" refuses it)
+        // ... and with what its role may do (config.h, role_capabilities); a refusal names the role
+        CommandCapabilityScope capabilities(granted, role_denial_hint(role));
         cr = registry_.call(it->second, callInput);
     }
     if (!cr.ok) {
@@ -821,6 +836,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     ToolPlanOptions planOptions;
     planOptions.withDelegate = canDelegate;
     planOptions.readOnly = readOnly;
+    const CapabilitySet granted = role_capabilities(role);
+    planOptions.granted = granted;
     planOptions.groups = rc.toolGroups ? *rc.toolGroups : default_tool_groups(role);
     if (config_.savers.learnedToolGroups) {  // groups the user accepted for this project (savers.h); nothing else is ever added or denied
         for (const std::string& g : accepted_tool_groups(opt_.projectDir, role))
@@ -841,6 +858,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     for (const CommandInfo* info : registry_.list()) {
         if (is_agent_tool_excluded(info->name)) continue;
         if (readOnly && !is_read_only_tool(*info)) continue;  // not offered, and not callable either
+        if (!granted.has_all(info->capabilities)) continue;   // nor one the role's capabilities do not cover
         toolToCommand_[tool_name_for_command(info->name)] = info->name;
     }
 
@@ -1168,12 +1186,12 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                     names.push_back(one);
                 }
                 for (const std::string& n : names) {
-                    if (const CommandInfo* info = resolve_command(registry_, n, readOnly, why, hintText)) learner.tool_loaded(info->name, info->category);
+                    if (const CommandInfo* info = resolve_command(registry_, n, readOnly, why, hintText, granted)) learner.tool_loaded(info->name, info->category);
                 }
                 return;
             }
             if (wrapper) {
-                if (const CommandInfo* info = resolve_command(registry_, str(call.input, "command"), readOnly, why, hintText)) {
+                if (const CommandInfo* info = resolve_command(registry_, str(call.input, "command"), readOnly, why, hintText, granted)) {
                     command = info->name;
                     if (const Json* a = child(call.input, "arguments"); a && a->is_object()) args = *a;
                     const std::string toolName = tool_name_for_command(info->name);

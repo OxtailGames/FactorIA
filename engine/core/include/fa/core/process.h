@@ -65,8 +65,8 @@ bool env_name_matches(std::string_view pattern, std::string_view name, bool case
 
 // The variables every child of a hook or an AI tool needs to work and that hold no secret: PATH, HOME/USER/LOGNAME/SHELL, the
 // temp folder (TMPDIR, TEMP, TMP), the locale (LANG, LANGUAGE, LC_*), TERM, TZ, the few FACTORIA_*/FA_* variables a `factoria`
-// started by them reads (FACTORIA_AI_CONFIG, FACTORIA_HOME, FACTORIA_ENGINE_DIR, FACTORIA_CALLER, FACTORIA_IN_HOOK,
-// FA_CACHE_DIR, FA_LANGUAGE) and, on Windows, what cmd.exe, Node and the compilers need (SystemRoot, ComSpec, PATHEXT,
+// started by them reads (FACTORIA_AI_CONFIG, FACTORIA_HOME, FACTORIA_ENGINE_DIR, FACTORIA_CALLER, FACTORIA_CAPABILITIES,
+// FACTORIA_ROLE, FACTORIA_IN_HOOK, FA_CACHE_DIR, FA_LANGUAGE) and, on Windows, what cmd.exe, Node and the compilers need (SystemRoot, ComSpec, PATHEXT,
 // USERPROFILE, APPDATA, LOCALAPPDATA, ProgramData, ProgramFiles*...). Never the signing passwords (FACTORIA_*_PASSWORD) nor API
 // keys. Use it as ProcessOptions::inheritEnv / ChildOptions::inheritEnv, with `extra` names added: see child_env_allow.
 const std::vector<std::string>& base_child_env();
