@@ -60,7 +60,7 @@ A prefab describes the reusable thing, not this instance, so the file does NOT c
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Id (or name) of the entity to save; its children are saved with it. |
-| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. |
+| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. |
 | `overwrite` | boolean | no | Replace the file when it already exists. Without it an existing file is an error. Default false. |
 
 ## `scene.ascii_edit` (modifies state)
@@ -69,7 +69,7 @@ Since 0.2.0.
 
 Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.
 
-Capabilities: read, state, writeProject
+Capabilities: read, state
 
 `file` is a project-relative JSON file holding scene.import_ascii arguments (at least `rows`; its legend is `legend` merged over `legendFrom`). `ops` run in order, all-or-nothing (an error names the op, e.g. ops[2], and nothing is written). Columns and rows are 0-based, row 0 = TOP, like import_ascii. Ops: {op:'fill', rect:[col,row,w,h], glyph}; {op:'replace', from, to, rect?} (whole map without rect); {op:'insertColumns', at, count, glyph?} (without glyph the new columns repeat the column left of `at` (column 0 when at = 0) with every glyph that spawns an object turned into '.', so the ground continues and nothing is duplicated); {op:'deleteColumns', at, count}; {op:'put', col, glyph, row} or {op:'put', col, glyph, above:h} = h rows above the ground of that column (1 = standing on it; ground = the topmost cell whose glyph is a tile in the file's tilemap.solidTiles, else the Tilemap of the scene the file builds). A glyph that is not '.', ' ' or in the legend is refused with suggestions. Example: scene.ascii_edit {"file":"levels/1-1.json","ops":[{"op":"put","col":40,"glyph":"o","above":1},{"op":"insertColumns","at":60,"count":5}]}
 
@@ -80,7 +80,7 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 | `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...); the edited rows are written back to it, so it stays inside the project (absolute paths need writeAnywhere). |
 | `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
-| `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Default false. |
+| `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
 
 ## `scene.destroy` (modifies state)
 
@@ -106,7 +106,7 @@ A file that is not valid JSON is reported in `errors` with its file, line and co
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `paths` | array | no | Scene/prefab files or folders (recursive), project-relative. Needed to write: without it (and without all or check) the command fails and writes nothing. |
+| `paths` | array | no | Scene/prefab files or folders (recursive), project-relative; without `check` they are written, so they stay inside the project and out of the managed folders (.git, .factoria/ except .factoria/tmp). Needed to write: without it (and without all or check) the command fails and writes nothing. |
 | `all` | boolean | no | true = format every *.scene.json and *.prefab.json of the project (instead of paths). Writing the whole project always takes this or paths. Default false. |
 | `check` | boolean | no | true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one (the whole project when paths is absent). Default false. |
 | `strict` | boolean | no | With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check. Default false. |
@@ -127,7 +127,7 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Capabilities: read, state, writeProject
+Capabilities: read, state
 
 Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing).
 
@@ -143,7 +143,7 @@ Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an is
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit, inside the project (absolute paths need writeAnywhere). It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
 | `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
-| `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Default false. |
+| `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Needs no writeProject: `path` is only read. Default false. |
 | `edits` | object | no | File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {"camera": {"Camera": {"clearColor": [0.5, 0.7, 0.9, 1]}}}). Add "$merge": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}. A wrong entity/component/field fails and nothing is written. |
 | `save` | boolean | no | Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given. Default false. |
 | `position` | array | no | [x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is. |

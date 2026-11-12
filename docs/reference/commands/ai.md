@@ -109,13 +109,13 @@ Runs the Claude Code CLI's own commands with the executable of the claude-code p
 | `requiresPython` | string | no | Minimum Python version the plugin needs, e.g. 3.10. Checked before installing. |
 | `dryRun` | boolean | no | Report the commands and whether each is needed; install nothing. |
 
-## `ai.providers` (modifies state)
+## `ai.providers`
 
 List configured AI providers and roles, or diagnose which ones are usable (doctor).
 
-Capabilities: read, process
+Capabilities: read
 
-action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: {"action":"doctor"}
+action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). The list only reads the config; the doctor starts the CLIs to ask their version, so it needs the Process capability (a read-only caller gets capability_denied). Example: {"action":"doctor"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -317,15 +317,15 @@ The built-in agent (API providers) does not send every command's definition on e
 | `role` | string | no | Role to plan for: orchestrator, worker, fast, artist, audio, artCritic, reviewer. Default "orchestrator". |
 | `catalog` | boolean | no | Also list every catalog command (command, category, summary). Default false. |
 
-## `ai.tool_servers` (modifies state)
+## `ai.tool_servers`
 
 Since 0.8.0.
 
 List the external tool servers (MCP) the user configured in ai.json, and optionally test them.
 
-Capabilities: read, network, process
+Capabilities: read
 
-The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. Example: {"test":true,"name":"scenario"}
+The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. The plain list only reads the config; test:true starts programs and opens connections, so it needs the Process and Network capabilities (a read-only caller gets capability_denied). Example: {"test":true,"name":"scenario"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
