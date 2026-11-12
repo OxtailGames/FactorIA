@@ -193,6 +193,7 @@ TEST_CASE("apply_permission_mode: Codex gets --sandbox before the stdin marker, 
     CHECK(run_mode(ProviderKind::Codex, false, "workspace-write", false, bare) == V{"exec", "--sandbox", "workspace-write", "-"});
 }
 
+#ifndef _WIN32  // the fake CLIs are shell scripts (fake_codex has no .cmd twin)
 TEST_CASE("permission mode reaches the program: the CLI is started with the mode of its provider") {
     TempDir dir, scratch;
     auto argv_of = [&](ProviderConfig cfg, const char* script_name, bool readOnly) {
@@ -225,3 +226,4 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
     CHECK(ro.find("--sandbox\nread-only\n-\n") != std::string::npos);
     CHECK(ro.find("workspace-write") == std::string::npos);
 }
+#endif
