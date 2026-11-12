@@ -40,7 +40,7 @@ const char* kScene = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = fs::make_temp_dir("fa_feel_test_" + name);
+        dir = fs::make_temp_dir("fa_feel_test_" + name).value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         write("scripts/game.js", "import { Behaviour, time } from 'factoria';\n"

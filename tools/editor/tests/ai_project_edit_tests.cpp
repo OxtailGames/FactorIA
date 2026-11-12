@@ -13,8 +13,8 @@ namespace stdfs = std::filesystem;
 namespace {
 
 struct TempProject {
-    stdfs::path dir = fs::make_temp_dir("fa_ai_project_edit");
-    stdfs::path home = fs::make_temp_dir("fa_ai_project_edit_home");  // where ai.json and ai-trust.json would be: never the real ~/.factoria
+    stdfs::path dir = fs::make_temp_dir("fa_ai_project_edit").value();
+    stdfs::path home = fs::make_temp_dir("fa_ai_project_edit_home").value();  // where ai.json and ai-trust.json would be: never the real ~/.factoria
     ~TempProject() {
         std::error_code ec;
         stdfs::remove_all(dir, ec);

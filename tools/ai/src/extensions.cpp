@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <optional>
 #include <set>
 
 #include "fa/ai/config.h"
@@ -387,6 +388,8 @@ Result<void> check_writable(const std::vector<Extension>& entries) {
 }  // namespace
 
 Result<void> save_extensions(const ExtensionsConfig& cfg, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -495,6 +498,16 @@ Json read_trust(std::string_view trustPath) {
     return root;
 }
 
+// The lock of the folder of ai.json, taken before ai-trust.json is READ by a function that changes it (a second editor or an
+// agent's factoria could otherwise write between the read and the write, and one acceptance would be lost). An empty path
+// has nothing to lock (write_trust says why it cannot be kept).
+Result<void> lock_trust(std::optional<util::AiFileLock>& lock, std::string_view trustPath) {
+    if (trustPath.empty()) return {};
+    lock.emplace(trustPath);
+    if (!lock->held()) return lock->error();
+    return {};
+}
+
 Result<void> write_trust(std::string_view trustPath, Json root) {
     if (trustPath.empty()) return err("Cannot keep the trust: no place for it", "Set FACTORIA_AI_CONFIG or HOME so FactorIA knows where your ai.json lives.");
     return write_private_file(trustPath, dump_json(root));
@@ -515,8 +528,12 @@ bool project_extensions_trusted(std::string_view trustPath, std::string_view pro
     if (util::str(*it, "extensionsHash") == hash && util::str(*it, "claudeSettingsHash") == claudeHash) return true;
     if (dropped) *dropped = true;
     if (!dropStale) return false;
-    projects.erase(key);  // a file changed since the user trusted the project: the trust is gone
-    (void)write_trust(trustPath, std::move(root));
+    // a file changed since the user trusted the project: the trust is gone. Read again under the lock; without the lock the
+    // record stays (it is dropped by a later check) and the answer is the same.
+    std::optional<util::AiFileLock> lock;
+    if (!lock_trust(lock, trustPath)) return false;
+    root = read_trust(trustPath);
+    if (root["projects"].erase(key) != 0) (void)write_trust(trustPath, std::move(root));
     return false;
 }
 
@@ -525,6 +542,8 @@ Result<void> trust_project_extensions(std::string_view trustPath, std::string_vi
     if (hash.empty() && claudeHash.empty())
         return err("This project has nothing to trust: no .factoria/extensions.json and nothing in .claude/settings*.json that needs trust",
                    "Add extensions to the project first.");
+    std::optional<util::AiFileLock> lock;
+    if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
     Json root = read_trust(trustPath);
     if (!root.contains("projects")) {
         root["projects"] = Json::object();
@@ -538,6 +557,8 @@ Result<void> trust_project_extensions(std::string_view trustPath, std::string_vi
 }
 
 Result<void> forget_project_trust(std::string_view trustPath, std::string_view projectDir) {
+    std::optional<util::AiFileLock> lock;
+    if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
     Json root = read_trust(trustPath);
     if (!root.contains("projects")) return {};
     if (root["projects"].erase(canonical_project_key(projectDir)) == 0) return {};
@@ -570,13 +591,19 @@ bool project_ai_settings_trusted(std::string_view trustPath, std::string_view pr
     if (util::str(*it, "hash") == hash) return true;
     if (dropped) *dropped = true;
     if (!dropStale) return false;
-    section->erase(key);  // the file changed since the user accepted it: the acceptance is gone
-    (void)write_trust(trustPath, std::move(root));
+    // the file changed since the user accepted it: the acceptance is gone (read again under the lock, as above)
+    std::optional<util::AiFileLock> lock;
+    if (!lock_trust(lock, trustPath)) return false;
+    root = read_trust(trustPath);
+    auto again = root.find("aiSettings");
+    if (again != root.end() && again->is_object() && again->erase(key) != 0) (void)write_trust(trustPath, std::move(root));
     return false;
 }
 
 Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_view projectDir, std::string_view hash) {
     if (hash.empty()) return err("This project has no AI settings file to trust", "Nothing to do: .factoria/ai/settings.json does not exist.");
+    std::optional<util::AiFileLock> lock;
+    if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
     Json root = read_trust(trustPath);
     if (!root.contains("aiSettings") || !root["aiSettings"].is_object()) root["aiSettings"] = Json::object();
     root["aiSettings"][ai_settings_trust_key(projectDir)] = Json::object({{"hash", std::string(hash)}});
@@ -584,6 +611,8 @@ Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_v
 }
 
 Result<void> forget_project_ai_settings_trust(std::string_view trustPath, std::string_view projectDir) {
+    std::optional<util::AiFileLock> lock;
+    if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
     Json root = read_trust(trustPath);
     auto section = root.find("aiSettings");
     if (section == root.end() || !section->is_object()) return {};

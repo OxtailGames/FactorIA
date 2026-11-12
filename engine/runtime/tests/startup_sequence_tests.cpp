@@ -52,7 +52,7 @@ TEST_CASE("StartupSequence: no file is read before the first present") {
     // The hooks stand for the host: present_clear notes how many files were read from disk when the window first showed.
     // A folder of its own (fs::make_temp_dir: unique per process, so tests may run in parallel) and native paths throughout, so
     // a Windows user name with accents works.
-    const std::filesystem::path dir = fs::make_temp_dir("fa_test_startup_sequence");
+    const std::filesystem::path dir = fs::make_temp_dir("fa_test_startup_sequence").value();
     const std::filesystem::path file = dir / "game_file.txt";
     {
         std::ofstream out(fs::os_path(file), std::ios::binary);

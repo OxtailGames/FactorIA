@@ -103,7 +103,7 @@ test("the wheel reaches a script under a modal Panel with wheelPassThrough, and 
 
 TEST_CASE("scripts: input.consume, text input mode and Panel.wheelPassThrough") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_input_routing") / "proj";
+    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_input_routing").value() / "proj";
     write_text(dir / "factoria.json", R"({"format":"factoria.project/1","name":"Routing","id":"com.factoria.tests.routing","version":"0.1.0",
         "mainScene":"scenes/main.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"pause":["P","Escape"]}}})");

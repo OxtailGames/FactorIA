@@ -200,18 +200,17 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
         return o + "\"";
     };
     {
-        std::ofstream f(cfg, std::ios::binary);
-        f << "url = " << quote(req.url) << "\n";
-        for (const auto& [k, v] : req.headers) f << "header = " << quote(k + ": " + v) << "\n";
-        f << "header = \"Expect:\"\n";
-        f << "request = " << quote(req.method) << "\n";
-        f << "user-agent = \"factoria-ai/0.1\"\n";
-        if (!f) { resp.error = "cannot write temp curl config"; cleanup(); return resp; }
-    }
-    if (auto priv = fa::fs::make_private(fa::fs::path_to_utf8(cfg)); !priv.ok()) {  // the file holds the Authorization header
-        resp.error = "cannot make the temp curl config private: " + priv.error().message;
-        cleanup();
-        return resp;
+        // The file holds the Authorization header: written private from the first byte (no window between create and chmod).
+        std::string text = "url = " + quote(req.url) + "\n";
+        for (const auto& [k, v] : req.headers) text += "header = " + quote(k + ": " + v) + "\n";
+        text += "header = \"Expect:\"\n";
+        text += "request = " + quote(req.method) + "\n";
+        text += "user-agent = \"factoria-ai/0.1\"\n";
+        if (auto ok = fa::fs::write_private(fa::fs::path_to_utf8(cfg), text); !ok) {
+            resp.error = "cannot write the private temp curl config: " + ok.error().message;
+            cleanup();
+            return resp;
+        }
     }
     if (req.method != "GET") {
         std::ofstream f(bodyFile, std::ios::binary);

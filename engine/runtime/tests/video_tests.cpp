@@ -34,7 +34,7 @@ const char* kSoundScene = R"({"format":"factoria.scene/1","entities":[
 struct Project {
     stdfs::path dir;
     Project(const std::string& name, const char* scene) {
-        dir = fs::make_temp_dir("fa_video_test_" + name);
+        dir = fs::make_temp_dir("fa_video_test_" + name).value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", scene);
     }

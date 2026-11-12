@@ -435,8 +435,14 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
 
 struct TempWork {
     stdfs::path path;
-    TempWork() : path(fs::make_temp_dir("fa_shader")) {}
+    std::optional<Error> error;  // set when no scratch folder could be made (then `path` is empty and nothing is deleted)
+    TempWork() {
+        auto dir = fs::make_temp_dir("fa_shader");
+        if (dir.ok()) path = *dir;
+        else error = dir.error();
+    }
     ~TempWork() {
+        if (path.empty()) return;
         std::error_code ec;
         stdfs::remove_all(path, ec);
     }
@@ -507,6 +513,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
                           sokol_shdc_missing_hint(options.setup) + " A material whose twin is in .factoria/shader-cache needs no compiler.");
 
     TempWork work;
+    if (work.error) return *work.error;
     bool written = tooling_detail::write_file(work.path / "top.glsl", res.generated.top) && tooling_detail::write_file(work.path / "out" / ".keep", "");
     for (const auto& [name, content] : template_files()) written = written && tooling_detail::write_file(work.path / name, content);
     if (!written) return make_error("cannot write to the temporary folder " + work.path.string(), "Check the free disk space.");

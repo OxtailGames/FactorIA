@@ -20,7 +20,7 @@ namespace {
 
 struct CacheDir {
     stdfs::path dir;
-    CacheDir() { dir = fs::make_temp_dir("fa_test_blobcache"); }
+    CacheDir() { dir = fs::make_temp_dir("fa_test_blobcache").value(); }
     ~CacheDir() {
         std::error_code ec;
         fs::remove_tree(dir, ec);
@@ -298,7 +298,7 @@ TEST_CASE("fs::cache_dir: FA_CACHE_DIR overrides the default, set_cache_dir wins
     const std::string saved = oldEnv ? oldEnv : "";
     const bool hadEnv = oldEnv != nullptr;
 
-    const stdfs::path fromEnv = fs::make_temp_dir("fa_test_cachedir_env");
+    const stdfs::path fromEnv = fs::make_temp_dir("fa_test_cachedir_env").value();
     set_env("FA_CACHE_DIR", fs::path_to_utf8(fromEnv).c_str());
     fs::reset_cache_dir();
     CHECK(fs::cache_dir() == fromEnv);

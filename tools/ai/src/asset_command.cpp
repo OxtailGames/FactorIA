@@ -20,7 +20,9 @@ namespace fa::ai {
 namespace fsys = std::filesystem;
 
 Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest& req, const CancelFlag* cancel) {
-    const fsys::path dir = fs::make_temp_dir("fa_asset");
+    auto tempDir = fs::make_temp_dir("fa_asset");
+    if (!tempDir.ok()) return tempDir.error();
+    const fsys::path dir = *tempDir;
     struct Cleanup {
         fsys::path dir;
         ~Cleanup() { std::error_code ec; fsys::remove_all(dir, ec); }

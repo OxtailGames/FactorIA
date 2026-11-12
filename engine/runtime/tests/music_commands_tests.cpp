@@ -49,7 +49,7 @@ const char* kSong = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = fs::make_temp_dir("fa_musiccmd_test_" + name);
+        dir = fs::make_temp_dir("fa_musiccmd_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         stdfs::create_directories(dir / "music");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;

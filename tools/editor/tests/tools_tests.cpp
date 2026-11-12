@@ -41,7 +41,7 @@ struct Session {
     Engine engine;
 
     explicit Session(const std::string& name, bool editorMode = true) {
-        dir = fs::make_temp_dir("fa_editor_tools_" + name);
+        dir = fs::make_temp_dir("fa_editor_tools_" + name).value();
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);

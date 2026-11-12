@@ -155,7 +155,7 @@ double midi_hz(int note) { return 440.0 * std::pow(2.0, (note - 69) / 12.0); }
 struct Project {
     std::filesystem::path dir;
     Project() {
-        dir = fs::make_temp_dir("factoria_song_mixer_test");
+        dir = fs::make_temp_dir("factoria_song_mixer_test").value();
         fs::set_project_root(dir);
     }
     ~Project() { std::filesystem::remove_all(dir); }

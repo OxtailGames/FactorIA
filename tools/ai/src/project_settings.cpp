@@ -315,6 +315,11 @@ constexpr Area kServers{"AI settings > Tool servers", R"({"mcpServers": {"scenar
 constexpr Area kExtensions{"AI settings > Extensions", R"({"extensions": {"plugins": {"notes": false}}})"};
 
 Problem not_allowed(const std::string& pointer, std::string_view key, const Area& area) {
+    if (key == "permissionMode") {
+        return {pointer, "'permissionMode' is not allowed in a project's AI settings file: what a command-line agent may do without asking is "
+                         "your decision, and a project copied to another computer must not loosen it. Set it in the editor's AI settings "
+                         "> Agents tab (it is saved in ~/.factoria/ai.json), or with ai.settings.set scope \"user\"; remove the key here."};
+    }
     return {pointer, "'" + std::string(key) + "' is not allowed in a project's AI settings file: a project may only NAME the providers, tool "
                      "servers and extensions you defined, never define one (a command, an address, a header, an environment or a key "
                      "could run a program or spend a key when the project is copied to another computer). Put it in "
@@ -959,6 +964,8 @@ Result<void> accept_project_settings(std::string_view projectDir, std::string_vi
 
 Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath, const EnvLookup& env) {
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
+    AiFileLock lock(userPath);  // read, change one value, write back: another process's save must not fall between
+    if (!lock.held()) return lock.error();
     auto user = load_config(userPath, env);
     if (!user) return user.error();
     // The segments of the pointer, unescaped. A malformed one is an error, never an exception.

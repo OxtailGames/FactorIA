@@ -61,10 +61,20 @@ void flush_user_dir();
 void restore_user_dir(const std::filesystem::path& dir, void (*done)());
 #endif
 
-// Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
+// The system's temporary folder as an absolute path, resolved here and not by std::filesystem::temp_directory_path, which on
+// Windows (both STLs) fails when the folder does not exist yet. Linux and macOS: TMPDIR, TMP, TEMP, TEMPDIR, else the
+// platform's default (/tmp). Windows: GetTempPath2W where it exists, else GetTempPathW (TMP, TEMP, USERPROFILE), kept in
+// UTF-16. The folder may not exist (make_temp_dir makes it). A RELATIVE answer (TMPDIR=tmp) is refused with an error, not
+// resolved against the working directory, which can change.
+Result<std::filesystem::path> temp_base();
+
+// Creates a fresh, empty scratch directory under temp_base(), named <prefix>_<process id>_<n>. Unique per
 // process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
-// share one. The caller removes it when done.
-std::filesystem::path make_temp_dir(std::string_view prefix);
+// share one. The caller removes it when done. The folder is always created by this call (a name that exists is never
+// reused: it gets a random suffix, also when a FILE has that name), and on Linux and macOS it is owner-only (0700) and checked to be a real directory
+// of this user, so a shared /tmp cannot hand a program a folder someone else prepared. A temporary folder that does not
+// exist yet is made. The error says why (full or read-only temp folder, a file system that ignores modes) and how to fix it.
+Result<std::filesystem::path> make_temp_dir(std::string_view prefix);
 
 // Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE
 // path read_bytes, read_text, exists, is_directory, file_size, modified_time and list are given is answered by the pack
@@ -104,7 +114,8 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
 // (copy_file keeps the attribute) loses the attribute and is deleted too. Same result and error otherwise.
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
-// sharing violation, as remove_all does on Windows.
+// sharing violation, as remove_all does on Windows. An empty path is refused (invalid_argument, nothing is touched): it
+// would be the working directory or, on Windows, the root of the drive.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
 // Whether Windows would refuse to delete `file` because something holds it. On Windows: an open that asks for delete
 // access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion fails (an

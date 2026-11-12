@@ -24,7 +24,7 @@ std::size_t sent_bytes(const std::string& text) { return Json(text).dump().size(
 // Puts the project root and the temporary folder back whatever a REQUIRE or CHECK did in between.
 struct RootGuard {
     stdfs::path oldRoot = fs::project_root();
-    stdfs::path root = fs::make_temp_dir("fa_mcp_budget");
+    stdfs::path root = fs::make_temp_dir("fa_mcp_budget").value();
     ~RootGuard() {
         fs::set_project_root(oldRoot);
         std::error_code ec;

@@ -199,7 +199,7 @@ TEST_CASE("background io: two queues of two owners keep their items apart") {
 }
 
 TEST_CASE("background io: reads ahead go to the load trace's totals, and the files an item read come with its result") {
-    const stdfs::path dir = fs::make_temp_dir("fa_background_io");
+    const stdfs::path dir = fs::make_temp_dir("fa_background_io").value();
     stdfs::create_directories(dir / "assets");
     std::ofstream(dir / "assets" / "a.txt", std::ios::binary) << "hello";
     const stdfs::path oldRoot = fs::project_root();

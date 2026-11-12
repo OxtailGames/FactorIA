@@ -44,7 +44,7 @@ game.autoplay((bot) => {
 )";
 
 struct AutoProject {
-    stdfs::path root = fs::make_temp_dir("fa_play_auto");
+    stdfs::path root = fs::make_temp_dir("fa_play_auto").value();
     stdfs::path dir = root;
     // ground false leaves the player to fall; `folder` names the project folder inside the temp one (accents: the project of a user).
     explicit AutoProject(bool ground = true, const char* hook = nullptr, const stdfs::path& folder = {}) {

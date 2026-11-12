@@ -222,7 +222,7 @@ test("a bad tooltip is reported by ui.setTooltip", () => {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject) {
-        dir = fs::make_temp_dir("fa_tooltip_test_" + name);
+        dir = fs::make_temp_dir("fa_tooltip_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", kScene);
     }

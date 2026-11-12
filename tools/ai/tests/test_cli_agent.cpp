@@ -225,6 +225,45 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK(mcp["mcpServers"]["factoria"]["args"] == Json::parse(R"(["mcp","--project",")" + dir.str() + R"("])"));
 }
 
+TEST_CASE("claude-code agent: when the owner-only write in the project fails, the MCP config goes to the user's temporary folder") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = claude_cfg();
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+    // The failure, injected: .factoria/ai is a plain file, so no run file can be created in it (as on a share that refuses the
+    // owner-only ACL).
+    std::filesystem::create_directories(dir.path / ".factoria");
+    std::ofstream(dir.path / ".factoria" / "ai") << "not a folder";
+    // A private folder of an earlier run that crashed (two days old) and one of a run in progress (new): the sweep takes
+    // only the old one.
+    const std::filesystem::path oldDir = fa::fs::make_temp_dir("factoria-run").value();
+    const std::filesystem::path newDir = fa::fs::make_temp_dir("factoria-run").value();
+    REQUIRE_FALSE(oldDir.empty());
+    REQUIRE_FALSE(newDir.empty());
+    std::error_code tec;
+    std::filesystem::last_write_time(oldDir, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48), tec);
+    REQUIRE_FALSE(tec);
+    CliRunRequest req{"x", "", dir.str()};
+    auto r = CliAgent(cfg).run(req, nullptr, nullptr);
+    CHECK_FALSE(std::filesystem::exists(oldDir));
+    CHECK(std::filesystem::exists(newDir));
+    std::filesystem::remove_all(newDir, tec);
+    REQUIRE(r);
+    CHECK(r->ok);
+    const std::string argv = read_file(argvFile);
+    const std::size_t at = argv.find("--mcp-config\n");
+    REQUIRE(at != std::string::npos);
+    const std::filesystem::path mcpPath =
+        fa::fs::path_from_utf8(argv.substr(at + 13, argv.find('\n', at + 13) - (at + 13)));
+    CHECK(mcpPath.filename().string().rfind("fa-run-mcp-claude-code-", 0) == 0);
+    // (the temporary folder may be spelled with or without a trailing separator)
+    CHECK(std::filesystem::equivalent(mcpPath.parent_path().parent_path(), std::filesystem::temp_directory_path()));
+    CHECK(mcpPath.parent_path().filename().string().rfind("factoria-run", 0) == 0);
+    CHECK(Json::parse(read_file(argvFile + ".mcpconfig"))["mcpServers"]["factoria"]["command"] == "factoria");  // the CLI read it
+    CHECK_FALSE(std::filesystem::exists(mcpPath));                    // removed with the run,
+    CHECK_FALSE(std::filesystem::exists(mcpPath.parent_path()));      // and its folder with it
+}
+
 TEST_CASE("claude-code agent: argv template is overridable from the config") {
     TempDir dir, scratch;
     std::string argvFile = (scratch.path / "argv.txt").string();

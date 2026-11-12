@@ -75,7 +75,7 @@ test("ui.markupProblems reads the markup against the project's text section", ()
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject) {
-        dir = fs::make_temp_dir("fa_rich_text_test_" + name);
+        dir = fs::make_temp_dir("fa_rich_text_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", kScene);
     }

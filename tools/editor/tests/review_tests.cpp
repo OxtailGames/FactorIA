@@ -388,7 +388,7 @@ TEST_CASE("review_level_seeds_args: one level item with N seeds, and the pick br
 }
 
 TEST_CASE("review_read_picture and ReviewLoader: a picture in a folder with accents, shrunk; a missing one is an error") {
-    const stdfs::path dir = fs::make_temp_dir("fa_review_loader") / stdfs::path(u8"revisió");
+    const stdfs::path dir = fs::make_temp_dir("fa_review_loader").value() / stdfs::path(u8"revisió");
     stdfs::create_directories(dir);
     const stdfs::path file = dir / stdfs::path(u8"càndid.png");
     write_png(file, 600, 300);
@@ -478,7 +478,7 @@ TEST_CASE("child_command_outcome and ChildCommandJob: a result, a command error,
     run.timedOut = true;
     CHECK(child_command_outcome(run, "", "review.sheet").error.find("did not finish") != std::string::npos);
 
-    const stdfs::path dir = fs::make_temp_dir("fa_child_command");
+    const stdfs::path dir = fs::make_temp_dir("fa_child_command").value();
     set_env("FA_FACTORIA_EXE", (dir / "missing").string().c_str());   // ASCII temp path: getenv's native form
     ChildCommandJob job;
     CHECK(job.start(dir, "review.sheet", Json::object(), 60));

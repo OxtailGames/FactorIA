@@ -64,6 +64,8 @@ constexpr auto kStaleRunFileAge = std::chrono::hours(24);
 // Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else (but the names
 // 0.19.0 used, legacy_run_file).
 constexpr const char* kRunFilePrefix = "fa-run-";
+// The prefix fs::make_temp_dir gets for the folder that holds the run files when the project refuses an owner-only write.
+constexpr const char* kTempRunDirPrefix = "factoria-run_";
 
 // The run files of FactorIA 0.19.0, which had no prefix yet: mcp-<provider>-<stamp>-<n>.json (the MCP config with the
 // tool servers' keys), settings-<provider>-<stamp>-<n>.json (hook commands) and the folder ext-skills-<provider>-<stamp>-<n>.
@@ -96,17 +98,18 @@ bool legacy_run_file(const std::string& name) {
     return take_number() && take_number() && !rest.empty();
 }
 
-void sweep_stale_run_files(const fsys::path& aiDir) {
+// Entries of `dir` (the first kMaxSweptEntries) that `wanted` accepts and that are a day old, deleted.
+template <class Wanted>
+void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
     std::error_code ec;
-    fsys::directory_iterator it(aiDir, ec), end;
+    fsys::directory_iterator it(dir, ec), end;
     if (ec) return;
     const auto now = fsys::file_time_type::clock::now();
     std::vector<fsys::path> stale;
     for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
-        // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
-        if (name.rfind(kRunFilePrefix, 0) != 0 && !legacy_run_file(name)) continue;
+        if (!wanted(name, it->path())) continue;
         std::error_code tec;
         const auto when = it->last_write_time(tec);
         if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
@@ -115,6 +118,23 @@ void sweep_stale_run_files(const fsys::path& aiDir) {
         std::error_code rec;
         fs::remove_tree(p, rec);  // one held open stays for a later sweep
     }
+}
+
+void sweep_stale_run_files(const fsys::path& aiDir) {
+    // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
+    sweep_stale_in(aiDir, [](const std::string& name, const fsys::path&) {
+        return name.rfind(kRunFilePrefix, 0) == 0 || legacy_run_file(name);
+    });
+    // and the private folders a run made in the temporary folder when the project refused the owner-only write (a real
+    // folder only: a link of that name is left alone)
+    const auto tmpBase = fs::temp_base();  // where fs::make_temp_dir makes them
+    if (!tmpBase.ok()) return;
+    const fsys::path tmp = *tmpBase;
+    sweep_stale_in(tmp, [](const std::string& name, const fsys::path& p) {
+        if (name.rfind(kTempRunDirPrefix, 0) != 0) return false;
+        std::error_code sec;
+        return fsys::symlink_status(p, sec).type() == fsys::file_type::directory;
+    });
 }
 }  // namespace
 
@@ -1003,6 +1023,36 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         }
     } removeRunFiles{runFiles};
 
+    // A run file that holds a secret goes to the project's .factoria/ai. When the owner-only write fails there (a project on SMB
+    // or a NAS: the Windows ACL with the local user's SID can be refused, or the folder cannot be made), the file goes to a
+    // private folder in the user's temporary folder instead, and the log says why. The folder is removed with the run files.
+    fsys::path fallbackDir;
+    auto write_run_file = [&](const fsys::path& file, const std::string& text) -> Result<fsys::path> {
+        auto first = write_private_file(fs::path_to_utf8(file), text);
+        if (first) return file;
+        FA_WARN("ai", "Could not write the private run file {}: {}. Using the temporary folder of this user instead.",
+                fs::path_to_utf8(file), first.error().message);
+        if (fallbackDir.empty()) {
+            // (owner-only on Linux and macOS and never a folder that existed before: fs::make_temp_dir)
+            auto made = fs::make_temp_dir("factoria-run");
+            if (!made.ok())
+                return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                      "; no private folder could be made in the temporary folder either: " + made.error().message,
+                                  made.error().hint);
+            fallbackDir = *made;
+            runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
+        }
+        const fsys::path moved = fallbackDir / file.filename();
+        if (auto second = write_private_file(fs::path_to_utf8(moved), text); !second) {
+            return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                  "; the fallback " + fs::path_to_utf8(moved) + " failed too: " + second.error().message,
+                              "Check that the project folder and the temporary folder are writable by your account.");
+        }
+        // the file in the project was never made: do not try to delete it (and warn) at the end of the run
+        runFiles.erase(std::remove(runFiles.begin(), runFiles.end(), file), runFiles.end());
+        return moved;
+    };
+
     // MCP config file for CLIs that take one (Claude Code). A file of this run only: runs of other chats and roles start at
     // the same time with other endpoints and tool servers, and the user's tool servers put keys in it. The editor's endpoint
     // URL carries a per-session token for a loopback port; the file is readable by its owner only and sits in the project's
@@ -1018,8 +1068,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
         const Json config = make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers, factoriaEnv);
-        if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(config) + "\n"); !ok) return ok.error();
-        mcpPath = host_utf8(file);
+        auto written = write_run_file(file, dump_pretty(config) + "\n");
+        if (!written) return written.error();
+        mcpPath = host_utf8(*written);
     }
 
     // Extensions: hooks go to a private settings file, skills to a plugin written for the run (Claude Code only; a generic
@@ -1046,9 +1097,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
                 const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
                 runFiles.push_back(file);
-                if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n"); !ok)
-                    return ok.error();
-                settingsPath = host_utf8(file);
+                auto written = write_run_file(file, dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n");
+                if (!written) return written.error();
+                settingsPath = host_utf8(*written);
             }
             if (wantsSkills) {
                 const fsys::path skills = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "ext-skills-" + tag);

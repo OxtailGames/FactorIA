@@ -104,7 +104,9 @@ Result<ImportOutput> import_fbx(const ImportRequest& request) {
                           "(https://github.com/godotengine/FBX2glTF/releases; put it in PATH or set FACTORIA_FBX2GLTF to its path), then import "
                           "again. Or convert the model to .glb yourself (Blender: File > Export > glTF 2.0) and import that file.");
 
-    const stdfs::path work = fs::make_temp_dir("fa_fbx");
+    auto workDir = fs::make_temp_dir("fa_fbx");
+    if (!workDir.ok()) return workDir.error();
+    const stdfs::path work = *workDir;
     struct Cleanup {
         stdfs::path dir;
         ~Cleanup() { std::error_code ec; stdfs::remove_all(dir, ec); }

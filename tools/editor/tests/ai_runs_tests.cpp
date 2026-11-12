@@ -36,7 +36,7 @@ ai::AiRunInfo worker(const std::string& id) {
 }
 
 struct Dir {
-    stdfs::path path = fa::fs::make_temp_dir("fa_ai_runs_test");
+    stdfs::path path = fa::fs::make_temp_dir("fa_ai_runs_test").value();
     ~Dir() {
         std::error_code ec;
         fa::fs::remove_tree(path, ec);

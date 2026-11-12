@@ -438,7 +438,7 @@ struct RampProject {
         static int counter = 0;
         gRampName = "ramp" + std::to_string(++counter) + ".gltf";
         oldRoot = fs::project_root();
-        dir = fs::make_temp_dir("fa_test_ramp");
+        dir = fs::make_temp_dir("fa_test_ramp").value();
         fs::set_project_root(dir);
         write_ramp_gltf(dir, nx, nz, length, width, slopeDeg);
     }

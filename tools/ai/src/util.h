@@ -3,13 +3,51 @@
 
 #include <cctype>
 #include <cstddef>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/core/types.h"
+#include "fa/tooling/feedback_share.h"
 
 namespace fa::ai::util {
+
+// The lock of a read-modify-write of ai.json (or of a file next to it, ai-trust.json): the editor, a `factoria` of an agent and a
+// second editor can save at the same time, and each reads the file, changes one part and writes it back, so the one that wrote
+// first would be lost. It is a ShareLock in the file's folder with its own lock file, ai-config.lock (a lock FILE, so it holds
+// between processes; one left by a program that crashed is taken over after about 10 s). The wait is capped at one second: the
+// lock is held for milliseconds, and the editor's UI thread saves too. The write itself is write_private (a temporary file, then
+// an atomic replace; on Windows the replace is retried for about a second when another program holds the target open). Take it
+// BEFORE reading the file; `held()` false means nothing was changed.
+inline constexpr const char* kAiConfigLockFile = "ai-config.lock";
+
+class AiFileLock {
+public:
+    explicit AiFileLock(std::string_view file)
+        : cap_(1.0), lock_(fa::share_env(), folder_of(file), -1, kAiConfigLockFile), file_(file) {}
+    bool held() const { return lock_.held(); }
+    Error error() const {
+        if (lock_.unwritable())
+            return make_error("Cannot save '" + file_ + "': the lock file " + lock_.path() + " cannot be made in its folder",
+                              "Check that the folder of the file exists and that your account may create files in it, then save again.");
+        return make_error("Cannot save '" + file_ + "': another FactorIA program (a second editor, an agent's `factoria`) holds the lock file " +
+                              lock_.path() + " and did not finish in one second, so nothing was changed.",
+                          "Try again in a few seconds. A lock left by a program that crashed expires after about 10 s; if it stays and no "
+                          "FactorIA program is running, delete that lock file.");
+    }
+
+private:
+    static std::filesystem::path folder_of(std::string_view file) {
+        std::filesystem::path p = fa::fs::path_from_utf8(file).parent_path();
+        return p.empty() ? std::filesystem::path(".") : p;
+    }
+    fa::ShareWaitCap cap_;
+    fa::ShareLock lock_;
+    std::string file_;
+};
 
 // Safe JSON accessors: never throw on type mismatch.
 inline std::string str(const Json& j, const char* key, std::string def = {}) {
