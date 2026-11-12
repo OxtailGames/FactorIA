@@ -64,6 +64,7 @@ FA_PLUGIN_INIT(probe) {
     CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","network"])") == 0);
     CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","netwrok"])") != 0);
     CHECK(api->set_command_capabilities(api, "probe.nothing", R"(["read"])") != 0);
+    CHECK(api->set_command_capabilities(api, "probe.fetch", "[]") != 0);  // a command needs at least read; it keeps {read, network}
     CHECK(api->add_function(api, &add) != 0);  // twice
     api->log(api, 1, "probe ready");
     return 0;

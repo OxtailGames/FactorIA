@@ -113,7 +113,7 @@ void Impl::reload_tools() {
         // it the registry derives the set from readOnly. A tool with a typo in a name is not registered (its error teaches).
         JsVal capsV(ctx, JS_GetPropertyStr(ctx, def.get(), "capabilities"));
         if (!JS_IsUndefined(capsV.get())) {
-            auto caps = CapabilitySet::parse(to_json(capsV.get()), "/capabilities");
+            auto caps = CapabilitySet::parse_declaration(to_json(capsV.get()), "/capabilities");
             if (!caps.ok()) {
                 ScriptError e;
                 e.file = file;
@@ -124,6 +124,11 @@ void Impl::reload_tools() {
             info.capabilities = *caps;
             info.capabilitiesDeclared = true;
             info.readOnly = caps->without(Capability::Read).empty();
+            // readOnly is derived from the set, so a `readOnly: true` next to more than {read} is overridden: say so once.
+            if (JS_ToBool(ctx, ro.get()) > 0 && !info.readOnly)
+                FA_WARN("script", "tool '{}' ({}): `readOnly: true` is ignored because `capabilities` is {}; readOnly is derived from the "
+                                  "capabilities (true only for [\"read\"]). Drop `readOnly` or `capabilities`.",
+                        name, file, caps->to_string());
         }
         JsVal inputV(ctx, JS_GetPropertyStr(ctx, def.get(), "input"));
         if (JS_IsObject(inputV.get())) {
@@ -146,7 +151,10 @@ void Impl::reload_tools() {
             if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
             // A tool's fa.call runs with the set of whoever called the tool: it is already the thread's, and no scope here widens or
             // narrows it (a game script that called the tool is bounded by the scope that call was made in). The mode covers the
-            // jobs run after the call too (an async tool continues there). Game code the tool triggers (game.step) is back to Game.
+            // jobs this call pumps itself while the tool is running (an async tool continues there). run_jobs runs EVERY pending
+            // job in that mode, so a game promise continuation or event listener that is pending then also runs with the caller's
+            // set (docs/SCRIPTING.md, "Command capabilities"); a job pumped after the call returns runs in the mode of whoever
+            // pumps it. Game code the tool triggers directly (game.step, a behaviour callback) is back to Game.
             CapModeScope callerSet(*this, CapMode::Caller);
             const std::string toolFile = it->second.file;
             // Which version of the tool file ran, so a stale tool is visible: added to an object result.
@@ -544,7 +552,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             JS_FreeValue(ctx, pv);
         }
         ScriptError detail;
-        auto ns = import_module(path, &detail);
+        auto ns = import_module(path, &detail, CapMode::Test);  // the test file's own top level is test code
         if (!ns) {
             if (detail.message.empty()) { detail.file = path; detail.message = ns.error().message; }
             if (detail.file.empty()) detail.file = path;

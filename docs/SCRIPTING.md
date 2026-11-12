@@ -1680,7 +1680,7 @@ more fails with code `capability_denied`, before its arguments are looked at, an
 
 | Who calls | Set |
 |---|---|
-| A game script (a behaviour's callbacks, events, timers, promises, module top levels) in the player (`factoria run`, an exported game) | `{read, state}` |
+| A game script (a behaviour's callbacks, events, timers, module top levels; see "Promise continuations" below for promises) in the player (`factoria run`, an exported game) | `{read, state}` |
 | A game script in the editor's Play | `{read, state}` |
 | A test (`factoria test`, `project.test`) | `{read, state}` plus the test's `capabilities` option, never more than whoever runs the tests |
 | A project tool (`tools/*.js`), `script.eval` | the caller's own set: `factoria call` has all, MCP all but `writeAnywhere`, an agent all but `writeAnywhere` and `publish` |
@@ -1691,8 +1691,19 @@ more fails with code `capability_denied`, before its arguments are looked at, an
 a shipped game must not be able to do to a player's machine what a tool does to a project. Do those from the editor,
 from a project tool, with `factoria call`, or from a test that asks for them. A tool a game script calls through
 `fa.call("project.<name>")` runs with the **game's** set (a scope only narrows), so a script cannot widen its permissions
-by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. Behaviours that
-a test or a tool triggers (`game.step`) still run with the game's set.
+by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. The callbacks of
+behaviours that a test or a tool triggers (`game.step`) still run with the game's set, and so does the top level of a module
+that a test or a tool imports for the first time, including the modules a test file imports statically and what those import
+(only the test file's own top level is test code).
+
+**Promise continuations and listeners run with the set of whoever pumps the jobs.** The engine runs the pending promise jobs
+(`await` continuations, `.then` callbacks, async `world.on` listeners) in one queue, after a tool, `script.eval` or a test
+call, and after each `game.step`. That queue does not remember which code queued a job, so a continuation or listener of the
+game that is still pending when a tool, an eval or a test pumps the queue runs with **that caller's** set (a test's
+`{read, state}` plus its option; a tool's own, up to everything for `factoria call`), not with the game's. The same
+continuation that runs in the player's own frame loop gets `{read, state}`. So do not rely on the game set to keep a
+continuation from writing: a shipped game is bounded by the player, where nobody else pumps its jobs. A test that must prove a
+game script cannot do something drives it from a behaviour callback (`game.step`), not from a promise.
 
 The engine library asks for no more than that. `tilemap.generate` with `place` places the level with `scene.place_ascii`
 (the in-memory twin of `scene.import_ascii`, `{read, state}`: no `path`, `from`, `save`, `dryRun` or `edits`), and every

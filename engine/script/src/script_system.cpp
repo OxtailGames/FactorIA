@@ -710,6 +710,10 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
         importers[path].insert(basePath);
     }
     std::string name = module_name_for(path);
+    if (baseIsProject && !syntaxBase) {
+        auto& edges = moduleImports[base];
+        if (std::find(edges.begin(), edges.end(), name) == edges.end()) edges.push_back(name);
+    }
     if (!firstImporter.count(name)) firstImporter[name] = baseIsProject ? basePath : std::string();
     return name;
 }
@@ -901,7 +905,7 @@ JSModuleDef* ScriptSystem::Impl::make_builtin_module(const std::string& name) {
     return m;
 }
 
-Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail) {
+Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, ScriptError* detail, CapMode topLevelMode) {
     std::string err;
     std::string name = normalize_module("<import>", path, &err);
     if (name.empty()) return Error{err, "Use project-relative paths such as \"scripts/player.js\"."};
@@ -910,11 +914,45 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
 
     Json quoted = name;
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
+    if (topLevelMode != CapMode::Game) {
+        // QuickJS evaluates the whole static import graph inside the one JS_Eval below, under `topLevelMode`, so a game module the
+        // test file imports would run its top level as test code. Compile the graph first (nothing runs; normalize_module records
+        // every import in moduleImports, also of modules that were already compiled and not evaluated, e.g. by check_syntax, which
+        // the loader is not called for again), then evaluate the closure of the module's static imports, dependencies first, as
+        // game code; the module itself is then the only one left to run under `topLevelMode`. A load or syntax error is left to
+        // the real evaluation below, which reports it.
+        JSValue pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        if (JS_IsException(pre)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        } else {
+            JS_FreeValue(ctx, pre);
+            std::vector<std::string> order;  // post-order: a module comes after everything it imports, source order among siblings
+            std::set<std::string> seen{name};
+            std::function<void(const std::string&)> visit = [&](const std::string& from) {
+                auto edges = moduleImports.find(from);
+                if (edges == moduleImports.end()) return;
+                const std::vector<std::string> targets = edges->second;  // a copy: the map may grow while we walk
+                for (const std::string& dep : targets) {
+                    if (dep == "factoria" || dep == "factoria:test" || !seen.insert(dep).second) continue;
+                    visit(dep);
+                    order.push_back(dep);
+                }
+            };
+            visit(name);
+            for (const std::string& dep : order) {
+                auto ns = import_module(module_file(dep), detail);  // Game: the default
+                if (!ns) return ns.error();
+                JS_FreeValue(ctx, *ns);
+            }
+        }
+    }
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
-    // The top level of a module is game code, not the tool or eval that happened to import it: it never runs with the caller's wider set.
-    CapModeScope topLevel(*this, capMode == CapMode::Caller ? CapMode::Game : capMode);
+    // The top level of a module is game code, not the tool, eval or test that happened to import it first (a module is evaluated
+    // once and cached, so what it did at load must not depend on who loaded it): it never runs with a wider set than the game's.
+    // Only the test file run_tests imports asks for Test.
+    CapModeScope topLevel(*this, topLevelMode);
     JSValue r = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE);
     pop_guard(depth);
     auto fail = [&](JSValue exc) -> Result<JSValue> {

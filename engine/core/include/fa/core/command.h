@@ -290,7 +290,8 @@ struct CommandInterceptor {
     // Asked at the start of every call() with the command name: false = this call is not intercepted. Must be cheap (a lookup in a
     // table that was already built): it runs on every call.
     std::function<bool(std::string_view name)> wants;
-    // Before the arguments are validated and the handler runs. May change `args`. Returns a failed CommandResult to refuse the call
+    // Before the arguments are validated and the handler runs; never reached for a call the caller's capabilities refuse
+    // (capability_denied comes first). May change `args`. Returns a failed CommandResult to refuse the call
     // (the handler does not run, `after` is not called), nullopt to go ahead.
     std::function<std::optional<CommandResult>(std::string_view name, Json& args)> before;
     // After the handler ran, whatever the outcome, with the arguments it got and how long the call took. May add to `result`
@@ -303,8 +304,10 @@ public:
     // Replaces an existing command with the same name.
     void add(CommandInfo info, CommandHandler handler);
     // Declares (and flags as declared) the capabilities of an already added command and sets readOnly to match
-    // (readOnly == the set holds nothing but "read"); false if there is no such command. The modules that register many
-    // commands call declare_command_capabilities (below) once with a table, right after their add() calls.
+    // (readOnly == the set holds nothing but "read"): readOnly is recomputed from the set, never kept from add(). False,
+    // and nothing changed, if there is no such command or the set is empty (a command needs at least "read"; logged).
+    // The modules that register many commands call declare_command_capabilities (below) once with a table, right after
+    // their add() calls.
     bool declare_capabilities(std::string_view name, CapabilitySet capabilities);
     void remove(std::string_view name);
     bool has(std::string_view name) const;
