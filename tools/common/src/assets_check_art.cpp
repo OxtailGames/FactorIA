@@ -797,7 +797,6 @@ void register_check_art_command(CommandRegistry& registry, const std::string& pr
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.readOnly = true;
     info.summary = "Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.";
     info.description =
         "Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus "
@@ -836,7 +835,11 @@ void register_check_art_command(CommandRegistry& registry, const std::string& pr
                                              {"description", "What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default."}})},
                {"onScreenPx", Json::object({{"description", "The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen."}})},
                {"style", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them."}})}})}});
+    mark_paths(info.inputSchema, "read", {"path"});
     registry.add(info, [projectDir](const Json& args) { return check(projectDir, args); });
+    // Capabilities (capability.h): it keeps a measuring cache in .factoria/art-cache and a temporary screenshot in
+    // .factoria/screenshots, both named by the engine (state); no project file changes.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::changes_state()}});
 }
 
 }  // namespace fa::assets_detail

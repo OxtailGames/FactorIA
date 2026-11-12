@@ -6,7 +6,9 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <map>
 #include <thread>
 #include <ctime>
 #include <filesystem>
@@ -208,10 +210,43 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     return po;
 }
 
+std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, const std::map<std::string, std::string>& providerEnv,
+                                                      CapabilitySet calling) {
+    CapabilitySet set = req.capabilities.intersect(calling);
+    // A set the user's environment or the provider's "env" already holds is kept when it is narrower: the child never gets more.
+    if (const auto fromEnv = command_capabilities_from_env()) set = set.intersect(*fromEnv);
+    if (const auto it = providerEnv.find(kCapabilitiesEnvVar); it != providerEnv.end()) {
+        if (const auto own = command_capabilities_from_env_value(it->second.c_str())) set = set.intersect(*own);
+    }
+    std::map<std::string, std::string> out;
+    out[kCapabilitiesEnvVar] = capabilities_env_value(set);
+    if (!req.role.empty()) out[kRoleEnvVar] = req.role;
+    if (const auto it = providerEnv.find(kCallerEnvVar); it != providerEnv.end()) {
+        out[kCallerEnvVar] = it->second;
+    } else if (const char* fromProcess = std::getenv(kCallerEnvVar); fromProcess && *fromProcess) {
+        out[kCallerEnvVar] = fromProcess;
+    } else {
+        out[kCallerEnvVar] = "agent";
+    }
+    return out;
+}
+
+std::vector<std::string> codex_factoria_env_args(const std::map<std::string, std::string>& factoriaEnv) {
+    if (factoriaEnv.empty()) return {};
+    std::string table = "{";
+    for (const auto& [k, v] : factoriaEnv) table += (table.size() > 1 ? "," : "") + k + "=" + dump(Json(v));  // a JSON string is a TOML basic string
+    return {"-c", "mcp_servers.factoria.env=" + table + "}"};
+}
+
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl,
-                     const std::vector<ResolvedToolServer>& servers) {
+                     const std::vector<ResolvedToolServer>& servers, const std::map<std::string, std::string>& factoriaEnv) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
+    if (mcpUrl.empty() && !factoriaEnv.empty()) {
+        Json env = Json::object();
+        for (const auto& [k, v] : factoriaEnv) env[k] = v;
+        server["env"] = std::move(env);
+    }
     server["timeout"] = kMcpToolTimeoutMs;  // Claude Code: milliseconds a tool call may take at most
     Json all = Json::object({{"factoria", server}});
     for (const ResolvedToolServer& s : servers) {
@@ -879,8 +914,16 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = str(*item, "tool");
             if (const Json* a = child(*item, "arguments")) e.toolInput = *a;
             if (completed) {
-                e.isError = str(*item, "status") == "failed";
-                if (const Json* r = child(*item, "result")) e.toolResult = clip(dump(*r));
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined";
+                const Json* err = child(*item, "error");
+                const std::string errMsg = err ? str(*err, "message") : std::string();
+                if (!errMsg.empty()) {  // a failed call: `error.message`, `result` is null
+                    e.isError = true;
+                    e.toolResult = clip(errMsg);
+                } else if (const Json* r = child(*item, "result"); r && !r->is_null()) {
+                    e.toolResult = clip(dump(*r));
+                }
             }
             out.push_back(e);
         } else if (it == "command_execution") {
@@ -889,7 +932,9 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = "shell";
             e.toolInput = Json::object({{"command", str(*item, "command")}});
             if (completed) {
-                e.isError = num(*item, "exit_code") != 0;
+                // A declined command has status "declined" and exit_code null.
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined" || num(*item, "exit_code") != 0;
                 e.toolResult = clip(str(*item, "aggregated_output"));
             }
             out.push_back(e);
@@ -927,6 +972,10 @@ static std::string tail(const std::string& s, std::size_t n = 800) {
 Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler& onEvent, const CancelFlag* cancel) const {
     auto base = cli_process_options(cfg_);
     if (!base) return base.error();
+    // What the role may do reaches every `factoria` the agent starts (MCP server or shell): a read-only role's CLI cannot do more
+    // over MCP than the role. The caller kind stays what cli_process_options decided.
+    const std::map<std::string, std::string> factoriaEnv = cli_capability_env(req, base->env, caller_capabilities());
+    for (const auto& [k, v] : factoriaEnv) base->env[k] = v;
     const std::string command = cfg_.command.empty() ? default_cli_command(cfg_.kind) : cfg_.command;
     std::vector<std::string> tmpl = cfg_.argv.empty() ? default_cli_argv(cfg_.kind) : cfg_.argv;
     if (tmpl.empty()) {
@@ -968,8 +1017,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         const fsys::path file =
             aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
-        const Json config = req.toolServers.empty() ? make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)
-                                                    : make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers);
+        const Json config = make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers, factoriaEnv);
         if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(config) + "\n"); !ok) return ok.error();
         mcpPath = host_utf8(file);
     }
@@ -1049,6 +1097,11 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 break;
             }
         }
+    }
+    if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty()) {  // the built-in argv starts `factoria mcp` itself (never the editor's endpoint)
+        auto env = codex_factoria_env_args(factoriaEnv);
+        auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
+        expanded.insert(stdinMarker, env.begin(), env.end());
     }
     if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
         auto extra = codex_tool_server_args(req.toolServers, po.env);

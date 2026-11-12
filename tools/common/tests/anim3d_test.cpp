@@ -536,7 +536,9 @@ TEST_CASE("anim3d writing commands are not read-only, check assets.json before t
     for (const char* cmd : {"anim3d.create", "anim3d.set_keys", "anim3d.remove_track", "anim3d.restore", "anim3d.move_keys", "anim3d.remove_keys", "anim3d.set_interp", "anim3d.set_clip",
                             "anim3d.add_event", "anim3d.set_event", "anim3d.remove_event", "anim3d.mirror_pose", "anim3d.generate", "anim3d.retarget", "ik3d.key"})
         CHECK_MESSAGE(p.registry.info(cmd)->readOnly == false, cmd << " writes files");
-    for (const char* cmd : {"anim3d.info", "anim3d.preview", "anim3d.generators", "ik3d.check", "ik3d.solve"}) CHECK_MESSAGE(p.registry.info(cmd)->readOnly, cmd);
+    for (const char* cmd : {"anim3d.info", "anim3d.generators", "ik3d.check", "ik3d.solve"}) CHECK_MESSAGE(p.registry.info(cmd)->readOnly, cmd);
+    // the preview may keep a picture at a caller's path: {read,state}, so not read-only (M92.1b2a)
+    CHECK_FALSE(p.registry.info("anim3d.preview")->readOnly);
 
     // a broken assets.json: the command fails and no file changed
     const std::string walk = "anim/hero_walk.anim.json";

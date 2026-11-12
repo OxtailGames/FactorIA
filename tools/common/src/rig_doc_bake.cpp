@@ -222,7 +222,7 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
     if (!starts_with(result.output, "assets/"))
         return make_error(rel + ": the skinned model would be written to '" + result.output + "', outside assets/.", "Put it under assets/, e.g. \"output\": {\"path\": \"assets/models/hero.rig.glb\"}.");
 
-    auto outPath = resolve_project_path(projectDir, result.output);
+    auto outPath = assets_detail::project_write_path(projectDir, result.output);
     if (!outPath.ok()) return make_error(outPath.error().message, outPath.error().hint);
     if (!options.overwrite) {
         std::error_code ec;

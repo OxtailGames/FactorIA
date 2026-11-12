@@ -52,7 +52,7 @@ Json starter_document(const std::string& description) {
 Json vfx_create_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("vfx.create", a, "", {"path", "doc", "overwrite"});
     const std::string rel = effect_path(tooling_detail::arg_string(a, "path", true));
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = project_write_file(projectDir, rel);
     std::error_code ec;
     if (stdfs::exists(file, ec) && !tooling_detail::arg_bool(a, "overwrite", false))
         fail("exists", "vfx.create: '" + rel + "' exists already.", "Pass \"overwrite\": true to replace it, or edit it with vfx.edit.");
@@ -77,7 +77,7 @@ Json vfx_edit_command(const std::string& projectDir, const Json& a) {
     const std::string pointer = tooling_detail::arg_string(a, "pointer", true);
     if (!pointer.empty() && pointer[0] != '/')
         fail("invalid_argument", "vfx.edit: `pointer` must be a JSON pointer such as /parts/0/emitter/burst.", "It starts with a slash; /parts is the list of parts.");
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = project_write_file(projectDir, rel);
     auto text = tooling_detail::read_file(file);
     if (!text) fail("not_found", "vfx.edit: '" + rel + "' does not exist.", "Make one with vfx.create {\"path\":\"" + rel + "\"} and edit it.");
     auto loaded = parse_json(*text, rel);
@@ -159,6 +159,7 @@ void register_vfx_commands(CommandRegistry& registry, const std::string& project
              {"properties", obj({{"path", Json::object({{"type", "string"}, {"description", "The effect document, project-relative, under assets/ and ending in .vfx.json."}})},
                                  {"doc", Json::object({{"type", "string"}, {"description", "The file's `doc` text: what the effect is and where the game plays it."}})},
                                  {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it exists."}})}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return vfx_create_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -183,8 +184,11 @@ void register_vfx_commands(CommandRegistry& registry, const std::string& project
                                  {"value", Json::object({{"description", "The new value (set) or the element to insert (add). Any JSON."}})},
                                  {"index", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "add: where to insert; move: the element to move."}})},
                                  {"to", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "move: the element's new place."}})}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return vfx_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): the effect documents are project files.
+    declare_command_capabilities(registry, {{"vfx.create", capability_sets::writes_project()}, {"vfx.edit", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

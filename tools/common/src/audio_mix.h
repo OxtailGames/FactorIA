@@ -65,7 +65,8 @@ int band_of(double hz);
 
 // What assets.spectrogram returns for a call with these arguments ({"path", "width", "height", "out", "loop", "channels"}): the
 // measurements and the `$image` picture. Throws CommandError. For commands that make a sound and show it (sfx.render).
-Json spectrogram_picture(const std::string& projectDir, const Json& args);
+// `command` names the calling command: a caller-given "out" needs its writeProject capability.
+Json spectrogram_picture(const std::string& projectDir, const Json& args, const char* command);
 
 // One row of a contact sheet of sounds: a name, a line of numbers and the mono samples (rendered in memory, no file needed).
 struct SheetRow {
@@ -75,6 +76,7 @@ struct SheetRow {
 };
 // A picture with one row per sound, all on the same time and level scale so they compare at a glance: a waveform strip over a
 // spectrogram, the name and numbers on the left. Returns {"$image", "picture"}; `outRel` (a .png path) keeps the file. Throws CommandError.
-Json spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int width, const std::string& outRel);
+Json spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int width,
+                       const std::string& outRel, const char* command);
 
 }  // namespace fa::audio_mix

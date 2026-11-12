@@ -120,7 +120,8 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
     if (!starts_with(result.output, "assets/"))
         return make_error(rel + ": the sound would be written to '" + result.output + "', outside assets/.", "Put it under assets/, e.g. \"output\": {\"path\": \"assets/audio/door.wav\"}.");
 
-    auto outPath = resolve_project_path(projectDir, result.output);
+    // The document names where the sound goes: inside the project (also for a caller that may write anywhere), never in a tools' folder.
+    auto outPath = assets_detail::project_write_path(projectDir, result.output);
     if (!outPath.ok()) return make_error(outPath.error().message, outPath.error().hint);
     if (!options.overwrite) {
         std::error_code ec;

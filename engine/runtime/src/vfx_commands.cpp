@@ -377,7 +377,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels (origin top-left of the view)."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (default: a sheet about 1600 px wide)."},
                "columns":{"type":"integer","minimum":1,"maximum":64,"description":"Pictures per row (default: nearly square)."},
-               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths and the managed folders are refused)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               const std::string effect = a.value("effect", std::string());

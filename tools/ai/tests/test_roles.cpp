@@ -18,20 +18,22 @@ bool contains(const std::vector<std::string>& v, const std::string& s) { return 
 // make_registry() plus a command that edits (readOnly=false) and the commands that play.
 CommandRegistry roles_registry() {
     CommandRegistry r = make_registry();
-    auto add = [&r](const char* name, bool readOnly) {
+    // The play commands declare {read, state} like the real ones (commands.cpp, game.*, play.auto); the rest derive theirs.
+    auto add = [&r](const char* name, bool readOnly, bool play = false) {
         CommandInfo c;
         c.name = name;
         c.summary = name;
         c.readOnly = readOnly;
+        if (play) c.capabilities = CapabilitySet{Capability::Read, Capability::State};
         r.add(c, [](const Json&) { return Json::object(); });
     };
     add("scene.spawn", false);
     add("fs.write", false);
     add("assets.generate_image", false);
-    add("game.step", false);
-    add("game.click", false);
-    add("scene.load", false);
-    add("play.auto", false);  // plays the game headless with a bot; writes only .factoria/sessions/
+    add("game.step", false, true);
+    add("game.click", false, true);
+    add("scene.load", false, true);
+    add("play.auto", false, true);  // plays the game headless with a bot; writes only .factoria/sessions/
     add("play.report", true);
     return r;
 }

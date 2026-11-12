@@ -44,6 +44,23 @@ stdfs::path project_write_file(const std::string& projectDir, const std::string&
     return *path;
 }
 
+stdfs::path caller_output_file(const std::string& projectDir, const std::string& path, const char* command) {
+    require_capability(Capability::WriteProject, command, "keeping the picture at the path you gave");
+    auto resolved = resolve_write_path(projectDir, path);
+    if (!resolved.ok()) {
+        const std::string code(fs::path_error_code(resolved.error()));
+        throw CommandError(code.empty() ? "invalid_argument" : code, resolved.error().message, resolved.error().hint);
+    }
+    return *resolved;
+}
+
+void check_kept_picture(const std::string& projectDir, const Json& args, const char* command) {
+    const std::string out = arg_string(args, "pictureOut", false);
+    if (out.empty()) return;
+    if (to_lower(fs::extension(out)) != ".png") fail("invalid_argument", "`pictureOut` must end in .png.", "Example: \"pictureOut\": \"assets/music/theme.png\".");
+    (void)caller_output_file(projectDir, out, command);
+}
+
 void require_usable_manifest(const std::string& projectDir) {
     const auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
     if (!text) return;
@@ -514,6 +531,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     ImportRequest request;
     request.source = source;
     request.dest = plan_destination(arg_string(a, "path", false), source, route->second);
+    (void)project_write_file(projectDir, request.dest);  // refused before the importer (ffmpeg, a converter) runs: managed folders, links out
     request.columns = int(tooling_detail::arg_int(a, "columns", 0));
     request.flat = arg_bool(a, "flat", false);
     const bool overwrite = arg_bool(a, "overwrite", false);
@@ -568,7 +586,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     Json written = Json::array();
     for (const OutFile& f : out.files) {
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, f.path), std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, f.path), std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()), &err))
             fail("failed", err);
         written.push_back(Json::object({{"path", f.path}, {"bytes", f.bytes.size()}, {"kind", assets::kind_name(assets::kind_of(f.path))}}));
     }
@@ -692,7 +710,12 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "flat":{"type":"boolean","default":false,"description":"Aseprite only: skip the image document and write ONE PNG sprite sheet with its `sheet` entry (the layers are flattened, a ping-pong or reverse tag becomes a forward clip)."},
         "overwrite":{"type":"boolean","default":false,"description":"Replace files that already exist."}
       }})");
+    mark_paths(info.inputSchema, "read", {"source"});
+    mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [projectDir](const Json& args) { return import_asset(projectDir, args); });
+    // Capabilities (capability.h): the imported files and their assets.json entries are project files; a video or an FBX/OBJ model
+    // is converted by a child process (ffmpeg, a converter), hence process.
+    declare_command_capabilities(registry, {{"assets.import", capability_sets::writes_project().with(Capability::Process)}});
     register_slice_sheet_command(registry, projectDir);
     register_pack_atlas_command(registry, projectDir);
     register_draw_icon_command(registry, projectDir);

@@ -352,7 +352,7 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
     for (std::size_t i = 3; i < img.rgba.size(); i += 4) opaque = opaque && img.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
         fail("failed", err);
     ProjectRootGuard root(projectDir);
     auto r = assets::update_entry(rel, [&](Json& e) {
@@ -395,6 +395,8 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
     const std::string iconPath = target_path(tooling_detail::arg_string(a, "path", false), settings.icon, "assets/icon.png");
     std::string fgPath;
     if (!noForeground) fgPath = target_path(wantFg, settings.android.adaptiveIcon.foreground, "assets/icon_fg.png");
+    (void)project_write_file(projectDir, iconPath);  // both refused before anything is drawn: managed folders, links out, outside the project
+    if (!noForeground) (void)project_write_file(projectDir, fgPath);
     require_usable_manifest(projectDir);
 
     Image icon, fg;
@@ -539,7 +541,10 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
         "path":{"type":"string","description":"PNG to write the icon to. Default: factoria.json `icon`, else assets/icon.png."},
         "foreground":{"description":"PNG for the Android adaptive-icon foreground, or false to skip it. Default: export.android.adaptiveIcon.foreground, else assets/icon_fg.png.","oneOf":[{"type":"string"},{"type":"boolean"}]}
       }})");
+    mark_paths(info.inputSchema, "write", {"path", "foreground"});
     registry.add(info, [projectDir](const Json& args) { return draw_icon(projectDir, args); });
+    // Capabilities (capability.h): the icon PNGs and their assets.json entries are project files.
+    declare_command_capabilities(registry, {{"assets.draw_icon", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

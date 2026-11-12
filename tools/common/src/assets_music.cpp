@@ -273,13 +273,17 @@ bool is_black_key(int midi) {
 
 }  // namespace
 
-void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& tl, Json& result) {
+void check_picture_out(const std::string& projectDir, const Json& a, const char* command) {
+    check_kept_picture(projectDir, a, command);
+}
+
+void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& tl, Json& result, const char* command) {
     const int width = int(std::clamp<long>(tooling_detail::arg_int(a, "width", 1000), 400, 2400));
     const std::string outRel = tooling_detail::arg_string(a, "pictureOut", false);
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") fail("invalid_argument", "`pictureOut` must end in .png.", "Example: \"pictureOut\": \"assets/music/theme.png\".");
-        outFile = project_write_file(projectDir, outRel);
+        outFile = caller_output_file(projectDir, outRel, command);
     }
     const std::int64_t barTicks = doc.meter.barTicks();
     const long fromBar = std::clamp<long>(tooling_detail::arg_int(a, "fromBar", 1), 1, std::max(1, tl.bars));
@@ -431,6 +435,7 @@ bool preview_is_ours(const std::string& projectDir, const std::string& outRel) {
 
 Json music_info_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.info", a, "", {"path", "song", "picture", "pictureOut", "width", "fromBar", "bars"});
+    if (tooling_detail::arg_bool(a, "picture", true)) check_picture_out(projectDir, a, "music.info");
     Loaded loaded = resolve_song(projectDir, a, "music.info");
     const SongTimeline tl = expand_or_fail(loaded.doc, loaded.rel);
     Json result = summary_json(loaded.doc, tl);
@@ -456,7 +461,7 @@ Json music_info_command(const std::string& projectDir, const Json& a) {
     } else {
         result["valid"] = true;
     }
-    if (tooling_detail::arg_bool(a, "picture", true)) add_piano_roll(projectDir, a, loaded.doc, tl, result);
+    if (tooling_detail::arg_bool(a, "picture", true)) add_piano_roll(projectDir, a, loaded.doc, tl, result, "music.info");
     Json steps = Json::array();
     if (tooling_detail::arg_bool(a, "picture", true))
         steps.push_back("Read the picture: coloured bars are notes (one colour per track, brighter = louder), the lower rows are the drum lanes, the strip on top is the sections.");
@@ -709,7 +714,7 @@ Json music_preview_command(const std::string& projectDir, const Json& a) {
         for (const char* key : {"width", "height"})
             if (a.contains(key)) picArgs[key] = a[key];
         if (a.contains("pictureOut")) picArgs["out"] = a["pictureOut"];
-        Json pic = audio_mix::spectrogram_picture(projectDir, picArgs);
+        Json pic = audio_mix::spectrogram_picture(projectDir, picArgs, "music.preview");
         if (pic.contains("$image")) result["$image"] = pic["$image"];
         pic.erase("$image");
         pic.erase("nextSteps");
@@ -779,7 +784,6 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
         CommandInfo info;
         info.name = "music.info";
         info.category = "assets";
-        info.readOnly = true;
         info.summary = "Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture.";
         info.description =
             "Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/song.schema.json) from `path`, or takes it inline as `song`, and checks it. A song with mistakes fails with `invalid_song` and EVERY problem in "
@@ -793,10 +797,11 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                          {"properties", obj({props[0],
                                                              {"song", object_arg("The song itself, as JSON, to check before writing it to a file (format is filled in).")},
                                                              {"picture", boolean("Return the piano-roll picture (`$image`).", true)},
-                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot.")},
+                                                             {"pictureOut", path_property("write", "Also keep the picture's PNG at this project path (ends in .png; needs the writeProject capability). Default: a temporary screenshot.")},
                                                              {"width", integer("Width of the picture in pixels (default 1000).", 400, 2400)},
                                                              {"fromBar", integer("First bar shown in the picture (default 1).", 1, kSongMaxBars)},
                                                              {"bars", integer("Number of bars shown (default: to the end).", 1, kSongMaxBars)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return music_info_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -822,6 +827,7 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                                              {"rules", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}, {"enum", rules}})}, {"description", "Which rules to run (default: every rule that needs no render). Naming loudness renders the song."}})},
                                                              {"render", boolean("Also run the loudness rule: render the song and measure it.", false)},
                                                              {"targetLufs", number("Integrated loudness the music should have (LUFS, -70 to 0). Default: style.audio.loudnessLufs.music of assets.json, if set.", -70, 0)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return music_check_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -854,7 +860,7 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                          {"required", Json::array({"path"})},
                                          {"additionalProperties", false},
                                          {"properties", obj({props[0],
-                                                             {"out", str("Where to write the sound: .wav or .ogg under assets/. Default: the song's path with .preview.wav.")},
+                                                             {"out", path_property("write", "Where to write the sound: .wav or .ogg under assets/. Default: the song's path with .preview.wav.")},
                                                              {"fromBar", integer("First bar rendered, counted from 1 (default 1). Notes that start earlier are not played.", 1, kSongMaxBars)},
                                                              {"bars", integer("Number of bars rendered from `fromBar` (default: to the end).", 1, kSongMaxBars)},
                                                              {"solo", strings("Render only these tracks.")},
@@ -863,9 +869,10 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                                              {"sampleRate", Json::object({{"type", "integer"}, {"enum", Json::array({22050, 32000, 44100, 48000})}, {"default", 44100}, {"description", "Sample rate of the file."}})},
                                                              {"overwrite", boolean("Replace the file when it exists and was not made by music.preview (one made by it is always replaced).", false)},
                                                              {"picture", boolean("Return the spectrogram picture (`$image`) of the preview.", true)},
-                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png).")},
+                                                             {"pictureOut", path_property("write", "Also keep the picture's PNG at this project path (ends in .png).")},
                                                              {"width", integer("Width of the picture in pixels (default 1000).", 400, 2400)},
                                                              {"height", integer("Height of the picture in pixels (default 640).", 280, 1600)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return music_preview_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -890,8 +897,12 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                                              {"mute", strings("Leave these tracks out.")},
                                                              {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"default", 0}, {"description", "Added to the song's seed."}})},
                                                              {"sampleRate", Json::object({{"type", "integer"}, {"enum", Json::array({22050, 32000, 44100, 48000})}, {"default", 44100}, {"description", "Sample rate of the render (22050 is faster)."}})}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return music_mix_command(projectDir, args.is_null() ? Json::object() : args); });
     }
+    // Capabilities (capability.h): music.info keeps its piano roll only when asked; music.preview writes a sound and its record.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"music.info", changes_state()}, {"music.check", changes_state()}, {"music.preview", writes_project()}, {"music.mix", changes_state()}});
 }
 
 }  // namespace fa::assets_detail::music

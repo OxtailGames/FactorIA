@@ -105,6 +105,17 @@ A template with `--input-format stream-json` gets standard input as one JSON lin
 `{"type":"user","message":{"role":"user","content":[{"type":"text",...},{"type":"image",...}]}}` (what Claude Code expects).
 Every other CLI gets the pictures as files: the prompt ends with `Attached images (read them): <absolute paths>`.
 
+#### Contract tests for the CLIs (engine developers)
+
+The output formats of the CLIs are not ours and change between their versions. `tools/ai/tests/fixtures/cli/` keeps recorded
+outputs: Claude Code 2.1.318 (`stream-json` runs: a plain answer, a tool use, a tool refused by the permission mode, the turn limit as
+an error result; the model list; `--version`), and, written from the documentation because no Codex is installed on the development
+machines, Codex `exec --json` events and a generic CLI's lines. `test_cli_contract.cpp` replays each file through the code that parses a live
+run (`CliStreamParser`, `list_models`, `detect_providers`) and checks what the engine reads: final text, error or success, session id, tokens and
+cost, tool calls, the refusal. A CLI update that changes its format fails there and names the fixture and the field.
+`tools/ai/tests/fixtures/cli/README.md` has the exact command line of every recording, what was scrubbed from it and how to re-record
+after a CLI update.
+
 ### D) Anthropic API key
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -502,6 +513,18 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
   `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
   change the project on disk.
+* **Every role has a capability set** (docs/ARCHITECTURE.md, "Capabilities"). Builders (orchestrator, worker, fast, artist,
+  audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
+  `{read, state}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and `play.auto`.
+  Those pictures are returned to the model; a `path` argument (a copy written to the project) needs `writeProject` and is refused
+  to them. The same holds for the other commands that look at an asset or a sound (`model.preview`, `anim3d.preview`,
+  `skin3d.preview`, `assets.contact_sheet`, `assets.preview_sheet`, `assets.preview_in_scene`, `assets.check_art`,
+  `assets.spectrogram`, `assets.check_mix`, `audio.render`, `music.info`, `music.check`, `music.mix`): they are on the roles' tool
+  list by name, they write only an engine-chosen temporary picture, and an output path of their own (`out`, `path`, `pictureOut`)
+  is refused with `capability_denied`. A tool call that falls outside the set fails with `capability_denied` whose hint names the role, what it has and
+  that the user or a builder role must do it. The set also reaches the `factoria mcp` a CLI agent starts
+  (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`), so a CLI builder over MCP cannot publish either: run that command yourself in a
+  terminal (`factoria call <command>`) or in the editor.
 * **The automatic player supports the reviewer, it does not replace playing.** A game reviewer (not the art critic) may run
   `play.auto` (it plays the game headless with a bot and writes only a session under `.factoria/sessions/`; the other tools
   that change something stay refused). Its instructions fix the order: play the first minutes by hand first, without reading
