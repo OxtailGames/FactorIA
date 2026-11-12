@@ -20,7 +20,7 @@ namespace {
 // Two scenes: the main one's script loads the level after a few frames, the level's script imports a module. A bot hook
 // that imports one too.
 struct TwoScenes {
-    stdfs::path dir = fs::make_temp_dir("fa_load_trace_engine");
+    stdfs::path dir = fs::make_temp_dir("fa_load_trace_engine").value();
     TwoScenes() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"Trace","id":"com.example.trace",
             "mainScene":"scenes/main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60},

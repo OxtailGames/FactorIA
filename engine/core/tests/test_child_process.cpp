@@ -108,7 +108,7 @@ TEST_CASE("child_process: inheritEnv passes on only the variables it names, the 
 TEST_CASE("child_process: the working directory and the standard error") {
     const std::string exe = echo_child();
     if (exe.empty()) return;
-    const stdfs::path dir = fs::make_temp_dir("childproc");
+    const stdfs::path dir = fs::make_temp_dir("childproc").value();
     ChildOptions options{{exe}, dir.string(), {}, {}};
     auto child = ChildProcess::start(options);
     REQUIRE(child.ok());

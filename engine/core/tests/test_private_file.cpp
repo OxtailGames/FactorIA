@@ -11,6 +11,8 @@
 #endif
 
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -26,7 +28,7 @@ namespace stdfs = std::filesystem;
 namespace {
 
 struct TempFolder {
-    stdfs::path path = fs::make_temp_dir("privfile");
+    stdfs::path path = fs::make_temp_dir("privfile").value();
     ~TempFolder() {
         std::error_code ec;
         stdfs::remove_all(path, ec);
@@ -185,7 +187,7 @@ TEST_CASE("make_private: restricts a file a tool created with the default permis
 }
 
 TEST_CASE("make_temp_dir: a folder that already has the next name is never reused, and on POSIX the folder is owner-only") {
-    const stdfs::path first = fs::make_temp_dir("fa_test_tmpdir");
+    const stdfs::path first = fs::make_temp_dir("fa_test_tmpdir").value();
     REQUIRE_FALSE(first.empty());
     REQUIRE(stdfs::is_directory(first));
     // Someone else prepared the name the next call would take (a shared /tmp), with a file inside.
@@ -199,7 +201,7 @@ TEST_CASE("make_temp_dir: a folder that already has the next name is never reuse
     {
         std::ofstream(planted / "planted.txt") << "x";
     }
-    const stdfs::path second = fs::make_temp_dir("fa_test_tmpdir");
+    const stdfs::path second = fs::make_temp_dir("fa_test_tmpdir").value();
     REQUIRE_FALSE(second.empty());
     CHECK(second != planted);
     CHECK(second != first);
@@ -219,4 +221,113 @@ TEST_CASE("make_temp_dir: a folder that already has the next name is never reuse
     stdfs::remove_all(first, ec);
     stdfs::remove_all(second, ec);
     stdfs::remove_all(planted, ec);
+}
+
+namespace {
+// Points the temporary folder somewhere else for one test (TMPDIR on Linux and macOS; TMP and TEMP on Windows).
+struct ScopedTempEnv {
+    struct Saved {
+        std::string name, value;
+        bool had = false;
+    };
+    std::vector<Saved> saved;
+    explicit ScopedTempEnv(const stdfs::path& where) {
+#ifdef _WIN32
+        const char* names[] = {"TMP", "TEMP"};
+#else
+        const char* names[] = {"TMPDIR"};
+#endif
+        for (const char* name : names) {
+            Saved s;
+            s.name = name;
+            if (const char* old = std::getenv(name)) {
+                s.had = true;
+                s.value = old;
+            }
+            saved.push_back(s);
+            set(name, where.string());
+        }
+    }
+    ~ScopedTempEnv() {
+        for (const Saved& s : saved) set(s.name.c_str(), s.had ? s.value : std::string());
+    }
+    static void set(const char* name, const std::string& value) {
+#ifdef _WIN32
+        _putenv_s(name, value.c_str());
+#else
+        if (value.empty()) ::unsetenv(name);
+        else ::setenv(name, value.c_str(), 1);
+#endif
+    }
+};
+
+// The working directory for one test.
+struct ScopedCwd {
+    stdfs::path before = stdfs::current_path();
+    explicit ScopedCwd(const stdfs::path& to) { stdfs::current_path(to); }
+    ~ScopedCwd() {
+        std::error_code ec;
+        stdfs::current_path(before, ec);
+    }
+};
+
+std::size_t entries_in(const stdfs::path& dir) {
+    std::size_t n = 0;
+    for (auto it = stdfs::directory_iterator(dir); it != stdfs::directory_iterator(); ++it) ++n;
+    return n;
+}
+}  // namespace
+
+TEST_CASE("make_temp_dir: a temporary folder that does not exist yet is made") {
+    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_missing_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path missing = holder / "not" / "yet";
+    REQUIRE_FALSE(stdfs::exists(missing));
+    {
+        ScopedTempEnv env(missing);
+        auto dir = fs::make_temp_dir("fa_test_missing_base");
+        REQUIRE_MESSAGE(dir.ok(), (dir.ok() ? "" : dir.error().message));
+        CHECK(stdfs::is_directory(*dir));
+        CHECK(dir->parent_path() == missing);
+    }
+    std::error_code ec;
+    stdfs::remove_all(holder, ec);
+}
+
+TEST_CASE("make_temp_dir: a temporary folder that is a file gives a teaching error and nothing is written to the working directory") {
+    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_badbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path cwd = holder / "cwd";
+    std::error_code ec;
+    REQUIRE(stdfs::create_directories(cwd, ec));
+    const stdfs::path notAFolder = holder / "afile";
+    {
+        std::ofstream(notAFolder) << "x";
+    }
+    {
+        ScopedCwd inCwd(cwd);
+        ScopedTempEnv env(notAFolder);
+        auto dir = fs::make_temp_dir("fa_test_bad_base");
+        REQUIRE_FALSE(dir.ok());
+        CHECK(dir.error().message.find("afile") != std::string::npos);  // names the folder it tried
+        CHECK(dir.error().hint.find("TMPDIR") != std::string::npos);
+        CHECK(dir.error().hint.find("vfat") != std::string::npos);
+        CHECK(entries_in(cwd) == 0);
+        CHECK(stdfs::is_regular_file(notAFolder));  // and the file was not touched
+    }
+    stdfs::remove_all(holder, ec);
+}
+
+TEST_CASE("remove_tree refuses an empty path and touches nothing") {
+    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_rmempty_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::error_code ec;
+    REQUIRE(stdfs::create_directories(holder, ec));
+    {
+        std::ofstream(holder / "keep.txt") << "x";
+    }
+    {
+        ScopedCwd inCwd(holder);
+        CHECK(fs::remove_tree(stdfs::path(), ec) == 0);
+        CHECK(ec);
+    }
+    CHECK(stdfs::exists(holder / "keep.txt"));
+    stdfs::remove_all(holder, ec);
 }

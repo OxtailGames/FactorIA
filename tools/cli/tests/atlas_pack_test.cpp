@@ -34,7 +34,7 @@ void write_solid(const stdfs::path& p, int w, int h, std::uint8_t r, std::uint8_
 
 TEST_CASE("A Sprite with a region from the packed table draws that frame") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_atlas_pack");
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_atlas_pack").value();
     const std::string project = (tmp / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;

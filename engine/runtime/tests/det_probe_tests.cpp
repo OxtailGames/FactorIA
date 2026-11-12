@@ -49,7 +49,7 @@ std::map<std::string, std::string> parse_line(const std::string& line) {
 }  // namespace
 
 TEST_CASE("det probe: the scripts' math, 2D and 3D physics and nav give the committed hashes" * doctest::skip()) {
-    const stdfs::path dir = fs::make_temp_dir("fa_det_probe");
+    const stdfs::path dir = fs::make_temp_dir("fa_det_probe").value();
     struct Cleanup {
         stdfs::path dir;
         ~Cleanup() {

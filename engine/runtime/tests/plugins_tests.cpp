@@ -77,7 +77,7 @@ int failing_init(const FaPluginApi* api) {
 struct Game {
     stdfs::path dir;
     explicit Game(const std::string& plugins, const std::string& entities = "") {
-        dir = fs::make_temp_dir("fa_plugins_test");
+        dir = fs::make_temp_dir("fa_plugins_test").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Plugins","plugins":)" << plugins << "}";
         std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[)" << entities << "]}";

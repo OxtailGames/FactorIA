@@ -65,9 +65,9 @@ void restore_user_dir(const std::filesystem::path& dir, void (*done)());
 // process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
 // share one. The caller removes it when done. The folder is always created by this call (a name that exists is never
 // reused: it gets a random suffix), and on Linux and macOS it is owner-only (0700) and checked to be a real directory
-// of this user, so a shared /tmp cannot hand a program a folder someone else prepared. Returns an EMPTY path when no
-// such folder could be made (check it before writing inside).
-std::filesystem::path make_temp_dir(std::string_view prefix);
+// of this user, so a shared /tmp cannot hand a program a folder someone else prepared. A temporary folder that does not
+// exist yet is made. The error says why (full or read-only temp folder, a file system that ignores modes) and how to fix it.
+Result<std::filesystem::path> make_temp_dir(std::string_view prefix);
 
 // Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE
 // path read_bytes, read_text, exists, is_directory, file_size, modified_time and list are given is answered by the pack
@@ -107,7 +107,8 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
 // (copy_file keeps the attribute) loses the attribute and is deleted too. Same result and error otherwise.
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
-// sharing violation, as remove_all does on Windows.
+// sharing violation, as remove_all does on Windows. An empty path is refused (invalid_argument, nothing is touched): it
+// would be the working directory or, on Windows, the root of the drive.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
 // Whether Windows would refuse to delete `file` because something holds it. On Windows: an open that asks for delete
 // access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion fails (an

@@ -68,7 +68,7 @@ ChatResponse done() {
 
 std::unique_ptr<cli::Session> open_game(const char* tag, stdfs::path& oldRoot) {
     oldRoot = fs::project_root();
-    const stdfs::path root = fs::make_temp_dir(std::string("fa_tool_catalog_") + tag);
+    const stdfs::path root = fs::make_temp_dir(std::string("fa_tool_catalog_") + tag).value();
     ScaffoldOptions opt;
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();

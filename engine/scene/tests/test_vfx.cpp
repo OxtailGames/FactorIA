@@ -18,7 +18,7 @@ namespace {
 
 struct TempDir {
     std::filesystem::path dir;
-    explicit TempDir(const char* prefix) : dir(fs::make_temp_dir(prefix)) {}
+    explicit TempDir(const char* prefix) : dir(fs::make_temp_dir(prefix).value()) {}
     ~TempDir() {
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);

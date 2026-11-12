@@ -155,7 +155,7 @@ TEST_CASE("screenshot_files: only frame_<n>*.png counts as engine-named") {
 }
 
 TEST_CASE("screenshot_files: prune_screenshots drops old and surplus engine-named files, never the user's") {
-    const stdfs::path dir = fs::make_temp_dir("fa_prune_shots");
+    const stdfs::path dir = fs::make_temp_dir("fa_prune_shots").value();
     const stdfs::path shots = dir / ".factoria" / "screenshots";
     stdfs::create_directories(shots);
     auto make = [&](const std::string& name, int ageHours) {
@@ -189,7 +189,7 @@ TEST_CASE("screenshot_files: prune_screenshots drops old and surplus engine-name
 }
 
 TEST_CASE("screenshot_files: discard_temporary_image deletes only a flagged engine-named file in the screenshot folder") {
-    const stdfs::path dir = fs::make_temp_dir("fa_discard_shots");
+    const stdfs::path dir = fs::make_temp_dir("fa_discard_shots").value();
     const stdfs::path shots = dir / ".factoria" / "screenshots";
     stdfs::create_directories(shots);
     stdfs::create_directories(dir / "assets");

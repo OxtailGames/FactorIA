@@ -1034,11 +1034,12 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 fs::path_to_utf8(file), first.error().message);
         if (fallbackDir.empty()) {
             // (owner-only on Linux and macOS and never a folder that existed before: fs::make_temp_dir)
-            fallbackDir = fs::make_temp_dir("factoria-run");
-            if (fallbackDir.empty())
+            auto made = fs::make_temp_dir("factoria-run");
+            if (!made.ok())
                 return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
-                                      "; no private folder could be made in the temporary folder either",
-                                  "Check that the project folder and the temporary folder are writable by your account.");
+                                      "; no private folder could be made in the temporary folder either: " + made.error().message,
+                                  made.error().hint);
+            fallbackDir = *made;
             runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
         }
         const fsys::path moved = fallbackDir / file.filename();

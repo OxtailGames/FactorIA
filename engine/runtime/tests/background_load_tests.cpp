@@ -108,7 +108,7 @@ std::string png(int size, std::uint8_t shade) {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const char* name, const std::string& project = kProject) {
-        dir = fs::make_temp_dir(std::string("fa_bgload_") + name);
+        dir = fs::make_temp_dir(std::string("fa_bgload_") + name).value();
         write("factoria.json", project);
         write("scenes/menu.scene.json", kMenu);
         write("scenes/level.scene.json", kLevel);

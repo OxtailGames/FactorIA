@@ -68,7 +68,7 @@ struct Rig {
     stdfs::path dir;
     Engine e;
     explicit Rig(const std::string& scene = kScene) {
-        dir = fs::make_temp_dir("fa_click_target");
+        dir = fs::make_temp_dir("fa_click_target").value();
         stdfs::create_directories(dir / "scenes");
         stdfs::create_directories(dir / "scripts");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;

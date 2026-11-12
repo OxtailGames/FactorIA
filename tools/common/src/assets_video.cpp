@@ -93,7 +93,9 @@ Result<ImportOutput> import_video(const ImportRequest& request) {
                               hint);
         }
 
-        cleanup.dir = fs::make_temp_dir("fa_video");
+        auto scratchDir = fs::make_temp_dir("fa_video");
+        if (!scratchDir.ok()) return scratchDir.error();
+        cleanup.dir = *scratchDir;
         const stdfs::path out = cleanup.dir / "movie.mpg";
         std::string failure;
         auto convert = [&](bool forceRate) {

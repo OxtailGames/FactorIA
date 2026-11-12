@@ -66,7 +66,7 @@ struct Game {
     Engine engine;
 
     explicit Game(const std::string& name, const char* project = kProject, EngineConfig cfg = {}, bool tables = true, bool hot = false) {
-        dir = fs::make_temp_dir("fa_loc_test_" + name);
+        dir = fs::make_temp_dir("fa_loc_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", kScene);
         if (tables) {
@@ -157,7 +157,7 @@ TEST_CASE("project: the \"localization\" section is read, and every mistake has 
 }
 
 TEST_CASE("project: load_project reads the localization section, reports the first mistake and keeps it when saving") {
-    auto dir = fs::make_temp_dir("fa_loc_project");
+    auto dir = fs::make_temp_dir("fa_loc_project").value();
     REQUIRE(fs::write_text((dir / "factoria.json").generic_string(), kProject).ok());
     auto loaded = load_project(dir.generic_string());
     REQUIRE(loaded.ok());
@@ -398,7 +398,7 @@ struct FontGame {
     Engine engine;
 
     explicit FontGame(const std::string& name, const std::string& localization) {
-        dir = fs::make_temp_dir("fa_loc_fonts_" + name);
+        dir = fs::make_temp_dir("fa_loc_fonts_" + name).value();
         const stdfs::path to = dir / "assets" / "fonts";
         stdfs::create_directories(to);
         for (const char* font : {"NotoSansJP-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})

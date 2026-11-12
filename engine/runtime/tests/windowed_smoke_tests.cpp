@@ -17,7 +17,7 @@ using namespace fa;
 TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and quits"
           * doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     namespace stdfs = std::filesystem;
-    stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed");
+    stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed").value();
     stdfs::create_directories(dir / "scenes");
     std::ofstream(dir / "factoria.json") << R"({"name":"Windowed","display":{"width":320,"height":180}})";
     std::ofstream(dir / "scenes/main.scene.json")

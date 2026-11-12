@@ -256,14 +256,19 @@ SetupComponent android_status(const SetupContext& ctx, bool fetchLicenses) {
 
     if (!p.licensesAccepted && fetchLicenses) {
         std::error_code ec;
-        const stdfs::path scratch = fs::make_temp_dir("fa_setup_status");
-        SdkRepositoryInfo repo;
-        if (auto f = fetch_sdk_repository(ctx, scratch, repo)) {
-            c.problems.push_back("Could not fetch the license text from Google: " + f->error.message + " The license is also at https://developer.android.com/studio/terms.");
+        auto scratch = fs::make_temp_dir("fa_setup_status");
+        if (!scratch.ok()) {
+            c.problems.push_back("Could not fetch the license text from Google: " + scratch.error().message + " " + scratch.error().hint +
+                                 " The license is also at https://developer.android.com/studio/terms.");
         } else {
-            c.licenses.push_back(repo.license);
+            SdkRepositoryInfo repo;
+            if (auto f = fetch_sdk_repository(ctx, *scratch, repo)) {
+                c.problems.push_back("Could not fetch the license text from Google: " + f->error.message + " The license is also at https://developer.android.com/studio/terms.");
+            } else {
+                c.licenses.push_back(repo.license);
+            }
+            fs::remove_tree(*scratch, ec);
         }
-        fs::remove_tree(scratch, ec);
     }
     return c;
 }

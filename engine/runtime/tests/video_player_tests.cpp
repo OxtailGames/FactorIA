@@ -39,7 +39,7 @@ const char* kOther = R"({
 struct TempProject {
     stdfs::path dir;
     TempProject() {
-        dir = fs::make_temp_dir("fa_video_player_test");
+        dir = fs::make_temp_dir("fa_video_player_test").value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         write("scenes/other.scene.json", kOther);

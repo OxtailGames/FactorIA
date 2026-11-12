@@ -39,7 +39,7 @@ TEST_CASE("play session: the worst spikes are kept, slowest first") {
 
 namespace {
 struct Fixture {
-    stdfs::path dir = fs::make_temp_dir("fa_play_sessions");
+    stdfs::path dir = fs::make_temp_dir("fa_play_sessions").value();
     Engine engine;
     Fixture() {
         stdfs::create_directories(dir / "scenes");

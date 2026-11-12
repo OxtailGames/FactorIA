@@ -38,7 +38,7 @@ TEST_CASE("input recorder: timing has one [dt, steps] per frame, unreported fram
 }
 
 TEST_CASE("input recorder: the recorded file is read by the headless replay without problems") {
-    const stdfs::path dir = fs::make_temp_dir("fa_play_recorder");
+    const stdfs::path dir = fs::make_temp_dir("fa_play_recorder").value();
     REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
                            R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
                                "display":{"width":64,"height":64},"physics":{"fixedHz":60}})").ok());
@@ -80,7 +80,7 @@ TEST_CASE("input recorder: http answers go to the frame of the request, in reque
 }
 
 TEST_CASE("input recorder: a recording with http answers replays headless without problems") {
-    const stdfs::path dir = fs::make_temp_dir("fa_input_recorder_http");
+    const stdfs::path dir = fs::make_temp_dir("fa_input_recorder_http").value();
     REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
                            R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
                                "display":{"width":64,"height":64},"physics":{"fixedHz":60},
@@ -106,7 +106,7 @@ TEST_CASE("input recorder: a recording with http answers replays headless withou
 }
 
 TEST_CASE("input recorder: a play at variable frame times replays exactly (onUpdate dt, fixed steps, input edges)") {
-    const stdfs::path dir = fs::make_temp_dir("fa_play_exact");
+    const stdfs::path dir = fs::make_temp_dir("fa_play_exact").value();
     auto w = [&](const char* rel, const char* text) { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); };
     w("factoria.json", R"({"format":"factoria.project/1","name":"Exact","id":"com.example.exact","mainScene":"main.scene.json",
                            "display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
@@ -179,7 +179,7 @@ TEST_CASE("input recorder: a play at variable frame times replays exactly (onUpd
 namespace {
 
 struct RecProject {
-    stdfs::path dir = fs::make_temp_dir("fa_input_rec");
+    stdfs::path dir = fs::make_temp_dir("fa_input_rec").value();
     RecProject() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"scenes/main.scene.json",
                                    "display":{"width":64,"height":64},"physics":{"fixedHz":60},"input":{"actions":{"boost":["B"]}}})");
