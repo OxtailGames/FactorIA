@@ -35,7 +35,7 @@ with the message on standard input (one `stream-json` line, which can carry pict
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
 `<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (readable by your user only: mode 0600, on Windows a protected ACL; when the project's folder refuses that, for example on a
-network share or a NAS, the file goes to a folder `factoria-run_*` in your temporary folder instead and the log says why) and
+network share or a NAS, the file goes to a new owner-only folder `factoria-run_*` in your temporary folder instead, never to one that already existed, and the log says why; a folder of a run that crashed is removed by a later run after a day) and
 deleted when the run ends (also when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
 editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
 that cannot be deleted (on Windows, while another program holds it open) is reported in the log and removed by a later run
@@ -146,10 +146,10 @@ The model must support tool calling.
 Location: `~/.factoria/ai.json` (Linux/macOS), `%APPDATA%\factoria\ai.json`
 (Windows). Override with the `FACTORIA_AI_CONFIG` environment variable. The
 file is optional; without it the Anthropic defaults below apply. Schema:
-`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix). A save (the editor's AI settings, `ai.settings.set`) takes a lock file next to
-`ai.json` for its read-modify-write and replaces the file atomically (a temporary file, then a rename; on Windows the rename is
+`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix). A save (the editor's AI settings, `ai.settings.set`) takes a lock file (`ai-config.lock`) next to
+`ai.json` for its read-modify-write (the trust file `ai-trust.json` too) and replaces the file atomically (a temporary file, then a rename; on Windows the rename is
 retried for about a second when another program has the file open), so two programs saving at once never mix their changes;
-a save that cannot get the lock in a second changes nothing and says to try again.
+a save that cannot get the lock in a second changes nothing and says to try again (a lock left by a program that crashed expires after about 10 s).
 
 ```json
 {

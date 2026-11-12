@@ -64,6 +64,8 @@ constexpr auto kStaleRunFileAge = std::chrono::hours(24);
 // Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else (but the names
 // 0.19.0 used, legacy_run_file).
 constexpr const char* kRunFilePrefix = "fa-run-";
+// The prefix fs::make_temp_dir gets for the folder that holds the run files when the project refuses an owner-only write.
+constexpr const char* kTempRunDirPrefix = "factoria-run_";
 
 // The run files of FactorIA 0.19.0, which had no prefix yet: mcp-<provider>-<stamp>-<n>.json (the MCP config with the
 // tool servers' keys), settings-<provider>-<stamp>-<n>.json (hook commands) and the folder ext-skills-<provider>-<stamp>-<n>.
@@ -96,17 +98,18 @@ bool legacy_run_file(const std::string& name) {
     return take_number() && take_number() && !rest.empty();
 }
 
-void sweep_stale_run_files(const fsys::path& aiDir) {
+// Entries of `dir` (the first kMaxSweptEntries) that `wanted` accepts and that are a day old, deleted.
+template <class Wanted>
+void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
     std::error_code ec;
-    fsys::directory_iterator it(aiDir, ec), end;
+    fsys::directory_iterator it(dir, ec), end;
     if (ec) return;
     const auto now = fsys::file_time_type::clock::now();
     std::vector<fsys::path> stale;
     for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
-        // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
-        if (name.rfind(kRunFilePrefix, 0) != 0 && !legacy_run_file(name)) continue;
+        if (!wanted(name, it->path())) continue;
         std::error_code tec;
         const auto when = it->last_write_time(tec);
         if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
@@ -115,6 +118,23 @@ void sweep_stale_run_files(const fsys::path& aiDir) {
         std::error_code rec;
         fs::remove_tree(p, rec);  // one held open stays for a later sweep
     }
+}
+
+void sweep_stale_run_files(const fsys::path& aiDir) {
+    // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
+    sweep_stale_in(aiDir, [](const std::string& name, const fsys::path&) {
+        return name.rfind(kRunFilePrefix, 0) == 0 || legacy_run_file(name);
+    });
+    // and the private folders a run made in the temporary folder when the project refused the owner-only write (a real
+    // folder only: a link of that name is left alone)
+    std::error_code ec;
+    const fsys::path tmp = fsys::temp_directory_path(ec);
+    if (ec) return;
+    sweep_stale_in(tmp, [](const std::string& name, const fsys::path& p) {
+        if (name.rfind(kTempRunDirPrefix, 0) != 0) return false;
+        std::error_code sec;
+        return fsys::symlink_status(p, sec).type() == fsys::file_type::directory;
+    });
 }
 }  // namespace
 
@@ -1013,13 +1033,13 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         FA_WARN("ai", "Could not write the private run file {}: {}. Using the temporary folder of this user instead.",
                 fs::path_to_utf8(file), first.error().message);
         if (fallbackDir.empty()) {
-            std::error_code tec;
-            if (fsys::temp_directory_path(tec).empty() || tec) return first.error();
+            // (owner-only on Linux and macOS and never a folder that existed before: fs::make_temp_dir)
             fallbackDir = fs::make_temp_dir("factoria-run");
+            if (fallbackDir.empty())
+                return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                      "; no private folder could be made in the temporary folder either",
+                                  "Check that the project folder and the temporary folder are writable by your account.");
             runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
-#ifndef _WIN32
-            fsys::permissions(fallbackDir, fsys::perms::owner_all, fsys::perm_options::replace, tec);  // %TEMP% is per user on Windows
-#endif
         }
         const fsys::path moved = fallbackDir / file.filename();
         if (auto second = write_private_file(fs::path_to_utf8(moved), text); !second) {
@@ -1027,6 +1047,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                                   "; the fallback " + fs::path_to_utf8(moved) + " failed too: " + second.error().message,
                               "Check that the project folder and the temporary folder are writable by your account.");
         }
+        // the file in the project was never made: do not try to delete it (and warn) at the end of the run
+        runFiles.erase(std::remove(runFiles.begin(), runFiles.end(), file), runFiles.end());
         return moved;
     };
 

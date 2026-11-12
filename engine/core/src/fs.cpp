@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -21,6 +23,7 @@
 #ifdef _WIN32
 #include <process.h>
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 #ifdef __APPLE__
@@ -341,12 +344,31 @@ stdfs::path make_temp_dir(std::string_view prefix) {
 #else
     const long long pid = static_cast<long long>(::getpid());
 #endif
-    stdfs::path dir = stdfs::temp_directory_path() /
-                      (std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++));
     std::error_code ec;
-    remove_tree(dir, ec);  // a leftover of an earlier process that had the same id
-    stdfs::create_directories(dir, ec);
-    return dir;
+    const stdfs::path base = stdfs::temp_directory_path(ec);
+    if (ec) return {};
+    const std::string stem = std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++);
+    // The folder is created by the call that tests for it (never reused): in a temp folder shared with other users
+    // (/tmp), a predictable name could be pre-created by someone else, who would then own what is written inside.
+    // A name that exists gets a random suffix.
+    std::random_device rd;
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        stdfs::path dir = base / (attempt == 0 ? stem : stem + "_" + std::to_string(rd()));
+#ifdef _WIN32
+        ec.clear();
+        if (stdfs::create_directory(dir, ec) && !ec) return dir;  // false: it already existed
+#else
+        if (::mkdir(dir.c_str(), 0700) == 0) {
+            struct stat st {};
+            if (::lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == ::geteuid() &&
+                (st.st_mode & 0777) == 0700)
+                return dir;
+            return {};  // created, but not what was asked for: do not use it
+        }
+        if (errno != EEXIST) return {};
+#endif
+    }
+    return {};
 }
 
 const stdfs::path& user_dir() {

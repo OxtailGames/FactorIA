@@ -7,6 +7,7 @@
 #include <aclapi.h>
 #else
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 #include <atomic>
@@ -181,4 +182,41 @@ TEST_CASE("make_private: restricts a file a tool created with the default permis
     auto missing = fs::make_private((t.path / "nothing").generic_string());
     REQUIRE_FALSE(missing.ok());
     CHECK_FALSE(missing.error().hint.empty());
+}
+
+TEST_CASE("make_temp_dir: a folder that already has the next name is never reused, and on POSIX the folder is owner-only") {
+    const stdfs::path first = fs::make_temp_dir("fa_test_tmpdir");
+    REQUIRE_FALSE(first.empty());
+    REQUIRE(stdfs::is_directory(first));
+    // Someone else prepared the name the next call would take (a shared /tmp), with a file inside.
+    const std::string name = first.filename().string();
+    const std::size_t us = name.rfind('_');
+    REQUIRE(us != std::string::npos);
+    const stdfs::path planted =
+        first.parent_path() / (name.substr(0, us + 1) + std::to_string(std::stoul(name.substr(us + 1)) + 1));
+    std::error_code ec;
+    REQUIRE(stdfs::create_directory(planted, ec));
+    {
+        std::ofstream(planted / "planted.txt") << "x";
+    }
+    const stdfs::path second = fs::make_temp_dir("fa_test_tmpdir");
+    REQUIRE_FALSE(second.empty());
+    CHECK(second != planted);
+    CHECK(second != first);
+    CHECK(stdfs::is_directory(second));
+    CHECK_FALSE(stdfs::exists(second / "planted.txt"));
+    CHECK(stdfs::exists(planted / "planted.txt"));  // the planted folder is left alone
+    CHECK(second.filename().string().rfind("fa_test_tmpdir_", 0) == 0);
+#ifndef _WIN32
+    for (const stdfs::path& dir : {first, second}) {
+        struct stat st {};
+        REQUIRE(::lstat(dir.c_str(), &st) == 0);
+        CHECK(S_ISDIR(st.st_mode));
+        CHECK((st.st_mode & 0777) == 0700);
+        CHECK(st.st_uid == ::geteuid());
+    }
+#endif
+    stdfs::remove_all(first, ec);
+    stdfs::remove_all(second, ec);
+    stdfs::remove_all(planted, ec);
 }

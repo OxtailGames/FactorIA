@@ -2,10 +2,12 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <optional>
 #include <thread>
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
+#include "fa/ai/extensions.h"
 #include "fa/core/fs.h"
 #include "fa/tooling/feedback_share.h"
 #include "test_common.h"
@@ -246,29 +248,47 @@ TEST_CASE("saving ai.json waits for the lock of its folder and, when another pro
     TempDir dir;
     const std::string path = (dir.path / "ai.json").string();
     REQUIRE(fs::write_text(path, R"({"defaultProvider": "claude-code"})").ok());
-    ShareEnv env = share_env();
-    env.lockWaitSec = 0.05;  // a busy lock is reported after this long
-    ScopedShareEnv scoped(env);
-    std::atomic<bool> held{false}, release{false};
-    // The lock belongs to the thread that took it: this one stands for another program.
-    std::thread other([&] {
-        ShareLock lock(share_env(), dir.path);
-        held = lock.held();
-        while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    });
-    while (!held) std::this_thread::sleep_for(std::chrono::milliseconds(2));
     const std::string before = read_file(path);
-    auto busy = save_provider_permission_mode("claude-code", "plan", path);
-    auto busyRoles = save_roles({}, path);
-    release = true;
-    other.join();
-    REQUIRE_FALSE(busy.ok());
-    CHECK(busy.error().message.find("Cannot save") != std::string::npos);
-    CHECK(busy.error().hint.find("try again") != std::string::npos);
-    CHECK_FALSE(busyRoles.ok());
-    CHECK(read_file(path) == before);
-    // the lock is free again: the same save works, and leaves no lock file behind
+    {
+        ShareEnv env = share_env();
+        env.lockWaitSec = 0.05;  // a busy lock is reported after this long
+        ScopedShareEnv scoped(env);
+        // `ready` says the thread went through the lock, `held` that it got it: a thread that did not get it still ends.
+        std::atomic<bool> ready{false}, held{false}, release{false};
+        // The lock belongs to the thread that took it: this one stands for another program.
+        std::thread other([&] {
+            ShareLock lock(share_env(), dir.path, -1, "ai-config.lock");
+            held = lock.held();
+            ready = true;
+            while (held && !release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        });
+        while (!ready) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        const bool otherHolds = held;
+        std::optional<Result<void>> busy, busyRoles, busyTrust;
+        if (otherHolds) {
+            busy = save_provider_permission_mode("claude-code", "plan", path);
+            busyRoles = save_roles({}, path);
+            busyTrust = trust_project_ai_settings(extensions_trust_path(path), dir.str(), "abc");
+        }
+        release = true;
+        other.join();
+        REQUIRE(otherHolds);
+        REQUIRE_FALSE(busy->ok());
+        CHECK(busy->error().message.find("Cannot save") != std::string::npos);
+        CHECK(busy->error().message.find("ai-config.lock") != std::string::npos);
+        CHECK(busy->error().message.find("sharing files") == std::string::npos);
+        CHECK(busy->error().hint.find("Try again") != std::string::npos);
+        CHECK(busy->error().hint.find("10 s") != std::string::npos);
+        CHECK_FALSE(busyRoles->ok());
+        CHECK_FALSE(busyTrust->ok());  // the trust file is saved under the same lock
+        CHECK(read_file(path) == before);
+        CHECK_FALSE(std::filesystem::exists(dir.path / "ai-trust.json"));
+    }
+    // the lock is free again (the test's short wait is gone too): the same save works, and leaves no lock file behind
     REQUIRE(save_provider_permission_mode("claude-code", "plan", path).ok());
     CHECK(Json::parse(read_file(path))["providers"]["claude-code"]["permissionMode"] == "plan");
-    CHECK_FALSE(std::filesystem::exists(dir.path / "feedback-share.lock"));
+    REQUIRE(trust_project_ai_settings(extensions_trust_path(path), dir.str(), "abc").ok());
+    CHECK(std::filesystem::exists(dir.path / "ai-trust.json"));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "ai-config.lock"));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "feedback-share.lock"));  // the feedback sharing's lock is another file
 }

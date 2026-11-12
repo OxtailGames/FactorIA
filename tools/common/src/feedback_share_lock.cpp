@@ -184,8 +184,8 @@ Created create_exclusive(const stdfs::path& file, const std::string& content, st
 }
 
 // Whether files can be made in `dir` at all: told apart from "the lock file is busy" when Windows answers access denied.
-bool folder_is_writable(const stdfs::path& dir, const std::string& token, std::string& why) {
-    const stdfs::path probe = dir / (std::string(kFeedbackShareLockFile) + ".probe." + token);
+bool folder_is_writable(const stdfs::path& dir, const std::string& lockName, const std::string& token, std::string& why) {
+    const stdfs::path probe = dir / (lockName + ".probe." + token);
     int code = 0;
     const Created c = create_exclusive(probe, token, why, code);
     if (c == Created::Yes) {
@@ -222,10 +222,11 @@ void remove_with_retries(const stdfs::path& file) {
     }
 }
 
+std::string text_of(const stdfs::path& p);
+
 // Removes what an earlier takeover or probe left behind (a process died, or Windows could not delete a file at once).
-void remove_leftovers(const stdfs::path& dir, double staleSec) {
+void remove_leftovers(const stdfs::path& dir, const std::string& base, double staleSec) {
     try {
-        const std::string base = kFeedbackShareLockFile;
         const stdfs::path::string_type prefixes[] = {stdfs::path(base + ".stale.").native(), stdfs::path(base + ".probe.").native(),
                                                      stdfs::path(base + ".dead.").native()};
         std::error_code ec;
@@ -283,7 +284,7 @@ bool take_over_stale(const stdfs::path& lockFile, const stdfs::path& takeoverFil
         }
     }
     remove_with_retries(takeoverFile);
-    if (movedAway) remove_leftovers(lockFile.parent_path(), staleSec);
+    if (movedAway) remove_leftovers(lockFile.parent_path(), text_of(lockFile.filename()), staleSec);
     return movedAway;
 }
 
@@ -307,13 +308,16 @@ std::string text_of(const stdfs::path& p) {
 ShareWaitCap::ShareWaitCap(double sec) : previous_(t_waitCap) { t_waitCap = std::min(t_waitCap, sec); }
 ShareWaitCap::~ShareWaitCap() { t_waitCap = previous_; }
 
-ShareLock::ShareLock(const ShareEnv& env) { init(env, stdfs::path(env.config_dir()), -1); }
+ShareLock::ShareLock(const ShareEnv& env) : name_(kFeedbackShareLockFile) { init(env, stdfs::path(env.config_dir()), -1); }
 
-ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec) { init(env, folder, reportedWaitSec); }
+ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec, std::string_view lockFileName)
+    : name_(lockFileName) {
+    init(env, folder, reportedWaitSec);
+}
 
 void ShareLock::init(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec) {
     try {
-        file_ = folder / kFeedbackShareLockFile;
+        file_ = folder / name_;
         for (const ShareLock* owner : t_owners) {
             if (same_lock_file(owner->file_, file_)) {  // this thread holds it already (under whatever spelling of the folder)
                 held_ = true;
@@ -335,11 +339,11 @@ void ShareLock::init(const ShareEnv& env, const stdfs::path& folder, double repo
 void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double reportedWaitSec) {
     std::error_code ec;
     stdfs::create_directories(dir, ec);
-    file_ = dir / kFeedbackShareLockFile;
+    file_ = dir / name_;
     path_ = text_of(file_);
     staleSec_ = env.lockStaleSec;
     token_ = make_token();
-    const stdfs::path takeoverFile = dir / (std::string(kFeedbackShareLockFile) + ".takeover");
+    const stdfs::path takeoverFile = dir / (name_ + ".takeover");
     const double waitSec = std::min(env.lockWaitSec, t_waitCap);
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(waitSec));
@@ -368,7 +372,7 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
             if (!probed) {
                 probed = true;
                 std::string probeWhy;
-                if (!folder_is_writable(dir, token_, probeWhy)) {
+                if (!folder_is_writable(dir, name_, token_, probeWhy)) {
                     unwritable_ = true;
                     error_ = "Cannot create files in " + text_of(dir) + " (" + probeWhy + "), so the sharing files were not changed. "
                              "Check the permissions of that folder.";
