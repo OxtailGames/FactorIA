@@ -1,0 +1,9 @@
+{"_note":"Written from the Codex CLI documentation (codex exec --json; codex-rs exec_events.rs) and the format cli_agent.cpp expects, not a recording. See ../README.md."}
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a93"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"bash -lc rm -rf build","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"bash -lc rm -rf build","aggregated_output":"","exit_code":null,"status":"declined"}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"factoria","tool":"project_validate","arguments":{},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"factoria","tool":"project_validate","arguments":{},"result":null,"error":{"message":"tool call refused"},"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"The sandbox refused the command."}}
+{"type":"turn.completed","usage":{"input_tokens":900,"cached_input_tokens":0,"output_tokens":30}}

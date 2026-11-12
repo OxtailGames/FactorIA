@@ -914,8 +914,16 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = str(*item, "tool");
             if (const Json* a = child(*item, "arguments")) e.toolInput = *a;
             if (completed) {
-                e.isError = str(*item, "status") == "failed";
-                if (const Json* r = child(*item, "result")) e.toolResult = clip(dump(*r));
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined";
+                const Json* err = child(*item, "error");
+                const std::string errMsg = err ? str(*err, "message") : std::string();
+                if (!errMsg.empty()) {  // a failed call: `error.message`, `result` is null
+                    e.isError = true;
+                    e.toolResult = clip(errMsg);
+                } else if (const Json* r = child(*item, "result"); r && !r->is_null()) {
+                    e.toolResult = clip(dump(*r));
+                }
             }
             out.push_back(e);
         } else if (it == "command_execution") {
@@ -924,7 +932,9 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             e.toolName = "shell";
             e.toolInput = Json::object({{"command", str(*item, "command")}});
             if (completed) {
-                e.isError = num(*item, "exit_code") != 0;
+                // A declined command has status "declined" and exit_code null.
+                const std::string status = str(*item, "status");
+                e.isError = status == "failed" || status == "declined" || num(*item, "exit_code") != 0;
                 e.toolResult = clip(str(*item, "aggregated_output"));
             }
             out.push_back(e);

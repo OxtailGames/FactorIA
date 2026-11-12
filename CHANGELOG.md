@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
+  refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
+  generic CLI, in `tools/ai/tests/fixtures/cli/`, are replayed through `CliStreamParser`, `list_models` and `detect_providers`;
+  a CLI update that changes its format fails the test naming the fixture and the field (docs/AI_PROVIDERS.md, fixtures README).
 - Every `ai.*`, `assets.*`, `image.*`, `skills.*` and review command of `tools/ai` declares its capabilities (M92.1b3):
   `ai.run` and `ai.review` need `process`, `network` and `spend`, the generators, image providers, reviews, `ai.review_feedback` and `ai.retrospective` `process` (a CLI agent or local-program provider), `network` and `spend`, `ai.plugin_install`
   `writeAnywhere`, and the `user` scope of `ai.settings.set` and `skills.new` also asks for `writeAnywhere`. `ai.models`,

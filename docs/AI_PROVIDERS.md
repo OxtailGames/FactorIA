@@ -105,6 +105,17 @@ A template with `--input-format stream-json` gets standard input as one JSON lin
 `{"type":"user","message":{"role":"user","content":[{"type":"text",...},{"type":"image",...}]}}` (what Claude Code expects).
 Every other CLI gets the pictures as files: the prompt ends with `Attached images (read them): <absolute paths>`.
 
+#### Contract tests for the CLIs (engine developers)
+
+The output formats of the CLIs are not ours and change between their versions. `tools/ai/tests/fixtures/cli/` keeps recorded
+outputs: Claude Code 2.1.318 (`stream-json` runs: a plain answer, a tool use, a tool refused by the permission mode, the turn limit as
+an error result; the model list; `--version`), and, written from the documentation because no Codex is installed on the development
+machines, Codex `exec --json` events and a generic CLI's lines. `test_cli_contract.cpp` replays each file through the code that parses a live
+run (`CliStreamParser`, `list_models`, `detect_providers`) and checks what the engine reads: final text, error or success, session id, tokens and
+cost, tool calls, the refusal. A CLI update that changes its format fails there and names the fixture and the field.
+`tools/ai/tests/fixtures/cli/README.md` has the exact command line of every recording, what was scrubbed from it and how to re-record
+after a CLI update.
+
 ### D) Anthropic API key
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
