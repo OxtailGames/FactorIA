@@ -506,7 +506,11 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
   `{read, state}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and `play.auto`.
   Those pictures are returned to the model; a `path` argument (a copy written to the project) needs `writeProject` and is refused
-  to them. A tool call that falls outside the set fails with `capability_denied` whose hint names the role, what it has and
+  to them. The same holds for the other commands that look at an asset or a sound (`model.preview`, `anim3d.preview`,
+  `skin3d.preview`, `assets.contact_sheet`, `assets.preview_sheet`, `assets.preview_in_scene`, `assets.check_art`,
+  `assets.spectrogram`, `assets.check_mix`, `audio.render`, `music.info`, `music.check`, `music.mix`): they are on the roles' tool
+  list by name, they write only an engine-chosen temporary picture, and an output path of their own (`out`, `path`, `pictureOut`)
+  is refused with `capability_denied`. A tool call that falls outside the set fails with `capability_denied` whose hint names the role, what it has and
   that the user or a builder role must do it. The set also reaches the `factoria mcp` a CLI agent starts
   (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`), so a CLI builder over MCP cannot publish either: run that command yourself in a
   terminal (`factoria call <command>`) or in the editor.
