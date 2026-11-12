@@ -439,6 +439,8 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return *r;
     });
+    declare_command_capabilities(registry, {
+        {"project.add_menu_kit", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

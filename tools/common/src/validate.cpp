@@ -1453,6 +1453,8 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
                        "(children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the rest "
                        "in one more warning.";
     registry.add(info, [projectDir](const Json&) { return validate_project(projectDir).to_json(); });
+    declare_command_capabilities(registry, {
+        {"project.validate", capability_sets::reads()}});
 }
 
 }  // namespace fa

@@ -2004,6 +2004,12 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
             return out;
         });
     }
+    // feedback.share sends the sanitized reports to the engine developer (publish: data leaves the machine); feedback.verdicts asks the server and updates the feedback file.
+    declare_command_capabilities(registry, {
+        {"feedback.share_preview", capability_sets::reads()},
+        {"feedback.share_status", capability_sets::reads()},
+        {"feedback.verdicts", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}},
+        {"feedback.share", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Publish}}});
 }
 
 }  // namespace fa

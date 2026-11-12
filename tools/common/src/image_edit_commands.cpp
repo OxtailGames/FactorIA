@@ -72,10 +72,10 @@ Json image_create(const std::string& projectDir, const Json& a) {
         if (!norm.ok()) arg_error(cmd, "/output", norm.error().message, norm.error().hint);
         if (norm->empty() || fs::is_absolute(raw) || to_lower(fs::extension(*norm)) != ".png")
             arg_error(cmd, "/output", "`output` must be a project-relative path ending in .png, got '" + raw + "'.", "Example: \"assets/art/hero.png\". Leave it out to bake next to the document.");
-        if (!resolve_project_path(projectDir, *norm).ok())
-            arg_error(cmd, "/output", "`output` '" + raw + "' is outside the project.", "Use a path inside the project, such as \"assets/art/hero.png\".");
+        check_write_target(projectDir, *norm, cmd, "output");
         output = *norm;
     }
+    check_write_target(projectDir, rel, cmd, "path");
     const int w = int_arg(a, cmd, "width", 1, kImageDocMaxSide, 0, true), h = int_arg(a, cmd, "height", 1, kImageDocMaxSide, 0, true);
     auto path = resolve_project_path(projectDir, rel);
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
@@ -171,7 +171,7 @@ Json info_tree(const std::string& projectDir, const Json& list, std::vector<int>
 Json image_info(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.info";
     check_arg_keys(cmd, a, "", {"path"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     Json out = Json::object({{"document", d.rel}, {"width", d.json.value("width", 0)}, {"height", d.json.value("height", 0)}});
     if (d.json.contains("background")) out["background"] = d.json["background"];
     if (d.json.contains("description")) out["description"] = d.json["description"];
@@ -257,12 +257,13 @@ Image scale_nearest(const Image& src, int w, int h) {
 Json image_export(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.export";
     check_arg_keys(cmd, a, "", {"path", "out", "scale", "layer", "trim", "filter", "overwrite", "frame"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const std::string outArg = arg_string(a, "out", true);
     auto outNorm = fs::normalize_checked(outArg);
     if (!outNorm.ok() || outNorm->empty() || !ends_with(to_lower(*outNorm), ".png"))
         arg_error(cmd, "/out", "'" + outArg + "' is not a project-relative .png path.", "Example: \"assets/art/hero-export.png\".");
+    check_write_target(projectDir, *outNorm, cmd, "out");
     auto outPath = resolve_project_path(projectDir, *outNorm);
     if (!outPath.ok()) fail("invalid_argument", outPath.error().message, outPath.error().hint);
     std::error_code ec;
@@ -501,7 +502,7 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
         info.description = description;
         info.inputSchema = Json::parse(schema);
         if (std::string(name) == "image.export") add_frame_support(info, "to export", false);
-        registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
+        add_image_command(registry, info, [projectDir, fn](const Json& args) { return fn(projectDir, args); }, std::string(name) != "image.export");
     };
 
     add("image.create", "Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG.",

@@ -45,7 +45,7 @@ constexpr CategoryPurpose kPurposes[] = {
     {"scene", "Edit the running world: entities, components, parents, prefabs, tilemaps, skins, scene load and background loads."},
     {"screen", "Pretend device screen features (safe area, notch)."},
     {"script", "Scripts: evaluate JavaScript, reload modules, list errors, trace."},
-    {"setup", "Check and install what an export needs on this computer."},
+    {"setup", "Check what an export needs on this computer (`setup_install` is the user's call: an AI is refused, tell the user to press the editor's setup button or run `factoria setup`)."},
     {"shader", "Compile custom material shaders for several platforms."},
     {"sign", "Sign the exported macOS app and Windows package."},
     {"skills", "List, read and create skills (topic guides)."},

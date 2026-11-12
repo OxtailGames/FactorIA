@@ -1228,6 +1228,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
+    // project.export writes the export folder (inside the project for an agent), builds an Android/iOS project with Gradle/CMake (process) and the first Android build downloads Gradle (network).
+    declare_command_capabilities(registry, {
+        {"project.export", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

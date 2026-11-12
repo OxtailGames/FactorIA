@@ -188,6 +188,9 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         if (ctx.dryRun) out["dryRun"] = true;
         return out;
     });
+    // writes the plugin and patches factoria.json; builds it with CMake.
+    declare_command_capabilities(registry, {
+        {"platform.add_backend", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process}}});
 }
 
 }  // namespace fa

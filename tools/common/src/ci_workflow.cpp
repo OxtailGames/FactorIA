@@ -384,6 +384,8 @@ void register_ci_workflow_commands(CommandRegistry& registry, const std::string&
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
+    declare_command_capabilities(registry, {
+        {"project.new_ci_workflow", capability_sets::writes_project()}});
 }
 
 }  // namespace fa
