@@ -42,6 +42,14 @@ struct ApiReferencePage {
 std::string export_api_markdown(const CommandRegistry& registry, const ScriptSystem& scripts);
 std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& registry, const ScriptSystem& scripts);
 
+// The tools table of docs/AI_GUIDE.md section 4: one row per command category (tool names, one-line purpose), between
+// `<!-- generated: tools table ... -->` and `<!-- end generated -->`. splice_ai_guide_tools_table replaces that block of
+// `guide` (false, with *error, when the markers are missing); docs.write_reference does it for <out>/AI_GUIDE.md.
+// ai_guide_categories_without_purpose lists the categories the generator has no one-line purpose for (a test fails on any).
+std::string export_ai_guide_tools_table(const CommandRegistry& registry);
+bool splice_ai_guide_tools_table(std::string& guide, const CommandRegistry& registry, std::string* error);
+std::vector<std::string> ai_guide_categories_without_purpose(const CommandRegistry& registry);
+
 // Registers "docs.components" and "docs.commands" (format: markdown | json). They live in the docs
 // area so they never collide with the runtime's own api.* commands.
 void register_api_export_commands(CommandRegistry& registry);
