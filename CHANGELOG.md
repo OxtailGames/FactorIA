@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- Every `ai.*`, `assets.*`, `image.*`, `skills.*` and review command of `tools/ai` declares its capabilities (M92.1b3):
+  `ai.run` and `ai.review` need `process`, `network` and `spend`, the generators `network` and `spend`, `ai.plugin_install`
+  `writeAnywhere`, and the `user` scope of `ai.settings.set` and `skills.new` also asks for `writeAnywhere`. `ai.models`,
+  `ai.providers`, `ai.tool_servers` and `assets.review` are no longer read-only tools (they start a program or call a paid service).
 - The MCP server enforces a capability set on every tool call: `factoria mcp` grants all but `writeAnywhere`, and
   `--read-only` grants `{read, state, writeProject}` and refuses the tools it does not serve (`tool_not_available`). Tool
   hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`

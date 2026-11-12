@@ -1238,6 +1238,10 @@ void add_read_only_asset_commands(CommandRegistry& registry, const std::shared_p
         "still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as "
         "AI_CONTENT_DISCLOSURE.md. Example: {}",
         Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
+    declare_command_capabilities(registry, {
+        {"assets.provenance", capability_sets::reads()},
+        {"assets.disclosure", capability_sets::reads()},
+    });
 }
 
 }  // namespace
@@ -1397,6 +1401,20 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
     add_read_only_asset_commands(registry, ctx);
+    // The generators call a paid provider (network, spend; the offline "fake" provider is the exception, not the rule) and write
+    // the file at `path`, which asset_path() confines to assets/ of the project: no free output path here. The rest write assets.json
+    // or move files inside the project.
+    const CapabilitySet generate{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Spend};
+    declare_command_capabilities(registry, {
+        {"assets.generate_image", generate},
+        {"assets.generate_sprite_sheet", generate},
+        {"assets.generate_sound", generate},
+        {"assets.generate_music", generate},
+        {"assets.generate_voice", generate},
+        {"assets.generate_model", generate},
+        {"assets.pick", capability_sets::writes_project()},
+        {"assets.set_provenance", capability_sets::writes_project()},
+    });
 }
 
 namespace asset_support {

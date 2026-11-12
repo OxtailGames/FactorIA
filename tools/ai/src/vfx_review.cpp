@@ -235,6 +235,9 @@ void register_vfx_review(CommandRegistry& registry, std::function<Result<AiConfi
         out["filmstrip"] = filmOut;
         return out;
     });
+    // The game advances while the effect is filmed (state); one vision-model call (network, spend). `picturePath` is written by
+    // vfx.filmstrip, which asks for writeProject itself (and writeAnywhere outside the project) when the path is given.
+    declare_command_capabilities(registry, {{"vfx.review", CapabilitySet{Capability::Read, Capability::State, Capability::Network, Capability::Spend}}});
 }
 
 }  // namespace fa::ai
