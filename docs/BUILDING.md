@@ -605,6 +605,40 @@ Pull requests from forks never receive the secrets. A pull request from a branch
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
 Environment with required reviewers is the stricter option).
 
+## Formatting and lint
+
+First-party C and C++ (`.c .cc .cpp .h .hpp` under `engine/`, `tools/`, `player/`, `platforms/`, `examples/`,
+`templates/`) follows `.clang-format` (the CLAUDE.md style: 4 spaces, 120 columns, attached braces, no indent inside
+namespaces, indented `case`, `T* p`, two spaces before a trailing comment; includes keep the order the author wrote).
+`.clang-format-ignore` lists what is never formatted: `external/`, the shader headers `tools/shaders` generates and the
+byte-exact test data. Objective-C (`.m`, `.mm`) is not formatted. `.editorconfig` has the whitespace rules for every other
+file type (LF, UTF-8, final newline; CRLF only for `.bat` and `.cmd`, as `.gitattributes` says).
+
+```bash
+scripts/format.sh                      # format every file in place
+scripts/format.sh --check              # change nothing; list the files that need it, exit 1 if any
+scripts/format.sh --changed origin/main        # only the files changed against a base (and uncommitted ones)
+scripts/format.sh --check --changed origin/main
+scripts/tidy-changed.sh origin/main    # clang-tidy over the changed .cpp files
+```
+
+The scripts use one pinned `clang-format` and `clang-tidy` (the versions are at the top of `scripts/lint-tools.sh`;
+formatting differs between versions, so a different one gives different results). The first run installs them as pip
+wheels into a venv in `build/lint-venv`: nothing is installed system wide, and it is the same on macOS, Linux and
+Windows (Git Bash). To change a version, edit that file.
+
+`.clang-tidy` enables bug finders only (use after move, dangling views, `sizeof` mistakes, `memset` and string
+constructor mistakes, redundant expressions, `std::move` of a const...), no style or modernizing checks, and every hit is
+an error. `scripts/tidy-changed.sh <base> [build-dir]` runs them over the first-party `.cpp` files changed against the
+base, with the `compile_commands.json` of a CMake configure (`build/tidy`, configured on first use: configure only,
+nothing is compiled). A false positive: rewrite the line or end it with `// NOLINT(<check>)` and a reason.
+
+CI has a `lint` job (Ubuntu, cheap, part of `CI result`): `scripts/format.sh --check --changed <base>` and
+`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push). When
+every file is formatted, set `FORMAT_SCOPE: all` in that job's `env` in `.github/workflows/ci.yml` and the check covers
+the whole repository. A repository-wide reformat is one commit with no other change; add its hash to a `.git-blame-ignore-revs` file
+(`git config blame.ignoreRevsFile .git-blame-ignore-revs`) so `git blame` skips it.
+
 ## Before a push
 
 `scripts/ci-preflight.sh` is the one command to run before every push, so the PR passes GitHub CI the first time. It
