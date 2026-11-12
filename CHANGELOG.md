@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- `fa::fs::resolve_for_write(path, root, allowAnywhere)` (M92.2a): the one function that confines a path a caller gives to a command that writes to the project, the save folder or the export folder (`fs::export_dir()`, default `build/exports`); `resolve_project_path` is now a wrapper over it, and `a/../b` inside the project is accepted.
+
 ## 0.24.0
 
 FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB

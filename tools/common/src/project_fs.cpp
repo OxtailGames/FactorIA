@@ -22,14 +22,6 @@ constexpr std::uintmax_t kMaxReadBytes = 1 << 20;     // 1 MiB per fs.read
 constexpr std::uintmax_t kMaxWriteBytes = 8u << 20;   // 8 MiB per fs.write
 constexpr std::uintmax_t kMaxSearchFileBytes = 2u << 20;
 
-bool is_under(const stdfs::path& root, const stdfs::path& p) {
-    auto r = root.begin(), rend = root.end();
-    auto q = p.begin(), qend = p.end();
-    for (; r != rend; ++r, ++q)
-        if (q == qend || *q != *r) return false;
-    return true;
-}
-
 bool is_binary(const std::string& s) {
     return s.find('\0') != std::string::npos;
 }
@@ -52,10 +44,6 @@ void require_writable(const std::string& rel) {
     auto ok = fs::check_writable(rel);
     if (!ok.ok()) fail("invalid_argument", ok.error().message, ok.error().hint);
 }
-
-// A relative path from JSON (command arguments are UTF-8): a std::string handed to std::filesystem::path goes through the ANSI code
-// page on Windows and mangles accents. The project folder itself (projectDir) is a NATIVE string, like every path the engine passes around.
-stdfs::path path_from_utf8(std::string_view s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
 
 // The path as a person writes it: without the \\?\ (or \\?\UNC\) prefix that fs::os_path gives a long Windows path and that
 // weakly_canonical and directory iterators may hand back. Paths this file returns and compares are always in this form; every
@@ -110,25 +98,9 @@ Json int_prop(const char* desc, long def) { return Json::object({{"type", "integ
 }  // namespace
 
 Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::string_view relPath) {
-    std::string rel(relPath);
-    std::replace(rel.begin(), rel.end(), '\\', '/');
-    if (rel.empty()) rel = ".";
-    if (rel[0] == '/' || (rel.size() > 1 && rel[1] == ':') || rel[0] == '~')
-        return make_error("Absolute path '" + std::string(relPath) + "' is not allowed.",
-                          "Use a project-relative path such as \"scenes/main.scene.json\".");
-    for (const auto& part : split(rel, '/'))
-        if (part == "..")
-            return make_error("Path '" + std::string(relPath) + "' escapes the project directory.",
-                              "Paths must stay inside the project; remove the \"..\" segments.");
-    stdfs::path root = root_of(projectDir);
-    std::error_code ec;
-    // weakly_canonical resolves symlinks of the existing prefix, so links pointing out are caught.
-    stdfs::path full = plain(stdfs::weakly_canonical(os(root / path_from_utf8(rel)), ec));
-    if (ec) return make_error("Cannot resolve path '" + std::string(relPath) + "': " + ec.message());
-    if (!is_under(root, full))
-        return make_error("Path '" + std::string(relPath) + "' resolves outside the project (symlink?).",
-                          "Only files physically inside the project directory are accessible.");
-    return full;
+    // The confinement rules live in fa::fs (core/fs.h, resolve_for_write): a project-relative path, no absolute form, no ".."
+    // above the project, no symlink out. `projectDir` is this registration's folder, which need not be fs::project_root().
+    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, relPath, /*allowAnywhere=*/false);
 }
 
 void register_fs_commands(CommandRegistry& registry, const std::string& projectDir) {
