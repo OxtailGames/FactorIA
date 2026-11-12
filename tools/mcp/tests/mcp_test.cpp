@@ -149,6 +149,7 @@ TEST_CASE("mcp: initialize negotiates protocol versions") {
     CHECK(instr.find("feedback_report") != std::string::npos);
     CHECK(instr.find("+Y is up") != std::string::npos);
     CHECK(instr.find("BY SECTION, never whole") != std::string::npos);  // the guide is read by heading
+    CHECK(instr.find("\"heading\":\"Index\"") != std::string::npos);  // ... starting with its index
     CHECK(f.server.initialized());
     CHECK(f.server.client_name() == "test");
 }
@@ -626,6 +627,11 @@ TEST_CASE("mcp: prompts list and get") {
     CHECK(text.find("a space shooter") != std::string::npos);
     for (const char* tool : {"project_validate", "game_screenshot", "feedback_report", "game_step"})
         CHECK_MESSAGE(text.find(tool) != std::string::npos, tool);
+    // Reading is by section: the guide's index first, components one at a time, never the whole guide or `full`.
+    CHECK(text.find("\"heading\":\"Index\"") != std::string::npos);
+    CHECK(text.find("docs_list") != std::string::npos);
+    CHECK(text.find("never with \"full\"") != std::string::npos);
+    CHECK(text.find("docs_read {\"name\":\"ai-guide\"}") == std::string::npos);
 
     for (auto [name, key] : {std::pair{"add-feature", "feature"}, {"fix-bug", "description"}}) {
         Json r = f.rpc("prompts/get", {{"name", name}, {"arguments", {{key, "XYZZY"}}}})["result"];

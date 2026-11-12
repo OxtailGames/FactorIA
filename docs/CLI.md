@@ -406,6 +406,10 @@ the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
 Docs are embedded with LF line endings whatever the checkout uses, and stdout is LF on Windows too, so
 `factoria docs read x > f` and `docs.read` never carry `\r`.
 
+`factoria docs list` prints each doc with a one-sentence summary (`--json`: name, title, summary, `audience`, path, bytes;
+`audience` is a list of `gameAi`, `user` and `engineDev`). The `docs.list` command (`factoria call docs.list
+'{"audience":"gameAi"}'`) filters by audience. Pick a doc by its summary and read only the section the task needs.
+
 `factoria docs read <name>` prints the whole page (for `> file`); do not use it on a long guide. `--contents` prints only the
 page's headings with their line numbers (the `contents` of `docs.read`) and the command that reads one section. With `--heading TITLE` (a section and its subsections;
 case-insensitive, an exact title wins, else part of a title), `--start-line N`, `--max-lines N` or `--max-bytes N`

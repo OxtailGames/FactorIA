@@ -11,6 +11,10 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
   chosen groups, plus `tool_load`, `tool_describe` and `tool_call` to reach the rest, for MCP clients without tool
   search that would load ~400 definitions. The default `all` changes nothing. The core list and the group rules moved
   to `fa/tooling/tool_groups.h`, shared with the built-in agent's catalog.
+- `docs.list` (and `factoria docs list`) gives every doc a one-sentence `summary` and an `audience` (`gameAi`, `user`,
+  `engineDev`), with an `audience` filter, so an AI reads only the docs its task needs. The generated AGENTS.md, the
+  MCP server instructions and the `make-game` / `add-feature` prompts now say: the AI guide's `Index` first, then
+  sections by heading, components one at a time, never the whole `components` page.
 
 ## 0.23.0
 
