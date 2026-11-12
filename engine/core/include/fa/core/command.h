@@ -185,6 +185,9 @@ void require_capability(Capability needed, std::string_view command, std::string
 // returns the absolute UTF-8 path to write, or throws CommandError with the path error's code (path_outside_root,
 // absolute_path_denied, managed_path_denied...), message and hint.
 std::string resolve_caller_write_path(std::string_view path, std::string_view command);
+// The same, returned in the form the project's file API takes (fs::project_spelling): relative to the project when the
+// file lies inside it, else absolute. For a command that reads the file back, names it in its result or keeps it in a map.
+std::string resolve_caller_project_path(std::string_view path, std::string_view command);
 
 // Narrows what the calls made on this thread inside the scope may do. Like CommandCallerScope it only ever narrows: the
 // granted set becomes the intersection of the current one and `granted`, so a nested scope cannot widen what an outer

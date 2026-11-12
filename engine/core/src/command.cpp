@@ -317,10 +317,6 @@ Json CommandRegistry::describe() const {
     return arr;
 }
 
-}  // namespace fa
-
-namespace fa {
-
 void require_capability(Capability needed, std::string_view command, std::string_view reason) {
     const CapabilitySet granted = caller_capabilities();
     if (granted.has(needed)) return;
@@ -343,14 +339,12 @@ std::string resolve_caller_write_path(std::string_view path, std::string_view co
         const std::string code(fs::path_error_code(resolved.error()));
         throw CommandError(code.empty() ? "invalid_argument" : code, resolved.error().message, resolved.error().hint);
     }
-    const std::string abs = fs::path_to_utf8(resolved.value());
-    // A relative path is not judged for the managed folders (.git, .factoria) by resolve_for_write: the second step is ours.
-    // Judged on the spelling given (project-relative) and on the resolved one (an absolute path inside the project).
-    auto writable = fs::check_writable(path);
-    if (writable.ok()) writable = fs::check_writable(abs);
-    if (!writable.ok())
-        throw CommandError("managed_path_denied", writable.error().message, writable.error().hint);
-    return abs;
+    return fs::path_to_utf8(resolved.value());
+}
+
+std::string resolve_caller_project_path(std::string_view path, std::string_view command) {
+    const std::string abs = resolve_caller_write_path(path, command);
+    return fs::project_spelling(fs::path_from_utf8(abs));
 }
 
 }  // namespace fa
