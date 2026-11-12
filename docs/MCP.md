@@ -58,7 +58,10 @@ that.)
   refused (the server drops it before checking).
 - **Resources**: `factoria://docs/<file>` (embedded docs, `factoria://docs/components` generated),
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
-- **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`.
+- **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`. They tell the AI to read by section, not whole: the guide's index first
+  (`docs_read {"name":"ai-guide","heading":"Index"}`), then only the sections the task needs, `docs_list` (a summary and
+  an `audience` per doc, filter `{"audience":"gameAi"}`) to find other docs, and components or commands one at a time
+  (`docs_components {"name":"Sprite"}`), never with `full`.
 - **Notifications**: `notifications/tools/list_changed` when project tools (`tools/*.js`) change;
   `notifications/message` for logs (`logging/setLevel`); `notifications/resources/list_changed` and a log message after the
   server restarted itself because FactorIA was updated (see [After an update](#after-an-update)). Project tools are also

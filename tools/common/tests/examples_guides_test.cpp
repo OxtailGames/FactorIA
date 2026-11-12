@@ -46,7 +46,7 @@ TEST_CASE("examples: CLAUDE.md is the one line @AGENTS.md and AGENTS.md is the t
                       "examples/" << name << "/CLAUDE.md is not the one line `@AGENTS.md` that `factoria new` writes. Replace "
                                   << "it with that line: the guide lives in AGENTS.md only, a second copy drifts.");
         // The old copies said "created ... engine 0.14.1" and lacked the sentence on reading the guide by sections.
-        CHECK_MESSAGE(read_all(agents).find("factoria docs read ai-guide --contents") != std::string::npos,
+        CHECK_MESSAGE(read_all(agents).find("factoria docs read ai-guide --heading Index") != std::string::npos,
                       "examples/" << name << "/AGENTS.md is an old copy of the template (it does not tell to read ai-guide by "
                                   << "sections). Regenerate it: `factoria new <tmp> --name \"" << name
                                   << "\"` and copy the AGENTS.md it makes.");
