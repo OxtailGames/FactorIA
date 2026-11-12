@@ -9,6 +9,8 @@
 #include <set>
 
 #include "fa/ai/commands.h"
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/runtime/engine.h"
@@ -247,5 +249,22 @@ TEST_CASE("docs.write_reference: an AI_GUIDE.md without markers or without a fil
             CHECK(guide.find("old\n") == std::string::npos);
             CHECK(guide.find("tail\n") != std::string::npos);
         }
+    });
+}
+
+// A caller without WriteAnywhere (MCP, an agent) writes the reference only below the working directory, never to an absolute
+// folder: the folder is refused before any page is written.
+TEST_CASE("docs.write_reference: out stays inside the working directory for MCP and agents") {
+    with_command_registry([&](Engine& e) {
+        testing::TempDir out;
+        CommandCapabilityScope mcp(capability_sets::mcp());
+        for (const std::string& bad : {out.path.generic_string(), std::string("../docs-out")}) {
+            CAPTURE(bad);
+            auto r = e.commands().call("docs.write_reference", {{"out", bad}});
+            REQUIRE_FALSE(r.ok);
+            CHECK(r.error["code"] == "invalid_argument");
+            CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+        }
+        CHECK_FALSE(stdfs::exists(out.path / "COMPONENTS.md"));
     });
 }

@@ -9,6 +9,9 @@
 #include <optional>
 #include <sstream>
 
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
 #include "fa/scene/components.h"
@@ -550,9 +553,14 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
             {"properties", Json::object({{"out", Json::object({{"type", "string"},
-                {"description", "Docs folder to write into (relative to the working directory), usually \"docs\"."}})}})}});
+                {"description", "Docs folder to write into (relative to the working directory, and inside it; an absolute path only from the command line), usually \"docs\"."},
+                {"x-fa-path", "write"}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
-            const std::filesystem::path out = std::filesystem::absolute(tooling_detail::arg_string(args, "out", true));
+            // Relative to the working directory and confined to it; the command-line user may name any folder.
+            auto resolvedOut = fs::resolve_for_write_in(std::filesystem::current_path(), fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true),
+                                                        caller_capabilities().has(Capability::WriteAnywhere));
+            if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+            const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
             // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any

@@ -3152,7 +3152,7 @@ Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the sc
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `out` | string | yes | Docs folder to write into (relative to the working directory), usually "docs". |
+| `out` | string | yes | Docs folder to write into (relative to the working directory, and inside it; an absolute path only from the command line), usually "docs". |
 
 ## engine
 
@@ -3702,7 +3702,7 @@ Reads locales/<language>.json of every language and writes what a translator nee
 |---|---|---|---|
 | `format` | string ["csv","xliff"] | no | csv = one spreadsheet file; xliff = one XLIFF 1.2 file per language (Poedit, OmegaT, memoQ...). Default "csv". |
 | `languages` | array | no | Languages to translate into, as in localization.languages (e.g. ["es", "pt-BR"]). Default: all but the default language. |
-| `out` | string | no | Folder to write into, project-relative or absolute (default build/translations). Not inside locales/. |
+| `out` | string | no | Folder to write into, project-relative and inside the project (an absolute path only from the command line; default build/translations). Not inside locales/. |
 | `delimiter` | string [",",";","\t"] | no | CSV only. Use ";" for Excel set to Spanish, German, French... (decimal comma). Default ",". |
 
 ### `i18n.import` (modifies state)
@@ -5538,7 +5538,7 @@ File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuMedian:
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
+| `file` | string | no | Budget file, project-relative and inside the project (an absolute path only from the command line). Default "perf.json". |
 | `frames` | integer | no | Frames per run; stored in the file (default: the file's value, else 300). |
 | `scene` | string | no | Start scene; stored in the file. |
 | `input` | string | no | Project-relative input replay; stored in the file. |
@@ -5855,7 +5855,7 @@ The replay is applied by frame number to the window's frames at their real durat
 | `orientation` | string ["portrait","landscape"] | no | Turn the screen to this orientation about a second after the start. |
 | `device` | string | no | The simulator: a UDID or a name or part of one ("iPad Pro 13-inch"). Default: a booted iPhone, else the first iPhone of the newest iOS runtime. |
 | `bundleId` | string | no | The app's bundle id. Default: read from the app's Info.plist. |
-| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative, inside the project, or absolute). |
+| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line). |
 | `seconds` | integer | no | How long to wait for the replay to finish. Default 90. |
 | `settleMilliseconds` | integer | no | Wait this long after the last replay frame before the screenshot. Default 1500. |
 | `dryRun` | boolean | no | Return the simctl commands and run nothing. Default false. |
@@ -5919,7 +5919,7 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platform` | string | no | linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria. |
-| `out` | string | no | Parent folder of the export, relative to the project folder and inside it. Default: build/export. |
+| `out` | string | no | Parent folder of the export, relative to the project folder and inside it (an absolute path only from the command line). Default: build/export. |
 | `format` | string ["apk","aab","gradle","appimage","msix","folder"] | no | Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
@@ -5967,7 +5967,7 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 |---|---|---|---|
 | `name` | string | yes | The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>. |
 | `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
-| `path` | string | no | Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts. |
+| `path` | string | no | Its folder (default plugins/<name>): project-relative and inside the project; from the command line also absolute, or with ${VARIABLE} parts. |
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |

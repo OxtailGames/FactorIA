@@ -218,8 +218,8 @@ void register_subset_font_command(CommandRegistry& registry, const std::string& 
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["source","out"],
       "properties":{
-        "source":{"type":"string","description":"The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable."},
-        "out":{"type":"string","description":"Project-relative .ttf or .otf under assets/ to write, e.g. \"assets/fonts/NotoSansSC-Regular-subset.ttf\". Replaced if it exists."},
+        "source":{"type":"string","x-fa-path":"read","description":"The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable."},
+        "out":{"type":"string","x-fa-path":"write","description":"Project-relative .ttf or .otf under assets/ to write, e.g. \"assets/fonts/NotoSansSC-Regular-subset.ttf\". Replaced if it exists."},
         "locales":{"type":"array","items":{"type":"string"},"description":"Languages whose locales/<language>.json give the characters, e.g. [\"zh-Hans\"]. Default: every language of localization.languages in factoria.json."},
         "keep":{"type":"string","description":"Extra characters to keep, written out: e.g. the characters a script builds names from, or a whole alphabet."},
         "axes":{"type":"object","description":"Where to pin the variable font's axes, tag to value: {\"wght\":400}. Default {\"wght\":400}. An axis not listed goes to its default.","additionalProperties":{"type":"number"}}

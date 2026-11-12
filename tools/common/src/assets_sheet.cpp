@@ -480,7 +480,7 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
         "auto":{"type":"boolean","description":"Find the frames (groups of touching pixels separated by transparent gutters) and repack them into a uniform grid. Default false."},
         "align":{"type":"string","enum":["center","bottom"],"description":"auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground."},
         "background":{"type":"string","enum":["none","auto"],"description":"auto: first make the solid background (the four corners the same opaque colour) transparent. Default none."},
-        "out":{"type":"string","description":"PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place."}
+        "out":{"type":"string","x-fa-path":"write","description":"PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return slice_sheet(projectDir, args); });
 }

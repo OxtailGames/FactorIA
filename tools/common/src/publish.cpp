@@ -553,12 +553,12 @@ CommandInfo store_command(const std::string& store) {
     info.readOnly = false;
     const bool mobile = !find_store(store)->mobile.empty();  // appstore, googleplay: one built file, not export folders
     std::string props = mobile ? R"({
-        "artifact":{"type":"string","description":"@ARTIFACT@"},
+        "artifact":{"type":"string","x-fa-path":"read","description":"@ARTIFACT@"},
         "@PLATFORMS@out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
         "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})" : R"({
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning."},
-        "out":{"type":"string","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
-        "folders":{"type":"object","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
+        "out":{"type":"string","x-fa-path":"write","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
+        "folders":{"type":"object","x-fa-path":"read","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
         "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})";
     if (store == "steam")
         props += R"(,
@@ -717,7 +717,13 @@ void register_publish_commands(CommandRegistry& registry, const std::string& pro
                 if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
                 return dir->string();
             };
-            if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) o.outDir = inside(out, "out");
+            // `out` is where the exports are written when publish builds them: like project.export's, a folder inside the project
+            // unless the caller may write anywhere. `folders` and `artifact` are what is uploaded (read), so they stay inside it.
+            if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) {
+                auto dir = resolve_write_path(projectDir, out);
+                if (!dir) throw CommandError("invalid_argument", "out: " + dir.error().message, dir.error().hint);
+                o.outDir = dir->string();
+            }
             if (auto it = args.find("folders"); it != args.end() && it->is_object())
                 for (auto f = it->begin(); f != it->end(); ++f) {
                     const std::string platform = normalize_export_platform(f.key());

@@ -340,9 +340,9 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["folder","out"],
       "properties":{
-        "folder":{"type":"string","description":"Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots."},
-        "out":{"type":"string","description":"Project-relative .png to write, e.g. \"assets/atlas.png\". Replaced if it exists."},
-        "table":{"type":"string","description":"Project-relative .json for the frame table. Default: out with the .json extension."},
+        "folder":{"type":"string","x-fa-path":"read","description":"Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots."},
+        "out":{"type":"string","x-fa-path":"write","description":"Project-relative .png to write, e.g. \"assets/atlas.png\". Replaced if it exists."},
+        "table":{"type":"string","x-fa-path":"write","description":"Project-relative .json for the frame table. Default: out with the .json extension."},
         "maxSize":{"type":"integer","minimum":64,"maximum":16384,"description":"Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error."},
         "padding":{"type":"integer","minimum":0,"maximum":32,"description":"Pixels of the frame's own edge repeated around each frame. Default 2."}
       }})");
