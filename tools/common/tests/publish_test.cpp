@@ -612,6 +612,8 @@ TEST_CASE("publish.epic dry run: BuildPatchTool UploadBinary per platform, the s
     CHECK(testing::read_all(r.files[0]) == ".factoria-export\nAI_CONTENT_DISCLOSURE.md\n");
     CHECK(stdfs::is_directory(work + "/cloud/windows"));
     CHECK_FALSE(has(r.to_json().dump(), "epic-secret-5678"));
+    CHECK(r.steps[0].env == std::vector<std::string>{"FACTORIA_EPIC_CLIENT_SECRET"});  // the NAME of the variable the tool reads, never its value
+    CHECK(has(r.to_json().dump(), "\"env\":[\"FACTORIA_EPIC_CLIENT_SECRET\"]"));
     CHECK(r.uploads[0].destination == "Epic artifact art-win (build 1.2.3)");
 }
 
@@ -752,7 +754,11 @@ TEST_CASE("publish.gog: the password is redacted wherever FactorIA shows anythin
     const std::vector<std::string>& shown = dry.steps[0].command;
     CHECK(std::vector<std::string>(shown.end() - 4, shown.end()) == std::vector<std::string>{"--username", "maker", "--password", "<redacted>"});
     CHECK_FALSE(has(dry.to_json().dump(), "hunter2-secret"));
-    CHECK(dry.to_json()["warnings"].empty());
+    // Pipeline Builder has no other way to receive the password: the plan says so (and how to avoid it)
+    REQUIRE(dry.warnings.size() == 1);
+    CHECK(has(dry.warnings[0], "only as the argument --password"));
+    CHECK(has(dry.warnings[0], "visible in the process list"));
+    CHECK(has(dry.warnings[0], "caches the login"));
 
     ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
     ScopedEnv print("FA_FAKE_TOOL_PRINT_ARGS", "1");
@@ -1426,6 +1432,9 @@ TEST_CASE("publish.microsoft dry run: the msstore command lines, and the client 
     CHECK(r.uploads[0].platform == "windows");
     CHECK(has(r.uploads[0].destination, "Microsoft Store 9NBLGGH4NNS1 (draft)"));
     CHECK_FALSE(has(r.to_json().dump(), kMsSecret));
+    REQUIRE(r.warnings.size() == 1);  // msstore takes the client secret only as an argument of `reconfigure`: the plan says so
+    CHECK(has(r.warnings[0], "only as the argument --clientSecret"));
+    CHECK(has(r.warnings[0], "visible in the process list"));
     CHECK(has(r.to_json()["nextSteps"].dump(), "unsigned"));
 
     PublishOptions o = f.store();
@@ -1494,4 +1503,82 @@ TEST_CASE("publish.microsoft is a registered command") {
     register_tooling_commands(reg, f.dir);
     REQUIRE(reg.has("publish.microsoft"));
     CHECK(reg.info("publish.microsoft")->inputSchema["properties"].contains("releaseStatus"));
+}
+
+// ---- no password on the command line of a child process ----------------------------------------------------------------
+
+namespace {
+
+constexpr const char* kSentinel = "SENTINEL-pw-7f3a91c2";
+
+// Every secret variable of every store holds the sentinel. Then each store is planned (dry run) and run (fake uploader), and the
+// sentinel is searched in the command lines and in everything FactorIA shows.
+void check_sentinel(const std::string& store, Fixture& f, const std::vector<std::string>& platforms, bool argvMayCarryIt) {
+    const std::string who = "store " + store;
+    for (const char* v : {"FACTORIA_EPIC_CLIENT_SECRET", "FACTORIA_GOG_PASSWORD", "FACTORIA_MSSTORE_CLIENT_SECRET"}) f.vars[v] = kSentinel;
+    f.vars["FACTORIA_GOG_USERNAME"] = "maker";
+    f.vars["BUTLER_API_KEY"] = kSentinel;
+    ScopedEnv butler("BUTLER_API_KEY", kSentinel);  // the fake uploader inherits what the real one would
+    ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
+
+    PublishOptions o = f.options(store);
+    o.platforms = platforms;
+    o.host = store == "microsoft" ? "windows" : (store == "appstore" || store == "googleplay") ? "macos" : "";
+    o.dryRun = true;
+    const PublishReport dry = f.ok(o);
+    INFO(who);
+    for (const PublishStep& step : dry.steps)
+        for (const std::string& a : step.command) CHECK_FALSE(has(a, kSentinel));
+    CHECK_FALSE(has(dry.to_json().dump(), kSentinel));
+    CHECK_FALSE(leaks_keys(dry.to_json().dump()));
+
+    stdfs::remove(f.record);
+    o.dryRun = false;
+    std::string progress;
+    o.progress = [&](const std::string& line) { progress += line + "\n"; };
+    const PublishReport r = f.ok(o);
+    CHECK(r.uploaded);
+    std::size_t carried = 0;
+    for (const Call& call : read_calls(f.record))
+        for (const std::string& a : call.args)
+            if (has(a, kSentinel)) {
+                CHECK(argvMayCarryIt);
+                CHECK(a == kSentinel);
+                ++carried;
+            }
+    if (argvMayCarryIt) {
+        CHECK(carried == 1);
+        // the one exception is announced in the plan
+        bool announced = false;
+        for (const std::string& w : dry.warnings) announced = announced || has(w, "visible in the process list");
+        CHECK(announced);
+    } else {
+        CHECK(carried == 0);
+    }
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) {
+        CHECK_FALSE(has(text, kSentinel));
+        CHECK_FALSE(leaks_keys(text));
+    }
+}
+
+}  // namespace
+
+TEST_CASE("publish: no store password is ever an argument of a child process, except the two uploaders that offer no other way (and say so)") {
+    {
+        Fixture f;
+        // The fake uploader is not told to print anything: it records its arguments and the variable names asked for.
+        check_sentinel("steam", f, {"windows"}, false);
+        check_sentinel("itch", f, {"windows"}, false);
+        check_sentinel("epic", f, {"windows"}, false);
+        check_sentinel("gog", f, {"linux"}, true);  // GOGGalaxyPipelineBuilder: --password only
+    }
+    {
+        MobileFixture f;
+        check_sentinel("appstore", f, {}, false);
+        check_sentinel("googleplay", f, {}, false);
+    }
+    {
+        MicrosoftFixture f;
+        check_sentinel("microsoft", f, {}, true);  // msstore reconfigure: --clientSecret only
+    }
 }

@@ -289,7 +289,11 @@ Result<std::vector<Job>> plan_gog(Context& c) {
                    std::string("Set both, or neither to use the credentials Pipeline Builder cached when you last signed in (run GOGGalaxyPipelineBuilder once, interactively, to cache them)."));
     if (user.empty())
         c.warnings.push_back(std::string("Neither ") + kGogUserVar + " nor " + kGogPasswordVar + " is set: Pipeline Builder uses the credentials it cached from an earlier sign-in, "
-                             "and fails when there are none. Sign in once by running it by hand, or set both variables (the password then shows on the command line of the process while it runs).");
+                             "and fails when there are none. Sign in once by running it by hand (that keeps the password off the command line), or set both variables.");
+    else
+        c.warnings.push_back(std::string("GOGGalaxyPipelineBuilder takes the password only as the argument --password (it has no environment variable, file or standard-input form): while it runs, ") + kGogPasswordVar +
+                             " is visible in the process list (ps, Task Manager) to every user of this computer. FactorIA hides it everywhere else (report, log, progress). To keep it off the command line, sign in "
+                             "once by running GOGGalaxyPipelineBuilder by hand so it caches the login, then unset " + kGogUserVar + " and " + kGogPasswordVar + ".");
 
     const stdfs::path ignoreFile = c.workDir / "ignore.txt";
     std::string ignore;
@@ -549,6 +553,10 @@ Result<std::vector<Job>> plan_microsoft(Context& c) {
     reconfigure.shown = reconfigure.argv;
     reconfigure.shown.back() = kRedacted;
     reconfigure.secrets = {secret};
+    if (!secret.empty())
+        c.warnings.push_back(std::string("msstore takes the client secret only as the argument --clientSecret of `msstore reconfigure` (it has no environment variable, file or standard-input form): during that step ") +
+                             kMsSecretVar + " is visible in the process list (ps, Task Manager) to every user of this computer, for a few seconds. FactorIA hides it everywhere else (report, log, progress). "
+                             "Use an Azure AD application whose secret you can revoke, and rotate it if the computer is shared.");
     reconfigure.failureHint = "Check the tenant id, seller id, client id and client secret (the secret expires: Partner Center > Account settings > Azure AD applications). msstore keeps the credentials itself.";
 
     Job publish;
