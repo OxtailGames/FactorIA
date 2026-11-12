@@ -1460,6 +1460,15 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             const Vec3 w = I.world.world_matrix(e).transform_point({local.x, local.y, 0.0f});
             return Json::object({{"id", I.world.id_of(e)}, {"col", col}, {"row", row}, {"x", w.x}, {"y", w.y}});
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"scene.import_ascii", capability_sets::edits_project()},
+        {"scene.ascii_edit", capability_sets::edits_project()},
+        {"tilemap.set_tile", capability_sets::changes_state()},
+        {"tilemap.cell_at", capability_sets::reads()},
+        {"tilemap.cell_to_world", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

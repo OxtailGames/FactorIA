@@ -2110,6 +2110,14 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             return Json::object({{"cancelled", I.wfcJobs.erase(id) > 0}});
         });
 
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"tilemap.generate", capability_sets::changes_state()},
+        {"tilemap.generate_start", capability_sets::changes_state()},
+        {"tilemap.generate_step", capability_sets::changes_state()},
+        {"tilemap.generate_cancel", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

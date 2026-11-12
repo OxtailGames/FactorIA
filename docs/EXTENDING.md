@@ -36,6 +36,7 @@ export default {
     properties: {},
   },
   readOnly: false,                // true when the tool only reads
+  capabilities: ["read", "state"], // optional: what the tool can do, see "Capabilities" below
   run(args) {                     // args are validated; defaults from `input` are filled in
     return { /* any JSON-serializable value */ };
   },
@@ -44,6 +45,7 @@ export default {
 
 - **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
 - **Closed by default.** A key that `input` (or a nested object with `properties`) does not declare is an error, not an ignored extra: `invalid_arguments`, `/crates: unknown property 'crates'`, with a "did you mean" and the accepted keys in the hint. So declare every key `run` reads, with a `description`. A tool without `input`, or with `properties: {}`, takes no arguments. If the keys really are open-ended (a free-form map), say so: `additionalProperties: true` on that object accepts any key, and `additionalProperties: { type: "number" }` accepts any key whose value matches the schema. A project from before 0.13.0 whose tools or scripts pass extra keys now gets this error: add the missing properties to `input` (or drop the key from the call).
+- **Capabilities.** `capabilities` is an optional array of names saying what the tool can do outside the engine's memory: `read`, `state` (changes the running game in memory), `writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted all of them (a game script gets `read` and `state`) is refused with `capability_denied`. Without the key the set follows `readOnly`: `["read"]` when it is true, `["read", "state", "writeProject"]` otherwise, so a tool that only changes the world in memory should declare `["read", "state"]` and one that talks to a server `["read", "network"]`. A tool with `capabilities` also gets `readOnly: true` only when the set is exactly `["read"]`. A name that does not exist (`"writeProjct"`) is a script error with the file, the position in the array and a "did you mean"; the tool is not registered until it is fixed.
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
 - **Errors.** Two kinds, and the caller sees them differently.
   - An *expected* failure, such as a check that found bad level data, is `throw new ToolError(message, hint, data?)` (import it from `"factoria"`). The caller gets code `tool_error`, the message, and your `hint`, which says how to fix the data or the call. `data` is an optional object with details. It appears in the JSON error of `factoria session` and `factoria call --batch`, and as `e.data` on the Error that `fa.call` throws in a script or test; MCP shows only the code, message and hint, so put what a fixer needs into the hint.
@@ -942,3 +944,10 @@ FA_PLUGIN_INIT(example) {
   no plugin says anything the `SteamDeck=1` environment variable is used. The Steam plugin calls it once Steam is running, with
   `IsSteamRunningOnSteamDeck`. Call it from the entry point: the engine reads it when the entry point returns. A plugin
   built for version 4 checks `api->version >= 4` first; older plugins are not affected.
+- **Capabilities (version 5).** A command that declares nothing gets `{read}` when `read_only` is 1 and `{read, state,
+  writeProject}` otherwise. A command that does more (talks to a server, starts a program, writes outside the project) or
+  less (changes only memory: `{read, state}`) says so with `set_command_capabilities(api, "<plugin>.<verb>", "[\"read\",
+  \"network\"]")` after its `add_command`, inside the entry point. Names: `read`, `state`, `writeProject`, `writeAnywhere`,
+  `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted
+  all of them (a game script gets `read` and `state`) gets `capability_denied`; `read_only` follows the declaration (1 only
+  for `["read"]`). A plugin built for version 5 checks `api->version >= 5` first.

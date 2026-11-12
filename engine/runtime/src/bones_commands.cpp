@@ -416,6 +416,14 @@ void register_bones_commands(Engine& engine, Engine::Impl& I) {
               }
               return Json::object({{"entity", I.world.id_of(e)}, {"changed", changed}, {"mode", mode}, {"vertices", selected.size()}});
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"bones.create", capability_sets::changes_state()},
+        {"skin.bind", capability_sets::changes_state()},
+        {"skin.auto_weights", capability_sets::changes_state()},
+        {"skin.set_weights", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

@@ -58,6 +58,12 @@ FA_PLUGIN_INIT(probe) {
     CHECK(api->add_command(api, &wrongPrefix) != 0);
     CHECK(api->add_command(api, &noSummary) != 0);
     CHECK(api->add_function(api, &noDoc) != 0);
+    // Capabilities (version 5): declared after add_command; an unknown name or command is refused.
+    FaCommandDesc fetch = {"probe.fetch", "Fetch a page.", nullptr, nullptr, 0, probe_info, nullptr};
+    CHECK(api->add_command(api, &fetch) == 0);
+    CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","network"])") == 0);
+    CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","netwrok"])") != 0);
+    CHECK(api->set_command_capabilities(api, "probe.nothing", R"(["read"])") != 0);
     CHECK(api->add_function(api, &add) != 0);  // twice
     api->log(api, 1, "probe ready");
     return 0;
@@ -223,6 +229,14 @@ TEST_CASE("plugins: a plugin's functions and commands reach scripts and the comm
     CHECK(c.result["platform"] == runtime_platform());
     CHECK(c.result["args"]["n"] == 7);
     CHECK(engine.commands().info("probe.info")->category == "probe");
+    // Declared: probe.fetch needs network; probe.info declares nothing and has the set its read_only implies.
+    const CommandInfo* fetch = engine.commands().info("probe.fetch");
+    REQUIRE(fetch != nullptr);
+    CHECK(fetch->capabilitiesDeclared);
+    CHECK(fetch->capabilities == CapabilitySet{Capability::Read, Capability::Network});
+    CHECK_FALSE(fetch->readOnly);
+    CHECK_FALSE(engine.commands().info("probe.info")->capabilitiesDeclared);
+    CHECK(engine.commands().info("probe.info")->capabilities == CapabilitySet{Capability::Read});
     CHECK_FALSE(engine.commands().has("other.info"));
     CHECK_FALSE(engine.commands().has("probe.quiet"));
     r = eval("fa.call('probe.info', {n: 3}).args.n");

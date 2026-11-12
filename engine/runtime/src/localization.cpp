@@ -155,6 +155,12 @@ void register_i18n_commands(Engine&, Engine::Impl& I) {
             if (!language.ok()) throw CommandError("invalid_argument", language.error().message, language.error().hint);
             return Json::object({{"language", language.value()}, {"previous", previous}, {"changed", language.value() != previous}});
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"i18n.state", capability_sets::reads()},
+        {"i18n.set_language", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa
