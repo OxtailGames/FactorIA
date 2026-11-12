@@ -928,6 +928,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             ToolPlanOptions po;
             po.withDelegate = role == kRoleOrchestrator && cfg->can_delegate_to_anyone();
             po.readOnly = is_review_role(role);
+            po.granted = role_capabilities(role);
             po.groups = roleIt->second.toolGroups ? *roleIt->second.toolGroups : default_tool_groups(role);
             const ToolPlan plan = plan_tools(registry, po);
             Json tools = Json::array();
@@ -937,7 +938,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             }
             std::map<std::string, int> total, inCatalog;
             for (const CommandInfo* info : registry.list()) {
-                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info))) continue;
+                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info)) || !po.granted.has_all(info->capabilities)) continue;
                 ++total[info->category];
             }
             for (const CatalogEntry& e : plan.catalog) ++inCatalog[e.category];
@@ -975,6 +976,37 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel, opts->assetRunKey, opts->assetApprover);
     register_assets_review(registry, load, project_dir, *opts);
     register_vfx_review(registry, load, project_dir, *opts);
+
+    // What each command can do outside the engine's memory (capability.h). The ai.* rows below are the table of the commands
+    // registered in this function; the other files declare their own. An agent() scope (the builder roles) gets all of them but
+    // ai.plugin_install (writeAnywhere: it installs software for the user); the critics' {read, state} none that spawns or bills.
+    {
+        using capability_sets::reads;
+        using capability_sets::writes_project;
+        // Starts a model run (a CLI agent or an API loop) that bills the user and may write files of the project.
+        constexpr CapabilitySet agentRun{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+        // One model call (a CLI agent needs process) that bills the user and writes a file of the project (entries, reviews).
+        constexpr CapabilitySet modelAndFile{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+        declare_command_capabilities(registry, {
+            {"ai.providers", CapabilitySet{Capability::Read, Capability::Process}},  // action doctor runs `<cli> --version`
+            {"ai.models", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // asks a CLI or an API for its models
+            {"ai.tool_servers", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // test:true starts or contacts a server
+            {"ai.extensions", reads()},
+            {"ai.hooks", reads()},
+            {"ai.hooks_test", CapabilitySet{Capability::Read, Capability::Process, Capability::Network, Capability::Spend}},  // the handlers REALLY run
+            {"ai.savers", reads()},
+            {"ai.saver_group", writes_project()},  // .factoria/ai/savers.json
+            {"ai.saver_fact", writes_project()},   // the project's AGENTS.md
+            {"ai.plugin_install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}},
+            {"ai.run", agentRun},
+            {"ai.review", agentRun},  // plays the game with reviewer agents; writes the review files
+            {"ai.review_feedback", modelAndFile},  // rewrites ENGINE_FEEDBACK.json
+            {"ai.reviews", reads()},
+            {"ai.session_timeline", reads()},
+            {"ai.retrospective", modelAndFile},  // files entries in ENGINE_FEEDBACK.json
+            {"ai.tool_plan", reads()},
+        });
+    }
 
     // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
     CommandHooksOptions hooksOptions;

@@ -178,7 +178,7 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     if (!starts_with(result.output, "assets/"))
         return make_error(rel + ": the model would be written to '" + result.output + "', outside assets/.", "Put it under assets/, e.g. \"output\": {\"path\": \"assets/models/door.glb\"}.");
 
-    auto outPath = resolve_project_path(projectDir, result.output);
+    auto outPath = assets_detail::project_write_path(projectDir, result.output);
     if (!outPath.ok()) return make_error(outPath.error().message, outPath.error().hint);
     if (!options.overwrite) {
         std::error_code ec;
@@ -263,7 +263,7 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             for (const Json& e : previousProv["extras"])
                 if (e.is_string()) oldExtras.push_back(e.get<std::string>());
         for (const auto& f : extraFiles) {
-            auto path = resolve_project_path(projectDir, f.first);
+            auto path = assets_detail::project_write_path(projectDir, f.first);
             if (!path.ok()) return make_error(path.error().message, path.error().hint);
             bool unchanged = false;
             if (auto old = tooling_detail::read_file(*path)) unchanged = *old == f.second;
@@ -274,7 +274,7 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             for (const std::string& f : texture->files) result.extras.push_back(f);  // written by the texture bake
         for (const std::string& old : oldExtras) {
             if (now.count(old)) continue;
-            auto path = resolve_project_path(projectDir, old);
+            auto path = assets_detail::project_write_path(projectDir, old);
             if (path.ok() && starts_with(old, "assets/")) {
                 std::error_code rec;
                 stdfs::remove(*path, rec);

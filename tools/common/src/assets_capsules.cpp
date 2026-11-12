@@ -337,7 +337,7 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
                     if (path == rel) e["assets"].push_back(as.asset);
                 continue;
             }
-            const stdfs::path file = project_file(projectDir, rel);
+            const stdfs::path file = project_write_file(projectDir, rel);
             if (!overwrite && stdfs::exists(file)) {
                 skipped.push_back(Json::object({{"store", storeId}, {"asset", as.asset}, {"reason", rel + " exists and overwrite is false"}}));
                 continue;
@@ -429,7 +429,10 @@ void register_draw_capsules_command(CommandRegistry& registry, const std::string
         "orientation":{"type":"string","enum":["landscape","portrait"],"description":"Phone and tablet screenshot sizes of Google Play and the App Store. Default landscape."},
         "overwrite":{"type":"boolean","default":true,"description":"Replace files that already exist."}
       }})");
+    mark_paths(info.inputSchema, "read", {"keyArt"});
     registry.add(info, [projectDir](const Json& args) { return draw_capsules(projectDir, args); });
+    // Capabilities (capability.h): the capsule PNGs (store/capsules/...) and their assets.json entries are project files.
+    declare_command_capabilities(registry, {{"assets.draw_capsules", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

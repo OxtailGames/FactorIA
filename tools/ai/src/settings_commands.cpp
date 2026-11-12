@@ -254,6 +254,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                                    "Tell the user which setting you want and ask the user to change it in the editor's AI settings window (Your defaults). "
                                    "scope \"project\" changes this project's file instead (the user accepts it in the editor).");
             }
+            if (scope == "user") require_capability(Capability::WriteAnywhere, "ai.settings.set", "writing the user's own ai.json (scope \"user\")");
             if (std::string permProvider; permission_pointer(pointer, permProvider)) {
                 if (scope != "user") {
                     throw CommandError("rejected_key",
@@ -429,6 +430,12 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             return out;
         });
     }
+    // Project scope writes the project's AI settings file; scope "user" (the user's own ai.json) is refused above for every caller
+    // but the user, and asks for writeAnywhere on top.
+    declare_command_capabilities(registry, {
+        {"ai.settings.get", capability_sets::reads()},
+        {"ai.settings.set", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa::ai
