@@ -143,6 +143,7 @@ struct PublishUpload {
 struct PublishStep {
     std::string title;
     std::vector<std::string> command;  // the command line, secrets replaced by <redacted>
+    std::vector<std::string> env;      // NAMES of the environment variables set for the uploader (values are never listed)
     std::vector<std::string> files;    // build files written for it
     bool ran = false;
     int exitCode = -1;                 // of the uploader once it ran

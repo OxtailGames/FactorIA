@@ -303,6 +303,7 @@ Json PublishReport::to_json() const {
     Json st = Json::array();
     for (const PublishStep& s : steps) {
         Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"files", s.files}, {"ran", s.ran}});
+        if (!s.env.empty()) e["env"] = s.env;
         if (s.ran) e["exitCode"] = s.exitCode;
         st.push_back(e);
     }
@@ -473,6 +474,7 @@ static Result<PublishReport> run_store(const Store* store, Context& c, PublishRe
         PublishStep step;
         step.title = job.title;
         step.command = job.shown;
+        for (const auto& kv : job.env) step.env.push_back(kv.first);
         for (const auto& f : job.files) {
             step.files.push_back(generic(f.first));
             report.files.push_back(generic(f.first));
