@@ -349,8 +349,15 @@ TEST_CASE("api export: markdown for components and commands") {
     CHECK(md.find("### `docs.read`") != std::string::npos);
     CHECK(md.find("| `name` |") != std::string::npos);
     CHECK(export_commands_json(reg).size() == 3);
-    // Every command page has a Capabilities line; docs.* are not declared in this registry.
-    CHECK(md.find("Capabilities: not declared yet") != std::string::npos);
+    // Every command page has a Capabilities line: the docs.* declare theirs, a command that does not says so.
+    CHECK(md.find("Capabilities: read") != std::string::npos);
+    CHECK(md.find("Capabilities: not declared yet") == std::string::npos);
+    CommandInfo undeclared;
+    undeclared.name = "t.undeclared";
+    undeclared.summary = "Declares nothing.";
+    undeclared.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
+    reg.add(undeclared, [](const Json&) { return Json::object(); });
+    CHECK(export_commands_markdown(reg).find("Capabilities: not declared yet") != std::string::npos);
     CommandInfo spendy;
     spendy.name = "t.spendy";
     spendy.summary = "Calls a paid API.";

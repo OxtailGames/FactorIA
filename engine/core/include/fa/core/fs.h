@@ -308,7 +308,11 @@ std::filesystem::path export_dir();
 //  - Names compare without regard to case on Windows and macOS (their default volumes), never on Linux. A case-sensitive
 //    macOS volume counts as case-insensitive for the "is it inside the root" test.
 //  - With WriteRoot::Project, a path that lands in a managed folder of the project is `managed_path_denied`, judged on the
-//    canonical path (a link into it counts; names fold case on Windows and macOS), unless `managed` is ManagedFolders::Allow.
+//    canonical path AND on the normalized spelling (refused when either is managed; names fold case and lose a trailing
+//    dot or space), unless `managed` is ManagedFolders::Allow. A relative path never CREATES a name Windows cannot
+//    (CON, NUL, COM1-9, COM/LPT with a superscript digit, a trailing dot or space: `invalid_path`); a name that already
+//    exists as a regular file, a folder or a link is left alone on Linux and macOS, so such a file can still be read and
+//    deleted. On Windows nothing is left alone: such a file cannot be there (NUL exists in every folder, `scenes.` is `scenes`).
 //    That holds for a relative path and for an absolute one. The Save and Export roots are what a command writes to on
 //    purpose, so a relative path in them is not judged. A command that lets its caller name any project path keeps calling
 //    check_writable on the result too: that is the same rule, with its error.

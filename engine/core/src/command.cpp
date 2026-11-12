@@ -41,18 +41,9 @@ CapabilitySet set_from_bits(std::uint32_t bits) {
     return s;
 }
 
-// The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
-CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
-    const CapabilitySet granted = caller_capabilities();
-    std::string message = "'" + info.name + "' was not run: it needs ";
-    bool first = true;
-    for (const std::string& n : missing.names()) {
-        if (!first) message += "; ";
-        first = false;
-        message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
-    }
-    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
-               "; the command needs " + info.capabilities.to_string() + ".";
+// How a refusal for missing capabilities is worded: the hint of whoever installed the scope (a game script, the editor's Play...),
+// else the general one.
+std::string capability_denied_hint(const CommandInfo& info, CapabilitySet missing, CapabilitySet granted) {
     std::string hint;
     std::shared_ptr<const CapabilityHintProvider> provider = t_hint;
     if (!provider) {
@@ -65,7 +56,22 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
                "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
                "(docs/SCRIPTING.md). Ask the user to run `factoria call " + info.name +
                    "` in their own terminal, or to start the tool with that capability.";
-    CommandResult r = fail("capability_denied", std::move(message), std::move(hint));
+    return hint;
+}
+
+// The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
+CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
+    const CapabilitySet granted = caller_capabilities();
+    std::string message = "'" + info.name + "' was not run: it needs ";
+    bool first = true;
+    for (const std::string& n : missing.names()) {
+        if (!first) message += "; ";
+        first = false;
+        message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
+    }
+    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
+               "; the command needs " + info.capabilities.to_string() + ".";
+    CommandResult r = fail("capability_denied", std::move(message), capability_denied_hint(info, missing, granted));
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
                                     {"needs", info.capabilities.to_json()},
@@ -398,12 +404,17 @@ void require_capability(Capability needed, std::string_view command, std::string
     const CapabilitySet granted = caller_capabilities();
     if (granted.has(needed)) return;
     const std::string name = capability_name(needed);
+    // The same wording as the dispatcher's refusal (who is calling, how to be granted the capability), for a command whose
+    // handler asks for a capability only when an argument needs it.
+    CommandInfo asked;
+    asked.name = std::string(command);
+    asked.capabilities = CapabilitySet{Capability::Read, needed};
+    const std::string hint = capability_denied_hint(asked, CapabilitySet{needed}, granted);
     throw CommandError("capability_denied",
                        "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" + name + "' (" +
                            capability_doc(needed) + "), which " + command_caller_name(command_caller()) +
                            " is not granted here. Granted: " + granted.to_string() + ".",
-                       "Call it without that argument, or ask the user to run `factoria call " + std::string(command) +
-                           "` in their own terminal, or to start the tool with that capability.",
+                       hint,
                        Json::object({{"command", std::string(command)},
                                      {"missing", CapabilitySet{needed}.to_json()},
                                      {"granted", granted.to_json()}}));
