@@ -259,7 +259,8 @@ SetupComponent android_status(const SetupContext& ctx, bool fetchLicenses) {
         auto scratch = fs::make_temp_dir("fa_setup_status");
         if (!scratch.ok()) {
             c.problems.push_back("Could not fetch the license text: there is no temporary folder to download it into (" +
-                                 scratch.error().message + " " + scratch.error().hint +
+                                 scratch.error().message +
+                                 (scratch.error().hint.empty() ? "" : " " + scratch.error().hint) +
                                  "). The license is also at https://developer.android.com/studio/terms.");
         } else {
             SdkRepositoryInfo repo;

@@ -881,24 +881,6 @@ TEST_CASE("capabilities: a denied call never reaches an interceptor, a granted o
     CHECK(afters == 2);
 }
 
-TEST_CASE("capabilities: the early check resolves the MCP spelling of a command name") {
-    CommandRegistry reg;
-    add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Read, Capability::Publish});
-    int befores = 0;
-    auto icp = std::make_shared<CommandInterceptor>();
-    icp->wants = [](std::string_view) { return true; };
-    icp->before = [&](std::string_view, Json&) -> std::optional<CommandResult> {
-        ++befores;
-        return std::nullopt;
-    };
-    reg.set_interceptor(icp);
-    CommandCapabilityScope scope(capability_sets::game_player());
-    const CommandResult denied = reg.call("t_publish");
-    REQUIRE_FALSE(denied.ok);
-    CHECK(denied.error["code"] == "capability_denied");
-    CHECK(befores == 0);
-}
-
 TEST_CASE("capabilities: capability_denied lists each missing capability once, in declaration order") {
     CommandRegistry reg;
     add_cap_command(reg, "t.big", false, CapabilitySet{Capability::Publish, Capability::Read, Capability::Network, Capability::Spend});

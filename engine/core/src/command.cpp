@@ -293,16 +293,11 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
     if (!interceptor || !interceptor->wants || !interceptor->wants(name)) return call_inner(name, argsIn);
     // The capability check comes before the interceptor: a call the caller may not make never reaches a hook (which could log
     // it, change its arguments or run a script of its own). call_inner checks again, after beforeCall_ may have reloaded the
-    // command, so this one only has to catch the refusal early. It resolves the MCP spelling ('scene_place_ascii' for
-    // 'scene.place_ascii') the way call_inner does; a command that only appears when beforeCall_ reloads the commands is
-    // not known yet here, so a call refused only by call_inner's check has already been seen by `before`.
-    auto it = commands_.find(name);
-    if (it == commands_.end()) {
-        std::string alt(name);
-        std::replace(alt.begin(), alt.end(), '_', '.');
-        it = commands_.find(alt);
-    }
-    if (it != commands_.end()) {
+    // command, so this one only has to catch the refusal early. `name` is the registry's name (the MCP server maps a tool
+    // name such as 'scene_place_ascii' to 'scene.place_ascii' before it calls); a command that only appears when
+    // beforeCall_ reloads the commands is not known yet here, so a call refused only by call_inner's check has already
+    // been seen by `before`.
+    if (auto it = commands_.find(name); it != commands_.end()) {
         if (const CapabilitySet missing = it->second.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
             return capability_denied(it->second.info, missing);
     }

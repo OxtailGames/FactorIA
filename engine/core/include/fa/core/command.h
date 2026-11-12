@@ -291,8 +291,7 @@ struct CommandInterceptor {
     // table that was already built): it runs on every call.
     std::function<bool(std::string_view name)> wants;
     // Before the arguments are validated and the handler runs; not reached for a call the caller's capabilities refuse
-    // (capability_denied comes first, MCP spelling included; only a command re-registered by a beforeCall_ reload is
-    // checked after `before`). May change `args`. Returns a failed CommandResult to refuse the call
+    // (capability_denied comes first; only a command that a beforeCall_ reload registers is checked after `before`). May change `args`. Returns a failed CommandResult to refuse the call
     // (the handler does not run, `after` is not called), nullopt to go ahead.
     std::function<std::optional<CommandResult>(std::string_view name, Json& args)> before;
     // After the handler ran, whatever the outcome, with the arguments it got and how long the call took. May add to `result`
