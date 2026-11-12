@@ -124,7 +124,7 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
             // "x-fa-path" (docs/ARCHITECTURE.md, "Commands"): what the command does with a path argument.
             if (p.contains("x-fa-path") && p["x-fa-path"].is_string()) {
                 const std::string kind = p["x-fa-path"].get<std::string>();
-                desc += kind == "write" ? " Path the command writes (confined: project only, unless the caller may write anywhere)."
+                desc += kind == "write" ? " Path the command writes; the write rules apply (docs/CLI.md, \"Paths\")."
                                         : " Path the command reads.";
             }
             o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | " << md_escape(desc) << " |\n";

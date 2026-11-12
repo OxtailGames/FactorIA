@@ -25,7 +25,6 @@ using namespace fa;
 
 namespace {
 
-// A temporary folder holding the project (`game`) and nothing else: whatever else appears in it was written outside the project.
 // A scratch folder that is removed when it goes.
 struct ScratchFolder {
     stdfs::path path = fs::make_temp_dir("fa_command_paths").value();
@@ -49,6 +48,7 @@ struct EnvironmentGuard {
     }
 };
 
+// A temporary folder holding the project (`game`) and nothing else: whatever else appears in it was written outside the project.
 struct Sandbox {
     ScratchFolder scratch;
     stdfs::path root = scratch.path;
