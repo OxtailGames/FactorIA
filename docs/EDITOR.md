@@ -1324,7 +1324,10 @@ runs all of them in one window.
 At the end the autotest prints what each section cost (frames, seconds, failures) and writes the same list under `sections`
 in `autotest_result.json`. The ctest entries group the sections by those frames, about the same number per entry; E, F and N
 share one because they use the system clipboard. A new section goes in `kAutotestSections` and in one of the
-`editor_autotest_entries` of `tools/editor/CMakeLists.txt`: configuring fails if a section is in no entry or in two.
+`editor_autotest_entries` of `tools/editor/CMakeLists.txt`: configuring fails if a section is in no entry or in two. The code of a section is `Editor::at_section_<id>` in one of the
+`tools/editor/src/autotest_*.cpp` files (the one that groups its neighbours; `autotest_common.h` has what they share), declared
+in `editor_internal.h` and called, in the order of a full run, by `Editor::at_build_tools_script` in `autotest_tools.cpp`
+(section S is in `autotest.cpp`).
 
 A few sections are for iterating only: before a push, build every target and run the full `ctest` (every
 `editor_autotest_*` entry), as for any other change.
