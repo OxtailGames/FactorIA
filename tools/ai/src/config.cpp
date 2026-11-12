@@ -197,6 +197,24 @@ bool is_known_role(std::string_view role) {
     return false;
 }
 bool is_review_role(std::string_view role) { return role == kRoleArtCritic || role == kRoleReviewer; }
+CapabilitySet role_capabilities(std::string_view role) {
+    if (is_known_role(role) && !is_review_role(role)) return capability_sets::agent();
+    return CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+}
+std::string role_denial_subject(std::string_view role) {
+    return is_known_role(role) ? "the " + std::string(role_display_name(role)) + " role" : std::string();
+}
+std::string role_denial_hint(std::string_view role) {
+    if (!is_known_role(role)) return {};  // the registry's generic hint
+    const std::string name = role_display_name(role);
+    if (is_review_role(role)) {
+        return "The " + name + " role only looks at the game and plays it, so it never changes the project: '{command}' is not available to it. "
+               "Say in your report what should change, or ask the user to run `factoria call {command}` in a terminal (which has every "
+               "capability); a builder role (the orchestrator, the worker) makes the change.";
+    }
+    return "The " + name + " role may do everything but write outside the project (writeAnywhere) and publish: those stay with the user. "
+           "Ask the user to run `factoria call {command}` themselves in a terminal (which has every capability).";
+}
 bool is_delegable_role(std::string_view role) {
     return role == kRoleWorker || role == kRoleFast || role == kRoleArtist || role == kRoleAudio;
 }

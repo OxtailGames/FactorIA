@@ -6,6 +6,8 @@
 #pragma once
 
 #include <functional>
+#include <map>
+#include <string>
 #include "fa/ai/config.h"
 #include "fa/ai/process.h"
 #include "fa/ai/types.h"
@@ -41,6 +43,12 @@ struct CliRunRequest {
     // sandbox (`--sandbox read-only`) and the FactorIA MCP server started with `--read-only`, which offers only
     // is_read_only_tool commands.
     bool readOnly = false;
+    // The role this run plays and what its calls may do (role_capabilities). The set (narrowed by what the calling thread may
+    // do) goes to the CLI process as FACTORIA_CAPABILITIES, with FACTORIA_ROLE, so the `factoria mcp` it starts and any `factoria`
+    // it runs from its shell refuse what the role could not do (CommandCapabilityFloor; cli_process_environment). The editor's own
+    // MCP endpoint (mcpUrl) enforces the role's set itself.
+    std::string role;
+    CapabilitySet capabilities = capability_sets::agent();
     // The user's external tool servers (ai.json "mcpServers") this run's role may use, with their keys filled in. Claude Code
     // gets them in the {mcp_config} file and `mcp__<name>` in --allowedTools; Codex (default argv) gets `-c mcp_servers.<name>.*`
     // arguments; any other CLI finds them in the {mcp_config} file if its argv has that placeholder.
@@ -146,8 +154,18 @@ inline constexpr long long kMcpToolTimeoutMs = kClaudeCodeMcpToolTimeoutMs;  // 
 // `servers` (the user's tool servers) are added next to "factoria", each as Claude Code's .mcp.json writes a server:
 // {"type": "http", "url", "headers"} or {"command", "args", "env"}, with the same "timeout" from timeoutSeconds. The result then
 // holds keys: write it where only the user can read it, and delete it when the run ends.
+// `factoriaEnv` (cli_capability_env) goes into the "env" of the stdio `factoria` server: Claude Code starts an MCP server with a
+// short environment of its own, so the floor of the role has to be written where the server is started.
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {},
-                     const std::vector<ResolvedToolServer>& servers = {});
+                     const std::vector<ResolvedToolServer>& servers = {}, const std::map<std::string, std::string>& factoriaEnv = {});
+
+// The variables that hand a role's capabilities to the `factoria` a CLI agent starts: FACTORIA_CAPABILITIES (the set of the
+// request, narrowed by `calling`, the provider's own value and the process environment), FACTORIA_ROLE (when the request has
+// one) and FACTORIA_CALLER (the provider's own value, else the process's, else "agent").
+std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, const std::map<std::string, std::string>& providerEnv,
+                                                      CapabilitySet calling);
+// Codex (default argv): `-c mcp_servers.factoria.env={...}` carrying the same variables to the `factoria mcp` it starts.
+std::vector<std::string> codex_factoria_env_args(const std::map<std::string, std::string>& factoriaEnv);
 
 // Codex (default argv): the `-c key=value` arguments that add `servers` as MCP servers (mcp_servers.<name>.url, .command,
 // .args, .tool_timeout_sec, .startup_timeout_sec). Header values and the env of a stdio server are secrets and stay out of the

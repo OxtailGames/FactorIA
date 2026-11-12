@@ -105,6 +105,7 @@ public:
     std::string cancelCause_;                  // why cancel was set (request_cancel)
     std::string activity;                      // the latest thing the agent did ("worker > running Bash (cmake)")
     std::shared_ptr<CommandRegistry> proxy;    // what the agent's tool calls run on (the MCP endpoint reads it)
+    std::string endpointRole;                  // the role whose capabilities the MCP endpoint enforces (set with `proxy`)
 
     // ---- called from the agent thread, the MCP connection threads and the main thread
     // One agent event: queued for the main thread, and the liveness the watchdog and the status line read.

@@ -147,7 +147,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (closed_) return fail("editor main thread is not accepting commands");
-        jobs_.push_back(Job{name, tag, args, command_caller(), promise, abandoned});
+        jobs_.push_back(Job{name, tag, args, command_context(), promise, abandoned});
     }
     for (;;) {
         if (fut.wait_for(std::chrono::milliseconds(25)) == std::future_status::ready) return fut.get();
@@ -182,7 +182,7 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
         currentTag_ = j.tag;
         std::optional<CommandResult> r;
         {
-            CommandCallerScope caller(j.caller);  // a command an AI queued is still an AI's on the main thread
+            CommandContextScope context(j.context);  // a command an AI queued is still an AI's, with its set, on the main thread
             r = run(j.name, j.args);
         }
         const bool taken = !current_;

@@ -13,6 +13,7 @@
 
 #include "fa/ai/extensions.h"
 #include "fa/ai/types.h"
+#include "fa/core/capability.h"
 #include "fa/core/json_schema.h"
 
 namespace fa::ai {
@@ -202,6 +203,21 @@ bool is_known_role(std::string_view role);
 // artCritic and reviewer: they look and play and give an opinion, they never change the project (SessionOptions::role
 // enforces it: only read-only tools, no file edits).
 bool is_review_role(std::string_view role);
+// What a role's tool calls may do (core/capability.h), enforced by AgentSession (every tool call runs inside a
+// CommandCapabilityScope with this set, on top of the Agent caller), by the tools it offers (a command the set does not cover is
+// not offered), by the MCP endpoint of the editor's run and by the environment of the CLI agents it starts (FACTORIA_CAPABILITIES).
+//   orchestrator, worker, fast, artist, audio: capability_sets::agent() (all but writeAnywhere and publish).
+//   artCritic, reviewer: {read, state, writeProject} and only is_read_only_tool commands. They look and play; "state" is the running
+//   game (game.step, game.input), "writeProject" is the PNG that game.screenshot, anim.filmstrip and vfx.filmstrip write under
+//   .factoria/ and the session play.auto writes under .factoria/sessions/. There is no narrower rule until paths are confined per
+//   command (M92.2); what keeps a critic from editing is that only is_read_only_tool commands are offered or callable. Never
+//   writeAnywhere, network, process, spend or publish.
+// An unknown role gets the critics' set (what cannot be read is not widened).
+CapabilitySet role_capabilities(std::string_view role);
+// The words of a capability_denied for a call of `role` (CommandDenialScope): "the Reviewer role" and a hint that says what
+// the role is and what to do ("{command}" is the refused command): ask the user, or use a builder role.
+std::string role_denial_subject(std::string_view role);
+std::string role_denial_hint(std::string_view role);
 // The roles the orchestrator may hand a task to (ai_run / agent_delegate): worker, fast, artist, audio. The critics and
 // the reviewers run only when the USER asks (the editor's review buttons, `factoria ai review`, ai.review).
 bool is_delegable_role(std::string_view role);

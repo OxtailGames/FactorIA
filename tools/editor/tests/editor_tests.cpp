@@ -46,6 +46,40 @@ TEST_CASE("MainThreadQueue runs worker-thread calls on the pumping thread") {
     CHECK(runId != workerId);
 }
 
+TEST_CASE("MainThreadQueue: a queued command keeps the caller, the capability set and the words of a refusal of the thread that asked") {
+    MainThreadQueue q;
+    const CapabilitySet roleSet{Capability::Read, Capability::State};
+    std::atomic<bool> done{false};
+    CommandCaller callerSeen = CommandCaller::User;
+    CapabilitySet setSeen = CapabilitySet::all();
+    std::string subjectSeen;
+    std::thread worker([&] {
+        CommandCallerScope caller(CommandCaller::Mcp);
+        CommandCapabilityScope caps(roleSet);
+        CommandDenialScope denial("the reviewer role", "Ask the user.");
+        q.call("x.y", Json::object(), nullptr);
+        done = true;
+    });
+    for (int i = 0; i < 400 && !done; ++i) {
+        q.pump([&](const std::string&, const Json&) {
+            callerSeen = command_caller();
+            setSeen = caller_capabilities();
+            subjectSeen = command_context().denialSubject;
+            CommandResult r;
+            r.ok = true;
+            return r;
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    worker.join();
+    CHECK(callerSeen == CommandCaller::Mcp);
+    CHECK(setSeen == roleSet);  // not the main thread's own set (a user's: everything)
+    CHECK(subjectSeen == "the reviewer role");
+    // and the pumping thread is back to its own afterwards
+    CHECK(command_caller() == CommandCaller::User);
+    CHECK(caller_capabilities() == capability_sets::cli_user());
+}
+
 TEST_CASE("MainThreadQueue pump stops at its time budget and keeps the rest queued") {
     MainThreadQueue q;
     std::atomic<int> done{0};

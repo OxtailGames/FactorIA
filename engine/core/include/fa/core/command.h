@@ -194,25 +194,73 @@ private:
     CapabilitySet previous_;
 };
 
+// What a refusal (code "capability_denied") says about WHO was refused and how to get the call allowed, for a caller that is
+// more specific than command_caller(): an AI role ("the reviewer role"), an editor tool. `subject` replaces "an AI agent" in the
+// message ("..., which the reviewer role is not granted here"); `hint` replaces the generic hint, and "{command}" in it becomes
+// the refused command's name. An empty text leaves what an outer scope (or the generic one) says. Per thread, the innermost
+// non-empty text wins; it changes only the words, never what is granted.
+class CommandDenialScope {
+public:
+    CommandDenialScope(std::string subject, std::string hint);
+    ~CommandDenialScope();
+    CommandDenialScope(const CommandDenialScope&) = delete;
+    CommandDenialScope& operator=(const CommandDenialScope&) = delete;
+
+private:
+    std::string previousSubject_, previousHint_;
+};
+
+// A process whose capabilities are narrower than its caller kind's: the CLI agents factoria starts for a role get
+// FACTORIA_CAPABILITIES (the role's set, names separated by commas; "none" = the empty set) and FACTORIA_ROLE (its name, for the
+// words of a refusal) in their environment, and a `factoria mcp` or `factoria call` they run has no thread scope to read. While a
+// CommandCapabilityFloor lives, caller_capabilities() is never wider than `granted` on ANY thread of the process. Like the
+// scopes it only narrows (a floor inside another one keeps the intersection) and a refusal names `subject`/`hint` (as
+// CommandDenialScope; a thread's own scope wins). An unparsable variable is the empty set: a restriction that cannot be read is not
+// dropped.
+inline constexpr const char* kCapabilitiesEnvVar = "FACTORIA_CAPABILITIES";
+inline constexpr const char* kRoleEnvVar = "FACTORIA_ROLE";
+
+class CommandCapabilityFloor {
+public:
+    explicit CommandCapabilityFloor(CapabilitySet granted, std::string subject = {}, std::string hint = {});
+    ~CommandCapabilityFloor();
+    CommandCapabilityFloor(const CommandCapabilityFloor&) = delete;
+    CommandCapabilityFloor& operator=(const CommandCapabilityFloor&) = delete;
+
+private:
+    CapabilitySet previous_;
+    std::string previousSubject_, previousHint_;
+};
+
+// What FACTORIA_CAPABILITIES says: nullopt when unset or empty; "none" is the empty set; otherwise CapabilitySet::parse_list, and a
+// text that does not parse (an unknown name) is the EMPTY set (fail closed).
+std::optional<CapabilitySet> command_capabilities_from_env_value(const char* value);
+std::optional<CapabilitySet> command_capabilities_from_env();  // reads kCapabilitiesEnvVar
+// The text to put in kCapabilitiesEnvVar for `set` ("read,state"; "none" for the empty set).
+std::string capabilities_env_value(CapabilitySet set);
+
 // Who is calling and what they may do, as one value a job queue or the editor's main-thread queue captures on the calling
 // thread (command_context()) and installs again on the thread that runs the command (CommandContextScope), the way
-// command_caller() is handed over today.
+// command_caller() is handed over today. The words of a refusal (CommandDenialScope) travel with it.
 struct CommandContext {
     CommandCaller caller = CommandCaller::User;
     CapabilitySet capabilities = CapabilitySet::all();
+    std::string denialSubject, denialHint;
 };
 
 CommandContext command_context();
 
 class CommandContextScope {
 public:
-    explicit CommandContextScope(const CommandContext& context) : caller_(context.caller), capabilities_(context.capabilities) {}
+    explicit CommandContextScope(const CommandContext& context)
+        : caller_(context.caller), capabilities_(context.capabilities), denial_(context.denialSubject, context.denialHint) {}
     CommandContextScope(const CommandContextScope&) = delete;
     CommandContextScope& operator=(const CommandContextScope&) = delete;
 
 private:
     CommandCallerScope caller_;
     CommandCapabilityScope capabilities_;
+    CommandDenialScope denial_;
 };
 
 // Outcome of a call. `result` is the handler's JSON on success; on failure

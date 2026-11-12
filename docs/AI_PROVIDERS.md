@@ -502,6 +502,13 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
   `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
   change the project on disk.
+* **Every role has a capability set** (docs/ARCHITECTURE.md, "Capabilities"). Builders (orchestrator, worker, fast, artist,
+  audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
+  `{read, state, writeProject}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and
+  `play.auto` (one PNG or session under `.factoria/`). A tool call that falls outside the set fails with `capability_denied` naming
+  the role and saying to ask the user or use a builder role. The set also reaches the `factoria mcp` a CLI agent starts
+  (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`), so a CLI builder over MCP cannot publish either: run that command yourself in a
+  terminal (`factoria call <command>`) or in the editor.
 * **The automatic player supports the reviewer, it does not replace playing.** A game reviewer (not the art critic) may run
   `play.auto` (it plays the game headless with a bot and writes only a session under `.factoria/sessions/`; the other tools
   that change something stay refused). Its instructions fix the order: play the first minutes by hand first, without reading
