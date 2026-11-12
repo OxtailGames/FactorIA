@@ -1,0 +1,2 @@
+@sfx
+{"format":"factoria.sfx/1","doc":"A laser: a saw that falls from 1800 to 220 Hz in a third of a second.","length":0.12,"layers":[{"pitch":{"freq":1800,"sweep":{"to":220}},"oscillators":[{"wave":"saw"},{"wave":"noise","gain":0.05}],"filter":{"mode":"lowpass","cutoff":7000},"amp":{"attack":0.003,"decay":0.1196,"sustain":0,"curve":1.4}}],"sampleRate":22050,"master":{"normalize":{"mode":"lufs","target":-18,"ceilingDb":-2}}}
