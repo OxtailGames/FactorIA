@@ -1,0 +1,7 @@
+{"_note":"Written from the older Codex CLI event format (events wrapped in id/msg) and the format cli_agent.cpp expects, not a recording. See ../README.md."}
+{"id":"0","msg":{"type":"task_started"}}
+{"id":"0","msg":{"type":"mcp_tool_call_begin","invocation":{"server":"factoria","tool":"project_validate","arguments":{}}}}
+{"id":"0","msg":{"type":"mcp_tool_call_end","invocation":{"server":"factoria","tool":"project_validate","arguments":{}}}}
+{"id":"0","msg":{"type":"token_count","input_tokens":300,"output_tokens":40}}
+{"id":"0","msg":{"type":"agent_message","message":"Validated the project."}}
+{"id":"0","msg":{"type":"task_complete","last_agent_message":"Validated the project."}}
