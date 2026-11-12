@@ -28,7 +28,7 @@ std::string default_mcp_instructions() {
 R"(FactorIA is an AI-native 2D/3D game engine. You build games by editing JSON (scenes, prefabs, factoria.json) and JavaScript (scripts, tools, tests), and you verify them with the tools below. Everything is text; you can see the game through screenshots.
 
 WORKFLOW (repeat for every change)
-1. Read first: docs_list, then the guide BY SECTION, never whole (it is far longer than a context should hold): docs_read {"name":"ai-guide"} returns the start and the headings with line numbers; read the sections your task needs with docs_read {"name":"ai-guide","heading":"..."}; docs_search finds where anything is. Component names and fields are strict: use docs_components {"name":"Sprite"} / docs_commands {"name":"game.step"} instead of guessing. Every long page comes in parts with a contents list and the exact call that continues.
+1. Read first, and only what the task needs, the guide BY SECTION, never whole: docs_read {"name":"ai-guide","heading":"Index"} says which section holds what; then read those sections with docs_read {"name":"ai-guide","heading":"..."}, never the guide whole. docs_list gives every doc a one-line summary and audience (pass audience "gameAi"); docs_search finds where anything is. Component names and fields are strict: ask for one at a time, docs_components {"name":"Sprite"} / docs_commands {"name":"game.step"} (or "filter"), never with "full" and never docs_read {"name":"components"} whole (1.8 MB). Every long page comes in parts with a contents list and the exact call that continues.
 2. Edit files (your own file tools, or fs_read / fs_write / fs_edit / fs_search / fs_list if you have none) or use the scene_* tools on the running game.
 3. project_validate after every batch of edits. Errors give file, JSON pointer and a fix hint.
 4. Run and LOOK: game_step {"frames":120} then game_screenshot, and check the returned image really shows what you intended. For fine detail (seams, joins, gradient ends) use game_screenshot {"region":[x,y,w,h],"zoom":8}; for an animation a filmstrip {"frames":24,"everyFrames":4}; game_screenshot without a path is not kept (the image is attached, then the file is deleted). game_state / game_logs show entity data and script errors.
@@ -74,7 +74,7 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
         text =
 "Make this game with FactorIA: " + idea + "\n\n"
 "Follow these steps and do not skip the verification steps.\n"
-"1. Read the guide: call docs_read {\"name\":\"ai-guide\"}, then docs_read {\"name\":\"scripting\"} and docs_components for the exact component fields. Read AGENTS.md in the project if present.\n"
+"1. Read only what you need: docs_read {\"name\":\"ai-guide\",\"heading\":\"Index\"} first, then just the sections your game needs by heading (docs_read {\"name\":\"ai-guide\",\"heading\":\"...\"}); docs_list {\"audience\":\"gameAi\"} gives the other docs a summary each. Ask for components one at a time (docs_components {\"name\":\"Sprite\"} or \"filter\"), never with \"full\" and never docs_read {\"name\":\"components\"} whole. Read AGENTS.md in the project if present.\n"
 "2. Plan in a few lines: core loop, entities, input actions, win/lose condition. Keep scope small enough to finish; prefer Shape2D / primitive meshes over external art.\n"
 "3. Set up factoria.json (display size, input actions) and build scenes/main.scene.json with the essential entities.\n"
 "4. Call project_validate. Fix every error using its hint, repeat until ok.\n"
@@ -89,7 +89,7 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
         text =
 "Add this feature to the current FactorIA game: " + feature + "\n\n"
 "1. Understand the current state: fs_list / read factoria.json, the main scene and relevant scripts; call game_state to see the live entities.\n"
-"2. Check the docs for the components and APIs you will use (docs_search, docs_components). Do not guess field names.\n"
+"2. Check the docs for the components and APIs you will use (docs_search, then docs_components {\"name\":\"Sprite\"} one component at a time, never with \"full\"). Do not guess field names.\n"
 "3. Implement the smallest change that delivers the feature (scene/prefab JSON and/or scripts). Keep existing behaviour working.\n"
 "4. Call project_validate and fix every error.\n"
 "5. Run: game_step {\"frames\":120} (feed input with game_input if needed), then game_screenshot and LOOK at it. Check game_logs for errors.\n"

@@ -90,8 +90,12 @@ TEST_CASE("scaffold: AGENTS.md is a crisp guide") {
     CHECK(guide.find("factoria validate") != std::string::npos);
     CHECK(std::count(guide.begin(), guide.end(), '\n') < 200);
     CHECK(guide.find("--heading") != std::string::npos);  // read by section, never the whole ai-guide
-    CHECK(guide.find("--contents") != std::string::npos);
+    CHECK(guide.find("ai-guide --heading Index") != std::string::npos);  // the index first, then sections
+    CHECK(guide.find("\"heading\":\"Index\"") != std::string::npos);
     CHECK(guide.find("never the bare command") != std::string::npos);
+    CHECK(guide.find("docs list") != std::string::npos);  // other docs are found by their summary
+    CHECK(guide.find("docs.components") != std::string::npos);  // one component at a time
+    CHECK(guide.find("never the `components` page whole") != std::string::npos);
 }
 
 TEST_CASE("scaffold: refuses non-empty dir unless forced, unknown template teaches") {

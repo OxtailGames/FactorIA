@@ -661,12 +661,16 @@ Command make_docs_command() {
     g.run = [](Context& ctx) {
         if (ctx.args.positional().empty()) {
             Json arr = Json::array();
-            for (const auto& d : list_docs()) arr.push_back(Json::object({{"name", d.name}, {"path", d.path}, {"title", d.title}, {"bytes", d.bytes}}));
+            for (const auto& d : list_docs()) {
+                Json aud = Json::array();
+                for (const std::string& a : d.audience) aud.push_back(a);
+                arr.push_back(Json::object({{"name", d.name}, {"path", d.path}, {"title", d.title}, {"summary", d.summary}, {"audience", aud}, {"bytes", d.bytes}}));
+            }
             if (ctx.args.has("json")) {
                 print_json(ctx.out, arr);
                 return 0;
             }
-            for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << d.title << "\n";
+            for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << (d.summary.empty() ? d.title : d.summary) << "\n";
             return 0;
         }
         if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
