@@ -505,17 +505,17 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     });
     // Every ERROR of the run, of any category, in an ERROR-only list: the log ring holds 4096 records of every level, and a chatty
     // test could push an earlier test's error out of it before the runner read it (logErrors reads this list during the run).
-    auto errors = std::make_shared<TestErrors>();
-    int errorSinkId = add_log_sink([errors](const LogEntry& e) {
+    auto errorList = std::make_shared<TestErrors>();
+    int errorSinkId = add_log_sink([errorList](const LogEntry& e) {
         if (e.level < LogLevel::Error) return;
-        std::lock_guard<std::mutex> lk(errors->mu);
-        if (errors->list.size() < kMaxTestErrors) errors->list.push_back(e);
+        std::lock_guard<std::mutex> lk(errorList->mu);
+        if (errorList->list.size() < kMaxTestErrors) errorList->list.push_back(e);
         else {
-            ++errors->dropped;
-            errors->lastDroppedSeq = e.seq;
+            ++errorList->dropped;
+            errorList->lastDroppedSeq = e.seq;
         }
     });
-    testErrors = errors;
+    testErrors = errorList;
     // The errors the game already knew (loggedKeys) come back after the run: an editor that runs tests on a live Play must not
     // make its known errors log again.
     std::set<std::string> savedLoggedKeys = loggedKeys;

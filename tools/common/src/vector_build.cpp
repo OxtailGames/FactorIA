@@ -67,8 +67,6 @@ std::array<std::uint8_t, 3> oklab_shifted(const std::array<std::uint8_t, 3>& rgb
     return from_oklab(lab);
 }
 
-bool visible_paint(const std::string& v) { return !v.empty() && v != "none" && v != "transparent"; }
-
 // The placement's parent node and the element to insert in front of (or null).
 XNode* parent_of(SvgDoc& doc, const Placement& at) {
     if (at.before) return at.before->parent ? at.before->parent : doc.root();

@@ -129,6 +129,13 @@ const ImageLayer& pick_tileset_layer(const ImageDocument& doc, const std::string
     arg_error(command, "/layer", "'" + doc.file + "' has no tileset layer called '" + name + "'.", did_you_mean(name, names) + " Tileset layers: " + join(names, ", ") + ".");
 }
 
+// pick_tileset_layer() for the `layer` argument of a command (absent or not a string = ""). The name lives in a local so
+// no call binds a temporary to the reference the function returns into (GCC's -Wdangling-reference).
+const ImageLayer& pick_tileset_layer_of(const ImageDocument& doc, const Json& a, const char* command) {
+    const std::string name = a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string();
+    return pick_tileset_layer(doc, name, command);
+}
+
 // Warnings about a tileset layer whose sheet is not the whole picture: Tilemap rules count tiles on the baked PNG.
 void sheet_warnings(const ImageDocument& doc, const ImageLayer& layer, const TilesetLayout& lay, std::vector<std::string>& out) {
     if (layer.x != 0 || layer.y != 0)
@@ -487,7 +494,7 @@ Json tileset_rules(const std::string& projectDir, const Json& a) {
     check_arg_keys(cmd, a, "", {"path", "layer", "rules", "overwrite"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
     const ImageDocument doc = parse_or_fail(projectDir, d.rel, d.json);
-    const ImageLayer& layer = pick_tileset_layer(doc, a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string(), cmd);
+    const ImageLayer& layer = pick_tileset_layer_of(doc, a, cmd);
     const TilesetLayout lay = tileset_layout(layer.tileset);
     std::vector<std::string> warnings;
     sheet_warnings(doc, layer, lay, warnings);
@@ -541,7 +548,7 @@ Json tileset_info(const std::string& projectDir, const Json& a) {
         DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
         auto parsed = parse_image_document(d.json, d.rel, projectDir);
         if (!parsed.ok()) fail("invalid_argument", parsed.error().message, parsed.error().hint);
-        const ImageLayer& layer = pick_tileset_layer(*parsed, a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string(), cmd);
+        const ImageLayer& layer = pick_tileset_layer_of(*parsed, a, cmd);
         spec = layer.tileset;
         docRel = d.rel;
         layerName = layer.name;
@@ -616,7 +623,7 @@ Json tileset_check(const std::string& projectDir, const Json& a) {
         return Json::object({{"path", d.rel}, {"ok", false}, {"issues", list},
                              {"nextSteps", Json::array({"Fix the problems above (each names its JSON pointer), then run image.tileset.check again. image.tileset.info shows the parts a set needs."})}});
     }
-    const ImageLayer& layer = pick_tileset_layer(*parsed, a.contains("layer") && a["layer"].is_string() ? a["layer"].get<std::string>() : std::string(), cmd);
+    const ImageLayer& layer = pick_tileset_layer_of(*parsed, a, cmd);
     const TilesetSpec& spec = layer.tileset;
     const TilesetLayout lay = tileset_layout(spec);
 

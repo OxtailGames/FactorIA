@@ -62,7 +62,7 @@ struct Recording {
     std::size_t frames() const { return l.size(); }
     float peak(std::size_t from = 0, std::size_t to = SIZE_MAX) const {
         float p = 0;
-        for (std::size_t i = from; i < std::min(to, l.size()); ++i) p = std::max({p, std::fabs(l[i]), std::fabs(r[i])});
+        for (std::size_t i = from, end = std::min({to, l.size(), r.size()}); i < end; ++i) p = std::max({p, std::fabs(l[i]), std::fabs(r[i])});
         return p;
     }
     float peak_l() const { float p = 0; for (float v : l) p = std::max(p, std::fabs(v)); return p; }

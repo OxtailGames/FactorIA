@@ -882,7 +882,7 @@ TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and t
     INFO(gemWhy);
     REQUIRE(gem->ok);
     REQUIRE(gem->twins.size() == 6);
-    for (const std::string& slang : {"hlsl5", "glsl430", "glsl300es", "metal_macos", "metal_ios", "metal_sim"}) {
+    for (const std::string slang : {"hlsl5", "glsl430", "glsl300es", "metal_macos", "metal_ios", "metal_sim"}) {
         CAPTURE(slang);
         REQUIRE(gem->twins.count(slang) == 1);
         const Json& twin = gem->twins.at(slang);

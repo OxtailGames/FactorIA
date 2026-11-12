@@ -80,6 +80,7 @@ Badge badge_of(ImageLayerKind k) {
         case ImageLayerKind::Provider: return {"AI", IM_COL32(190, 90, 160, 255)};
         case ImageLayerKind::Group: return {"GP", IM_COL32(110, 160, 160, 255)};
         case ImageLayerKind::Adjustment: return {"AD", IM_COL32(190, 100, 100, 255)};
+        case ImageLayerKind::Tileset: return {"TS", IM_COL32(100, 150, 200, 255)};
     }
     return {"?", IM_COL32(120, 120, 120, 255)};
 }

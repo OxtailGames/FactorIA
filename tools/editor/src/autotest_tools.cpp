@@ -1917,7 +1917,7 @@ void Editor::at_build_tools_script() {
 
         // 5. Reparent by drag and drop.
         step(2, [this] { toasts_.clear(); });
-        step(2, [this, he, position_of] {
+        step(2, [this, he] {
             he->undo = undo_depth();
             he->coinWorld = world().world_position(world().find_by_id("coin_3"));
         });
@@ -2867,7 +2867,7 @@ void Editor::at_build_tools_script() {
         atWaitCount_ = 0;
         atWaitUntil_ = [this] { return aiDetected_.load(); };
     });
-    step(2, [this, project_file] {
+    step(2, [this] {
 #ifdef _WIN32
         stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
 #else

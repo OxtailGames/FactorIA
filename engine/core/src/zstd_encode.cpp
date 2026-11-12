@@ -963,7 +963,7 @@ private:
             bits = 18;
         }
         if (comp >= (1u << bits) || n >= (1u << bits)) return false;
-        const std::uint64_t head = 2u | (sizeFormat << 2) | (static_cast<std::uint64_t>(n) << 4) |
+        const std::uint64_t head = 2u | (static_cast<std::uint64_t>(sizeFormat) << 2) | (static_cast<std::uint64_t>(n) << 4) |
                                    (static_cast<std::uint64_t>(comp) << (4 + bits));
         const unsigned headBytes = sizeFormat <= 1 ? 3 : sizeFormat == 2 ? 4 : 5;
         for (unsigned i = 0; i < headBytes; ++i) section.push_back(static_cast<std::uint8_t>(head >> (8 * i)));

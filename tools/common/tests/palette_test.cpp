@@ -20,7 +20,9 @@ Image strip(std::initializer_list<std::array<std::uint8_t, 4>> pixels) {
     Image img;
     img.width = static_cast<int>(pixels.size());
     img.height = 1;
-    for (const auto& p : pixels) img.rgba.insert(img.rgba.end(), p.begin(), p.end());
+    img.rgba.reserve(pixels.size() * 4);
+    for (const auto& p : pixels)
+        for (const std::uint8_t byte : p) img.rgba.push_back(byte);  // not vector::insert: GCC 13 reports a false overflow for it
     return img;
 }
 
