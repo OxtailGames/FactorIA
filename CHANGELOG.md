@@ -2,9 +2,24 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-Older versions, one file per minor version with its patch releases: [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
+Older versions, one file per minor version with its patch releases: [0.24](changelog/0.24.md), [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
 
 ## Unreleased
+
+## 0.25.0
+
+FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,
+`writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish`) and every caller runs with a set: the CLI user
+has all, `factoria mcp` all but `writeAnywhere` (`--read-only`: `{read, state}`), a game script `{read, state}` (a test
+asks for more with its `capabilities` option, and the modules a test imports run as game code), each AI role its own
+(builders lose `publish`, critics are `{read, state}`); a refused call fails with `capability_denied`, says who may run
+it and never reaches the AI hooks. Every path a caller gives to a writing command goes through one check: inside the
+project (absolute paths only for the CLI user), never into `.git/` or `.factoria/`, no Windows device names or trailing
+dots, and a shared asset folder linked from outside the project is now outside it. Secrets stay out of process lists
+and environments: signing passwords go through stdin, the programs the AI starts get an environment allow-list
+(`inheritEnv` adds names), secret files are private on Windows too and temporary folders are private and never reused
+(a relative `TMPDIR` is refused). Each CLI agent has a permission mode, the feedback server limits every write route,
+and recorded contract tests catch a Claude Code or Codex output change.
 
 - Hooks, scripts and AI polish (M92.POLISH-F2): docs/HOOKS.md and docs/AI_PROVIDERS.md say that a call refused with `capability_denied` is not hooked, the AI trust files re-compare the hash under the lock before dropping a record, the sweep of stale `factoria-run_*` folders spares a folder with a file written in the last day, and the Android license-fetch problem names which of its two causes happened.
 - MCP, AI sessions and CLI contract tests polish (M92.POLISH-D): `readOnlyHint` is false for a `{read}` command with an optional output path (`x-fa-path` `write`) or a run-time write (`feedback.check` `reject`), docs/MCP.md says what `_meta` and `tool_describe` carry, the `--read-only` wording matches `{read, state}`, `factoria commands <name>` documents its `Capabilities:` line, the CLI contract tests cover the session id, thinking, sub-agents, 1-hour cache writes and unconnected MCP servers, and the feedback server has a `networkOf` table test.
@@ -64,7 +79,6 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   only (`{read, state}`); `tilemap.generate`'s `place` uses it. Tests of games that write files need the `capabilities`
   option, and a tool that only changes memory should declare `capabilities: ["read", "state"]`.
 - Command capabilities (M92): `fa::Capability` / `CapabilitySet` (core/capability.h), `CommandInfo::capabilities` (derived from `readOnly` until a command declares it), named caller sets, `CommandCapabilityScope` / `command_context()`, and the `capability_denied` error from `CommandRegistry::call`; `describe()` lists `capabilities`.
-- `fa::fs::resolve_for_write(path, root, allowAnywhere)` (M92.2a): the one function that confines a path a caller gives to a command that writes to the project, the save folder or the export folder (`fs::export_dir()`, default `build/exports`); `resolve_project_path` is now a wrapper over it, and `a/../b` inside the project is accepted.
 - No signing or store password is an argument of a program FactorIA starts (the process list shows those). `sign.windows` on Windows imports the `.pfx` into the user's certificate store with PowerShell (password in its environment), signs with `signtool /sha1 <thumbprint> /s My` and removes the certificate again; with `osslsigncode` the password goes on stdin (`-readpass -`); `sign.macos` gives `notarytool` the Apple ID password on stdin. Steps list the names of their environment variables (`env`) and `stdinSecret`. GOG Pipeline Builder (`--password`) and `msstore reconfigure` (`--clientSecret`) leave no other way: `publish.gog` and `publish.microsoft` warn about it in the plan and docs/EXPORTING.md ("Secrets and the process list") explains it.
 - Every command of the runtime and the platform services, and JS project tools (`capabilities: [...]` in the tool definition) and native plugin commands (`set_command_capabilities`, plugin API version 5), declare their capabilities; a re-added copy of a derived `CommandInfo` stays undeclared.
 - The programs the AI starts (command hooks, Claude Code, Codex and other CLI agents, model listing, asset commands, stdio tool servers, `curl`) no longer inherit the editor's whole environment, which holds API keys and signing passwords: they get an allow-list (`ProcessOptions::inheritEnv`, `ChildOptions::inheritEnv`; the base list, the provider's own key, `CLAUDE_*`/`ANTHROPIC_*` for Claude Code, `CODEX_*`/`OPENAI_*` for Codex, plus the new `inheritEnv` names of ai.json, top level, per provider or per tool server). A hook or agent that relied on another variable (`AWS_PROFILE`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`) needs its name listed; see docs/AI_PROVIDERS.md, "Environment of the programs the AI starts".
@@ -74,30 +88,3 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 - Commands that write to a path their caller gives (M92.2b) go through `fs::resolve_for_write`: `docs.write_reference` (`out`), `perf.baseline` (`file`), `player.run_ios_sim` (`screenshot`), `i18n.export` (`out`), `project.new_plugin` (`path`), `project.export` and the `publish.*` commands (`out`) stay inside their folder for an MCP client or an agent, and only the command-line user may name an absolute path. A relative path that lands in `.git` or `.factoria/` (except `.factoria/tmp`) is refused with `managed_path_denied`; a NUL byte, a drive or `:` segment on Windows and a UNC share without a name are `invalid_path`. Input schemas mark such arguments with `"x-fa-path": "write"` (or `"read"`), documented in ARCHITECTURE "Commands". The same goes for `sign.macos` / `sign.windows` (`out`, `zip`, `pkg`, `msix`) and `ci.workflow` (`path`); `fs.write`, `fs.edit` and `fs.delete` and the assets commands that write a sound, a music file, a sheet, an atlas or a subset font judge the managed folders on the real path (a symlink into `.git` is refused). Breaking for the command-line user: these commands no longer write into `.git` or `.factoria/` (the exports of `project.export` and `factoria export --out` go to `build/export` or any other folder, not `.factoria/exports`). The `.git` and `.factoria` names are matched without regard to case on every system, and a name Windows cannot create (a device name such as `CON` or `NUL`, a trailing dot or space) is `invalid_path` everywhere.
 - The commands of the runtime that write a file at a path their caller gives (M92.2b2) go through the same check: `scene.save` and `input.record` (`path`), `scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), the `anim.*` clip commands and `mesh.save` stay inside the project and out of `.git` and `.factoria/` (except `.factoria/tmp/`) for an MCP client or an agent, and an absolute path is for the command-line user only; `input.record` checks the path before it stops the recording. A game script's `mesh.save` is confined to the project too. New `fs::project_spelling` and `resolve_caller_project_path`.
 - Processes and signing (M92.POLISH-A): `ProcessOptions::newSession` (POSIX `setsid()`: no controlling terminal; a cancel or timeout still signals the whole group, SIGTERM then SIGKILL; no effect on Windows) replaces the perl wrapper `sign.macos` used for `notarytool`; `base_child_env()` also passes `SOKOL_SHDC`, `FACTORIA_EXPORT_CONFIG`, `FACTORIA_FFMPEG`, `FACTORIA_STEAMCMD`, `FACTORIA_FASTLANE`, `FACTORIA_XCRUN` and `FA_JOB_THREADS`; `sign.windows` on Windows reads the thumbprint first (imports nothing, leaves no key on disk), skips the import when the store has the certificate with its key, otherwise imports only that certificate (not the chain, so no root-store prompt) under a per-user named mutex, deletes the key it loaded when the certificate does not get into the store, and always runs the removal (with a timeout), also after a failed or cancelled import; a failed removal is named in the error's hint; PowerShell quoting doubles the typographic single quotes; the output parser tolerates a BOM and CRLF.
-
-## 0.24.0
-
-FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB
-and its tools table is generated from the command registry; `docs.list` gives every doc a summary and its audience;
-the generated AGENTS.md and the MCP prompts read the index and only the sections a task needs. `docs.components` and
-`docs.commands` come in pages with a cursor, and `factoria mcp --tools core` lets MCP clients without tool search
-start from the core commands and load the rest by group.
-
-- `docs.components` and `docs.commands` with `full:true` (and the name list of `docs.commands`, over 40 KB) come in pages: whole entries up to `maxBytes` (default 40000, max 90000, like `docs.read`), `total`, and `nextCursor` (the next entry's name) until the last page; pass it as `cursor` to continue, with the same `filter` and `format`. A cursor that is not an entry of the set fails with how to restart. `full` with `filter` now returns the matching entries in full.
-- docs/AI_GUIDE.md starts with a short `## Index` (every section in under 5 KB; read it alone with `docs_read {"name":"ai-guide","heading":"Index"}`), and the tools table of its section 4 is generated from the command registry by `docs.write_reference`: one row per command category, so it no longer goes stale and is a third of its former size.
-- `factoria mcp --tools core` (or a comma list such as `core,anim,physics`) lists only the core commands and the
-  chosen groups, plus `tool_load`, `tool_describe` and `tool_call` to reach the rest, for MCP clients without tool
-  search that would load ~400 definitions. The default `all` changes nothing. The core list and the group rules moved
-  to `fa/tooling/tool_groups.h`, shared with the built-in agent's catalog.
-- `docs.list` (and `factoria docs list`) gives every doc a one-sentence `summary` and an `audience` (`gameAi`, `user`,
-  `engineDev`), with an `audience` filter, so an AI reads only the docs its task needs. The generated AGENTS.md, the
-  MCP server instructions and the `make-game` / `add-feature` prompts now say: the AI guide's `Index` first, then
-  sections by heading, components one at a time, never the whole `components` page. `factoria docs list --audience <a>`
-  filters the same way.
-- Polish of the docs paging and the MCP tool profiles: a page of `docs.components` / `docs.commands` counts `maxBytes` on the
-  serialized result (JSON escapes included) and a `cursor` cannot be combined with `name`; `docs.write_reference` reports a
-  `warnings` entry when `AI_GUIDE.md` has no generated-table markers or is missing, instead of skipping the table silently;
-  with `--read-only`, `factoria mcp --tools` names the groups it hides, `tool_call` annotates read-only calls and a
-  non-object `arguments` is an `isError` result.
-- A rig or model file written again with the same size within the clock step of the previous write (1/64 s under the Windows
-  rules) is read again by the skeleton cache, which used to keep serving the old skeleton.
