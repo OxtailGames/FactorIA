@@ -37,14 +37,6 @@ bool in_hidden_dir(const std::string& rel) {
     throw CommandError(code, msg, hint);
 }
 
-// Throws unless fs.write / fs.edit / fs.delete may change `rel` (normalized, project-relative). It is the rule of
-// fa::fs::check_writable, shared with scene.save and scene.import_ascii, so every command agrees on where files can be
-// written and deleted: normal project folders and `.factoria/tmp/`, never the rest of `.factoria/`.
-void require_writable(const std::string& rel) {
-    auto ok = fs::check_writable(rel);
-    if (!ok.ok()) fail("invalid_argument", ok.error().message, ok.error().hint);
-}
-
 // The path as a person writes it: without the \\?\ (or \\?\UNC\) prefix that fs::os_path gives a long Windows path and that
 // weakly_canonical and directory iterators may hand back. Paths this file returns and compares are always in this form; every
 // std::filesystem call on them goes through os() (a project below a deep folder, or a long file name, works on Windows).
@@ -66,6 +58,16 @@ stdfs::path root_of(const std::string& projectDir) {
 
 stdfs::path resolve_or_throw(const std::string& projectDir, const std::string& rel) {
     auto r = resolve_project_path(projectDir, rel);
+    if (!r.ok()) fail("invalid_argument", r.error().message, r.error().hint);
+    return r.value();
+}
+
+// The target of fs.write, fs.edit and fs.delete: inside the project for every caller (the command-line user too), and judged on
+// the CANONICAL path against the tools' folders (`.git`, `.factoria/` except `.factoria/tmp`), so a link inside the project
+// that leads into them is refused as well.
+stdfs::path resolve_writable_or_throw(const std::string& projectDir, const std::string& rel) {
+    auto r = fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false,
+                                      fs::ManagedFolders::Refuse);
     if (!r.ok()) fail("invalid_argument", r.error().message, r.error().hint);
     return r.value();
 }
@@ -104,8 +106,9 @@ Json int_prop(const char* desc, long def) { return Json::object({{"type", "integ
 Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::string_view relPath) {
     // The confinement rules live in fa::fs (core/fs.h, resolve_for_write): a project-relative path, no absolute form, no ".."
     // above the project, no symlink out. `projectDir` is this registration's folder, which need not be fs::project_root().
-    // The managed folders stay open here: the callers are the tools' own files (selections, previews, review files under
-    // `.factoria/`), and the commands that write what a caller names check fs::check_writable or use resolve_write_path.
+    // The managed folders stay open here (ManagedFolders::Allow): the callers are the tools' own files (selections, previews,
+    // review files under `.factoria/`) and every read. A command that writes what its caller names uses resolve_write_path or
+    // project_write_file (which refuse them, judged on the canonical path); fs.write, fs.edit and fs.delete do the same.
     return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, relPath, /*allowAnywhere=*/false,
                                     fs::ManagedFolders::Allow);
 }
@@ -249,10 +252,9 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 auto bytes = base64_decode(content);
                 content.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             }
-            stdfs::path p = resolve_or_throw(projectDir, rel);
+            stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
             if (r == ".") fail("invalid_argument", "Writing to '" + rel + "' is not allowed.", "Give a file path inside the project.");
-            require_writable(r);
             if (content.size() > kMaxWriteBytes) fail("too_large", "Content larger than 8 MiB.");
             std::error_code ec;
             bool existed = stdfs::exists(os(p), ec);
@@ -290,9 +292,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::string rel = arg_string(args, "path", true);
             std::string find = arg_string(args, "find", true), repl = arg_string(args, "replace", true);
             if (find.empty()) fail("invalid_argument", "'find' must not be empty.", "Use fs.write to create or replace whole files.");
-            stdfs::path p = resolve_or_throw(projectDir, rel);
+            stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
-            require_writable(r);
             auto text = tooling_detail::read_file(p);
             if (!text) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list, or fs.write to create it.");
             if (is_binary(*text)) fail("binary_file", "'" + rel + "' is a binary file.");
@@ -423,11 +424,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
-            stdfs::path p = resolve_or_throw(projectDir, rel);
+            stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
             if (r == "." || r == "factoria.json" || r == "ENGINE_FEEDBACK.json")
                 fail("invalid_argument", "Deleting '" + rel + "' is not allowed.", "The project root, factoria.json and ENGINE_FEEDBACK.json are protected.");
-            require_writable(r);
             std::error_code ec;
             if (!stdfs::exists(stdfs::symlink_status(os(p), ec))) fail("not_found", "'" + rel + "' does not exist.");
             if (stdfs::is_directory(os(p), ec) && !stdfs::is_symlink(os(p), ec)) {

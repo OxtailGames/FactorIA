@@ -2,6 +2,7 @@
 // platforms/plugin/ plus fa_plugin.h, declared in factoria.json.
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
@@ -90,13 +91,16 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         const bool dryRun = a.value("dryRun", false);
         // The folder is written to: a caller that may not write outside the project (MCP, the built-in agent) gets a path inside it, and
         // no ${VARIABLE} (which expands to wherever the environment says); the command-line user names any folder.
+        std::optional<stdfs::path> resolvedFolder;
         if (a.contains("path") && a["path"].is_string()) {
             const std::string given = a["path"].get<std::string>();
             const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
             if (!anywhere && given.find("${") != std::string::npos)
                 throw CommandError("invalid_argument", "path '" + given + "' uses a ${VARIABLE}, which can lead outside the project",
                                    "Give a folder inside the project, such as plugins/" + name + ".");
-            if (auto r = resolve_write_path(projectDir, given); !r.ok() && (!anywhere || given.find("${") == std::string::npos))
+            auto r = resolve_write_path(projectDir, given);
+            if (r.ok() && given.find("${") == std::string::npos) resolvedFolder = r.value();  // ${VARIABLE} parts expand in plugin_folder
+            else if (!anywhere || given.find("${") == std::string::npos)
                 throw CommandError("invalid_argument", "path: " + r.error().message, r.error().hint);
         }
 
@@ -119,15 +123,17 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         auto folder = plugin_folder(projectDir, *plugin);
         std::error_code ec;
         if (!folder.ok()) throw CommandError("invalid_argument", folder.error().message, folder.error().hint);
-        if (stdfs::exists(folder.value(), ec) && !stdfs::is_empty(folder.value(), ec))
-            throw CommandError("invalid_argument", folder.value() + " is not empty", "Pass another `path`, or empty that folder.");
+        // The folder that is written is the one resolve_write_path checked above, not a second computation of it.
+        const std::string folderPath = resolvedFolder ? fs::path_to_utf8(*resolvedFolder) : folder.value();
+        if (stdfs::exists(fs::path_from_utf8(folderPath), ec) && !stdfs::is_empty(fs::path_from_utf8(folderPath), ec))
+            throw CommandError("invalid_argument", folderPath + " is not empty", "Pass another `path`, or empty that folder.");
 
         // The files: the template with {{NAME}} replaced (in paths too), and the API header.
         Json files = Json::array();
         auto write = [&](const std::string& rel, const std::string& text) {
             if (!dryRun) {
                 std::string err;
-                if (!tooling_detail::write_file(stdfs::path(folder.value()) / rel, text, &err)) throw CommandError("failed", err);
+                if (!tooling_detail::write_file(fs::path_from_utf8(folderPath) / rel, text, &err)) throw CommandError("failed", err);
             }
             files.push_back(rel);
         };
@@ -149,7 +155,7 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
             if (!tooling_detail::write_file(projectFile, patched.value(), &err)) throw CommandError("failed", err);
         }
 
-        const std::string f = folder.value();
+        const std::string f = folderPath;
         const std::string build = "Build it: cmake -S \"" + f + "\" -B \"" + f + "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" +
                                   f + "/build\" --config Release (it copies the library into " + f + "/" + runtime_platform() + "/)";
         Json nextSteps = Json::array({build});

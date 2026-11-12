@@ -553,12 +553,16 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
             {"properties", Json::object({{"out", Json::object({{"type", "string"},
-                {"description", "Docs folder to write into (relative to the working directory, and inside it; an absolute path only from the command line), usually \"docs\"."},
+                {"description", "Docs folder to write into, usually \"docs\". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory."},
                 {"x-fa-path", "write"}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
-            // Relative to the working directory and confined to it; the command-line user may name any folder.
-            auto resolvedOut = fs::resolve_for_write_in(std::filesystem::current_path(), fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true),
-                                                        caller_capabilities().has(Capability::WriteAnywhere));
+            // The command-line user names a folder relative to the working directory, or any absolute one. An agent (MCP, the
+            // in-editor assistant) writes inside the project folder, wherever the process was started from.
+            const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+            std::error_code cwdEc;
+            std::filesystem::path root = std::filesystem::current_path(cwdEc);
+            if (!anywhere && !fs::project_root().empty()) root = fs::project_root();
+            auto resolvedOut = fs::resolve_for_write_in(root, fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true), anywhere);
             if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
             const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
