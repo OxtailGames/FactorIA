@@ -434,6 +434,12 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
     // but the user, and asks for writeAnywhere on top.
     declare_command_capabilities(registry, {
         {"ai.settings.get", capability_sets::reads()},
+        // writeProject: scope "project" writes the project's .factoria/ai-settings file. It also writes ai-trust.json NEXT TO THE
+        // USER'S ai.json (the file that remembers which project files the user accepted) when the change leaves the project file
+        // empty and it is deleted: the acceptance of that file is forgotten there. That file is the user's, outside the project,
+        // but the caller cannot choose what goes into it (a command never accepts: recordTrust false), so writeProject is enough.
+        // Scope "user" writes
+        // ai.json itself and asks for writeAnywhere in the handler (and is refused for anyone but the user).
         {"ai.settings.set", capability_sets::writes_project()},
     });
 }

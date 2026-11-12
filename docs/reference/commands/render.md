@@ -8,6 +8,8 @@ Since 0.9.0.
 
 Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.
 
+Capabilities: read, state
+
 Builds geometry at run time, without writing a file: `positions` (three numbers per vertex), `indices` (three per triangle; left out = a triangle soup), and optionally `normals`, `uvs`, `tangents`, `colors` and `submeshes` (runs of the index list with their own material). Missing normals and tangents are computed. Conventions are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0,0) is the top-left of the image. Everything is checked and an error names the field, the counts and the fix (array length, index outside the vertices, submesh outside the index list). Result: the info of mesh.info with `id` ("mesh:N"). Set MeshRenderer.mesh (and Collider3D.mesh for a convex or mesh collider) to that id; culling, shadows, picking and the editor's selection use the mesh's real bounds. The mesh belongs to the running scene: loading a scene releases every mesh, and it is not written to scene files (scene validation rejects an id in a file): use mesh.save for a file. At most 256 meshes, 1048576 vertices and 6291456 indices each. Vertex colors multiply the base color. Example: mesh.create {"positions":[0,0,0, 1,0,0, 0,1,0],"indices":[0,1,2],"submeshes":[{"material":{"name":"skin","color":[0.9,0.7,0.5,1]}}]}
 
 | Argument | Type | Required | Description |
@@ -26,6 +28,8 @@ Since 0.9.0.
 
 Free a procedural mesh.
 
+Capabilities: read, state
+
 Entities that still name the id draw the missing-mesh placeholder and the engine logs why once: set their `mesh` first. Errors for an unknown id with the live ids. Result: {destroyed: id}. Example: mesh.destroy {"id":"mesh:1"}
 
 | Argument | Type | Required | Description |
@@ -37,6 +41,8 @@ Entities that still name the id draw the missing-mesh placeholder and the engine
 Since 0.9.0.
 
 Describe one procedural mesh: counts, bounds, submeshes and materials.
+
+Capabilities: read
 
 Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submeshes: [{material, start, count}]}. `version` grows with every mesh.update. Errors for an unknown or destroyed id with the live ids. Example: mesh.info {"id":"mesh:1"}
 
@@ -50,6 +56,8 @@ Since 0.9.0.
 
 List the live procedural meshes of the running scene.
 
+Capabilities: read
+
 Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles, hasColors, bounds, submeshes}. Example: mesh.list {}
 
 ## `mesh.save` (modifies state)
@@ -58,18 +66,22 @@ Since 0.9.0.
 
 Write a procedural mesh as a .glb file that loads back as a normal model.
 
-One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; it may not be inside .factoria/ (except .factoria/tmp/). A material whose texture is a run-time texture cannot be saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, submeshes}. Example: mesh.save {"id":"mesh:1","path":"assets/models/tree.glb"}
+Capabilities: read, writeProject
+
+One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; it stays inside the project and may not be inside .git or .factoria/ (except .factoria/tmp/); an absolute path needs the writeAnywhere capability (the command line). A material whose texture is a run-time texture cannot be saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, submeshes}. Example: mesh.save {"id":"mesh:1","path":"assets/models/tree.glb"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The mesh ("mesh:N"). |
-| `path` | string | yes | Project-relative file ending in .glb. |
+| `path` | string | yes | Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere). |
 
 ## `mesh.update` (modifies state)
 
 Since 0.9.0.
 
 Replace the data of a procedural mesh; arrays left out are kept.
+
+Capabilities: read, state
 
 Takes the same arrays as mesh.create. `positions`, `uvs`, `colors`, `indices` and `submeshes` that are left out are kept; normals and tangents are computed again unless given. Changing the vertex count needs the other per-vertex arrays to fit it (errors say which); changing `indices` of a mesh with several submeshes needs `submeshes` too. Cheap enough to call every frame: the GPU buffers are reused while the new data fits. A Collider3D (convex or mesh) that uses the mesh rebuilds its shape on every update, which is costly for big meshes. Result: the info of mesh.info. Example: mesh.update {"id":"mesh:1","positions":[0,0,0, 2,0,0, 0,2,0]}
 

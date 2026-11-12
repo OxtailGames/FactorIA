@@ -114,9 +114,9 @@ std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains
 // `--permission-mode <mode>`, Codex `--sandbox <mode>` (before the "-" that reads standard input; the mode "default" adds no
 // flag, Codex's own configuration decides). The built-in argv always gets one (the kind's default when none is set); a user
 // template (`builtInArgv` false) only when the provider names a mode. A permission flag the argv already has wins: nothing is
-// added. A read-only role (`readOnly`) never runs with the loosest modes: Codex gets `--sandbox read-only` whatever the mode,
-// Claude Code `acceptEdits` instead of `bypassPermissions` or `auto` (its edit tools are switched off by disallowedTools). Other
-// CLIs are left alone.
+// added, also for a read-only role: your own command line is yours. A read-only role (`readOnly`) does not run with the loosest
+// modes of the SETTING: Codex gets `--sandbox read-only` whatever the mode, Claude Code `acceptEdits` instead of
+// `bypassPermissions` or `auto` (its edit tools are switched off by disallowedTools). Other CLIs are left alone.
 void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::string& permissionMode, bool readOnly,
                            std::vector<std::string>& argv);
 

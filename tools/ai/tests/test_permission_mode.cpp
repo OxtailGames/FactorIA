@@ -1,9 +1,13 @@
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <thread>
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
 #include "fa/core/fs.h"
+#include "fa/tooling/feedback_share.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -104,6 +108,16 @@ TEST_CASE("save_provider_permission_mode: writes one key, keeps the rest, refuse
     CHECK(badMode.error().message.find("/providers/claude-code/permissionMode") != std::string::npos);
     CHECK(read_file(path) == before);
     CHECK_FALSE(save_provider_permission_mode("anthropic", "plan", path).ok());
+    CHECK(read_file(path) == before);
+    // an empty provider name, and a provider the configuration does not have (also with the default mode), teach and change nothing
+    auto noName = save_provider_permission_mode("", "plan", path);
+    REQUIRE_FALSE(noName.ok());
+    CHECK(noName.error().message.find("empty") != std::string::npos);
+    CHECK_FALSE(noName.error().hint.empty());
+    auto noProvider = save_provider_permission_mode("claude-cod", "", path);
+    REQUIRE_FALSE(noProvider.ok());
+    CHECK(noProvider.error().message.find("claude-cod") != std::string::npos);
+    CHECK(noProvider.error().hint.find("claude-code") != std::string::npos);  // did you mean
     CHECK(read_file(path) == before);
     // an empty mode removes the key and the entry it leaves empty
     REQUIRE(save_provider_permission_mode("claude-code", "", path).ok());
@@ -227,3 +241,34 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
     CHECK(ro.find("workspace-write") == std::string::npos);
 }
 #endif
+
+TEST_CASE("saving ai.json waits for the lock of its folder and, when another program keeps it, changes nothing and says why") {
+    TempDir dir;
+    const std::string path = (dir.path / "ai.json").string();
+    REQUIRE(fs::write_text(path, R"({"defaultProvider": "claude-code"})").ok());
+    ShareEnv env = share_env();
+    env.lockWaitSec = 0.05;  // a busy lock is reported after this long
+    ScopedShareEnv scoped(env);
+    std::atomic<bool> held{false}, release{false};
+    // The lock belongs to the thread that took it: this one stands for another program.
+    std::thread other([&] {
+        ShareLock lock(share_env(), dir.path);
+        held = lock.held();
+        while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    });
+    while (!held) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const std::string before = read_file(path);
+    auto busy = save_provider_permission_mode("claude-code", "plan", path);
+    auto busyRoles = save_roles({}, path);
+    release = true;
+    other.join();
+    REQUIRE_FALSE(busy.ok());
+    CHECK(busy.error().message.find("Cannot save") != std::string::npos);
+    CHECK(busy.error().hint.find("try again") != std::string::npos);
+    CHECK_FALSE(busyRoles.ok());
+    CHECK(read_file(path) == before);
+    // the lock is free again: the same save works, and leaves no lock file behind
+    REQUIRE(save_provider_permission_mode("claude-code", "plan", path).ok());
+    CHECK(Json::parse(read_file(path))["providers"]["claude-code"]["permissionMode"] == "plan");
+    CHECK_FALSE(std::filesystem::exists(dir.path / "feedback-share.lock"));
+}

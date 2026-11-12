@@ -1003,6 +1003,33 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         }
     } removeRunFiles{runFiles};
 
+    // A run file that holds a secret goes to the project's .factoria/ai. When the owner-only write fails there (a project on SMB
+    // or a NAS: the Windows ACL with the local user's SID can be refused, or the folder cannot be made), the file goes to a
+    // private folder in the user's temporary folder instead, and the log says why. The folder is removed with the run files.
+    fsys::path fallbackDir;
+    auto write_run_file = [&](const fsys::path& file, const std::string& text) -> Result<fsys::path> {
+        auto first = write_private_file(fs::path_to_utf8(file), text);
+        if (first) return file;
+        FA_WARN("ai", "Could not write the private run file {}: {}. Using the temporary folder of this user instead.",
+                fs::path_to_utf8(file), first.error().message);
+        if (fallbackDir.empty()) {
+            std::error_code tec;
+            if (fsys::temp_directory_path(tec).empty() || tec) return first.error();
+            fallbackDir = fs::make_temp_dir("factoria-run");
+            runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
+#ifndef _WIN32
+            fsys::permissions(fallbackDir, fsys::perms::owner_all, fsys::perm_options::replace, tec);  // %TEMP% is per user on Windows
+#endif
+        }
+        const fsys::path moved = fallbackDir / file.filename();
+        if (auto second = write_private_file(fs::path_to_utf8(moved), text); !second) {
+            return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                                  "; the fallback " + fs::path_to_utf8(moved) + " failed too: " + second.error().message,
+                              "Check that the project folder and the temporary folder are writable by your account.");
+        }
+        return moved;
+    };
+
     // MCP config file for CLIs that take one (Claude Code). A file of this run only: runs of other chats and roles start at
     // the same time with other endpoints and tool servers, and the user's tool servers put keys in it. The editor's endpoint
     // URL carries a per-session token for a loopback port; the file is readable by its owner only and sits in the project's
@@ -1018,8 +1045,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
         const Json config = make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers, factoriaEnv);
-        if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(config) + "\n"); !ok) return ok.error();
-        mcpPath = host_utf8(file);
+        auto written = write_run_file(file, dump_pretty(config) + "\n");
+        if (!written) return written.error();
+        mcpPath = host_utf8(*written);
     }
 
     // Extensions: hooks go to a private settings file, skills to a plugin written for the run (Claude Code only; a generic
@@ -1046,9 +1074,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
                 const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
                 runFiles.push_back(file);
-                if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n"); !ok)
-                    return ok.error();
-                settingsPath = host_utf8(file);
+                auto written = write_run_file(file, dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n");
+                if (!written) return written.error();
+                settingsPath = host_utf8(*written);
             }
             if (wantsSkills) {
                 const fsys::path skills = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "ext-skills-" + tag);

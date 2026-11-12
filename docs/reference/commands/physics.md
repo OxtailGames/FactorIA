@@ -8,6 +8,8 @@ Since 0.3.0.
 
 Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.
 
+Capabilities: read
+
 A NavMesh3D component marks a box of the level. Baking voxelizes the static colliders inside it (no RigidBody3D or a static one; triggers, Collider3D.navObstacle and Collider3D.navWalkable colliders are left out; navWalkable ones are added as moving cells) into a grid of walkable cells: not steeper than maxSlope, agentHeight of room above, agentRadius from walls and drops, neighbours joined when they differ by at most stepHeight. It is baked by itself when the scene loads and when the colliders change (autoBake); call this to bake on demand, for example with autoBake off. mesh = id of the entity with the NavMesh3D; omitted = every enabled one. Result: a list of {mesh, cellsX, cellsZ, cells, spans, walkableCells, regions, obstacles, links, walkableBodies}; NavLink3D entities add off-mesh links; no timing, so the same level gives the same result. Example: nav.bake {"mesh":"navmesh"}
 
 | Argument | Type | Required | Description |
@@ -19,6 +21,8 @@ A NavMesh3D component marks a box of the level. Baking voxelizes the static coll
 Since 0.3.0.
 
 Find a walkable path between two 3D points on the baked NavMesh3D.
+
+Capabilities: read
 
 A* over the walkable grid, then string pulling: the result is few corner points from `from` to `to` on the walkable surface (meters). Result {found:true, points:[[x,y,z],...], length, complete, links?:[{point, entity}], from, to, mesh} or {found:false, reason, message, hint}: reason is start_off_mesh / goal_off_mesh (not on walkable ground; nearest and nearestDistance say where the nearest walkable point is) or disconnected (the two are in different walkable areas, a moving obstacle blocks the way, or a navWalkable platform is away). A start or goal within `snap` meters of walkable ground is moved onto it. closest=true returns a path to the reachable point nearest the goal (complete=false) instead of failing when disconnected. radius = agent radius of this query; larger than the NavMesh3D.agentRadius it was baked for is an error: bake for the bigger agent (a second NavMesh3D). mesh = id of the NavMesh3D entity; omitted = the first enabled one that contains `from`. Scripts: nav.findPath(from, to, {radius}). Example: nav.find_path {"from":[0,0,0],"to":[10,0,5]}
 
@@ -37,6 +41,8 @@ Since 0.19.0.
 
 Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
 
+Capabilities: read
+
 The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: nav.findPaths(queries, opts). Example: nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},{"from":[2,0,2],"to":[-4,0,6]}]}
 
 | Argument | Type | Required | Description |
@@ -52,6 +58,8 @@ The batch form of nav.find_path for crowds and AI planners: `queries` is a list 
 Since 0.3.0.
 
 Find a path over the cells of a Tilemap (or a plain cost grid) with A*.
+
+Capabilities: read
 
 Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in solidTiles block, every other cell costs 1, `costs` {"<tile index>": cost | null} overrides per tile, null = blocked, key "-1" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] (cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. Deterministic. Example: nav.find_tile_path {"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}.
 
@@ -75,6 +83,8 @@ Since 0.19.0.
 
 Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
 
+Capabilities: read
+
 The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and `allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths {"tilemap":"ground","queries":[{"from":[0,0],"to":[5,3]},{"from":[1,1],"to":[9,2]}]}
 
 | Argument | Type | Required | Description |
@@ -94,6 +104,8 @@ Since 0.3.0.
 
 Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.
 
+Capabilities: read
+
 The cost of the cheapest route from every cell to the nearest goal, with the same rules as nav.find_tile_path (entering a cell costs its cost, 4-way or diagonals=true, no corner cutting, null or negative blocks). A blocked goal is entered at cost 1. Pass `tilemap` or `grid` like nav.find_tile_path, `goals` [[col,row],...] and optionally `from`. Result {width, height, distance: [width*height numbers, row-major, row 0 = top; null where no goal can be reached]} and, with `from`: {reachable, cost, next: [col,row] | null (the cell to walk to; null at a goal or when unreachable), path: [[col,row]...] (from `from` to the goal it reaches)}. Deterministic. Scripts: nav.flowField(grid, goals) keeps the field and answers field.stepToward(col, row) in O(1). Example: nav.flow_field {"tilemap":"ground","goals":[[9,4]],"from":[0,0]}
 
 | Argument | Type | Required | Description |
@@ -111,11 +123,15 @@ Since 0.3.0.
 
 List the NavMesh3D components with their bounds, agent size, bake state and stats.
 
+Capabilities: read
+
 Use it to check that a level was baked and how much of it is walkable. Result: a list of {mesh, enabled, autoBake, baked, error?, boundsMin, boundsMax, cellSize, agentRadius, agentHeight, stepHeight, maxSlope, staleSinceBake, stats} (stats include links and walkableBodies). staleSinceBake is true when the colliders changed after the last bake of a mesh with autoBake off (call nav.bake).
 
 ## `physics.raycast`
 
 Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
+
+Capabilities: read
 
 2D: {from:[x,y], to:[x,y]}. 3D: {dimension:"3d", origin:[x,y,z], direction:[x,y,z], maxDistance}. Options, the same as physics.shape_cast and the script API physics.raycast(a, b, {mask, ignore, ignoreTriggers}): mask = collision layer bit mask (bit i = layer i, -1 = all layers); ignore = id (or name) of an entity whose colliders, and its children's, are skipped (usually the caster, so a ray starting at a body's edge does not hit the body itself); ignoreTriggers (default true) skips trigger colliders, false hits them too. A collider that contains the ray origin is always skipped. Result: {hit:false} or {hit:true, entity, point, normal, distance}. Example: physics.raycast {"from":[0,300],"to":[0,-300],"ignore":"player","ignoreTriggers":false}
 
@@ -137,6 +153,8 @@ Since 0.3.0.
 
 Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.
 
+Capabilities: read
+
 Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see everything between two points (what hides a character from the camera), or to click through colliders that only exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, distance}]} sorted by distance. Example: physics.raycast_all {"dimension":"3d","origin":[0,2,0],"direction":[0,0,-1],"maxDistance":20,"maxHits":4}
 
 | Argument | Type | Required | Description |
@@ -155,6 +173,8 @@ Same arguments and options as physics.raycast, plus maxHits (default 32, the nea
 ## `physics.shape_cast`
 
 Sweep a circle, sphere or box from one point to another and return the first collider it touches.
+
+Capabilities: read
 
 Like physics.raycast, but the shape has size: use it to ask whether a character fits or how far a box can move before it hits something. 2 numbers in from/to = 2D, 3 numbers = 3D. shape: 2D {"shape":"circle","radius":8} or {"shape":"box","size":[16,24]}; 3D {"shape":"sphere","radius":0.5} or {"shape":"box","size":[1,2,1]} (2D pixels, 3D meters, full sizes). The shape is centred on the cast position and axis-aligned. Result: {hit:false} or {hit:true, entity, point, normal, distance}: distance is how far the CENTRE travels before contact, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped (like a ray starting inside one); a collider it only touches blocks the cast only if it moves towards it. Options as for physics.raycast: mask; ignore = id of an entity whose colliders (and its children's) are skipped, usually the caster; triggers are skipped unless ignoreTriggers=false. Example: physics.shape_cast {"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}
 

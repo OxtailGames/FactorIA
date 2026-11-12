@@ -387,6 +387,8 @@ Result<void> check_writable(const std::vector<Extension>& entries) {
 }  // namespace
 
 Result<void> save_extensions(const ExtensionsConfig& cfg, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {

@@ -221,6 +221,8 @@ TEST_CASE("project settings: keys that define a provider, server or extension ar
         CHECK(settings_view(*loaded) == settings_view(r->inherited));
         CHECK_FALSE(accept_project_settings(s.proj.str(), "", s.ai, kNoEnv));
     }
+    // A permission mode points to the editor's Agents tab, where the user sets it.
+    CHECK(has(s.error_of(R"({"roles": {"worker": {"permissionMode": "bypassPermissions"}}})"), "AI settings > Agents"));
     // The error teaches for the on/off form too.
     CHECK(has(s.error_of(R"({"mcpServers": {"scenario": {"enabled": false}}})"), "write the boolean itself"));
 }

@@ -103,12 +103,16 @@ TEST_CASE("write_private: owner-only from the first byte, replaces the old file,
     TempFolder t;
     const stdfs::path file = t.path / "sub" / "secret.json";
     REQUIRE(fs::write_private(file.generic_string(), "one"));
-    CHECK(*fs::read_text(file.generic_string()) == "one");
+    auto one = fs::read_text(file.generic_string());
+    REQUIRE(one);
+    CHECK(*one == "one");
     std::string why;
     CHECK_MESSAGE(owner_only_acl(file, why), why);
 
     REQUIRE(fs::write_private(file.generic_string(), std::string_view("two\0bytes", 9)));
-    CHECK(fs::read_text(file.generic_string())->size() == 9);
+    auto two = fs::read_text(file.generic_string());
+    REQUIRE(two);
+    CHECK(two->size() == 9);
     CHECK_MESSAGE(owner_only_acl(file, why), why);
     CHECK(leftovers(file.parent_path()) == 0);
 
@@ -118,7 +122,9 @@ TEST_CASE("write_private: owner-only from the first byte, replaces the old file,
         std::ofstream(open, std::ios::binary) << "old";
     }
     REQUIRE(fs::write_private(open.generic_string(), "new"));
-    CHECK(*fs::read_text(open.generic_string()) == "new");
+    auto fresh = fs::read_text(open.generic_string());
+    REQUIRE(fresh);
+    CHECK(*fresh == "new");
     CHECK_MESSAGE(owner_only_acl(open, why), why);
 
     // an empty text is a file too; a missing folder is created
@@ -151,7 +157,9 @@ TEST_CASE("write_private: writers at the same time never share a temporary file"
 #ifndef _WIN32
     CHECK(failed == 0);  // on Windows a file another writer has open can refuse the replace: replace_file retries but gives up
 #endif
-    CHECK(fs::read_text(file.generic_string())->rfind("writer ", 0) == 0);
+    auto last = fs::read_text(file.generic_string());
+    REQUIRE(last);  // the next lines read it
+    CHECK(last->rfind("writer ", 0) == 0);
     CHECK(leftovers(t.path) == 0);
     std::string why;
     CHECK_MESSAGE(owner_only_acl(file, why), why);
@@ -166,7 +174,9 @@ TEST_CASE("make_private: restricts a file a tool created with the default permis
     REQUIRE(fs::make_private(file.generic_string()));
     std::string why;
     CHECK_MESSAGE(owner_only_acl(file, why), why);
-    CHECK(*fs::read_text(file.generic_string()) == "keystore");  // the owner still reads it
+    auto kept = fs::read_text(file.generic_string());
+    REQUIRE(kept);
+    CHECK(*kept == "keystore");  // the owner still reads it
 
     auto missing = fs::make_private((t.path / "nothing").generic_string());
     REQUIRE_FALSE(missing.ok());

@@ -475,14 +475,27 @@ TEST_CASE("write_private_file: owner-only, a symlinked file is written through, 
     TempDir t;
     const fsys::path file = t.path / "sub" / "ai.json";
     REQUIRE(write_private_file(file.string(), "one"));
-    CHECK(*fa::fs::read_text(file.string()) == "one");
+    {
+        auto text = fa::fs::read_text(file.string());
+        REQUIRE(text);
+        CHECK(*text == "one");
+    }
 #ifndef _WIN32
     const auto perms = fsys::status(file).permissions();
     CHECK((perms & (fsys::perms::group_all | fsys::perms::others_all)) == fsys::perms::none);
 #else
-    // Windows: write_private_file is fa::fs::write_private (a protected owner-only ACL, read back in engine/core/tests/
-    // test_private_file.cpp); here only that the owner still reads and replaces what it wrote.
-    CHECK(fsys::exists(file));
+    // Windows: the protected owner-only ACL is read back in engine/core/tests/test_private_file.cpp. Here what a wrong ACL would
+    // break in this code path: the owner (this process) replaces what it wrote and reads the new bytes, the file is not
+    // read-only, and the replace left no temporary file.
+    REQUIRE(fsys::exists(file));
+    CHECK((fsys::status(file).permissions() & fsys::perms::owner_write) != fsys::perms::none);
+    REQUIRE(write_private_file(file.string(), "one again"));
+    {
+        auto again = fa::fs::read_text(file.string());
+        REQUIRE(again);
+        CHECK(*again == "one again");
+    }
+    REQUIRE(write_private_file(file.string(), "one"));
 #endif
     auto leftovers = [&](const fsys::path& dir) {
         int n = 0;

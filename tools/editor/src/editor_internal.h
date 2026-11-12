@@ -1369,7 +1369,7 @@ public:
     void ai_settings_save_assets(bool asDefaults);  // Save / Save as my defaults of the Assets tab
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
     void draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable);      // ai_permissions.cpp: the permission mode of each CLI agent
-    void ai_agents_reload();                                                    // ai_permissions.cpp: after a save, the editor follows ai.json
+    void ai_agents_reload(const std::string& notice);                                                 // ai_permissions.cpp: after a save, the editor follows ai.json
     // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
     // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
     struct AiPluginJob {
