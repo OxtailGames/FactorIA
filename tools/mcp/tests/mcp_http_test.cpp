@@ -169,7 +169,7 @@ TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude
         return;
     }
     Endpoint ep;
-    const stdfs::path project = fs::make_temp_dir("fa_mcp_http_cli");
+    const stdfs::path project = fs::make_temp_dir("fa_mcp_http_cli").value();
     const stdfs::path argvFile = project / "argv.txt";
     ai::ProviderConfig cc;
     cc.name = "claude-code";

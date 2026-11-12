@@ -94,7 +94,7 @@ TEST_CASE("auto_play_outcome: a result, a command error, garbage, a cancel and a
 }
 
 TEST_CASE("auto_play_executable: FA_FACTORIA_EXE wins and must name a file") {
-    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_exe");
+    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_exe").value();
     const stdfs::path file = dir / stdfs::path(u8"factoría-herramienta");  // an accent: UTF-8 all the way, never the ANSI code page
     { std::ofstream(file, std::ios::binary) << "x"; }
     set_exe(file);
@@ -107,7 +107,7 @@ TEST_CASE("auto_play_executable: FA_FACTORIA_EXE wins and must name a file") {
 }
 
 TEST_CASE("AutoPlayJob: no factoria is an outcome that says what is missing, not a crash") {
-    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_none");
+    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_none").value();
     set_exe(dir / "missing");
     AutoPlayJob job;
     AutoPlayRequest req;
@@ -162,7 +162,7 @@ const char* kAnswer = R"({"session":"20260101-000000-auto","ended":"won","proble
 }  // namespace
 
 TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is cancelled") {
-    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_job");
+    const stdfs::path dir = fs::make_temp_dir("fa_auto_play_job").value();
     AutoPlayRequest req;
     req.projectDir = dir;
     req.seconds = 7;
@@ -218,7 +218,7 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
 }
 
 TEST_CASE("AutoPlayJob: a project folder with accents reaches the child as UTF-8 (it starts there)") {
-    const stdfs::path base = fs::make_temp_dir("fa_auto_play_accent");
+    const stdfs::path base = fs::make_temp_dir("fa_auto_play_accent").value();
     const stdfs::path project = base / stdfs::path(u8"proyecto-José ñandú");
     std::error_code ec;
     stdfs::create_directories(project, ec);

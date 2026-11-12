@@ -28,7 +28,7 @@ struct Scratch {
     stdfs::path dir, oldRoot;
     Scratch() {
         oldRoot = fs::project_root();
-        dir = fs::make_temp_dir("fa_test_pack");
+        dir = fs::make_temp_dir("fa_test_pack").value();
     }
     ~Scratch() {
         fs::unmount_pack();

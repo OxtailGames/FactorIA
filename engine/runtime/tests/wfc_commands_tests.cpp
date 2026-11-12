@@ -49,7 +49,7 @@ struct Session {
     stdfs::path dir;
     Engine engine;
     Session() {
-        dir = fs::make_temp_dir("fa_wfc_test");
+        dir = fs::make_temp_dir("fa_wfc_test").value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         write("prefabs/coin.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"coin","components":{"Transform":{"position":[0,0]}}}})");

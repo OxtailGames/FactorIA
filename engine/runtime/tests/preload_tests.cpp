@@ -68,7 +68,7 @@ export default class Loading extends Behaviour {
 struct TempProject {
     stdfs::path dir;
     TempProject() {
-        dir = fs::make_temp_dir("fa_preload_test");
+        dir = fs::make_temp_dir("fa_preload_test").value();
         write("factoria.json", kProject);
         write("scenes/loading.scene.json", kLoading);
         write("scenes/level.scene.json", kLevel);

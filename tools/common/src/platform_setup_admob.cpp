@@ -70,7 +70,11 @@ stdfs::path resolve_sdk(const std::string& sdk, const std::string& projectDir, S
     if (!is_dir(path)) {
         if (!is_zip(path))
             throw CommandError("invalid_argument", "the Google Mobile Ads SDK '" + path.generic_string() + "' is a file, but not a .zip", kSdkHelp);
-        scratch.dir = fs::make_temp_dir("fa_admob_sdk");
+        auto scratchDir = fs::make_temp_dir("fa_admob_sdk");
+        if (!scratchDir.ok())
+            throw CommandError("failed", "cannot unpack the SDK " + path.generic_string() + ": " + scratchDir.error().message,
+                               scratchDir.error().hint);
+        scratch.dir = *scratchDir;
         if (auto fail = setup_detail::extract_archive(fa::SetupContext{}, path, scratch.dir))
             throw CommandError(fail->code, "cannot unpack the Google Mobile Ads SDK " + path.generic_string() + ": " + fail->error.message,
                                fail->error.hint.empty() ? "Unpack the .zip yourself and pass the folder as \"sdk\"." : fail->error.hint);

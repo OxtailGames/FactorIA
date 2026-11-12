@@ -136,7 +136,7 @@ int v1_init(const FaPluginApi* api) {
 struct StoreGame {
     stdfs::path dir;
     StoreGame(const std::string& plugins, const std::string& platform) {
-        dir = fs::make_temp_dir("fa_platform_backend_test");
+        dir = fs::make_temp_dir("fa_platform_backend_test").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Store","plugins":)" << plugins
                                              << R"(,"platform":)" << platform << "}";

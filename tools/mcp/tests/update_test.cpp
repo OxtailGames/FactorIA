@@ -26,7 +26,7 @@ namespace {
 
 struct Dir {
     stdfs::path path;
-    Dir() { path = fa::fs::make_temp_dir("fa_mcp_update_test"); }
+    Dir() { path = fa::fs::make_temp_dir("fa_mcp_update_test").value(); }
     ~Dir() {
         std::error_code ec;
         stdfs::remove_all(ec ? path : path, ec);

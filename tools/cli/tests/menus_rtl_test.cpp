@@ -65,7 +65,7 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
         fa::fs::set_project_root(oldRoot);
         return;
     }
-    const stdfs::path shot = fa::fs::make_temp_dir("fa_cli_menus_ar") / "menus.png";
+    const stdfs::path shot = fa::fs::make_temp_dir("fa_cli_menus_ar").value() / "menus.png";
     std::string err;
     REQUIRE_MESSAGE(engine.screenshot(shot.generic_string(), &err), err);
     auto img = fa::load_image(shot.generic_string());

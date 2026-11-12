@@ -53,7 +53,7 @@ struct World {
     std::vector<std::string> requested, ran;
 
     World() {
-        root = fs::make_temp_dir("fa_editor_setup");
+        root = fs::make_temp_dir("fa_editor_setup").value();
         home = root / "fhome";
         exeDir = root / "exe";
         stdfs::create_directories(exeDir);

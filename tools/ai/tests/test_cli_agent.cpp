@@ -236,8 +236,8 @@ TEST_CASE("claude-code agent: when the owner-only write in the project fails, th
     std::ofstream(dir.path / ".factoria" / "ai") << "not a folder";
     // A private folder of an earlier run that crashed (two days old) and one of a run in progress (new): the sweep takes
     // only the old one.
-    const std::filesystem::path oldDir = fa::fs::make_temp_dir("factoria-run");
-    const std::filesystem::path newDir = fa::fs::make_temp_dir("factoria-run");
+    const std::filesystem::path oldDir = fa::fs::make_temp_dir("factoria-run").value();
+    const std::filesystem::path newDir = fa::fs::make_temp_dir("factoria-run").value();
     REQUIRE_FALSE(oldDir.empty());
     REQUIRE_FALSE(newDir.empty());
     std::error_code tec;

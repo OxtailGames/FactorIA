@@ -138,7 +138,7 @@ struct Fixture {
     std::unique_ptr<ScopedShareEnv> scopedShare;  // the inbox files are rewritten under the feedback-file lock of the user's folder: this one's
 
     explicit Fixture(bool configured = true) {
-        dir = fs::make_temp_dir("fa_feedback_admin");
+        dir = fs::make_temp_dir("fa_feedback_admin").value();
         env["FACTORIA_AI_CONFIG"] = (dir / "cfg" / "ai.json").string();
         {
             ShareEnv shareEnv;

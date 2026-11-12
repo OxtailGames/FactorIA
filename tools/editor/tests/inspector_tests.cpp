@@ -137,7 +137,7 @@ TEST_CASE("inspector: asset fields list the project's files of the right type") 
     CHECK(asset_file_matches("any", "whatever.bin"));
 
     namespace stdfs = std::filesystem;
-    const stdfs::path dir = fs::make_temp_dir("fa_inspector_assets");
+    const stdfs::path dir = fs::make_temp_dir("fa_inspector_assets").value();
     auto touch = [&](const char* rel) {
         stdfs::create_directories((dir / rel).parent_path());
         std::ofstream(dir / rel) << "x";

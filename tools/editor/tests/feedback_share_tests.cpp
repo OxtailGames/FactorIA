@@ -267,7 +267,7 @@ TEST_CASE("send plan: share_edit_for_send stores the text only when it differs, 
 namespace {
 // A user config folder and a project in a temp dir; the transport fails every request: nothing reaches a network.
 struct SendFixture {
-    std::filesystem::path dir = fa::fs::make_temp_dir("fa_send_model");
+    std::filesystem::path dir = fa::fs::make_temp_dir("fa_send_model").value();
     ShareEnv env;
     int requests = 0;
     std::string file;

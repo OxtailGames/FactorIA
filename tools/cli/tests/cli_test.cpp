@@ -459,7 +459,7 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
     const stdfs::path oldRoot = fa::fs::project_root();
     for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
         CAPTURE(name);
-        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_template_") + name);
+        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_template_") + name).value();
         const std::string dir = (root / "game").string();
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;  // types/factoria.d.ts is for editors; the tests do not read it
@@ -500,7 +500,7 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
     for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
         CAPTURE(name);
         const bool platformer = std::string(name) == "2d-platformer";
-        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_play_auto_") + name);
+        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_play_auto_") + name).value();
         const std::string dir = (root / "game").string();
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;
@@ -654,7 +654,7 @@ TEST_CASE("docs/MAKE_BY_HAND.md: every file it gives is the tested fixture's") {
 // not a test file is an error that says what to pass (run_project_tests is what the command runs).
 TEST_CASE("test: named files, folders and globs select what runs; a non-test path is a teaching error") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_files");
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_files").value();
     const std::string dir = (root / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;
@@ -738,7 +738,7 @@ TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of 
     };
 
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_commands");
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_commands").value();
     const std::string dir = (root / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;
@@ -1338,7 +1338,7 @@ size_t count_of(const std::string& hay, const std::string& needle) {
 
 TEST_CASE("test: ten tests failing with the same error print the trace once") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_fold");
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_fold").value();
     const std::string dir = (root / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;
@@ -1372,7 +1372,7 @@ TEST_CASE("test: ten tests failing with the same error print the trace once") {
 
 TEST_CASE("test: a test whose game logged an error exits 1 and says why, with loggedError in --json") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_logged");
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_logged").value();
     const std::string dir = (root / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;
@@ -1423,7 +1423,7 @@ TEST_CASE("validate: a log line is covered only by a specific report message, wh
 
 TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_validate_once");
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_validate_once").value();
     const std::string dir = (root / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;

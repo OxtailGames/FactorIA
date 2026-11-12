@@ -21,7 +21,7 @@ constexpr i64 kNow = 1760000000;  // a real date: chat ids are made from the loc
 
 struct TempDir {
     stdfs::path dir;
-    explicit TempDir(const std::string& name) : dir(fs::make_temp_dir("fa_ai_chat_" + name)) {}
+    explicit TempDir(const std::string& name) : dir(fs::make_temp_dir("fa_ai_chat_" + name).value()) {}
     ~TempDir() {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
