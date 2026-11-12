@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
@@ -438,7 +440,8 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
     CHECK(filtered.result["markdown"].get<std::string>().size() < md.size());
     auto full = reg.call("docs.components", {{"full", true}});
     REQUIRE(full.ok);
-    CHECK(full.result["markdown"].get<std::string>().size() > 100000);
+    CHECK(full.result["markdown"].get<std::string>().size() < 45000);  // one page, not everything
+    CHECK(full.result.contains("nextCursor"));
     auto json = reg.call("docs.components", {{"format", "json"}});
     REQUIRE(json.ok);
     CHECK(json.result.dump().size() < 40000);
@@ -450,4 +453,90 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
     REQUIRE(cmd.ok);
     CHECK(cmd.result["markdown"].get<std::string>().find("| `maxBytes` |") != std::string::npos);
     CHECK_FALSE(reg.call("docs.commands", {{"name", "docs.reed"}}).ok);
+}
+
+// full:true pages: whole entries up to maxBytes, nextCursor until the last page; walking the pages returns the unpaged set once.
+TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json and markdown, with filter, and reject a stale cursor") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    struct Kind { const char* tool; const char* key; bool hasFields; };
+    for (const Kind k : {Kind{"docs.components", "components", true}, Kind{"docs.commands", "commands", false}}) {
+        // The names, from the summary list with the biggest page.
+        auto all = reg.call(k.tool, {{"format", "json"}, {"maxBytes", 90000}});
+        REQUIRE(all.ok);
+        std::vector<std::string> expected;
+        for (const Json& e : all.result[k.key]) expected.push_back(e["name"].get<std::string>());
+        REQUIRE_FALSE(all.result.contains("nextCursor"));
+        CHECK(all.result["total"].get<size_t>() == expected.size());
+
+        for (const char* format : {"json", "markdown"}) {
+            std::vector<std::string> seen;
+            size_t markdownEntries = 0;
+            std::string cursor;
+            int pages = 0;
+            do {
+                Json args = {{"full", true}, {"format", format}, {"maxBytes", 3000}};
+                if (!cursor.empty()) args["cursor"] = cursor;
+                auto r = reg.call(k.tool, args);
+                REQUIRE_MESSAGE(r.ok, r.error.dump());
+                CHECK(r.result["total"].get<size_t>() == expected.size());
+                const size_t returned = r.result["returned"].get<size_t>();
+                CHECK(returned >= 1);
+                if (std::string(format) == "json") {
+                    CHECK(r.result[k.key].size() == returned);
+                    for (const Json& e : r.result[k.key]) {
+                        seen.push_back(e["name"].get<std::string>());
+                        CHECK(e.contains("fields") == k.hasFields);
+                    }
+                } else {
+                    const std::string md = r.result["markdown"].get<std::string>();
+                    markdownEntries += returned;
+                    CHECK(md.find("### ") != std::string::npos);
+                }
+                cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+                ++pages;
+            } while (!cursor.empty() && pages < 2000);
+            CHECK(pages >= 2);
+            if (std::string(format) == "json") CHECK(seen == expected);
+            else CHECK(markdownEntries == expected.size());
+        }
+
+        // Same call, same page.
+        auto a = reg.call(k.tool, {{"full", true}, {"maxBytes", 5000}});
+        auto b = reg.call(k.tool, {{"full", true}, {"maxBytes", 5000}});
+        CHECK(a.result == b.result);
+
+        // maxBytes: the schema (1000..90000, like docs.read) rejects the rest of the range when called through the registry; the
+        // handler clamps anyway (a huge or negative number must not wrap), which a handler called directly shows.
+        for (const auto& [wanted, shown] : {std::pair<double, const char*>{1000, "1000"}, {90000, "90000"}}) {
+            auto r = reg.call(k.tool, {{"full", true}, {"maxBytes", wanted}});
+            REQUIRE(r.ok);
+            CHECK(r.result["markdown"].get<std::string>().find(std::string("at most ") + shown + " bytes") != std::string::npos);
+        }
+        CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1}}).ok);
+        CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1e30}}).ok);
+
+        // A bad cursor teaches and never restarts.
+        auto bad = reg.call(k.tool, {{"full", true}, {"cursor", "NoSuchEntry"}});
+        REQUIRE_FALSE(bad.ok);
+        CHECK(bad.error["message"].get<std::string>().find("NoSuchEntry") != std::string::npos);
+        CHECK(bad.error["hint"].get<std::string>().find("without cursor") != std::string::npos);
+    }
+
+    // filter + cursor: the cursor pages within the filtered set, and is stale outside it.
+    auto f1 = reg.call("docs.commands", {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}});
+    REQUIRE(f1.ok);
+    REQUIRE(f1.result.contains("nextCursor"));
+    const size_t total = f1.result["total"].get<size_t>();
+    size_t count = f1.result["returned"].get<size_t>();
+    std::string cursor = f1.result["nextCursor"].get<std::string>();
+    while (!cursor.empty()) {
+        auto r = reg.call("docs.commands", {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}, {"cursor", cursor}});
+        REQUIRE(r.ok);
+        count += r.result["returned"].get<size_t>();
+        cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+    }
+    CHECK(count == total);
+    CHECK_FALSE(reg.call("docs.commands", {{"filter", "docs"}, {"cursor", "game.step"}}).ok);
 }
