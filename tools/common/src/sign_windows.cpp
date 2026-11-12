@@ -192,6 +192,7 @@ struct Step {
     std::map<std::string, std::string> env;
     std::string stdinText;
     bool stdinSecret = false;             // stdinText carries a password
+    double timeoutSeconds = 0;            // 0 = none
 };
 
 class Runner {
@@ -218,6 +219,7 @@ public:
         po.env = step.env;
         po.stdinText = step.stdinText;
         po.cancel = o_.cancel;
+        po.timeoutSeconds = step.timeoutSeconds;
         po.onStdoutLine = line;
         po.onStderrLine = line;
         auto run = o_.run ? o_.run(po) : run_process(po);
@@ -318,35 +320,44 @@ std::string test_certificate_script(const std::string& publisher, const std::str
 // Scripts that make the .pfx usable by signtool WITHOUT the password reaching a command line: they read it from the environment
 // variable of their own process ($env:FACTORIA_WINDOWS_PFX_PASSWORD, set by the runner), never from the script text. Three steps, in
 // this order, so that nothing is imported before we know what to take out again:
-//   1. pfx_thumbprint_script: loads the file (the private key stays in memory: EphemeralKeySet) and prints THUMBPRINT=<hex> of the
-//      certificate that has a private key and PRESENT=1 or 0 (is a certificate with that thumbprint AND a private key in
-//      Cert:\CurrentUser\My already). It imports nothing.
-//   2. import_pfx_script: adds that one certificate (not the chain certificates the file may carry: Import-PfxCertificate would add them
-//      too and Windows would ask to confirm the new root certificates) to CurrentUser\My through X509Store, unless it is there with its
-//      key already, and prints IMPORTED=1 or 0.
-//   3. remove_certificate_script: removes it again if we are the ones who put it there; it runs after every outcome of step 2, also
-//      when step 2 failed or was cancelled half way (it does nothing when the certificate is not there).
-// Steps 2 and 3 hold a named mutex (kStoreMutex), so two sign.windows runs of one user do not change the store at the same time. A
-// mutex left by a PowerShell that was killed is "abandoned": the next script gets it all the same. The mutex does not span the
-// signing: two runs with the same .pfx at the same moment can still take the certificate from each other (the first to finish removes
-// it); run them one after the other.
-constexpr const char* kStoreMutex = "Local\\FactorIA-sign-windows-store";
+//   1. pfx_thumbprint_script: loads the file with the DEFAULT key flags (no PersistKeySet: the key container it needs is temporary and
+//      Reset() deletes it; EphemeralKeySet would be cleaner but it does not exist before .NET Framework 4.7.2 and an ephemeral key
+//      may report HasPrivateKey = false there, which would make every sign fail on Windows PowerShell 5.1). It prints
+//      THUMBPRINT=<hex> of the certificate that has a private key and PRESENT=1 or 0 (is a certificate with that thumbprint AND a
+//      private key in Cert:\CurrentUser\My already). It imports nothing and leaves no key on disk.
+//   2. import_pfx_script, only when PRESENT=0: adds that one certificate (not the chain certificates the file may carry:
+//      Import-PfxCertificate would add them too and Windows would ask to confirm the new root certificates) to CurrentUser\My through
+//      X509Store and prints IMPORTED=1 or 0. Inside the mutex it checks the store first and only then loads the file with
+//      PersistKeySet (which writes the private key to disk at load time), with nothing but the choice of the certificate between that
+//      load and store.Add. If the certificate did not get into the store, its key is deleted again, and so are the keys of the
+//      chain certificates the file carries (they never reach the store).
+//   3. remove_certificate_script: removes the certificate and its key if we are the ones who put it there; it runs after every
+//      outcome of step 2, also when step 2 failed or was cancelled half way (it does nothing when the certificate is not there).
+// Steps 2 and 3 hold a named mutex (the user's SID in the name, so every logon session of the user shares it), so two sign.windows
+// runs of one user do not change the store at the same time. A mutex left by a PowerShell that was killed is "abandoned": the next
+// script gets it all the same. The mutex does not span the signing: two runs with the same .pfx at the same moment can still take the
+// certificate from each other (the first to finish removes it); run them one after the other. A PowerShell that is killed between the
+// load and store.Add (a cancel at that very moment) leaves the key container of that one certificate behind: nothing can run in a
+// killed process.
+constexpr const char* kStoreMutexPrefix = "Global\\FactorIA-sign-windows-store-";
 
-std::string pfx_load_prefix(const std::string& pfx, bool withPassword, const char* keyFlags) {
+// The start of every script: the file name and the password (a string, as X509Certificate2Collection.Import wants it).
+std::string pfx_prelude(const std::string& pfx, bool withPassword) {
     std::string s = "$ErrorActionPreference = 'Stop'; $pfx = " + ps_quote(pfx) + "; ";
-    // X509Certificate2Collection.Import takes the password as a string (not a SecureString): it is the value of the variable.
     s += withPassword ? "$pw = $env:" + std::string(kPasswordVar) + "; " : "$pw = $null; ";
-    s += "$col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection; "
-         "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::" + std::string(keyFlags) + "); ";
+    s += "$col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection; ";
     return s;
 }
 
 // Step 1. Only the certificate with a private key is the one to sign with (a .pfx may carry its chain too).
 std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
-    std::string s = pfx_load_prefix(pfx, withPassword, "EphemeralKeySet");
-    s += "$x = @($col | Where-Object { $_.HasPrivateKey }) | Select-Object -First 1; "
+    std::string s = pfx_prelude(pfx, withPassword);
+    s += "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet); "
+         "try { "
+         "$x = @($col | Where-Object { $_.HasPrivateKey }) | Select-Object -First 1; "
          "if (-not $x) { throw 'The file has no certificate with a private key.' }; "
-         "$t = $x.Thumbprint; $col | ForEach-Object { $_.Reset() }; "
+         "$t = $x.Thumbprint "
+         "} finally { foreach ($c in $col) { $c.Reset() } }; "  // deletes the temporary key containers
          "$c = Get-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $t) -ErrorAction SilentlyContinue; "
          "Write-Output ('THUMBPRINT=' + $t); Write-Output ('PRESENT=' + [int]([bool]($c -and $c.HasPrivateKey)))";
     return s;
@@ -354,27 +365,40 @@ std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
 
 // `body` runs while the store mutex is held.
 std::string with_store_mutex(const std::string& body) {
-    return "$m = New-Object System.Threading.Mutex($false, " + ps_quote(kStoreMutex) + "); "
+    return "$m = New-Object System.Threading.Mutex($false, ('" + std::string(kStoreMutexPrefix) +
+           "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)); "
            "try { try { $got = $m.WaitOne(120000) } catch { $got = $_.Exception.ToString() -like '*AbandonedMutexException*' }; "
            "if (-not $got) { throw 'Another sign.windows run is changing the certificate store (waited 2 minutes).' }; " + body +
            " } finally { try { $m.ReleaseMutex() } catch { } }";
 }
 
 // Step 2. `thumbprint` is the one step 1 printed. A certificate of that thumbprint that is in the store without its private key is
-// completed by the key (store.Add) and counts as imported by us.
+// completed by the key (store.Add replaces it) and counts as imported by us.
 std::string import_pfx_script(const std::string& pfx, bool withPassword, const std::string& thumbprint) {
-    std::string s = pfx_load_prefix(pfx, withPassword, "PersistKeySet");
+    std::string s = pfx_prelude(pfx, withPassword);
     s += "$t = " + ps_quote(thumbprint) + "; ";
+    // $drop deletes the key container a certificate of the collection has on disk (CAPI or CNG), then lets go of the certificate.
+    s += "$drop = { param($c) try { "
+         "$k = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($c); "
+         "if ($k -is [System.Security.Cryptography.RSACryptoServiceProvider]) { $k.PersistKeyInCsp = $false; $k.Clear() } "
+         "elseif ($k -is [System.Security.Cryptography.RSACng]) { $k.Key.Delete() } "
+         "else { $e = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($c); "
+         "if ($e -is [System.Security.Cryptography.ECDsaCng]) { $e.Key.Delete() } } "
+         "} catch { }; try { $c.Reset() } catch { } }; ";
     s += with_store_mutex(
         "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); "
         "$store.Open('ReadWrite'); "
         "try { "
         "$had = @($store.Certificates | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }).Count -gt 0; "
-        "if (-not $had) { "
+        "if ($had) { Write-Output 'IMPORTED=0' } else { "
+        "$x = $null; "
+        "try { "
+        "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'PersistKeySet, UserKeySet'); "
         "$x = @($col | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }) | Select-Object -First 1; "
-        "if (-not $x) { throw 'The file has no certificate with a private key.' }; "
-        "$store.Add($x) }; "
-        "Write-Output ('IMPORTED=' + [int](-not $had)) "
+        "$store.Add($x) "
+        "} catch { foreach ($c in $col) { if ($c.HasPrivateKey) { & $drop $c } }; throw }; "  // not added: no key of this file may stay
+        "foreach ($c in $col) { if ($c.HasPrivateKey -and -not [object]::ReferenceEquals($c, $x)) { & $drop $c } }; "  // the chain's keys
+        "Write-Output 'IMPORTED=1' } "
         "} finally { $store.Close() }");
     return s;
 }
@@ -606,9 +630,10 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     // Windows the .pfx is imported into the user's certificate store for this run (the password travels in the environment of the
     // PowerShell that imports it), signtool signs with /sha1 <thumbprint>, and the certificate is removed again afterwards, also when
     // signing fails or is cancelled. The order matters: (1) read the thumbprint of the certificate and whether it is in the store
-    // already, importing nothing; (2) import it; (3) remove it if it was not in the store before, whatever became of (2): a cancel can
-    // stop the import after the certificate and its private key are in the store. A certificate that was in the store before the
-    // run (with its private key) stays.
+    // already, importing nothing; (2) import it, unless it is there (with its key); (3) remove it if it was not in the store before,
+    // whatever became of (2): a cancel can stop the import after the certificate and its private key are in the store. A certificate
+    // that was in the store before the run (with its private key) stays; one that was there WITHOUT its key is completed by the
+    // import and removed with it (docs/EXPORTING.md).
     const bool importPfx = onWindows && !options.testCertificate && !pfx.empty();
     SignWindowsOptions cleanupOptions = options;
     cleanupOptions.cancel = nullptr;  // the removal runs after a cancel too
@@ -622,6 +647,7 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         Step s;
         s.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
         s.shown = {"powershell.exe", "-NoProfile", "-Command", script};
+        s.timeoutSeconds = 150;  // the script waits 120 s for the mutex at most; a hung PowerShell must not hold the run for ever
         auto r = cleaner.go(title, s);
         if (!r.ok() || r->exitCode != 0) {
             const std::string msg = "The certificate " + thumbprint + " imported for signing could not be removed from the user certificate store: remove it by hand (certmgr.msc > Personal > Certificates).";
@@ -633,7 +659,10 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     struct CleanupGuard {  // the error returns below run the removal too
         std::function<void()> run;
         ~CleanupGuard() {
-            if (run) run();
+            try {
+                if (run) run();
+            } catch (...) {  // a destructor must not throw (the removal reports its own failure as a warning)
+            }
         }
     } cleanupGuard{remove_imported};
 
@@ -666,7 +695,10 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
                 removalPending = script_output_value(r->stdoutText, "PRESENT") != "1";  // ours to remove, unless it was there with its key
             }
         }
-        {  // 2. the import. The removal is pending already, so a failure or a cancel in the middle of it still cleans up
+        // 2. the import, unless the store has the certificate with its key already (then there is nothing to load: loading the file would
+        // only write one more copy of the key to disk). The removal is pending already, so a failure or a cancel in the middle of it
+        // still cleans up. A dry run does not know what the store holds: it shows the step.
+        if (options.dryRun || removalPending) {
             const std::string title = "Import the certificate into the user certificate store (for this run only)";
             const Step s = powershell_step(import_pfx_script(pfx, !password.empty(), thumbprint));
             auto r = runner.go(title, s);

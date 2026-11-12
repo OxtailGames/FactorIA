@@ -219,6 +219,11 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK_FALSE(has_text(thumbprintScript, "X509Store"));
     CHECK_FALSE(has_text(thumbprintScript, "Import-PfxCertificate"));
     CHECK_FALSE(has_text(thumbprintScript, "Remove-Item"));
+    // default key flags (EphemeralKeySet is missing before .NET Framework 4.7.2), nothing persisted, the temporary keys reset
+    CHECK(has_text(thumbprintScript, "DefaultKeySet"));
+    CHECK_FALSE(has_text(thumbprintScript, "EphemeralKeySet"));
+    CHECK_FALSE(has_text(thumbprintScript, "PersistKeySet"));
+    CHECK(has_text(thumbprintScript, "$c.Reset()"));
     // 2. the import: only the certificate with the private key, through X509Store, under the named mutex
     REQUIRE(is_powershell(calls.list[1]));
     CHECK(calls.list[1].env.count(kPasswordVar) == 1);
@@ -230,6 +235,35 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK(has_text(importScript, std::string("'") + kThumbprint + "'"));
     CHECK(has_text(importScript, "System.Threading.Mutex"));
     CHECK_FALSE(has_text(importScript, "Import-PfxCertificate"));  // that would import the chain certificates too
+    // the mutex is the user's, across logon sessions
+    CHECK(has_text(importScript, "'Global\\FactorIA-sign-windows-store-' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"));
+    // the order inside the mutex: look in the store first, only then load the file (PersistKeySet writes the key to disk), then add
+    const std::size_t check = importScript.find("$had = ");
+    const std::size_t load = importScript.find("PersistKeySet, UserKeySet");  // UserKeySet: never the machine's key folder
+    const std::size_t add = importScript.find("$store.Add($x)");
+    REQUIRE(check != std::string::npos);
+    REQUIRE(load != std::string::npos);
+    REQUIRE(add != std::string::npos);
+    const std::size_t handler = importScript.find("catch {", add);
+    REQUIRE(handler != std::string::npos);
+    CHECK(check < load);
+    CHECK(load < add);
+    CHECK(add < handler);
+    const std::size_t import = importScript.find("$col.Import");
+    CHECK(import != std::string::npos);
+    CHECK(import > check);  // no load before the check
+    CHECK(import < load);
+    CHECK(import == importScript.rfind("$col.Import"));  // one load only
+    // nothing but choosing the certificate between the load and the add
+    const std::string between = importScript.substr(load, add - load);
+    CHECK_FALSE(has_text(between, "$store.Open"));
+    CHECK_FALSE(has_text(between, "WaitOne"));
+    CHECK_FALSE(has_text(between, "throw"));
+    // a failed add deletes the persisted keys (CNG and CAPI), also of the chain certificates that never get into the store
+    CHECK(has_text(importScript.substr(handler, 120), "$drop"));
+    CHECK(has_text(importScript, "$k.Key.Delete()"));
+    CHECK(has_text(importScript, "$k.PersistKeyInCsp = $false; $k.Clear()"));
+    CHECK(has_text(importScript, "ReferenceEquals($c, $x)"));
     // 3. sign: by thumbprint, no password anywhere
     REQUIRE(stdfs::path(calls.list[2].argv.at(0)).filename() == "signtool.exe");
     const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};
@@ -242,6 +276,8 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK(has_text(removeScript, kThumbprint));
     CHECK(has_text(removeScript, "System.Threading.Mutex"));
     CHECK(calls.list.back().env.count(kPasswordVar) == 0);
+    CHECK(calls.list.back().timeoutSeconds > 120);  // longer than the mutex wait, so a hung PowerShell cannot hold the run for ever
+    CHECK(calls.list.back().timeoutSeconds < 600);
     for (const std::string& line : shown) CHECK_FALSE(has_text(line, kSecret));
     CHECK_FALSE(has_text(r->to_json().dump(), kSecret));
 }
@@ -284,10 +320,15 @@ TEST_CASE("sign.windows removes the imported certificate also when signtool fail
         o.run = calls.runner();
         auto r = sign_windows(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        // the file is not loaded again: only the thumbprint step and signtool run (a second load would leave one more key on disk)
         const std::vector<std::string> scripts = calls.titles_of_powershell();
-        REQUIRE(scripts.size() == 2);
-        CHECK(has_text(scripts[1], "X509Store"));
-        for (const ProcessOptions& po : calls.list) CHECK_FALSE(has_text(decode_scripts_or_empty(po), "Remove-Item"));
+        REQUIRE(scripts.size() == 1);
+        CHECK(has_text(scripts[0], "PRESENT="));
+        CHECK(calls.list.size() == 2);
+        for (const ProcessOptions& po : calls.list) {
+            CHECK_FALSE(has_text(decode_scripts_or_empty(po), "X509Store"));
+            CHECK_FALSE(has_text(decode_scripts_or_empty(po), "Remove-Item"));
+        }
     }
     {  // another run put it there between the two steps: the import says so, and it is not ours to remove
         Calls calls;
@@ -352,10 +393,15 @@ TEST_CASE("sign.windows: a certificate that could not be removed is named in the
 TEST_CASE("sign.windows quotes a path for PowerShell: the ASCII quote and the typographic single quotes are doubled") {
     WinGame g;
     // ' U+2018 U+2019 U+201A U+201B (the literals are split: "a" after a hex escape would be read as part of it)
-    const std::string dir = g.tmp.sub("it's \xE2\x80\x98" "a\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9B x");
-    testing::write_all(dir + "/code.pfx", "not a real pfx");
+    // The folder names are built from UTF-8 (u8string), never from a narrow string: on Windows that goes through the ANSI code page.
+    const auto utf8 = [](const std::filesystem::path& p) {
+        const std::u8string u = p.generic_u8string();
+        return std::string(u.begin(), u.end());
+    };
+    const std::filesystem::path dir = g.tmp.path / std::filesystem::path(std::u8string(u8"it's \u2018a\u2019 \u201A\u201B x"));
+    testing::write_all(dir / "code.pfx", "not a real pfx");
     SignWindowsOptions o = g.options("windows");
-    o.pfx = dir + "/code.pfx";
+    o.pfx = utf8(dir / "code.pfx");
     o.dryRun = true;
     auto r = sign_windows(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -365,9 +411,9 @@ TEST_CASE("sign.windows quotes a path for PowerShell: the ASCII quote and the ty
     CHECK(has_text(script, "\xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x"));
     CHECK_FALSE(has_text(script, "\xE2\x80\x98" "a\xE2\x80\x99 "));  // never a single one
     // other characters that start with the same bytes are left alone (U+201C is a double quote)
-    const std::string other = g.tmp.sub("say \xE2\x80\x9C" "hi\xE2\x80\x9D");
-    testing::write_all(other + "/code.pfx", "not a real pfx");
-    o.pfx = other + "/code.pfx";
+    const std::filesystem::path other = g.tmp.path / std::filesystem::path(std::u8string(u8"say \u201Chi\u201D"));
+    testing::write_all(other / "code.pfx", "not a real pfx");
+    o.pfx = utf8(other / "code.pfx");
     auto r2 = sign_windows(o);
     REQUIRE_MESSAGE(r2.ok(), (r2.ok() ? "" : r2.error().to_string()));
     CHECK(has_text(r2->steps.at(0).command.back(), "say \xE2\x80\x9C" "hi\xE2\x80\x9D/code.pfx'"));
