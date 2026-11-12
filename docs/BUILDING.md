@@ -283,7 +283,10 @@ starts that build directory over, because CMake would otherwise keep using the o
 | `linux-debug` | Linux | Ninja (GCC or Clang) | Debug | yes | Default on Linux |
 | `linux-release` | Linux | Ninja | Release | yes | |
 | `linux-sniper` | Linux, inside the Steam Runtime sniper SDK container | Ninja (GCC 14) | Release | no | Static libstdc++, no tests: what `scripts/build-sniper.sh` builds (see "Linux release" above) |
+| `linux-asan` | Linux | Ninja (Clang) | Debug (`-O1 -g1`) | yes | AddressSanitizer + UBSan + LeakSanitizer, the CI job `linux-asan` (see "Sanitizers" below) |
+| `linux-tsan` | Linux | Ninja (Clang) | Debug (`-O1 -g1`) | yes | ThreadSanitizer, the CI job `linux-tsan`; run `ctest -L tsan` |
 | `macos-debug` | macOS | Ninja (Apple Clang) | Debug | yes | Default on macOS |
+| `macos-asan` | macOS | Ninja (Apple Clang) | Debug (`-O1 -g1`) | yes | ASan + UBSan for local runs (no leak detection on macOS) |
 | `macos-release` | macOS | Ninja | Release | yes | |
 | `windows-debug` | Windows | Visual Studio 17 2022, x64 | Debug | yes | Default on Windows |
 | `windows-release` | Windows | Visual Studio 17 2022, x64 | Release | yes | |
@@ -384,6 +387,43 @@ cmake --build build/my-build -j 2
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
+
+## Sanitizers
+
+`FA_SANITIZE` (a CMake cache variable) builds every target with Clang's or GCC's sanitizers: the engine, the tools, the
+player, the tests and `external/` (ASan must instrument the third-party code too, or it reports container-overflow false
+positives where our code and theirs share a `std::vector`, and TSan cannot see the accesses of uninstrumented code). It is
+empty by default. Allowed values (anything else stops the configure with a message saying so): `address;undefined`
+(AddressSanitizer + UndefinedBehaviorSanitizer; quote the semicolon in a shell), `address`, `undefined` and `thread`
+(ThreadSanitizer, which cannot be combined with `address`). GCC and Clang on Linux and macOS only: MSVC, Emscripten,
+Android and iOS stop the configure with a teaching error. UBSan is built with `-fno-sanitize-recover=undefined`, so a
+finding fails the test it happens in instead of printing one line; ASan stops at its first report as well, and TSan prints
+every race of the run and fails the test with its exit code.
+
+- **Run it locally:** `cmake --preset macos-asan && cmake --build --preset macos-asan && ctest --preset macos-asan`
+  (Linux: `linux-asan`, with Clang installed; `linux-tsan` for ThreadSanitizer, `ctest --preset linux-tsan -L tsan`). The
+  presets build into `build/<preset>` with `-O1 -g1` (assertions stay on). With `scripts/agent-build.sh`, configure the tree
+  by hand first (`cmake -S . -B build/agent-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DFA_SANITIZE="address;undefined"
+  -DCMAKE_C_FLAGS_DEBUG="-O1 -g1" -DCMAKE_CXX_FLAGS_DEBUG="-O1 -g1" -DCMAKE_OBJC_FLAGS_DEBUG="-O1 -g1"
+  -DCMAKE_OBJCXX_FLAGS_DEBUG="-O1 -g1"` on a Mac); the script builds and tests a tree that is already configured.
+- **The test environment is set by CMake**, not by the test presets: `add_test()` (cmake/FactoriaHelpers.cmake) gives every
+  test of a sanitizer tree `ASAN_OPTIONS`, `UBSAN_OPTIONS`, `LSAN_OPTIONS` (Linux only: LeakSanitizer does not exist on
+  macOS, where the runtime refuses `detect_leaks`) or `TSAN_OPTIONS`, with the suppression files of `tools/ci/sanitizers/`.
+  So any `ctest` of such a tree has them, with a preset or without. A program you run by hand needs them exported.
+- **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
+  the example games' tests off as in any Debug build. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
+  four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
+  core, the jobs engine and the background loads of runtime, and all of audio and mcp. Both are part of `CI result` and run
+  when the change touches anything but docs.
+- **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding in our own code (engine, tools,
+  player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside `external/`, which is never
+  edited, may be suppressed by file pattern, one entry each with the reason above it (`ubsan_ignorelist.txt`, a Clang
+  `-fsanitize-ignorelist` that compiles the listed files without the check, because the UBSan runtime ignores its
+  suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer); `asan.supp` names an Apple system library whose own code ASan flags (CoreGraphics' PDF parser,
+  reached from the editor window's controls); LeakSanitizer suppressions name system libraries we cannot free (Mesa, X11,
+  ALSA). A suppression you add says why, in the file and in the commit.
+- **Reading a report:** `llvm-symbolizer` on the `PATH` (the CI job installs `llvm`; Apple's toolchain has it) gives file
+  and line in the stack. `UBSAN_OPTIONS=print_stacktrace=1` is already set.
 
 ## Golden images
 
@@ -672,7 +712,8 @@ base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds not
 and the iOS and Android jobs run only when the change touches what they build or run
 (`engine/`, `player/`, `platforms/`, `external/`, `cmake/`, `templates/`,
 `tools/common/`, `tools/cli/`, `scripts/`, the top-level CMake files or `ci.yml`).
-The job `Linux (Steam Runtime sniper)` builds the Linux release programs as `release.yml` does and runs them in Valve's
+The jobs `Linux (Clang, ASan + UBSan)` and `Linux (Clang, TSan, threaded tests)` build with sanitizers and run the Debug
+suite and the threaded tests ("Sanitizers" above), each with its own ccache. The job `Linux (Steam Runtime sniper)` builds the Linux release programs as `release.yml` does and runs them in Valve's
 sniper runtime image (`scripts/build-sniper.sh`, "Linux release" above), with its own ccache. The last job,
 `CI result`, fails if any job that ran failed. It is the only check that
 the branch protection of `main` requires, so a pull request with auto-merge on

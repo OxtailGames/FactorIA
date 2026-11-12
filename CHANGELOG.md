@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
+  AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,
+  and the suppression files live in `tools/ci/sanitizers/`. Two new CI jobs, `Linux (Clang, ASan + UBSan)` (the whole Debug suite)
+  and `Linux (Clang, TSan, threaded tests)`, are part of `CI result` (docs/BUILDING.md, "Sanitizers").
+- **Fixed, found by the first ASan run.** The editor's Particles inspector and Image layer inspector kept a reference into a
+  document that a row edited in the same frame (use after free while dragging a value or adding an adjustment); a
+  `tooling` test read a temporary after its end; the editor autotest's `scroll_to` kept a `const char*` into a local string.
+
 ## 0.25.0
 
 FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,

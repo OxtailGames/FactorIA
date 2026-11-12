@@ -1166,7 +1166,8 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
     ImGui::Spacing();
     draw_image_operations(m, L, false);
     ImGui::Spacing();
-    draw_image_operations(m, L, true);
+    // An edit above reloaded the document and freed the layer `L` is a reference to: look the layer up again.
+    if (const ImageLayer* again = m.layer(m.selected_layer())) draw_image_operations(m, *again, true);
     ImGui::EndDisabled();
     (void)u;
 }
@@ -1176,7 +1177,9 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
 void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effect) {
     ImageUi& u = image_;
     const std::string path = m.selected_layer();
-    const std::vector<Json>& list = effect ? L.effects : L.adjustments;
+    // A COPY: add_operation, move_operation and the rest reload the document (ImageModel::load_from_disk), which frees the layers
+    // `L` lives in, while this function goes on with the rest of the list in the same frame (found by the ASan run: heap-use-after-free).
+    const std::vector<Json> list = effect ? L.effects : L.adjustments;
     const char* title = effect ? "Effects" : "Adjustments";
     ImGui::PushID(effect ? "effects" : "adjustments");
     ImGui::AlignTextToFramePadding();

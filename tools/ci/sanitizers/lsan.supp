@@ -1,0 +1,18 @@
+# LeakSanitizer suppressions (Linux only; FA_SANITIZE=address;undefined). Read through LSAN_OPTIONS=suppressions=...
+# Policy: only leaks of system libraries we cannot free (graphics drivers, X11, ALSA) are listed, each with its reason.
+# A leak in engine or tool code is fixed, not listed. Format: leak:<library or function pattern>
+#
+# Mesa/llvmpipe (the software GL/EGL under Xvfb) keeps its screens, shader caches and LLVM state until process exit.
+leak:libGLX_mesa
+leak:libEGL_mesa
+leak:libgallium
+leak:libLLVM
+leak:swrast_dri
+leak:libGLdispatch
+# libX11 / xcb connection and keyboard state kept for the life of the display.
+leak:libX11
+leak:libxcb
+leak:libXi
+leak:libXcursor
+# ALSA's configuration tree is allocated once and freed by an atexit hook that does not run on _exit.
+leak:libasound
