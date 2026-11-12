@@ -32,7 +32,11 @@ Generated from the engine's reflection data; always accurate for this build. Use
 
 List the engine documentation available offline.
 
-Start here. Returns name, title and size of each document; read one with docs.read. The document 'ai-guide' explains how to build games with FactorIA.
+Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `audience` | string ["gameAi","user","engineDev"] | no | Only the docs for this audience (a doc can have several). Default: all docs. |
 
 ## `docs.read`
 

@@ -86,7 +86,73 @@ std::string contents_text(const std::vector<DocHeading>& heads, size_t budget) {
 constexpr long kDocReadDefaultBytes = 40000;  // ~10k tokens: an MCP tool result is capped near 25k tokens
 constexpr long kDocReadMaxBytes = 90000;
 
+// The one place that says what each embedded doc is for. A table here (not a docs/index.json) because it needs no
+// CMake embed rule and sits next to the code that serves it; the test "docs: every embedded doc has a manifest entry"
+// fails when a doc has no entry or an entry names no doc, and says what to add.
+// std::string, not const char*: {kUser, kGameAi} in a vector<string> would pick the iterator-pair constructor.
+const std::string kGameAi = "gameAi";        // the AI making a game
+const std::string kUser = "user";            // the person using the engine
+const std::string kEngineDev = "engineDev";  // working on the engine itself
+
+const std::vector<DocManifestEntry>& manifest() {
+    static const std::vector<DocManifestEntry> m = {
+        {"ai-costs", "What making a game with an AI costs in tokens and money, and how to spend less.", {kUser, kGameAi}},
+        {"ai-guide", "How to build a game: the loop, project layout, recipes by genre. Read its Index, then sections.", {kGameAi}},
+        {"ai-providers", "Connect an AI to FactorIA: MCP clients, API keys, the built-in assistant and its providers.", {kUser}},
+        {"analytics", "Analytics events and remote config: send, read and test them from a game.", {kGameAi}},
+        {"animation", "Skeletal and 2D clips, animator state machines and tweens.", {kGameAi}},
+        {"architecture", "Engine internals: modules, threads, reflection, commands, loading, rendering, testing.", {kEngineDev}},
+        {"assets", "Generate, import and ship textures, models, sounds and other assets.", {kGameAi, kUser}},
+        {"building", "Build FactorIA from source: presets, scripts, CI, caches, platforms.", {kEngineDev}},
+        {"cli", "Every `factoria` command line verb and flag.", {kGameAi, kUser}},
+        {"components", "Reference of every component and field, plus the scripting API (huge: ask by component).", {kGameAi}},
+        {"debugging", "Debug scripts: breakpoints, the script debugger and the VS Code extension.", {kGameAi, kUser}},
+        {"editor", "The FactorIA editor: panels, shortcuts, play mode, autotest.", {kUser, kEngineDev}},
+        {"effects", "Visual and audio effects: the loop for making one, with three worked examples.", {kGameAi}},
+        {"engine-feedback", "ENGINE_FEEDBACK.json: how to report engine gaps, efficiency feedback and triage.", {kGameAi, kEngineDev}},
+        {"exporting", "Export a game for desktop, web, Android and iOS; CI for your game.", {kGameAi, kUser}},
+        {"extending", "Write project tools, native plugins and extend the engine itself.", {kGameAi, kEngineDev}},
+        {"finishing", "From playable to ready for a store: polish, settings, accessibility, checks.", {kGameAi, kUser}},
+        {"first-game-with-ai", "Tutorial for a person: make a first game by talking to an AI.", {kUser}},
+        {"game-feel", "Shake, hit-stop, flash, knockback, squash and stretch.", {kGameAi}},
+        {"getting-started", "Install FactorIA, create a project and run it.", {kUser}},
+        {"hooks", "Hooks: scripts that run on engine events (project, editor and build steps).", {kGameAi, kUser}},
+        {"images", "Layered images (*.image.json): layers, masks, palettes and drawing commands.", {kGameAi}},
+        {"legal", "Privacy policy and EULA templates for a game you ship.", {kUser}},
+        {"localization", "Translate a game: string tables, languages, plurals and fonts.", {kGameAi}},
+        {"make-by-hand", "Tutorial: make a small game by editing the files yourself, no AI.", {kUser}},
+        {"mcp", "The MCP server: tools, resources, prompts and how to connect a client.", {kUser, kEngineDev}},
+        {"menus", "Main menu, options, credits, loading screen and pause menu.", {kGameAi}},
+        {"mobile", "Android and iOS: touch input, safe areas, export and device testing.", {kGameAi, kUser}},
+        {"modeling", "3D models as data (*.model.json): parts, materials and commands.", {kGameAi}},
+        {"music", "Music as data: song documents (*.song.json), stems and playback.", {kGameAi}},
+        {"navigation", "Paths over 3D ground and tile maps: navmeshes and agents.", {kGameAi}},
+        {"networking", "http.fetch: requests from scripts, limits and permissions.", {kGameAi}},
+        {"particles", "Particle emitters: fields, presets and performance.", {kGameAi}},
+        {"performance", "Performance budgets, profiling and the perf commands.", {kGameAi, kEngineDev}},
+        {"platform", "Store services: achievements, stats, leaderboards, cloud saves and purchases.", {kGameAi}},
+        {"publishing", "One checklist per store: Steam, itch.io, Epic, Google Play, App Store.", {kUser}},
+        {"rendering", "Cameras that draw into textures and photographs of the world.", {kGameAi}},
+        {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", {kGameAi}},
+        {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", {kGameAi}},
+        {"shaders", "Custom shaders and materials: the template, uniforms and limits.", {kGameAi, kEngineDev}},
+        {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", {kGameAi, kUser}},
+        {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", {kGameAi}},
+        {"text", "Fonts, languages and text size.", {kGameAi}},
+        {"vector", "Vector illustration: the vector.* commands and SVG import.", {kGameAi}},
+    };
+    return m;
+}
+
+const DocManifestEntry* find_manifest(const std::string& name) {
+    for (const DocManifestEntry& e : manifest())
+        if (e.name == name) return &e;
+    return nullptr;
+}
+
 }  // namespace
+
+const std::vector<DocManifestEntry>& doc_manifest() { return manifest(); }
 
 std::vector<DocInfo> list_docs() {
     std::vector<DocInfo> out;
@@ -94,7 +160,12 @@ std::vector<DocInfo> list_docs() {
         if (!ends_with(p, ".md")) continue;
         auto text = bundled_read(p);
         if (!text) continue;
-        out.push_back({doc_name_from_path(p), p, first_heading(*text), text->size()});
+        DocInfo d{doc_name_from_path(p), p, first_heading(*text), text->size(), {}, {}};
+        if (const DocManifestEntry* e = find_manifest(d.name)) {
+            d.summary = e->summary;
+            d.audience = e->audience;
+        }
+        out.push_back(std::move(d));
     }
     return out;
 }
@@ -205,13 +276,33 @@ void register_docs_commands(CommandRegistry& registry) {
         info.name = "docs.list";
         info.category = "docs";
         info.summary = "List the engine documentation available offline.";
-        info.description = "Start here. Returns name, title and size of each document; read one with docs.read. "
-                           "The document 'ai-guide' explains how to build games with FactorIA.";
-        registry.add(info, [](const Json&) {
+        info.description = "Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the "
+                           "page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, "
+                           "engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs "
+                           "with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. "
+                           "Example: {\"audience\":\"gameAi\"}.";
+        info.inputSchema = Json::object({{"type", "object"},
+            {"properties", Json::object({{"audience", Json::object({{"type", "string"}, {"enum", Json::array({"gameAi", "user", "engineDev"})},
+                {"description", "Only the docs for this audience (a doc can have several). Default: all docs."}})}})}});
+        registry.add(info, [](const Json& args) {
+            const std::string audience = tooling_detail::arg_string(args, "audience", false);
+            if (!audience.empty() && audience != "gameAi" && audience != "user" && audience != "engineDev")
+                throw CommandError("invalid_argument", "Unknown audience '" + audience + "'. " + did_you_mean(audience, std::vector<std::string>{"gameAi", "user", "engineDev"}),
+                                   "Use gameAi, user or engineDev, or leave audience out for all docs.");
+            auto wanted = [&](const std::vector<std::string>& a) {
+                return audience.empty() || std::find(a.begin(), a.end(), audience) != a.end();
+            };
             Json arr = Json::array();
-            for (const auto& d : list_docs())
-                arr.push_back(Json::object({{"name", d.name}, {"title", d.title}, {"path", d.path}, {"bytes", d.bytes}}));
-            arr.push_back(Json::object({{"name", "licenses"}, {"title", "License notices: FactorIA and the third-party code inside it (generated)"}, {"path", ""}, {"bytes", 0}}));
+            for (const auto& d : list_docs()) {
+                if (!wanted(d.audience)) continue;
+                Json aud = Json::array();
+                for (const std::string& a : d.audience) aud.push_back(a);
+                arr.push_back(Json::object({{"name", d.name}, {"title", d.title}, {"summary", d.summary}, {"audience", aud}, {"path", d.path}, {"bytes", d.bytes}}));
+            }
+            if (wanted({"user", "engineDev"}))
+                arr.push_back(Json::object({{"name", "licenses"}, {"title", "License notices: FactorIA and the third-party code inside it (generated)"},
+                                            {"summary", "License notices of FactorIA and the third-party code inside it (generated)."},
+                                            {"audience", Json::array({"user", "engineDev"})}, {"path", ""}, {"bytes", 0}}));
             return Json::object({{"docs", arr}});
         });
     }

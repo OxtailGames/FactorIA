@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
 
 ## Unreleased
 
+- `docs.list` (and `factoria docs list`) gives every doc a one-sentence `summary` and an `audience` (`gameAi`, `user`,
+  `engineDev`), with an `audience` filter, so an AI reads only the docs its task needs. The generated AGENTS.md, the
+  MCP server instructions and the `make-game` / `add-feature` prompts now say: the AI guide's `Index` first, then
+  sections by heading, components one at a time, never the whole `components` page.
+
 ## 0.23.0
 
 FactorIA 0.23.0 (M101) closes what the example games reported since late October. Music streams each stem from its

@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -221,6 +222,56 @@ TEST_CASE("docs: search puts each doc's best section first, so the top is not on
     std::set<std::string> top;
     for (size_t i = 0; i < docs.size(); ++i) CHECK(top.insert(hits[i].doc).second);  // the first N hits: N distinct docs
     for (size_t i = 1; i < docs.size(); ++i) CHECK(hits[i - 1].score >= hits[i].score);
+}
+
+TEST_CASE("docs: every embedded doc has a manifest entry (summary, audience) and every entry names a doc") {
+    // The manifest is the table in manifest(), tools/common/src/docs.cpp.
+    std::set<std::string> embedded;
+    for (const auto& d : list_docs()) {
+        embedded.insert(d.name);
+        CHECK_MESSAGE(!d.summary.empty(), "docs/" << d.path << " has no entry in the manifest of tools/common/src/docs.cpp: add {\"" << d.name
+                                                  << "\", \"<one sentence, at most 120 chars>\", {kGameAi, kUser, kEngineDev}}.");
+        CHECK_MESSAGE(!d.audience.empty(), d.name << " needs at least one audience");
+    }
+    std::set<std::string> seen;
+    for (const auto& e : doc_manifest()) {
+        CHECK_MESSAGE(embedded.count(e.name) == 1, "the manifest of tools/common/src/docs.cpp names '" << e.name
+                                                   << "' but no embedded doc has that name: remove or rename the entry.");
+        CHECK_MESSAGE(seen.insert(e.name).second, "'" << e.name << "' appears twice in the manifest");
+        CHECK_MESSAGE(e.summary.size() <= 120, e.name << ": summary is " << e.summary.size() << " chars, keep it to 120");
+        CHECK_MESSAGE((!e.summary.empty() && e.summary.back() == '.'), e.name << ": the summary is one sentence ending in a full stop");
+        for (const auto& a : e.audience) CHECK_MESSAGE((a == "gameAi" || a == "user" || a == "engineDev"), e.name << ": unknown audience " << a);
+    }
+}
+
+TEST_CASE("docs.list: summary and audience per doc, audience filter") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto all = reg.call("docs.list");
+    REQUIRE(all.ok);
+    for (const auto& d : all.result["docs"]) {
+        CHECK_MESSAGE(!d["summary"].get<std::string>().empty(), d["name"].get<std::string>());
+        CHECK(d["audience"].is_array());
+    }
+    auto game = reg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(game.ok);
+    CHECK(game.result["docs"].size() > 0);
+    CHECK(game.result["docs"].size() < all.result["docs"].size());
+    std::set<std::string> names;
+    for (const auto& d : game.result["docs"]) {
+        names.insert(d["name"].get<std::string>());
+        CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
+    }
+    CHECK(names.count("ai-guide") == 1);
+    CHECK(names.count("architecture") == 0);
+    auto dev = reg.call("docs.list", {{"audience", "engineDev"}});
+    REQUIRE(dev.ok);
+    bool arch = false;
+    for (const auto& d : dev.result["docs"]) arch = arch || d["name"] == "architecture";
+    CHECK(arch);
+    auto bad = reg.call("docs.list", {{"audience", "gameai"}});
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("gameAi") != std::string::npos);  // did you mean
 }
 
 TEST_CASE("docs: commands") {
