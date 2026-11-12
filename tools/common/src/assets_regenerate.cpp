@@ -366,7 +366,11 @@ void register_regenerate_command(CommandRegistry& registry, const std::string& p
         "stale":{"type":"boolean","description":"Make again only the assets whose recipe inputs (the files they were made from) changed since."},
         "dryRun":{"type":"boolean","description":"List what would run (command, arguments, which inputs changed) and change nothing."}
       }})");
+    mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [&registry, projectDir](const Json& args) { return regenerate(registry, projectDir, args); });
+    // Capabilities (capability.h): it rewrites project files; every command it runs again is called through the registry, so it
+    // checks its own capabilities (a recipe of assets.bake_sheet still needs process) against the same caller.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

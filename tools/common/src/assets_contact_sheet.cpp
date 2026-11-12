@@ -229,15 +229,17 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     const bool allFrames = tooling_detail::arg_bool(a, "allFrames", false);
     const int columns = int(tooling_detail::arg_int(a, "columns", 8));
     if (columns < 1 || columns > 16) bad("/columns", "expected a whole number from 1 to 16.", "Cells per line before the sheet wraps to the next block of rows. Default 8.");
+    // The picture is kept only when the caller gives `path`: that needs writeProject, and the path is judged now, before any drawing.
     std::string outRel;
+    stdfs::path outFile;
     if (a.contains("path") && !a["path"].is_null()) {
-        auto norm = a["path"].is_string() ? fs::normalize_checked(a["path"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
-        if (!norm.ok() || norm->empty() || to_lower(fs::extension(*norm)) != ".png")
-            bad("/path", "expected a project-relative path ending in .png.", "Example: \"docs/review/enemies.png\". Leave it out to only look at the picture (nothing is written).");
-        outRel = *norm;
+        if (!a["path"].is_string() || to_lower(fs::extension(a["path"].get<std::string>())) != ".png")
+            bad("/path", "expected a path ending in .png.", "Example: \"docs/review/enemies.png\". Leave it out to only look at the picture (no project file is written).");
+        outFile = caller_output_file(projectDir, a["path"].get<std::string>(), kCommand);
+        outRel = output_spelling(a["path"].get<std::string>());
         if (!tooling_detail::arg_bool(a, "overwrite", false)) {
             std::error_code ec;
-            if (stdfs::exists(project_file(projectDir, outRel), ec)) fail("exists", "'" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+            if (stdfs::exists(outFile, ec)) fail("exists", "'" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
         }
     }
 
@@ -417,10 +419,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     if (!outRel.empty()) {
         const std::vector<std::uint8_t> png = encode_png(sheet);
         std::string err;
-        const stdfs::path out = project_file(projectDir, outRel);
-        if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+        if (!tooling_detail::write_file(outFile, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
         result["written"] = outRel;
-        result["$image"] = image_member(out, false);
+        result["$image"] = image_member(outFile, false);
     } else {
         result["$image"] = image_member(write_temporary_picture(projectDir, sheet, "contacts"), true);
     }
@@ -441,7 +442,6 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.readOnly = true;
     info.summary = "Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.";
     info.description =
         "Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for "
@@ -461,10 +461,9 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
         "without one the command fails with no_gpu, and you can leave the models out); a model in the real "
         "scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name "
         "and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then "
-        "the sheet continues below. Nothing is written unless `path` is given: then the PNG is also saved "
-        "there (an existing file is not replaced without `overwrite: true`). The same inputs give the same "
+        "the sheet continues below. No project file is written unless `path` is given (the picture is otherwise a temporary screenshot in .factoria/screenshots): then the PNG is also saved "
+        "there, which needs the writeProject capability (an existing file is not replaced without `overwrite: true`). The same inputs give the same "
         "picture.";
-    auto prop = [](const char* type, const char* text) { return Json::object({{"type", type}, {"description", text}}); };
     info.inputSchema = Json::object(
         {{"type", "object"},
          {"required", Json::array({"paths"})},
@@ -480,9 +479,13 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
                {"greyscale", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Add a last row with the pictures in greyscale over mid-grey, to judge their value structure."}})},
                {"columns", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 16}, {"default", 8}, {"description", "Cells per line; more wrap to a new block of rows below."}})},
                {"allFrames", Json::object({{"type", "boolean"}, {"default", false}, {"description", "A sprite sheet shows all its frames (a column each) instead of the first."}})},
-               {"path", prop("string", "Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written.")},
+               {"path", path_property("write", "Also save the picture as a PNG at this path (ending in .png; project-relative, an absolute path only for the command-line user). Needs the writeProject capability. Without it only a temporary screenshot in .factoria/screenshots is made.")},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "With `path`: replace the file when it exists."}})}})}});
     registry.add(info, [projectDir](const Json& args) { return contact_sheet_command(projectDir, args); });
+    // Capabilities (capability.h): it draws a temporary screenshot in .factoria/screenshots (state); `path`, which keeps the picture, is
+    // checked for writeProject by the handler. A .glb is drawn in a child `factoria call` of this same command when this process
+    // holds the graphics device.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::changes_state()}});
 }
 
 }  // namespace fa::assets_detail

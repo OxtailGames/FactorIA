@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- The asset commands declare their capabilities one by one (M92.1b2a): `assets.*`, `audio.*`, `sfx.*`, `music.*`, `model.*`, `rig.*`, `skin3d.*`, `anim3d.*` and `vfx.*` that make project files need `writeProject`; the previews that only keep a picture at a path you give (`model.preview` `out`, `audio.render` and `music.info` `pictureOut`, `assets.spectrogram` `out`, `assets.contact_sheet` `path`) are no longer `readOnly`, work without a path under `{read, state}` and ask for `writeProject` when you give one. Every output path of these commands (also the files inside documents: a model, a rig, a sound) goes through the project write check: an MCP client or an agent cannot leave the project, nobody writes into `.git` or `.factoria/` (a link into them included), and the schemas mark each path argument `x-fa-path` `read` or `write`. `assets.contact_sheet` `path` may now be an absolute path for the command-line user, like the other pictures.
 - The MCP server enforces a capability set on every tool call: `factoria mcp` grants all but `writeAnywhere`, and
   `--read-only` grants `{read, state, writeProject}` and refuses the tools it does not serve (`tool_not_available`). Tool
   hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`

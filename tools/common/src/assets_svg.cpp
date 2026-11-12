@@ -125,7 +125,7 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
         warnings.push_back("styleStrength and seed only matter with a `style`; they were ignored.");
 
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = project_write_file(projectDir, rel);
     std::error_code ec;
     if (!overwrite && stdfs::exists(file, ec)) fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
@@ -308,7 +308,11 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
                {"ai", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the SVG was written by an AI (the default, since the caller is an agent). Set false for an SVG a person drew or a licensed one; it then counts as original work in the AI disclosure."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
                {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the picture for the provenance record."}})}})}});
+    mark_paths(info.inputSchema, "write", {"path"});
+    mark_paths(info.inputSchema, "read", {"source"});
     registry.add(info, [projectDir](const Json& args) { return rasterize_svg(projectDir, args); });
+    // Capabilities (capability.h): a PNG and its assets.json entry in the project.
+    declare_command_capabilities(registry, {{kCommand, capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

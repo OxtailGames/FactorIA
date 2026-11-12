@@ -91,7 +91,7 @@ RigDoc checked(const Json& json, const std::string& rel) {
 
 void write_document(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
 Json bake_json(const RigBakeStatus& s) { return Json::object({{"state", rig_bake_state_name(s.state)}, {"output", s.output}, {"reason", s.reason}}); }
@@ -433,13 +433,15 @@ Json skin3d_preview_command(const std::string& projectDir, const Json& a) {
     const double pitch = number_arg("skin3d.preview", a, "pitch", 12, -80, 80, "Degrees above the horizon.");
     const int cell = int(number_arg("skin3d.preview", a, "cell", 280, 96, 640, "Pixels per side of each view."));
     std::string outRel;
+    stdfs::path outFile;
     if (a.contains("out") && !a["out"].is_null()) {
-        auto norm = a["out"].is_string() ? fs::normalize_checked(a["out"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
-        if (!norm.ok() || norm->empty() || to_lower(fs::extension(*norm)) != ".png")
+        if (!a["out"].is_string() || a["out"].get<std::string>().empty() || to_lower(fs::extension(a["out"].get<std::string>())) != ".png")
             fail("invalid_argument", "skin3d.preview: `out` must be a project-relative path ending in .png.", "Example: \"docs/review/hero-weights.png\". Leave it out to only look at the picture.");
-        outRel = *norm;
+        // The caller names a file: it needs writeProject and must stay inside the project (never .git or .factoria).
+        outFile = caller_output_file(projectDir, a["out"].get<std::string>(), "skin3d.preview");
+        outRel = output_spelling(a["out"].get<std::string>());
         std::error_code ec;
-        if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, outRel), ec))
+        if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(outFile, ec))
             fail("exists", "'" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another `out`.");
     }
 
@@ -588,7 +590,7 @@ Json skin3d_preview_command(const std::string& projectDir, const Json& a) {
     if (!outRel.empty()) {
         const std::vector<std::uint8_t> png = encode_png(canvas.img);
         std::string err;
-        const stdfs::path out = project_file(projectDir, outRel);
+        const stdfs::path& out = outFile;
         if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
         result["written"] = outRel;
         result["$image"] = image_member(out, false);
@@ -633,6 +635,7 @@ void add_edit_command(CommandRegistry& registry, const std::string& projectDir, 
     info.inputSchema = Json::object({{"type", "object"}, {"required", req}, {"additionalProperties", false}, {"properties", props}});
     std::vector<std::string> keys = {"path", "part", "select", "dryRun", "bake", "overwrite"};
     for (auto it = extra.begin(); it != extra.end(); ++it) keys.push_back(it.key());
+    mark_paths(info.inputSchema, "write", {"path"});
     const std::string command = name;
     const std::string opName = op;
     registry.add(info, [projectDir, command, opName, keys](const Json& args) {
@@ -662,6 +665,7 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
             "`farBlends` (vertices blending bones more than `maxHops` apart in the hierarchy), the vertices led by each bone (`boneVertices`; `idleBones` lead none), the method used per part, the heat solver's pieces and the `warnings` (each says what to change). Nothing is written. "
             "Example: {\"path\":\"assets/models/hero.rig.json\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false}, {"properties", obj({{"path", pathArg()}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return skin3d_info_command(projectDir, args_of(args)); });
     }
     {
@@ -692,6 +696,7 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
                                  {"dryRun", boolean("Compute the weights with the change and report, but write nothing.", false)},
                                  {"bake", boolean("Bake the skinned .glb after writing.", true)},
                                  {"overwrite", boolean("Replace a .glb that no rig document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return skin3d_auto_command(projectDir, args_of(args)); });
     }
     add_edit_command(registry, projectDir, "skin3d.set", "set", "Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest.",
@@ -740,20 +745,20 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"dryRun", boolean("Report without writing.", false)},
                                                              {"bake", boolean("Bake the skinned .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no rig document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"path"});
         registry.add(info, [projectDir](const Json& args) { return skin3d_clear_command(projectDir, args_of(args)); });
     }
     {
         CommandInfo info;
         info.name = "skin3d.preview";
         info.category = "assets";
-        info.readOnly = true;
         info.summary = "Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG.";
         info.description =
             "The way to SEE the weights. It fits the rig, computes the weights of the document's `skin` section (edits included) and draws the model with the software renderer of model.preview (no graphics device, the same pixels everywhere), from `views` sides. "
             "With `bone` (mode \"heat\"): the weights of that bone as a heat map, blue 0 to red 1, so a blend that is too long, too short or on the wrong limb is visible. Without it (mode \"bones\"): each vertex has the weighted mix of its bones' colours, with a legend of the bones. "
             "`pose` ({\"arm_lower_l\":60} or [{bone, degrees, axis:[x,y,z]}]) bends bones about the axis perpendicular to the bone (a knee or an elbow; `axis` overrides it), taking their children along, and adds a second row with the model deformed by linear blend skinning "
             "the way the .glb would deform it: creases, stretched triangles and parts left behind are what a bad skin looks like. The answer has the weights' `quality` and, for one bone, how many vertices it has weight on. "
-            "The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise. Example: {\"path\":\"assets/models/hero.rig.json\",\"bone\":\"arm_lower_l\",\"pose\":{\"arm_lower_l\":70}}";
+            "The picture is returned as $image in a temporary file; pass `out` (a project-relative .png; needs the writeProject capability) to keep it. Nothing in the project changes otherwise. Example: {\"path\":\"assets/models/hero.rig.json\",\"bone\":\"arm_lower_l\",\"pose\":{\"arm_lower_l\":70}}";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()},
                                                              {"bone", str("Draw the weights of this bone as a heat map.")},
@@ -763,10 +768,17 @@ void register_skin3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"yaw", num("The angle of the first view in degrees: 0 looks at the model's +Z side (default 20).", -360, 360)},
                                                              {"pitch", num("Degrees above the horizon (default 12).", -80, 80)},
                                                              {"cell", num("Pixels per side of each view (default 280).", 96, 640)},
-                                                             {"out", str("Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file.")},
+                                                             {"out", path_property("write", "Keep the picture as a PNG at this project-relative path (ending in .png; never inside .git or .factoria). Left out, it is a temporary file.")},
                                                              {"overwrite", boolean("Replace the file at `out` if it exists.", false)}})}});
+        mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return skin3d_preview_command(projectDir, args_of(args)); });
     }
+    // Capabilities (capability.h): the skin edits change the rig document (and bake it); preview keeps a picture only when asked.
+    using namespace capability_sets;
+    declare_command_capabilities(registry, {{"skin3d.info", reads()}, {"skin3d.preview", changes_state()}, {"skin3d.auto", writes_project()},
+                                            {"skin3d.clear", writes_project()}, {"skin3d.set", writes_project()}, {"skin3d.add", writes_project()},
+                                            {"skin3d.smooth", writes_project()}, {"skin3d.normalize", writes_project()}, {"skin3d.limit", writes_project()},
+                                            {"skin3d.mirror", writes_project()}});
 }
 
 }  // namespace fa::assets_detail
