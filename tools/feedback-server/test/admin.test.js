@@ -172,7 +172,7 @@ test("ban with purge deletes that installation's reports only", async () => {
 
 test("ban a reporter: a valid credential of a banned GitHub account is refused, anonymous reports are not", async () => {
     const { app } = makeServer({ users: { tok: { id: 4242, login: "someone" } } });
-    const auth = await (await app.fetch(new Request("https://fb.example/v1/auth/github", { method: "POST", body: JSON.stringify({ githubToken: "tok" }) }))).json();
+    const auth = await (await app.fetch(new Request("https://fb.example/v1/auth/github", { method: "POST", body: JSON.stringify({ githubToken: "tok" }), headers: { "cf-connecting-ip": "203.0.113.1" } }))).json();
     const withCred = { headers: { authorization: "Bearer " + auth.credential } };
     assert.equal((await sendReports(app, [entry(1)], withCred)).status, 200);
     const [r] = await pullAll(app);

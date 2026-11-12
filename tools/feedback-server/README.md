@@ -13,7 +13,7 @@ formats.
 
 Free. It runs on Cloudflare's free plan (Workers and D1) and needs no card, so it can never be billed: going over a
 free limit makes Cloudflare refuse requests until midnight UTC. The server also limits itself well below the free
-quotas: 30 entries per installation, 100 per network and 20 000 for the whole server per day.
+quotas (table in "Limits" below).
 
 ## Deploy
 
@@ -72,9 +72,9 @@ Every answer is JSON, `{ok: true, ...}` or `{ok: false, error: {code, message, h
 | Endpoint | What |
 |---|---|
 | `GET /` | Plain privacy page: what is stored, what never is, the rules for reports, no warranty, how to stop sending |
-| `POST /v1/reports` | Up to 20 entries, 64 KB. Header `X-Factoria-Install` (UUID v4), optional `Authorization: Bearer <credential>`. Per entry: `accepted`, `merged` or `rejected` (`invalid_field`, `too_short`, `too_long`, `not_text`, `personal_data`). Errors: `400` (`missing_install`, `invalid_json`, `invalid_format`, `invalid_request`, `too_many_entries`), `401 invalid_credential`, `403 banned`, `413 too_large`, `429 rate_limited` + `Retry-After` |
-| `POST /v1/auth/github` | `{githubToken}` -> `{credential, login}`; calls `api.github.com/user` once, stores nothing about the account. `401 invalid_github_token`, `502 github_unavailable`, `429` after 20 sign-ins per network per day |
-| `POST /v1/verdicts` | `{shareIds: [<=100]}` with the `X-Factoria-Install` header -> `{verdicts: [{shareId, status: "rejected", reason, at} or {shareId, status: "received"}]}`. Only for reports of that installation: an id of another installation, or one that does not exist, gets no entry (the answers are the same). The engine asks for the ids of its own sent entries and shows the reason in the editor. `429` after 240 questions per installation per day. A server without this endpoint answers `404` and the engine goes on without verdicts |
+| `POST /v1/reports` | Up to 20 entries, 64 KB. Header `X-Factoria-Install` (UUID v4), optional `Authorization: Bearer <credential>`. Per entry: `accepted`, `merged` or `rejected` (`invalid_field`, `too_short`, `too_long`, `not_text`, `personal_data`). Errors: `400` (`missing_install`, `invalid_json`, `invalid_format`, `invalid_request`, `too_many_entries`), `401 invalid_credential`, `400 missing_client_ip`, `403 banned`, `413 too_large`, `429 rate_limited` + `Retry-After` |
+| `POST /v1/auth/github` | `{githubToken}` -> `{credential, login}`; calls `api.github.com/user` once, stores nothing about the account. `401 invalid_github_token`, `502 github_unavailable`, `429` after 20 sign-ins per network (2 000 for the server) per day |
+| `POST /v1/verdicts` | `{shareIds: [<=100]}` with the `X-Factoria-Install` header -> `{verdicts: [{shareId, status: "rejected", reason, at} or {shareId, status: "received"}]}`. Only for reports of that installation: an id of another installation, or one that does not exist, gets no entry (the answers are the same). The engine asks for the ids of its own sent entries and shows the reason in the editor. `429` after 240 questions per installation, 960 per network or 100 000 for the server per day. A server without this endpoint answers `404` and the engine goes on without verdicts |
 | `GET /v1/admin/reports?since=&limit=` | Reports in arrival order and an opaque `next` cursor; a cursor always returns the same page. Each report has `verdict` (`null` or `"rejected"`) and `verdictReason` |
 | `POST /v1/admin/reject` | `{shareId, reason}` or `{rejections: [{shareId, reason}] (<=50)}`: the report is not accepted and the installation that sent it reads `reason` (plain text, whitespace collapsed, at most 500 characters). Answers `{rejected: [...], notFound: [...]}` |
 | `POST /v1/admin/unreject` | `{shareId}` or `{shareIds: [<=50]}`: take the rejection back; the installation sees the report as received again. Answers `{restored: [...], notFound: [...]}` |
@@ -83,6 +83,23 @@ Every answer is JSON, `{ok: true, ...}` or `{ok: false, error: {code, message, h
 | `GET /v1/admin/stats` | Totals and the last 7 days: accepted, merged, rejected (by code), rate-limit hits, banned |
 
 Admin endpoints need `Authorization: Bearer <ADMIN_TOKEN>` (compared in constant time).
+
+## Limits
+
+Per UTC day, checked before anything is stored. An installation id is any UUID v4 and costs nothing to make, so the
+per-network cap is what stops a loop of fresh ids. Admin routes need the admin token and are not limited.
+
+| Route | Per installation | Per network | Whole server |
+| --- | --- | --- | --- |
+| `POST /v1/reports` (entries, accepted or not) | 30 | 100 | 20 000 |
+| `POST /v1/verdicts` (requests) | 240 | 960 | 100 000 |
+| `POST /v1/auth/github` (sign-ins; no installation id exists yet) | - | 20 | 2 000 |
+
+The network is `CF-Connecting-IP`, which Cloudflare sets on every request; only a keyed hash of it is stored. A write
+request without that header did not come through Cloudflare and is refused with `400 missing_client_ip` (reads and admin
+routes are unaffected). For local `wrangler dev` and the tests, set the variable `ALLOW_NO_CLIENT_IP=1` (for example
+`.dev.vars`; never in production): such requests then share one strict bucket of 10 per route per day, apart from the
+real networks.
 
 Behaviours worth knowing:
 

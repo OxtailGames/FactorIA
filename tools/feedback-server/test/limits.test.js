@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { admin, entry, makeServer, pullAll, sendReports, uuid } from "./helpers.js";
+import { ADMIN_TOKEN, HMAC_SECRET, INSTALL, admin, body, entry, makeServer, post, pullAll, sendReports, uuid } from "./helpers.js";
 
 const batch = (from, n) => Array.from({ length: n }, (_, i) => entry(from + i));
 
@@ -122,4 +122,107 @@ test("rate-limit hits and rejections show up in the stats", async () => {
     assert.deepEqual(today.rejections, { too_short: 1 });
     assert.deepEqual(stats.totals, { reports: 1, installations: 1, occurrences: 1, bans: 0 });
     assert.equal(stats.days.length, 7);
+});
+
+// ---- network header and per-route caps (M92.3d) -------------------------------------------------------------------
+
+const rawPost = (app, path, payload, headers) => app.fetch(new Request("https://fb.example" + path, { method: "POST", body: JSON.stringify(payload), headers: { "content-type": "application/json", ...headers } }));
+
+test("a write request without cf-connecting-ip is refused with missing_client_ip, nothing stored", async () => {
+    const { app, store, github } = makeServer({ users: { good: { id: 1, login: "a" } } });
+    const routes = [
+        ["/v1/reports", body([entry(1)])],
+        ["/v1/verdicts", { shareIds: ["r_abcd"] }],
+        ["/v1/auth/github", { githubToken: "good" }],
+    ];
+    for (const [path, payload] of routes) {
+        const res = await rawPost(app, path, payload, { "x-factoria-install": INSTALL });
+        assert.equal(res.status, 400, path);
+        const j = await res.json();
+        assert.equal(j.error.code, "missing_client_ip", path);
+        assert.match(j.error.hint, /Cloudflare/);
+        assert.match(j.error.hint, /ALLOW_NO_CLIENT_IP/);
+    }
+    assert.equal(store.counters.size, 0);
+    assert.equal(store.reports.size, 0);
+    assert.equal(github.calls.length, 0);
+});
+
+test("ALLOW_NO_CLIENT_IP lets it through into one strict bucket apart from real networks", async () => {
+    const env = { ADMIN_TOKEN, HMAC_SECRET, ALLOW_NO_CLIENT_IP: "1" };
+    const { app } = makeServer({ env, limits: { noIp: 3, ip: 100 } });
+    const send = (install, n, from) => rawPost(app, "/v1/reports", body(batch(from, n)), { "x-factoria-install": install });
+    assert.equal((await send(uuid(), 2, 0)).status, 200);
+    assert.equal((await send(uuid(), 1, 5)).status, 200);
+    const res = await send(uuid(), 1, 8);
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /3 entries.*network/);
+    // A real address has its own bucket.
+    assert.equal((await sendReports(app, batch(10, 1), { install: uuid() })).status, 200);
+    // The setting is off for "0" and "false".
+    for (const off of ["0", "false"]) {
+        const s = makeServer({ env: { ADMIN_TOKEN, HMAC_SECRET, ALLOW_NO_CLIENT_IP: off } });
+        assert.equal((await rawPost(s.app, "/v1/reports", body([entry(1)]), { "x-factoria-install": INSTALL })).status, 400);
+    }
+});
+
+test("the strict bucket also limits verdicts and sign-ins", async () => {
+    const env = { ADMIN_TOKEN, HMAC_SECRET, ALLOW_NO_CLIENT_IP: "1" };
+    const { app } = makeServer({ env, users: { good: { id: 1, login: "a" } }, limits: { noIp: 2 } });
+    for (let i = 0; i < 2; i++) assert.equal((await rawPost(app, "/v1/verdicts", { shareIds: ["r_abcd"] }, { "x-factoria-install": uuid() })).status, 200);
+    assert.equal((await rawPost(app, "/v1/verdicts", { shareIds: ["r_abcd"] }, { "x-factoria-install": uuid() })).status, 429);
+    for (let i = 0; i < 2; i++) assert.equal((await rawPost(app, "/v1/auth/github", { githubToken: "good" }, {})).status, 200);
+    assert.equal((await rawPost(app, "/v1/auth/github", { githubToken: "good" }, {})).status, 429);
+});
+
+test("reports: fresh installation ids from one address still hit the network cap", async () => {
+    const { app } = makeServer({ limits: { ip: 4, install: 100 } });
+    for (let i = 0; i < 4; i++) assert.equal((await sendReports(app, batch(i * 10, 1), { install: uuid() })).status, 200);
+    const res = await sendReports(app, batch(90, 1), { install: uuid() });
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /network/);
+});
+
+test("verdicts: per installation, per network (fresh ids included) and global caps", async () => {
+    const ask = (app, install, ip) => post(app, "/v1/verdicts", { shareIds: ["r_abcd"] }, { "x-factoria-install": install, "cf-connecting-ip": ip });
+    let s = makeServer({ limits: { verdicts: 2 } });
+    assert.equal((await ask(s.app, INSTALL, "198.51.100.1")).status, 200);
+    assert.equal((await ask(s.app, INSTALL, "198.51.100.1")).status, 200);
+    let res = await ask(s.app, INSTALL, "198.51.100.1");
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /installation/);
+
+    s = makeServer({ limits: { verdictsIp: 2 } });
+    assert.equal((await ask(s.app, uuid(), "198.51.100.1")).status, 200);
+    assert.equal((await ask(s.app, uuid(), "198.51.100.1")).status, 200);
+    res = await ask(s.app, uuid(), "198.51.100.1");
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /network/);
+    assert.equal((await ask(s.app, uuid(), "198.51.100.2")).status, 200);
+
+    s = makeServer({ limits: { verdictsGlobal: 2 } });
+    assert.equal((await ask(s.app, uuid(), "198.51.100.1")).status, 200);
+    assert.equal((await ask(s.app, uuid(), "198.51.100.2")).status, 200);
+    res = await ask(s.app, uuid(), "198.51.100.3");
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /server/);
+});
+
+test("sign-ins: global cap across networks", async () => {
+    const users = { good: { id: 1, login: "a" } };
+    const { app } = makeServer({ users, limits: { authGlobal: 2 } });
+    const signIn = (ip) => post(app, "/v1/auth/github", { githubToken: "good" }, { "cf-connecting-ip": ip });
+    assert.equal((await signIn("198.51.100.1")).status, 200);
+    assert.equal((await signIn("198.51.100.2")).status, 200);
+    const res = await signIn("198.51.100.3");
+    assert.equal(res.status, 429);
+    assert.match((await res.json()).error.message, /server/);
+});
+
+test("admin routes need the token and are not counted against the write caps", async () => {
+    const { app, store } = makeServer();
+    const res = await app.fetch(new Request("https://fb.example/v1/admin/stats"));
+    assert.equal(res.status, 401);
+    assert.equal((await admin(app, "GET", "/v1/admin/stats")).status, 200);
+    assert.equal(store.counters.size, 0);
 });

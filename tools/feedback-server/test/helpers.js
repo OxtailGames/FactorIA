@@ -80,9 +80,12 @@ export function body(entries, extra = {}) {
     return { format: "factoria.feedback-share/1", engineVersion: "0.11.0", platform: "macos", entries, ...extra };
 }
 
+/** The address Cloudflare would send: the server refuses a write request without cf-connecting-ip. */
+export const TEST_IP = "203.0.113.1";
+
 export function post(app, path, payload, headers = {}) {
     const text = typeof payload === "string" ? payload : JSON.stringify(payload);
-    return app.fetch(new Request("https://fb.example" + path, { method: "POST", body: text, headers: { "content-type": "application/json", ...headers } }));
+    return app.fetch(new Request("https://fb.example" + path, { method: "POST", body: text, headers: { "content-type": "application/json", "cf-connecting-ip": TEST_IP, ...headers } }));
 }
 
 export function sendReports(app, entries, { install = INSTALL, headers = {}, ...extra } = {}) {

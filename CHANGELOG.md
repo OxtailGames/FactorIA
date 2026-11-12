@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- The feedback server limits every write route per installation, per network and for the whole server (verdicts and
+  sign-ins gained network and global caps), and refuses write requests without `CF-Connecting-IP` (`missing_client_ip`)
+  unless `ALLOW_NO_CLIENT_IP` is set for local development.
+
 ## 0.24.0
 
 FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB
