@@ -655,22 +655,27 @@ Command make_docs_command() {
     g.usage = "[name]";
     g.details = "'factoria docs' lists documents; 'factoria docs <name>' prints one (same as 'docs read'). The same docs are MCP resources.";
     g.maxPositional = 1;
-    g.flags = {{"json", "", "Machine-readable output (with no name: the list)."}};
+    g.flags = {{"json", "", "Machine-readable output (with no name: the list)."},
+               {"audience", "WHO", "With no name: only the docs for gameAi (the AI making a game), user or engineDev."}};
     for (const FlagSpec& f : docs_read_flags()) g.flags.push_back(f);
     g.examples = {"factoria docs", "factoria docs scripting", "factoria docs read ai-guide --heading \"Platformer character\"", "factoria docs search \"collision events\"", "factoria docs list --json"};
     g.run = [](Context& ctx) {
         if (ctx.args.positional().empty()) {
-            Json arr = Json::array();
-            for (const auto& d : list_docs()) {
-                Json aud = Json::array();
-                for (const std::string& a : d.audience) aud.push_back(a);
-                arr.push_back(Json::object({{"name", d.name}, {"path", d.path}, {"title", d.title}, {"summary", d.summary}, {"audience", aud}, {"bytes", d.bytes}}));
-            }
+            // Thin over docs.list, so the CLI and MCP list (and filter by audience) the same way.
+            CommandRegistry registry;
+            register_docs_commands(registry);
+            Json args = Json::object();
+            if (ctx.args.has("audience")) args["audience"] = ctx.args.str("audience");
+            CommandResult r = registry.call("docs.list", args);
+            if (!r.ok) return report_failure(ctx, r.error.value("message", std::string("docs.list failed.")), r.error.value("hint", std::string()));
             if (ctx.args.has("json")) {
-                print_json(ctx.out, arr);
+                print_json(ctx.out, r.result["docs"]);
                 return 0;
             }
-            for (const auto& d : list_docs()) ctx.out << d.name << "  -  " << (d.summary.empty() ? d.title : d.summary) << "\n";
+            for (const Json& d : r.result["docs"]) {
+                const std::string summary = d.value("summary", std::string());
+                ctx.out << d.value("name", std::string()) << "  -  " << (summary.empty() ? d.value("title", std::string()) : summary) << "\n";
+            }
             return 0;
         }
         if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
@@ -689,7 +694,9 @@ Command make_docs_command() {
     Command list;
     list.name = "list";
     list.summary = "List the documents.";
-    list.flags = {{"json", "", "Machine-readable output."}};
+    list.flags = {{"json", "", "Machine-readable output."},
+                  {"audience", "WHO", "Only the docs for gameAi (the AI making a game), user (the person using the engine) or engineDev."}};
+    list.examples = {"factoria docs list", "factoria docs list --audience gameAi --json"};
     list.run = g.run;
 
     Command read;
@@ -703,7 +710,7 @@ Command make_docs_command() {
                    "docs.read command: a section or a range, at most --max-bytes (default 40000); when it cuts, the hint with the "
                    "exact next call and the page's contents (headings with line numbers) follow on stderr. "
                    "With --json the docs.read result (content, startLine, endLine, totalLines, truncated, next, contents) is printed.";
-    read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --contents",
+    read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --heading Index",
                      "factoria docs read ai-guide --heading \"Platformer character\"",
                      "factoria docs read architecture --start-line 400 --max-bytes 20000"};
     read.run = [run = g.run](Context& ctx) {

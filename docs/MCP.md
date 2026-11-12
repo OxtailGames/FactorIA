@@ -135,8 +135,8 @@ catalog, [AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog); `fa/too
 
 | Profile | `tools/list` | Size (0.23, `2d-empty`, about) | Pick it when |
 |---|---|---|---|
-| `all` (default) | every command | ~400 tools, ~1 MB of definitions | the client defers MCP tools (Claude Code), or tokens do not matter |
-| `core` | the 39 core commands (files, docs, the scene, running and looking at the game, validating, scripts) plus `tool_load`, `tool_describe`, `tool_call` | 42 tools, ~55 KB | the client loads every definition into the model's context and the work is the usual edit-run-look loop |
+| `all` (default) | every command | several hundred tools, ~1 MB of definitions | the client defers MCP tools (Claude Code), or tokens do not matter |
+| `core` | the core commands (about 40: files, docs, the scene, running and looking at the game, validating, scripts; `factoria mcp --help` gives the exact count) plus `tool_load`, `tool_describe`, `tool_call` | a few dozen tools, ~55 KB | the client loads every definition into the model's context and the work is the usual edit-run-look loop |
 | `core,anim,physics` | the core set plus the commands of those groups (a group is a command category, an exact command name such as `assets.slice_sheet`, `core` or `all`) | core plus the groups | you know which areas the session needs |
 
 An unknown group is refused at start (`--tools: Tool group 'phyiscs' matches no command category and no command. Did you

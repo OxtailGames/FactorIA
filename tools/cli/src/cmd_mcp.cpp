@@ -159,7 +159,7 @@ Command make_mcp_command() {
                 "Serve only the commands that look and play (read-only ones plus game_step/input/click, scene_load, ...): "
                 "the art critic and reviewer agents run this way."},
                {"tools", "PROFILE",
-                "Which tools tools/list offers: all (default), core (39 commands), or a comma list of groups "
+                "Which tools tools/list offers: all (default), core (" + std::to_string(core_command_names().size()) + " commands), or a comma list of groups "
                 "(core,anim,physics: command categories or exact command names). With a profile, tool_load adds groups "
                 "later and tool_describe / tool_call reach every command (docs/MCP.md, \"Tool profiles\")."},
                {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.", false, true}};

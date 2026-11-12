@@ -252,6 +252,7 @@ private:
     void emit(const Json& message);
     bool visible(const CommandInfo& c) const;  // not user-only, allowed by the filter
     bool listed(const CommandInfo& c) const;   // visible and in the current profile
+    bool listed_locked(const CommandInfo& c) const;  // the profile part of listed(); profileMutex_ must be held
     Json tool_json(const CommandInfo& c) const;
     Json loader_tools_json() const;
     Json run_loader_tool(const std::string& tool, const Json& args, const Json& params, const std::atomic<bool>* cancel);

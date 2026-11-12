@@ -378,7 +378,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`fs.list`](commands/fs.md#fslist): List files and folders in the project.
 - [`fs.read`](commands/fs.md#fsread): Read a text file (optionally a line range).
 - [`fs.search`](commands/fs.md#fssearch): Search text in project files (substring or regex).
-- [`fs.write`](commands/fs.md#fswrite-modifies-state): Create or overwrite a file (text, or binary via base64; parent folders are created).
+- [`fs.write`](commands/fs.md#fswrite-modifies-state): Create or overwrite a file (text, or binary via base64; parent folders are created; the write is atomic).
 
 ### [game](commands/game.md)
 

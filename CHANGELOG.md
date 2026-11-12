@@ -15,7 +15,15 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
 - `docs.list` (and `factoria docs list`) gives every doc a one-sentence `summary` and an `audience` (`gameAi`, `user`,
   `engineDev`), with an `audience` filter, so an AI reads only the docs its task needs. The generated AGENTS.md, the
   MCP server instructions and the `make-game` / `add-feature` prompts now say: the AI guide's `Index` first, then
-  sections by heading, components one at a time, never the whole `components` page.
+  sections by heading, components one at a time, never the whole `components` page. `factoria docs list --audience <a>`
+  filters the same way.
+- Polish of the docs paging and the MCP tool profiles: a page of `docs.components` / `docs.commands` counts `maxBytes` on the
+  serialized result (JSON escapes included) and a `cursor` cannot be combined with `name`; `docs.write_reference` reports a
+  `warnings` entry when `AI_GUIDE.md` has no generated-table markers or is missing, instead of skipping the table silently;
+  with `--read-only`, `factoria mcp --tools` names the groups it hides, `tool_call` annotates read-only calls and a
+  non-object `arguments` is an `isError` result.
+- A rig or model file written again with the same size within the clock step of the previous write (1/64 s under the Windows
+  rules) is read again by the skeleton cache, which used to keep serving the old skeleton.
 
 ## 0.23.0
 

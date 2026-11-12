@@ -1,7 +1,7 @@
 // Tool groups: which commands a client that does not want every tool loads first. Shared by the built-in agent loop
 // (fa/ai/tool_catalog.h: core commands in full, the rest in a catalog) and the MCP server (`factoria mcp --tools core,anim`).
 //
-// The CORE set is the ~50 commands nearly every task needs (files, docs, the scene, running and looking at the game,
+// The CORE set is the few dozen commands nearly every task needs (files, docs, the scene, running and looking at the game,
 // validating the project, scripts). A GROUP is one of: a command category ("anim", "assets"...), the exact name of a
 // command ("assets.slice_sheet"), "core" (the core set) or "all" (every command).
 #pragma once
@@ -14,7 +14,8 @@
 
 namespace fa {
 
-// Every core command name (a test checks each one exists in the real registry).
+// Every core command name (tools/cli/tests/tool_catalog_test.cpp, "every core command exists in the real registry", checks each one
+// exists; tools/common/tests/tool_groups_test.cpp covers the group rules below).
 const std::vector<std::string>& core_command_names();
 bool is_core_command(std::string_view commandName);
 
