@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
 
 ## Unreleased
 
+- `docs.components` and `docs.commands` with `full:true` (and the name list of `docs.commands`, over 40 KB) come in pages: whole entries up to `maxBytes` (default 40000, max 90000, like `docs.read`), `total`, and `nextCursor` (the next entry's name) until the last page; pass it as `cursor` to continue, with the same `filter` and `format`. A cursor that is not an entry of the set fails with how to restart. `full` with `filter` now returns the matching entries in full.
 - docs/AI_GUIDE.md starts with a short `## Index` (every section in under 5 KB; read it alone with `docs_read {"name":"ai-guide","heading":"Index"}`), and the tools table of its section 4 is generated from the command registry by `docs.write_reference`: one row per command category, so it no longer goes stale and is a third of its former size.
 
 ## 0.23.0

@@ -6,26 +6,30 @@
 
 Reference of the available commands (tools) with arguments: a list of names, or one command in full.
 
-Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command with its summary (the whole reference is over 200 KB, more than an MCP tool result carries). {"name":"game.click"} returns that command with its arguments, {"filter":"ui"} the commands whose name, category or summary contains the text, {"full":true} everything.
+Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command with its summary. {"name":"game.click"} returns that command with its arguments, {"filter":"ui"} the commands whose name, category or summary contains the text, {"full":true} every command in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | no | Exact command name (case-insensitive): returns its full reference. |
 | `filter` | string | no | Keep the commands whose name, category or summary contains this text (case-insensitive). |
-| `full` | boolean | no | Return every command in full (over 200 KB: too large for most MCP clients; prefer name or filter). Default false. |
+| `full` | boolean | no | Return the commands in full, one page at a time (see maxBytes, cursor); with filter, only the matches. Default false. |
+| `cursor` | string | no | The nextCursor of the previous page: continues the list or the full reference from there. Use it with the same filter and format. |
+| `maxBytes` | integer | no | Page size in bytes: whole entries are added until the next would not fit (a page has at least one). Default 40000. |
 | `format` | string ["markdown","json"] | no | Output format. Default "markdown". |
 
 ## `docs.components`
 
 Reference of components and fields (types, defaults, docs): a list of names, or one component in full.
 
-Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. With no argument it lists every component with a one-line summary (the whole reference is over 200 KB, more than an MCP tool result carries). {"name":"Sprite"} returns that component with all its fields, {"filter":"physics"} the components whose name, category or summary contains the text, {"full":true} everything.
+Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. With no argument it lists every component with a one-line summary. {"name":"Sprite"} returns that component with all its fields, {"filter":"physics"} the components whose name, category or summary contains the text, {"full":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | no | Exact component name (case-insensitive): returns its full reference. |
 | `filter` | string | no | Keep the components whose name, category or summary contains this text (case-insensitive). |
-| `full` | boolean | no | Return every component in full (over 200 KB: too large for most MCP clients; prefer name or filter). Default false. |
+| `full` | boolean | no | Return the components in full, one page at a time (see maxBytes, cursor); with filter, only the matches. Default false. |
+| `cursor` | string | no | The nextCursor of the previous page: continues the list or the full reference from there. Use it with the same filter and format. |
+| `maxBytes` | integer | no | Page size in bytes: whole entries are added until the next would not fit (a page has at least one). Default 40000. |
 | `format` | string ["markdown","json"] | no | Output format. Default "markdown". |
 
 ## `docs.list`
