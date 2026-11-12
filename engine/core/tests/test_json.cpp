@@ -44,6 +44,40 @@ TEST_CASE("json: a number outside the range of a double is an error, not an exce
     }
 }
 
+TEST_CASE("json: nesting deeper than kMaxJsonDepth is an error with its position; the limit itself is fine (found by the fuzz target)") {
+    const std::string open(kMaxJsonDepth, '['), close(kMaxJsonDepth, ']');
+    auto ok = parse_json(open + close, "x.json");
+    REQUIRE(ok.ok());
+    CHECK(dump_json(ok.value()).size() > 0);  // printing and copying recurse once per level
+    Json copy = ok.value();
+    CHECK(copy == ok.value());
+
+    // One level more, on the second line: the error names the bracket that crossed the limit.
+    auto deep = parse_json("\n" + open + "[" + close + "]", "x.json");
+    REQUIRE(!deep.ok());
+    CHECK(deep.error().message == "x.json:2:" + std::to_string(kMaxJsonDepth + 1) + ": invalid JSON: nesting deeper than " +
+                                      std::to_string(kMaxJsonDepth) + " levels");
+    CHECK(deep.error().hint.find("Flatten") != std::string::npos);
+
+    // 64 KB of brackets (an unclosed document too): refused before anything is built, so nothing overflows the stack.
+    CHECK(!parse_json(std::string(32000, '[') + std::string(32000, ']'), "big.json").ok());
+    CHECK(!parse_json(std::string(60000, '['), "big.json").ok());
+    std::string objects;
+    for (int i = 0; i < 10000; ++i) objects += "{\"a\":";
+    CHECK(!parse_json(objects + "1" + std::string(10000, '}'), "big.json").ok());
+
+    // Brackets in strings (with escaped quotes) are text, not nesting.
+    std::string quoted = "[\"";
+    for (int i = 0; i < 1000; ++i) quoted += "[{\\\"";
+    CHECK(parse_json(quoted + "\"]", "x.json").ok());
+
+    CHECK(json_nesting_overflow("[[[]]]", 2) == 2);
+    CHECK(json_nesting_overflow("[[[]]]", 3) == -1);
+    CHECK(parse_json_lenient(open + "[" + close + "]").is_discarded());
+    CHECK(parse_json_lenient("{\"a\":[1,2]}").is_object());
+    CHECK(parse_json_lenient("{").is_discarded());
+}
+
 TEST_CASE("json: vectors accept several spellings") {
     std::string err;
     Vec2 v2;
