@@ -106,8 +106,9 @@ struct SkeletonAsset {
     int find_node(std::string_view name) const;
 };
 
-// Reads the skeleton data of a .gltf/.glb (project-relative path). The result is cached per path and file
-// modification time, so every animator on the same model shares it.
+// Reads the skeleton data of a .gltf/.glb (project-relative path). The result is cached per path, file size and modification
+// time, so every animator on the same model shares it; a file written again within the clock step of its last write (and
+// cached in the two seconds after it) is told apart by its content hash.
 Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path);
 // Same, from bytes already in memory (tests, generated data). The file may reference only embedded buffers.
 Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std::string_view pathForErrors);

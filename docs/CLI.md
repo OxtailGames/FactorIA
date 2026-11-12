@@ -417,7 +417,7 @@ case-insensitive, an exact title wins, else part of a title), `--start-line N`, 
 so a long guide is read by section like over MCP. When the read is cut, stderr gets the exact next call and the page's
 contents (headings with line numbers); stdout stays the text. With `--json` stdout is the `docs.read` result instead
 (`content`, `startLine`, `endLine`, `totalLines`, `truncated`, `next`, `contents`).
-Read `ai-guide` this way, never whole: `factoria docs read ai-guide --contents`, then `factoria docs read ai-guide --heading "Platformer character"`.
+Read `ai-guide` this way, never whole: `factoria docs read ai-guide --heading Index`, then `factoria docs read ai-guide --heading "Platformer character"`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
 

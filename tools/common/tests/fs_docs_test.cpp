@@ -540,3 +540,63 @@ TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json 
     CHECK(count == total);
     CHECK_FALSE(reg.call("docs.commands", {{"filter", "docs"}, {"cursor", "game.step"}}).ok);
 }
+
+// maxBytes bounds the serialized result: entries plus the header, next/nextCursor and the JSON escaping of the markdown.
+TEST_CASE("docs.components and docs.commands: a page stays under maxBytes counted on the serialized result") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const char* tool : {"docs.components", "docs.commands"})
+        for (const char* format : {"markdown", "json"})
+            for (const bool full : {false, true})
+                for (const int maxBytes : {4000, 12000, 40000}) {
+                    std::string cursor;
+                    int pages = 0;
+                    do {
+                        Json args = {{"full", full}, {"format", format}, {"maxBytes", maxBytes}};
+                        if (!cursor.empty()) args["cursor"] = cursor;
+                        auto r = reg.call(tool, args);
+                        REQUIRE_MESSAGE(r.ok, r.error.dump());
+                        // A page may pass maxBytes only when it holds a single (huge) entry.
+                        if (r.result["returned"].get<size_t>() > 1)
+                            CHECK_MESSAGE(r.result.dump().size() <= size_t(maxBytes),
+                                          tool << " " << format << " full=" << full << " maxBytes=" << maxBytes << ": " << r.result.dump().size());
+                        cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+                    } while (!cursor.empty() && ++pages < 3000);
+                }
+}
+
+TEST_CASE("docs.components and docs.commands: cursor with name is refused; full markdown starts with the reference's preamble") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const std::string tool : {"docs.components", "docs.commands"}) {
+        const bool commands = tool == "docs.commands";
+        auto first = reg.call(tool, {{"full", true}, {"maxBytes", 3000}});
+        REQUIRE(first.ok);
+        REQUIRE(first.result.contains("nextCursor"));
+        auto both = reg.call(tool, {{"name", commands ? "game.step" : "Sprite"}, {"cursor", first.result["nextCursor"]}});
+        REQUIRE_FALSE(both.ok);
+        CHECK(both.error["message"].get<std::string>().find("cannot be used together") != std::string::npos);
+        CHECK(both.error["hint"].get<std::string>().find("Drop 'cursor'") != std::string::npos);
+        // The preamble is on the first full page only, never on the next one or on the list.
+        auto second = reg.call(tool, {{"full", true}, {"maxBytes", 3000}, {"cursor", first.result["nextCursor"]}});
+        REQUIRE(second.ok);
+        const std::string needle = commands ? "an MCP tool (dots become underscores)" : "Version marks:";
+        CHECK(first.result["markdown"].get<std::string>().find(needle) != std::string::npos);
+        CHECK(second.result["markdown"].get<std::string>().find(needle) == std::string::npos);
+        auto list = reg.call(tool);
+        REQUIRE(list.ok);
+        CHECK(list.result.dump().find(needle) == std::string::npos);
+    }
+}
+
+TEST_CASE("docs.list: the pages FINISHING links (mcp, legal, publishing) are for the AI that makes the game too") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto game = reg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(game.ok);
+    std::set<std::string> names;
+    for (const auto& d : game.result["docs"]) names.insert(d["name"].get<std::string>());
+    for (const char* n : {"mcp", "legal", "publishing"}) CHECK_MESSAGE(names.count(n) == 1, n);
+}

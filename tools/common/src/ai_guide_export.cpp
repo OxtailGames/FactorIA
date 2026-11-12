@@ -30,7 +30,7 @@ constexpr CategoryPurpose kPurposes[] = {
     {"engine", "Engine version, platform, graphics backend, and whether FactorIA was updated while it runs."},
     {"feedback", "File, list, check and close engine feedback (the feedback rule, section 3)."},
     {"feel", "Game feel effects: flash, hit-stop, knockback, shake, squash."},
-    {"fs", "Read, list, edit and delete the project's files (always inside the project)."},
+    {"fs", "Read, list, edit and delete the project's files (always inside the project). A write replaces the file atomically (a temporary file is renamed over it), so hot reload never sees a half-written scene."},
     {"game", "Run the headless game: step, pause, input, clicks, screenshots, state, logs; render and VFX probes."},
     {"i18n", "Translations: export and import string tables, switch language, see missing strings."},
     {"jobs", "The job system: worker threads and what ran."},

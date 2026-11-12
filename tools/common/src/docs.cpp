@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <initializer_list>
 #include <iterator>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
@@ -89,57 +91,63 @@ constexpr long kDocReadMaxBytes = 90000;
 // The one place that says what each embedded doc is for. A table here (not a docs/index.json) because it needs no
 // CMake embed rule and sits next to the code that serves it; the test "docs: every embedded doc has a manifest entry"
 // fails when a doc has no entry or an entry names no doc, and says what to add.
-// std::string, not const char*: {kUser, kGameAi} in a vector<string> would pick the iterator-pair constructor.
-const std::string kGameAi = "gameAi";        // the AI making a game
-const std::string kUser = "user";            // the person using the engine
-const std::string kEngineDev = "engineDev";  // working on the engine itself
+// constexpr string_views (no dynamic initialisation: manifest() may be read by any static initialiser); aud() builds the vector.
+constexpr std::string_view kGameAi = "gameAi";        // the AI making a game
+constexpr std::string_view kUser = "user";            // the person using the engine
+constexpr std::string_view kEngineDev = "engineDev";  // working on the engine itself
+
+std::vector<std::string> aud(std::initializer_list<std::string_view> audiences) {
+    std::vector<std::string> out;
+    for (std::string_view a : audiences) out.emplace_back(a);
+    return out;
+}
 
 const std::vector<DocManifestEntry>& manifest() {
     static const std::vector<DocManifestEntry> m = {
-        {"ai-costs", "What making a game with an AI costs in tokens and money, and how to spend less.", {kUser, kGameAi}},
-        {"ai-guide", "How to build a game: the loop, project layout, recipes by genre. Read its Index, then sections.", {kGameAi}},
-        {"ai-providers", "Connect an AI to FactorIA: MCP clients, API keys, the built-in assistant and its providers.", {kUser}},
-        {"analytics", "Analytics events and remote config: send, read and test them from a game.", {kGameAi}},
-        {"animation", "Skeletal and 2D clips, animator state machines and tweens.", {kGameAi}},
-        {"architecture", "Engine internals: modules, threads, reflection, commands, loading, rendering, testing.", {kEngineDev}},
-        {"assets", "Generate, import and ship textures, models, sounds and other assets.", {kGameAi, kUser}},
-        {"building", "Build FactorIA from source: presets, scripts, CI, caches, platforms.", {kEngineDev}},
-        {"cli", "Every `factoria` command line verb and flag.", {kGameAi, kUser}},
-        {"components", "Reference of every component, field and command (1.8 MB: ask by name, never read it whole).", {kGameAi}},
-        {"debugging", "Debug scripts: breakpoints, the script debugger and the VS Code extension.", {kGameAi, kUser}},
-        {"editor", "The FactorIA editor: panels, shortcuts, play mode, autotest.", {kUser, kEngineDev}},
-        {"effects", "Visual and audio effects: the loop for making one, with three worked examples.", {kGameAi}},
-        {"engine-feedback", "ENGINE_FEEDBACK.json: how to report engine gaps, efficiency feedback and triage.", {kGameAi, kEngineDev}},
-        {"exporting", "Export a game for desktop, web, Android and iOS; CI for your game.", {kGameAi, kUser}},
-        {"extending", "Write project tools, native plugins and extend the engine itself.", {kGameAi, kEngineDev}},
-        {"finishing", "From playable to ready for a store: polish, settings, accessibility, checks.", {kGameAi, kUser}},
-        {"first-game-with-ai", "Tutorial for a person: make a first game by talking to an AI.", {kUser}},
-        {"game-feel", "Shake, hit-stop, flash, knockback, squash and stretch.", {kGameAi}},
-        {"getting-started", "Install FactorIA, create a project and run it.", {kUser}},
-        {"hooks", "Hooks: programs or JS run when the AI calls a tool or engine command; they add context, refuse or change it.", {kGameAi, kUser}},
-        {"images", "Layered images (*.image.json): layers, masks, palettes and drawing commands.", {kGameAi}},
-        {"legal", "Privacy policy and EULA templates for a game you ship.", {kUser}},
-        {"localization", "Translate a game: string tables, languages, plurals and fonts.", {kGameAi}},
-        {"make-by-hand", "Tutorial: make a small game by editing the files yourself, no AI.", {kUser}},
-        {"mcp", "The MCP server: tools, resources, prompts and how to connect a client.", {kUser, kEngineDev}},
-        {"menus", "Main menu, options, credits, loading screen and pause menu.", {kGameAi}},
-        {"mobile", "Android and iOS: touch input, safe areas, export and device testing.", {kGameAi, kUser}},
-        {"modeling", "3D models as data (*.model.json): parts, materials and commands.", {kGameAi}},
-        {"music", "Music as data: song documents (*.song.json), stems and playback.", {kGameAi}},
-        {"navigation", "Paths over 3D ground and tile maps: navmeshes and agents.", {kGameAi}},
-        {"networking", "http.fetch: requests from scripts, limits and permissions.", {kGameAi}},
-        {"particles", "Particle emitters: fields, presets and performance.", {kGameAi}},
-        {"performance", "Performance budgets, profiling and the perf commands.", {kGameAi, kEngineDev}},
-        {"platform", "Store services: achievements, stats, leaderboards, cloud saves and purchases.", {kGameAi}},
-        {"publishing", "One checklist per store: Steam, itch.io, Epic, Google Play, App Store.", {kUser}},
-        {"rendering", "Cameras that draw into textures and photographs of the world.", {kGameAi}},
-        {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", {kGameAi}},
-        {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", {kGameAi}},
-        {"shaders", "Custom shaders and materials: the template, uniforms and limits.", {kGameAi, kEngineDev}},
-        {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", {kGameAi, kUser}},
-        {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", {kGameAi}},
-        {"text", "Fonts, languages and text size.", {kGameAi}},
-        {"vector", "Vector illustration: the vector.* commands and SVG import.", {kGameAi}},
+        {"ai-costs", "What making a game with an AI costs in tokens and money, and how to spend less.", aud({kUser, kGameAi})},
+        {"ai-guide", "How to build a game: the loop, project layout, recipes by genre. Read its Index, then sections.", aud({kGameAi})},
+        {"ai-providers", "Connect an AI to FactorIA: MCP clients, API keys, the built-in assistant and its providers.", aud({kUser})},
+        {"analytics", "Analytics events and remote config: send, read and test them from a game.", aud({kGameAi})},
+        {"animation", "Skeletal and 2D clips, animator state machines and tweens.", aud({kGameAi})},
+        {"architecture", "Engine internals: modules, threads, reflection, commands, loading, rendering, testing.", aud({kEngineDev})},
+        {"assets", "Generate, import and ship textures, models, sounds and other assets.", aud({kGameAi, kUser})},
+        {"building", "Build FactorIA from source: presets, scripts, CI, caches, platforms.", aud({kEngineDev})},
+        {"cli", "Every `factoria` command line verb and flag.", aud({kGameAi, kUser})},
+        {"components", "Reference of every component, field and command (1.8 MB: ask by name, never read it whole).", aud({kGameAi})},
+        {"debugging", "Debug scripts: breakpoints, the script debugger and the VS Code extension.", aud({kGameAi, kUser})},
+        {"editor", "The FactorIA editor: panels, shortcuts, play mode, autotest.", aud({kUser, kEngineDev})},
+        {"effects", "Visual and audio effects: the loop for making one, with three worked examples.", aud({kGameAi})},
+        {"engine-feedback", "ENGINE_FEEDBACK.json: how to report engine gaps, efficiency feedback and triage.", aud({kGameAi, kEngineDev})},
+        {"exporting", "Export a game for desktop, web, Android and iOS; CI for your game.", aud({kGameAi, kUser})},
+        {"extending", "Write project tools, native plugins and extend the engine itself.", aud({kGameAi, kEngineDev})},
+        {"finishing", "From playable to ready for a store: polish, settings, accessibility, checks.", aud({kGameAi, kUser})},
+        {"first-game-with-ai", "Tutorial for a person: make a first game by talking to an AI.", aud({kUser})},
+        {"game-feel", "Shake, hit-stop, flash, knockback, squash and stretch.", aud({kGameAi})},
+        {"getting-started", "Install FactorIA, create a project and run it.", aud({kUser})},
+        {"hooks", "Hooks: programs or JS run when the AI calls a tool or engine command; they add context, refuse or change it.", aud({kGameAi, kUser})},
+        {"images", "Layered images (*.image.json): layers, masks, palettes and drawing commands.", aud({kGameAi})},
+        {"legal", "Privacy policy and EULA templates for a game you ship.", aud({kUser, kGameAi})},
+        {"localization", "Translate a game: string tables, languages, plurals and fonts.", aud({kGameAi})},
+        {"make-by-hand", "Tutorial: make a small game by editing the files yourself, no AI.", aud({kUser})},
+        {"mcp", "The MCP server: tools, resources, prompts and how to connect a client.", aud({kUser, kGameAi, kEngineDev})},
+        {"menus", "Main menu, options, credits, loading screen and pause menu.", aud({kGameAi})},
+        {"mobile", "Android and iOS: touch input, safe areas, export and device testing.", aud({kGameAi, kUser})},
+        {"modeling", "3D models as data (*.model.json): parts, materials and commands.", aud({kGameAi})},
+        {"music", "Music as data: song documents (*.song.json), stems and playback.", aud({kGameAi})},
+        {"navigation", "Paths over 3D ground and tile maps: navmeshes and agents.", aud({kGameAi})},
+        {"networking", "http.fetch: requests from scripts, limits and permissions.", aud({kGameAi})},
+        {"particles", "Particle emitters: fields, presets and performance.", aud({kGameAi})},
+        {"performance", "Performance budgets, profiling and the perf commands.", aud({kGameAi, kEngineDev})},
+        {"platform", "Store services: achievements, stats, leaderboards, cloud saves and purchases.", aud({kGameAi})},
+        {"publishing", "One checklist per store: Steam, itch.io, Epic, Google Play, App Store.", aud({kUser, kGameAi})},
+        {"rendering", "Cameras that draw into textures and photographs of the world.", aud({kGameAi})},
+        {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", aud({kGameAi})},
+        {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", aud({kGameAi})},
+        {"shaders", "Custom shaders and materials: the template, uniforms and limits.", aud({kGameAi, kEngineDev})},
+        {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
+        {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", aud({kGameAi})},
+        {"text", "Fonts, languages and text size.", aud({kGameAi})},
+        {"vector", "Vector illustration: the vector.* commands and SVG import.", aud({kGameAi})},
     };
     return m;
 }
