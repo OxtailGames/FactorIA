@@ -114,7 +114,7 @@ Json music_export_midi_command(const std::string& projectDir, const Json& a) {
     const std::string out = outArg.empty() ? song_stem(rel) + ".mid" : outArg;
     auto norm = fs::normalize_checked(out);
     if (!norm.ok() || norm->empty() || !is_midi_name(*norm)) fail("invalid_argument", "`out` '" + out + "' must be a project path ending in .mid.", "Example: \"out\": \"" + song_stem(rel) + ".mid\".");
-    const stdfs::path file = project_file(projectDir, *norm);
+    const stdfs::path file = project_write_file(projectDir, *norm);
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(file, ec)) fail("exists", "'" + *norm + "' already exists.", "Pass overwrite: true to replace it, or choose another `out`.");
     auto exported = song_to_midi(loaded.doc, tl);

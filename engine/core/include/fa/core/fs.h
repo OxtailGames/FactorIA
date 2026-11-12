@@ -279,13 +279,17 @@ Result<void> check_writable(std::string_view path);
 // write can be confined to:
 //   Project  project_root(), the game's folder.
 //   Save     user_dir(), the game's save folder.
-//   Export   export_dir(), the folder export artifacts go to (set_export_dir; default <project>/build/exports).
+//   Export   export_dir(), the folder export artifacts go to (set_export_dir; default <project>/build/export).
 enum class WriteRoot { Project, Save, Export };
+// Whether a path that lands in a managed folder of the project (the version-control folder, `.factoria/` except its scratch
+// folder `.factoria/tmp`) is refused. Refuse is the default: a path a caller names does not touch them. Allow is for a
+// command that chooses such a target itself (selections, previews and review files under `.factoria/`).
+enum class ManagedFolders { Refuse, Allow };
 
 // Sets the export folder (absolute); an empty path goes back to the default. Nothing is created: the writer creates the
 // folder when it writes.
 void set_export_dir(const std::filesystem::path& dir);
-// The export folder: set_export_dir's, else <project_root()>/build/exports. Returned by value (another thread may set it).
+// The export folder: set_export_dir's, else <project_root()>/build/export (where project.export puts its output). Returned by value (another thread may set it).
 std::filesystem::path export_dir();
 
 // Resolves `path` (UTF-8 text; / and \ both separate) for a write below `root`. Gives the absolute, canonical host path to
@@ -303,16 +307,23 @@ std::filesystem::path export_dir();
 //    are `invalid_path` on other systems.
 //  - Names compare without regard to case on Windows and macOS (their default volumes), never on Linux. A case-sensitive
 //    macOS volume counts as case-insensitive for the "is it inside the root" test.
-//  - A relative path does NOT go through the managed rule (commands write to `.factoria/` themselves, screenshots for one):
-//    a command that lets its caller name any project path also calls check_writable on the result.
+//  - With WriteRoot::Project, a path that lands in a managed folder of the project is `managed_path_denied`, judged on the
+//    canonical path (a link into it counts; names fold case on Windows and macOS), unless `managed` is ManagedFolders::Allow.
+//    That holds for a relative path and for an absolute one. The Save and Export roots are what a command writes to on
+//    purpose, so a relative path in them is not judged. A command that lets its caller name any project path keeps calling
+//    check_writable on the result too: that is the same rule, with its error.
+//  - A name with a NUL byte is `invalid_path`, and so is a relative path with a drive in its first segment (`a/../C:/x`) or,
+//    on Windows, a ':' in any segment (an alternate data stream). A network path needs a server and a share (Windows); on
+//    other systems \\server\share and \\?\UNC\... are `invalid_path`.
 // The check and the write are two steps: a link made in between is not seen. Nothing is created or opened here.
 // The error's code is the end of its message, "(code: path_outside_root)"; path_error_code reads it. Codes:
 // path_outside_root, absolute_path_denied, managed_path_denied, invalid_path, path_unresolvable.
-Result<std::filesystem::path> resolve_for_write(std::string_view path, WriteRoot root, bool allowAnywhere);
+Result<std::filesystem::path> resolve_for_write(std::string_view path, WriteRoot root, bool allowAnywhere,
+                                                ManagedFolders managed = ManagedFolders::Refuse);
 // The same against an explicit root folder (`root` only chooses the wording and the managed-folder exemption). For code that
 // holds its own project folder (the tooling commands get it when they are registered, not from project_root()).
 Result<std::filesystem::path> resolve_for_write_in(const std::filesystem::path& rootDir, WriteRoot root, std::string_view path,
-                                                   bool allowAnywhere);
+                                                   bool allowAnywhere, ManagedFolders managed = ManagedFolders::Refuse);
 // The code of an error that resolve_for_write gave ("path_outside_root"...), or "" for any other error.
 std::string_view path_error_code(const Error& error);
 

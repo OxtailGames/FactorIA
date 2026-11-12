@@ -1,6 +1,7 @@
 // i18n.export and i18n.import: CSV and XLIFF files for translators and what they put back into locales/<language>.json.
 #include <doctest.h>
 
+#include "fa/core/capability.h"
 #include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
@@ -497,4 +498,27 @@ TEST_CASE("read_csv: quotes, line breaks, a BOM, ragged rows and the errors for 
     CHECK_FALSE(read_csv("key,en,en\na,1,2\n").ok());  // a language twice
     CHECK(read_translation_file("key,en\na,1\n", "x.csv").ok());
     CHECK(read_translation_file("<xliff/>", "x.txt").error().message.find("no translation units") != std::string::npos);
+}
+
+TEST_CASE("i18n.export: out stays inside the project for MCP and agents, the command-line user may name any folder") {
+    Game g;
+    testing::TempDir other;
+    const std::string outside = (other.path / "tr").generic_string();
+    {
+        CommandCapabilityScope mcp(capability_sets::mcp());
+        for (const std::string& bad : {std::string("../tr"), outside, std::string(".git/tr")}) {
+            CAPTURE(bad);
+            auto r = g.call("i18n.export", Json{{"format", "csv"}, {"out", bad}});
+            REQUIRE_FALSE(r.ok);
+            CHECK(r.error["code"] == "invalid_argument");
+            CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+        }
+        CHECK_FALSE(std::filesystem::exists(other.path / "tr"));
+        CHECK_FALSE(std::filesystem::exists(std::filesystem::path(g.dir).parent_path() / "tr"));
+        auto inside = g.call("i18n.export", Json{{"format", "csv"}, {"out", "out/tr"}});
+        CHECK_MESSAGE(inside.ok, inside.error.dump());
+    }
+    auto user = g.call("i18n.export", Json{{"format", "csv"}, {"out", outside}});
+    REQUIRE_MESSAGE(user.ok, user.error.dump());
+    CHECK(std::filesystem::exists(other.path / "tr" / "translations.csv"));
 }

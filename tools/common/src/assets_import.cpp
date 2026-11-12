@@ -35,6 +35,15 @@ stdfs::path project_file(const std::string& projectDir, const std::string& rel) 
     return *path;
 }
 
+stdfs::path project_write_file(const std::string& projectDir, const std::string& rel) {
+    // Inside the project for every caller, the command-line user too: these commands record the project-relative path in
+    // assets.json, so an absolute one has no meaning for them. Refuses the tools' folders on the canonical path.
+    auto path = fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false,
+                                         fs::ManagedFolders::Refuse);
+    if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
+    return *path;
+}
+
 void require_usable_manifest(const std::string& projectDir) {
     const auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
     if (!text) return;

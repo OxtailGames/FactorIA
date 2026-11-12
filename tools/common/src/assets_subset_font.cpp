@@ -60,7 +60,7 @@ Json subset_font(const std::string& projectDir, const Json& a) {
     const std::string ext = out.ok() ? to_lower(fs::extension(*out)) : std::string();
     if (!out.ok() || out->empty() || !starts_with(*out, "assets/") || (ext != ".ttf" && ext != ".otf"))
         fail("invalid_argument", "`out` must be a project-relative .ttf or .otf path under assets/ (got '" + outArg + "').", "For example \"assets/fonts/NotoSansSC-Regular-subset.ttf\".");
-    if (auto c = fs::check_writable(*out); !c.ok()) fail("invalid_argument", c.error().message, c.error().hint);
+    (void)project_write_file(projectDir, *out);  // refused before any work: managed folders, links out
 
     const stdfs::path source = stdfs::path(sourceArg).is_absolute() ? stdfs::path(sourceArg) : project_file(projectDir, sourceArg);
     std::error_code ec;
@@ -165,7 +165,7 @@ Json subset_font(const std::string& projectDir, const Json& a) {
     const char* raw = hb_blob_get_data(data.get(), &length);
     const std::string newBytes(raw, length);
 
-    const stdfs::path outFile = project_file(projectDir, *out);
+    const stdfs::path outFile = project_write_file(projectDir, *out);
     const auto oldText = tooling_detail::read_file(outFile);
     const bool changed = !oldText || *oldText != newBytes;
     std::string err;
@@ -218,8 +218,8 @@ void register_subset_font_command(CommandRegistry& registry, const std::string& 
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["source","out"],
       "properties":{
-        "source":{"type":"string","description":"The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable."},
-        "out":{"type":"string","description":"Project-relative .ttf or .otf under assets/ to write, e.g. \"assets/fonts/NotoSansSC-Regular-subset.ttf\". Replaced if it exists."},
+        "source":{"type":"string","x-fa-path":"read","description":"The font to cut: an absolute path on this machine, or a path relative to the project folder. A .ttf or .otf, static or variable."},
+        "out":{"type":"string","x-fa-path":"write","description":"Project-relative .ttf or .otf under assets/ to write, e.g. \"assets/fonts/NotoSansSC-Regular-subset.ttf\". Replaced if it exists."},
         "locales":{"type":"array","items":{"type":"string"},"description":"Languages whose locales/<language>.json give the characters, e.g. [\"zh-Hans\"]. Default: every language of localization.languages in factoria.json."},
         "keep":{"type":"string","description":"Extra characters to keep, written out: e.g. the characters a script builds names from, or a whole alphabet."},
         "axes":{"type":"object","description":"Where to pin the variable font's axes, tag to value: {\"wght\":400}. Default {\"wght\":400}. An axis not listed goes to its default.","additionalProperties":{"type":"number"}}
