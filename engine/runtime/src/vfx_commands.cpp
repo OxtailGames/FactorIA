@@ -523,6 +523,16 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
               j["$image"] = image;
               return j;
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"vfx.play", capability_sets::changes_state()},
+        {"vfx.stop", capability_sets::changes_state()},
+        {"vfx.list", capability_sets::reads()},
+        {"vfx.check", capability_sets::reads()},
+        {"vfx.budget", capability_sets::reads()},
+        {"vfx.filmstrip", capability_sets::edits_project()},
+    });
 }
 
 }  // namespace fa

@@ -109,6 +109,22 @@ void Impl::reload_tools() {
         info.category = "project";
         JsVal ro(ctx, JS_GetPropertyStr(ctx, def.get(), "readOnly"));
         info.readOnly = JS_IsUndefined(ro.get()) ? false : JS_ToBool(ctx, ro.get()) > 0;
+        // Optional `capabilities: ["read", "state"]`: what the tool can do outside the engine's memory (capability.h). Without
+        // it the registry derives the set from readOnly. A tool with a typo in a name is not registered (its error teaches).
+        JsVal capsV(ctx, JS_GetPropertyStr(ctx, def.get(), "capabilities"));
+        if (!JS_IsUndefined(capsV.get())) {
+            auto caps = CapabilitySet::parse(to_json(capsV.get()), "/capabilities");
+            if (!caps.ok()) {
+                ScriptError e;
+                e.file = file;
+                e.message = "tool '" + name + "': `capabilities` of the default export: " + caps.error().message + " " + caps.error().hint;
+                record_error(std::move(e), file);
+                continue;
+            }
+            info.capabilities = *caps;
+            info.capabilitiesDeclared = true;
+            info.readOnly = caps->without(Capability::Read).empty();
+        }
         JsVal inputV(ctx, JS_GetPropertyStr(ctx, def.get(), "input"));
         if (JS_IsObject(inputV.get())) {
             Json schema = to_json(inputV.get());

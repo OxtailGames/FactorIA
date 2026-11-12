@@ -381,6 +381,11 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             if (!loadProblems.empty()) result["loadProblems"] = loadProblems;
             return result;
         });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"ui.check_layout", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

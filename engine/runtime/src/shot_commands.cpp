@@ -109,7 +109,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                "columns":{"type":"integer","minimum":1,"maximum":64,"description":"Filmstrip: tiles per row (default: the grid closest to square)."},
                "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."},
                "forceTouch":{"type":"boolean","description":"true: show the touch interface (the touch-only TouchStick and TouchButton) before the picture; false: the real last input. Only for this call: the previous setting is restored afterwards (ui.force_touch keeps it)."}}})"),
-           true, "game"},
+           false, "game"},
           [&engine, &I](const Json& a) {
               check_args_known(a, {"path", "scale", "region", "zoom", "frames", "everyFrames", "columns", "simulate", "forceTouch"}, "game.screenshot");
               std::optional<bool> forceTouch;
@@ -431,6 +431,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
               j["frame"] = I.frame;
               return j;
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"game.screenshot", capability_sets::edits_project()},
+        {"render.inspect", capability_sets::reads()},
+        {"render.pick", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

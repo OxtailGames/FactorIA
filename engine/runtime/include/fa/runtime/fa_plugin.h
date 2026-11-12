@@ -52,7 +52,7 @@
  *   - The api pointer stays valid until the process ends: keep it for reply/fail/log.
  *   - The engine only grows this struct at its end and raises FA_PLUGIN_API_VERSION when it does; a plugin built
  *     against a newer header checks api->version before it uses a newer member (add_backend, resolve, reject and emit
- *     need version 2, add_text_input and submit_text version 3, set_device_fact version 4; a version 1 plugin keeps working unchanged).
+ *     need version 2, add_text_input and submit_text version 3, set_device_fact version 4, set_command_capabilities version 5; a version 1 plugin keeps working unchanged).
  *   - Backends: answer each FaRequest exactly once; a second answer, or one for a game that has since ended, is
  *     ignored. resolve, reject and emit may be called from any thread. frame runs on the game thread.
  */
@@ -61,7 +61,7 @@
 
 #include <stdint.h>
 
-#define FA_PLUGIN_API_VERSION 4
+#define FA_PLUGIN_API_VERSION 5
 
 #if defined(_WIN32)
 #define FA_PLUGIN_EXPORT __declspec(dllexport)
@@ -186,6 +186,16 @@ struct FaPluginApi {
      * plugin that does not know (its SDK did not start) must not call it: the engine then falls back to the SteamDeck=1
      * environment variable. */
     void (*set_device_fact)(const FaPluginApi* api, const char* name, int value);
+
+    /* Version 5: what a command can do. Check api->version >= 5 before using this. */
+
+    /* Declare the capabilities of a command this plugin already added with add_command, from inside the entry point.
+     * capabilities_json: a JSON array of names from "read", "state", "writeProject", "writeAnywhere", "network", "process",
+     * "spend", "publish", e.g. "[\"read\",\"network\"]". The engine refuses a call whose caller was not granted all of them
+     * (error "capability_denied"). A command that never calls it gets {read} when read_only is 1 and {read, state,
+     * writeProject} otherwise; a command that does file, network or process work of its own must declare it. Returns 0 when
+     * done; otherwise the engine logged why (an unknown command or name). */
+    int (*set_command_capabilities)(const FaPluginApi* api, const char* command, const char* capabilities_json);
 };
 
 typedef int (*FaPluginInitFn)(const FaPluginApi* api);

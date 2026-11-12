@@ -241,6 +241,10 @@ class CommandRegistry {
 public:
     // Replaces an existing command with the same name.
     void add(CommandInfo info, CommandHandler handler);
+    // Declares (and flags as declared) the capabilities of an already added command and sets readOnly to match
+    // (readOnly == the set holds nothing but "read"); false if there is no such command. The modules that register many
+    // commands call declare_command_capabilities (below) once with a table, right after their add() calls.
+    bool declare_capabilities(std::string_view name, CapabilitySet capabilities);
     void remove(std::string_view name);
     bool has(std::string_view name) const;
     const CommandInfo* info(std::string_view name) const;
@@ -284,5 +288,14 @@ private:
     std::shared_ptr<const CommandInterceptor> interceptor_;
     jobs::Owner* jobOwner_ = nullptr;
 };
+
+// One row of a module's capability table: command name and what it can do (capability.h; named sets in capability_sets).
+struct CommandCapabilityRow {
+    std::string_view name;
+    CapabilitySet capabilities;
+};
+// Declares every row on `registry` (CommandRegistry::declare_capabilities). A row naming a command that is not registered is a
+// bug of the module (a renamed command): it is logged as an error, not ignored.
+void declare_command_capabilities(CommandRegistry& registry, std::initializer_list<CommandCapabilityRow> rows);
 
 }  // namespace fa

@@ -102,6 +102,14 @@ void register_background_load_commands(Engine& engine, Engine::Impl& I) {
                                      "load.status {} lists the loads that run.");
               return Json::object({{"id", id}, {"cancelled", true}});
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"scene.preload", capability_sets::changes_state()},
+        {"assets.preload", capability_sets::changes_state()},
+        {"load.cancel", capability_sets::changes_state()},
+        {"load.status", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

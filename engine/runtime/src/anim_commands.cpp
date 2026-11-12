@@ -836,6 +836,23 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
           });
 
     register_anim_view_commands(engine, I);
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"anim.create_clip", capability_sets::writes_project()},
+        {"anim.set_keys", capability_sets::writes_project()},
+        {"anim.remove_keys", capability_sets::writes_project()},
+        {"anim.move_keys", capability_sets::writes_project()},
+        {"anim.set_interp", capability_sets::writes_project()},
+        {"anim.add_track", capability_sets::writes_project()},
+        {"anim.remove_track", capability_sets::writes_project()},
+        {"anim.add_event", capability_sets::writes_project()},
+        {"anim.move_event", capability_sets::writes_project()},
+        {"anim.set_event", capability_sets::writes_project()},
+        {"anim.remove_event", capability_sets::writes_project()},
+        {"anim.set_clip", capability_sets::writes_project()},
+        {"anim.restore", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa

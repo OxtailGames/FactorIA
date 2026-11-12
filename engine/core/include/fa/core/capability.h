@@ -101,6 +101,16 @@ constexpr CapabilitySet game_player() { return CapabilitySet{Capability::Read, C
 constexpr CapabilitySet editor_play() { return CapabilitySet{Capability::Read, Capability::State}; }
 // A test file of the project (`factoria test`): read and state; its options can ask for more.
 constexpr CapabilitySet test_script() { return CapabilitySet{Capability::Read, Capability::State}; }
+
+// Sets that commands declare (CommandInfo::capabilities).
+// Reads project or engine state, changes nothing.
+constexpr CapabilitySet reads() { return CapabilitySet{Capability::Read}; }
+// Changes the running game or the open scene in memory (entity edits, game.step, ui.*, in-memory authoring).
+constexpr CapabilitySet changes_state() { return CapabilitySet{Capability::Read, Capability::State}; }
+// Writes project files and may also change the running game (what a command that declares nothing and is not readOnly gets).
+constexpr CapabilitySet edits_project() { return CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject}; }
+// Writes project files only; the running game is not touched (prefab.save, scene.format, anim clip edits).
+constexpr CapabilitySet writes_project() { return CapabilitySet{Capability::Read, Capability::WriteProject}; }
 }  // namespace capability_sets
 
 }  // namespace fa

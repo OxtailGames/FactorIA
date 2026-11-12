@@ -10,6 +10,7 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   sign-ins gained network and global caps), and refuses write requests without `CF-Connecting-IP` (`missing_client_ip`)
   unless `ALLOW_NO_CLIENT_IP` is set for local development.
 - Command capabilities (M92): `fa::Capability` / `CapabilitySet` (core/capability.h), `CommandInfo::capabilities` (derived from `readOnly` until a command declares it), named caller sets, `CommandCapabilityScope` / `command_context()`, and the `capability_denied` error from `CommandRegistry::call`; `describe()` lists `capabilities`.
+- Every command of the runtime and the platform services, and JS project tools (`capabilities: [...]` in the tool definition) and native plugin commands (`set_command_capabilities`, plugin API version 5), declare their capabilities; a re-added copy of a derived `CommandInfo` stays undeclared.
 
 ## 0.24.0
 

@@ -24,6 +24,15 @@ constexpr std::array<CapabilityRow, kCapabilityCount> kRows{{
     {Capability::Publish, "publish", "makes something public or uploads a build to a store"},
 }};
 
+// kRows is indexed by the enum value: keep the rows in the enum's order.
+constexpr bool rows_match_enum() {
+    for (std::size_t i = 0; i < kRows.size(); ++i)
+        if (static_cast<std::size_t>(kRows[i].capability) != i) return false;
+    return true;
+}
+static_assert(rows_match_enum(), "capability.cpp: kRows must list the capabilities in the order of the Capability enum");
+static_assert(static_cast<int>(Capability::Publish) + 1 == kCapabilityCount, "capability.cpp: kCapabilityCount does not match the Capability enum");
+
 Error unknown_capability(std::string_view name, const std::string& where) {
     const std::vector<std::string> valid = capability_names();
     std::string message = "Unknown capability '" + std::string(name) + "'";
