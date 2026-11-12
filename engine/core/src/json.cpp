@@ -145,6 +145,14 @@ Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
         std::string msg = std::string(sourceName) + ":" + std::to_string(line) + ":" + std::to_string(col) +
                           ": invalid JSON: " + what;
         return make_error(std::move(msg), parse_hint(text, byte, what));
+    } catch (const Json::exception& e) {
+        // Valid syntax the library cannot hold: a number outside the range of a double (1e999) is out_of_range.406, thrown
+        // from the parser itself. (Found by the fuzz target `json`.)
+        std::string what = e.what();
+        if (what.rfind("[json.exception.", 0) == 0)
+            if (const std::size_t close = what.find("] "); close != std::string::npos) what = what.substr(close + 2);
+        return make_error(std::string(sourceName) + ": invalid JSON: " + what,
+                          "Write numbers inside the range of a double (about -1.8e308 to 1.8e308); a number such as 1e999 cannot be read.");
     }
 }
 

@@ -1,0 +1,5 @@
+[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":[1],"method":7},3,[]]
+{"jsonrpc":2,"id":{},"method":"x","params":"s"}
+{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"factoria://docs/NOPE.md"}}
+{"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"make-game","arguments":{"idea":1}}}
+{"id":1

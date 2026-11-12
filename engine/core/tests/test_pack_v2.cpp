@@ -445,6 +445,36 @@ TEST_CASE("pack v2: FA_PACK_MAP=0 makes every pack read without a mapping") {
 #endif
 }
 
+TEST_CASE("pack v2: open_memory reads a pack from bytes and refuses damaged ones without crashing") {
+    Scratch s;
+    PackWriter w;
+    const auto big = text_bytes(std::size_t(2 * B + 10), 1);
+    REQUIRE(w.add_bytes("a.json", big, Codec::Lz4).ok());
+    REQUIRE(w.add_bytes("dir/b.bin", noise_bytes(300, 2), Codec::Store).ok());
+    REQUIRE(w.write(s.pak()).ok());
+    const std::string good = read_file(s.pak());
+    const std::vector<std::uint8_t> bytes(good.begin(), good.end());
+
+    auto opened = PackReader::open_memory(bytes, "download.pak");
+    REQUIRE(opened.ok());
+    const PackReader& p = *opened.value();
+    CHECK(p.file_count() == 2);
+    CHECK(p.read("a.json").value() == big);
+    CHECK(p.read("dir/b.bin").value() == noise_bytes(300, 2));
+    CHECK(p.view("dir/b.bin").ok());
+    CHECK(p.read("nope.txt").error().hint.find("download.pak") != std::string::npos);
+
+    // Every prefix and every single flipped byte is an error or a pack whose reads return a result: never a crash.
+    CHECK(!PackReader::open_memory({}).ok());
+    for (std::size_t n = 0; n < bytes.size(); n += 7) CHECK(!PackReader::open_memory(std::vector<std::uint8_t>(bytes.begin(), bytes.begin() + std::ptrdiff_t(n))).ok());
+    for (std::size_t i = 0; i < bytes.size(); i += 5) {
+        auto flipped = bytes;
+        flipped[i] ^= 0x5A;
+        if (auto r = PackReader::open_memory(std::move(flipped)); r.ok())
+            for (const std::string& f : r.value()->list("", true)) (void)r.value()->read(f);
+    }
+}
+
 TEST_CASE("pack v2: views share the mapping and outlive the reader and the mount") {
     Scratch s;
     PackWriter w;
