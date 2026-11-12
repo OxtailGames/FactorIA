@@ -176,6 +176,13 @@ bool provider_makes(ProviderKind k, MediaKind m) {
     }
 }
 
+// A user-typed name in an error message: control characters (a tab, a newline) shown as ? so the message stays on one line.
+static std::string printable_text(std::string_view s) {
+    std::string out(s);
+    for (char& c : out) if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = '?';
+    return out;
+}
+
 static bool parse_kind(std::string_view s, ProviderKind& out) {
     for (auto k : {ProviderKind::Anthropic, ProviderKind::OpenAICompatible, ProviderKind::ClaudeCode,
                    ProviderKind::Codex, ProviderKind::GenericCli, ProviderKind::ElevenLabs, ProviderKind::Meshy,
@@ -199,21 +206,34 @@ bool is_known_role(std::string_view role) {
 bool is_review_role(std::string_view role) { return role == kRoleArtCritic || role == kRoleReviewer; }
 CapabilitySet role_capabilities(std::string_view role) {
     if (is_known_role(role) && !is_review_role(role)) return capability_sets::agent();
-    return CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+    return capability_sets::mcp_read_only();
 }
-std::string role_denial_subject(std::string_view role) {
-    return is_known_role(role) ? "the " + std::string(role_display_name(role)) + " role" : std::string();
-}
-std::string role_denial_hint(std::string_view role) {
-    if (!is_known_role(role)) return {};  // the registry's generic hint
-    const std::string name = role_display_name(role);
-    if (is_review_role(role)) {
-        return "The " + name + " role only looks at the game and plays it, so it never changes the project: '{command}' is not available to it. "
-               "Say in your report what should change, or ask the user to run `factoria call {command}` in a terminal (which has every "
-               "capability); a builder role (the orchestrator, the worker) makes the change.";
+namespace {
+// The words a capability_denied hint uses for a call of an AI role.
+class RoleHint final : public CapabilityHintProvider {
+public:
+    explicit RoleHint(std::string role) : role_(std::move(role)) {}
+    std::string hint(const CapabilityDenial& denial) const override {
+        const std::string name = role_display_name(role_);
+        const std::string command = denial.command.name;
+        const std::string given = "The " + name + " role has " + denial.granted.to_string() + " here, and '" + command + "' needs " +
+                                  denial.command.capabilities.to_string() + ". ";
+        if (is_review_role(role_)) {
+            return given + "It only looks at the game and plays it, so it never changes the project. Say in your report what should "
+                           "change, or ask the user to run `factoria call " + command + "` in a terminal (which has every capability); "
+                           "a builder role (the orchestrator, the worker) makes the change.";
+        }
+        return given + "Writing outside the project (writeAnywhere) and publishing stay with the user: ask them to run `factoria call " +
+               command + "` themselves in a terminal (which has every capability).";
     }
-    return "The " + name + " role may do everything but write outside the project (writeAnywhere) and publish: those stay with the user. "
-           "Ask the user to run `factoria call {command}` themselves in a terminal (which has every capability).";
+
+private:
+    std::string role_;
+};
+}  // namespace
+std::shared_ptr<const CapabilityHintProvider> role_denial_hint(std::string_view role) {
+    if (!is_known_role(role)) return nullptr;  // the registry's generic hint
+    return std::make_shared<RoleHint>(std::string(role));
 }
 bool is_delegable_role(std::string_view role) {
     return role == kRoleWorker || role == kRoleFast || role == kRoleArtist || role == kRoleAudio;
@@ -399,9 +419,10 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
             // carry images; `--resume {session}` continues the chat's session (the argument disappears for the first message).
             // Both built-in CLIs end their options at "--" (with_end_of_options puts one before the {prompt} of a user
             // template); these templates pass no prompt argument, so nothing in a prompt is ever read as an option.
+            // The permission flag (`--permission-mode <mode>`, `--sandbox <mode>`) is not here: apply_permission_mode adds it from
+            // the provider's "permissionMode" (cli_agent.h).
             return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
-                    "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria",
-                    "--permission-mode", "acceptEdits"};
+                    "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria"};
         case ProviderKind::Codex:
             return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
                     "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]",
@@ -409,6 +430,40 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
                     "-c", "mcp_servers.factoria.tool_timeout_sec=" + std::to_string(kCodexMcpToolTimeoutSec), "-"};
         default: return {};
     }
+}
+
+std::vector<PermissionMode> permission_modes(ProviderKind kind) {
+    // The values are the ones `claude --help` lists for --permission-mode and the ones documented for `codex exec --sandbox`.
+    // FactorIA starts both CLIs without a terminal, so nothing can answer a question: what would need a yes is refused.
+    switch (kind) {
+        case ProviderKind::ClaudeCode:
+            return {
+                {"manual", "Reads files and uses the FactorIA tools only. Every file edit and shell command would need a yes that nobody can give in a background run, so it is refused.", false},
+                {"plan", "Reads and plans only: no file is edited and no command runs.", false},
+                {"dontAsk", "Never asks: uses what is already allowed (the FactorIA tools, the sites you listed) and refuses everything else, including edits.", false},
+                {"acceptEdits", "Edits and creates files in the project without asking. Other shell commands and tools that are not already allowed are refused. The default.", false},
+                {"auto", "A safety check approves the actions it judges safe (edits, ordinary commands) and blocks the rest. Less strict than acceptEdits.", false},
+                {"bypassPermissions", "DANGEROUS: no permission checks at all. It edits or deletes any file it can reach, runs any shell command and uses the network without asking.", true},
+            };
+        case ProviderKind::Codex:
+            return {
+                {"read-only", "Reads files; its shell cannot write anything or use the network. The FactorIA tools still work (they run in FactorIA, not in the sandbox).", false},
+                {"default", "No flag: Codex uses its own configuration (~/.codex/config.toml), which is a read-only sandbox without one. The default.", false},
+                {"workspace-write", "Its shell may edit files in the project folder and temporary folders; no network, nothing outside those folders.", false},
+                {"danger-full-access", "DANGEROUS: no sandbox. Its shell edits or deletes any file you can, runs any command and uses the network.", true},
+            };
+        default: return {};
+    }
+}
+
+std::string default_permission_mode(ProviderKind kind) {
+    if (kind == ProviderKind::ClaudeCode) return "acceptEdits";
+    if (kind == ProviderKind::Codex) return "default";
+    return {};
+}
+
+std::string effective_permission_mode(const ProviderConfig& p) {
+    return p.permissionMode.empty() ? default_permission_mode(p.kind) : p.permissionMode;
 }
 
 std::string default_cli_command(ProviderKind kind) {
@@ -683,6 +738,27 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 c.argv.clear();
                 for (const auto& e : *a) c.argv.push_back(e.get<std::string>());
             }
+            if (pj.contains("permissionMode")) {
+                const std::string at = std::string(sourceName) + ": /providers/" + name + "/permissionMode";
+                const Json& pm = pj["permissionMode"];
+                const auto modes = permission_modes(c.kind);
+                if (modes.empty()) {
+                    return make_error(at + ": only claude-code and codex providers have a permission mode (this one is " +
+                                          provider_kind_name(c.kind) + ")",
+                                      "Remove the key. A generic-cli provider sets its own flags in \"argv\".");
+                }
+                std::vector<std::string> values;
+                for (const PermissionMode& m : modes) values.push_back(m.value);
+                const std::string mode = pm.is_string() ? pm.get<std::string>() : std::string();
+                if (std::find(values.begin(), values.end(), mode) == values.end()) {
+                    std::string list;
+                    for (const auto& v : values) list += (list.empty() ? "" : ", ") + v;
+                    return make_error(at + ": " + (pm.is_string() ? "'" + printable_text(mode) + "'" : std::string("a string is expected")) +
+                                          " is not a permission mode of " + provider_kind_name(c.kind),
+                                      fa::did_you_mean(mode, values) + " Choose one of: " + list + ". docs/AI_PROVIDERS.md, \"Permission mode\".");
+                }
+                c.permissionMode = mode;  // as written: a provider with its own argv gets the flag only when the file names a mode
+            }
             if (const Json* e = child(pj, "env")) {
                 for (auto ei = e->begin(); ei != e->end(); ++ei) c.env[ei.key()] = ei.value().get<std::string>();
             }
@@ -933,11 +1009,17 @@ Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_
     std::size_t index = 0;
     for (const Json& e : array) {
         const std::string name = e.is_string() ? e.get<std::string>() : std::string();
-        const bool bad = name.empty() || name.find_first_of("= \t\r\n") != std::string::npos ||
+        const bool bad = name.empty() || name.find('=') != std::string::npos ||
+                         std::any_of(name.begin(), name.end(), [](unsigned char c) { return std::isspace(c) != 0; }) ||
                          (name.find('*') != std::string::npos && name.find('*') != name.size() - 1);
         if (bad) {
-            return make_error(std::string(at) + "/" + std::to_string(index) + ": '" + name + "' is not an environment variable name",
-                              "Write the name only (no =, no spaces), for example \"AWS_PROFILE\"; a * is allowed at the end only.");
+            return make_error(std::string(at) + "/" + std::to_string(index) + ": '" + printable_text(name) + "' is not an environment variable name",
+                              "Write the name only (no =, no spaces or other whitespace), for example \"AWS_PROFILE\"; a * is allowed at the end only.");
+        }
+        if (name == "*") {
+            return make_error(std::string(at) + "/" + std::to_string(index) + ": '*' alone would let the program inherit every variable, "
+                                  "including the keys of other providers and signing passwords",
+                              "Name the variables the program needs, for example \"AWS_PROFILE\", or a prefix such as \"AWS_*\".");
         }
         if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(name);
         ++index;
@@ -1086,6 +1168,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         }
         if (!p.command.empty()) pj["command"] = p.command;
         if (!p.argv.empty()) pj["argv"] = p.argv;
+        if (!p.permissionMode.empty()) pj["permissionMode"] = p.permissionMode;
         if (!p.env.empty()) {
             Json e = Json::object();
             for (const auto& [k, v] : p.env) e[k] = v;
@@ -1275,6 +1358,45 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
         }
         if (pj.empty()) provs.erase(name);
         if (provs.empty()) j.erase("providers");
+    }
+    return write_private(path, dump_json(j));
+}
+
+Result<void> save_provider_permission_mode(std::string_view provider, std::string_view mode, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the permission mode again.");
+        }
+        j = std::move(*parsed);
+    }
+    const std::string name(provider);
+    if (!j.contains("providers") || !j["providers"].is_object()) j["providers"] = Json::object();
+    Json& provs = j["providers"];
+    if (mode.empty()) {
+        if (provs.contains(name) && provs[name].is_object()) {
+            provs[name].erase("permissionMode");
+            if (provs[name].empty()) provs.erase(name);
+        }
+    } else {
+        if (!provs.contains(name) || !provs[name].is_object()) provs[name] = Json::object();
+        provs[name]["permissionMode"] = std::string(mode);
+    }
+    if (provs.empty()) j.erase("providers");
+    // The same checks as load_config: a kind without modes and an unknown value are errors that name the pointer and the
+    // choices, and the file stays as it was.
+    auto check = parse_config(j, path);
+    if (!check) return check.error();
+    if (!mode.empty() && !check->provider(name)) {
+        std::vector<std::string> names;
+        for (const auto& [n, p] : check->providers) names.push_back(n);
+        return make_error("No provider named '" + printable_text(name) + "'", fa::did_you_mean(name, names));
     }
     return write_private(path, dump_json(j));
 }

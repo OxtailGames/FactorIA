@@ -491,7 +491,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
                "onionSkin":{"type":"boolean","default":false,"description":"Draw faint copies of the neighbouring poses under each pose."},
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels; default: around the character."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (default: a sheet about 1600 px wide)."},
-               "path":{"type":"string","description":"Keep the PNG here (project-relative or absolute)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths and the managed folders are refused)."}}})"),
            false, "anim"},
           [&engine, &I](const Json& a) {
               const Entity e = need_entity(I.world, a, "entity");
@@ -582,7 +582,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
               SheetLayout l;
               Image img = contact_sheet(shots, labels, wanted, -1, &l);
               const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
-              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_anim.png" : a["path"].get<std::string>();
+              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_anim.png" : resolve_caller_write_path(a["path"].get<std::string>(), "anim.filmstrip");
               auto saved = save_png(img, path);
               if (!saved.ok()) throw CommandError("unavailable", saved.error().message, saved.error().hint.empty() ? "Check the path is inside a writable folder." : saved.error().hint);
               const std::string abs = abs_path(path);
@@ -681,7 +681,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
         {"anim.list", capability_sets::reads()},
         {"anim.pose", capability_sets::changes_state()},
         {"anim.check", capability_sets::changes_state()},
-        {"anim.filmstrip", capability_sets::edits_project()},
+        {"anim.filmstrip", capability_sets::changes_state()},
     });
 }
 

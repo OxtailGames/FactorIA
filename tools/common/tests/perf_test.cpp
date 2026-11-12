@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "fa/core/capability.h"
 #include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
@@ -668,4 +669,21 @@ TEST_CASE("perf.check: the startup budget passes with room, warns outside CI and
     CHECK(message.find("maxStartupMs") != std::string::npos);
     CHECK(message.find("> budget 0") != std::string::npos);
     CHECK(message.find("scene.preload") != std::string::npos);
+}
+
+TEST_CASE("perf.baseline: the budget file stays inside the project for MCP and agents (refused before the game runs)") {
+    TempDir t;
+    TempDir other;
+    REQUIRE(create_project(t.str(), "2d-empty").ok());
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    CommandCapabilityScope mcp(capability_sets::mcp());
+    for (const std::string& bad : {std::string("../perf.json"), (other.path / "perf.json").generic_string(), std::string(".factoria/perf.json")}) {
+        CAPTURE(bad);
+        auto r = reg.call("perf.baseline", Json::object({{"file", bad}, {"frames", 1}}));
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "invalid_argument");
+        CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    }
+    CHECK_FALSE(std::filesystem::exists(other.path / "perf.json"));
 }

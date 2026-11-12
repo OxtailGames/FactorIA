@@ -139,6 +139,7 @@ Result<ai::ToolServer> Editor::ai_tool_form_build() const {
     // The same checks ai.json gets when it loads (url shape, header names, roles...): their messages say how to fix it.
     auto parsed = ai::parse_tool_server(ai::tool_server_to_json(s, false), s.name, "the server '" + s.name + "'");
     if (!parsed) return parsed.error();
+    parsed->inheritEnvGlobal = t.inheritEnvGlobal;  // not a key of the server: the Test button inherits ai.json's global list like a saved server
     return *parsed;
 }
 
@@ -344,6 +345,7 @@ void Editor::draw_ai_tools_tab(const ai::AiConfig& cfg, bool configReadable) {
                     std::string names;
                     for (ai::ToolServer& s : *got) {
                         auto it = std::ranges::find(t.servers, s.name, &ai::ToolServer::name);
+                        s.inheritEnvGlobal = t.inheritEnvGlobal;
                         if (it != t.servers.end()) *it = s;
                         else t.servers.push_back(s);
                         names += (names.empty() ? "" : ", ") + s.name;

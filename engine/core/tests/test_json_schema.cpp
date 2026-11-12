@@ -105,6 +105,24 @@ TEST_CASE("schema: $ref and additionalProperties schema") {
     CHECK(bad[0].message.find("cannot resolve") != std::string::npos);
 }
 
+TEST_CASE("schema: x- annotation keys in a schema (x-fa-path) are ignored and closing keeps them") {
+    Json schema = Json::parse(R"({
+        "type":"object",
+        "properties":{
+            "out":{"type":"string","x-fa-path":"write"},
+            "nested":{"type":"object","properties":{"file":{"type":"string","x-fa-path":"read"}}}}})");
+    schema = close_object_schemas(schema);
+    CHECK(schema["additionalProperties"] == false);
+    CHECK(schema["properties"]["out"]["x-fa-path"] == "write");
+    CHECK(schema["properties"]["nested"]["properties"]["file"]["x-fa-path"] == "read");
+    CHECK(validate_json(schema, Json::parse(R"({"out":"a.png","nested":{"file":"b"}})")).empty());
+    // The annotation changes nothing about the instance: an unknown key is still refused, a wrong type too.
+    auto e = validate_json(schema, Json::parse(R"({"out":3,"x-fa-path":"write"})"));
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].pointer == "/out");
+    CHECK(e[1].message.find("unknown property") != std::string::npos);
+}
+
 TEST_CASE("schema: pointer escaping and defaults") {
     auto e = check(R"({"type":"object","properties":{"a/b":{"type":"string"}}})", R"({"a/b":1})");
     REQUIRE(e.size() == 1);

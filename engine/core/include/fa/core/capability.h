@@ -91,8 +91,12 @@ namespace capability_sets {
 constexpr CapabilitySet cli_user() { return CapabilitySet::all(); }
 // An MCP client (`factoria mcp`, the editor's per-run endpoint): everything but writeAnywhere.
 constexpr CapabilitySet mcp() { return CapabilitySet::all().without(Capability::WriteAnywhere); }
-// `factoria mcp --read-only`: only read.
-constexpr CapabilitySet mcp_read_only() { return CapabilitySet{Capability::Read}; }
+// `factoria mcp --read-only`: read and state, together with a filter that serves only the readOnly commands and the play
+// commands (game.step, game.screenshot, scene.load, ...; ai::is_read_only_tool). The play commands change the running
+// game (state), so {read} alone would refuse them. game.screenshot, the filmstrips and play.auto write only under
+// .factoria/ and declare {read, state}; their `path` argument needs writeProject, which this set lacks. The filter keeps
+// the editing commands out (tools/call on an unlisted tool is refused).
+constexpr CapabilitySet mcp_read_only() { return CapabilitySet{Capability::Read, Capability::State}; }
 // The in-engine AI agents: everything but writeAnywhere and publish (a later package refines it per role).
 constexpr CapabilitySet agent() { return CapabilitySet::all().without(Capability::WriteAnywhere).without(Capability::Publish); }
 // A script of the game the player is playing (fa.call from game scripts): read and state.

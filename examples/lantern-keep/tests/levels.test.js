@@ -18,13 +18,13 @@ for (const level of LEVELS) {
     fa.call("fs.delete", { path: rebuilt });
     if (built !== fa.call("fs.read", { path: level.scene }).content)
       throw new Error(`${level.scene} is not what levels/${level.id}.json builds. Rebuild it with \`factoria call scene.import_ascii @levels/${level.id}.json\` (or undo the hand edit of the scene).`);
-  });
+  }, { capabilities: ["writeProject"] }); // a test is granted {read, state}; the scratch file needs writeProject
 }
 
 test("scenes and prefabs are in the canonical layout", () => {
   // `factoria call scene.format` rewrites them; `{"check": true}` only lists the files that still need it.
   expect(fa.call("scene.format", { check: true }).notCanonical).toEqual([]);
-});
+}, { capabilities: ["writeProject"] }); // scene.format declares writeProject even with check: true
 
 test("scripts/levels.js: the ordered list, worlds and names", () => {
   expect(LEVELS.map((l) => l.id)).toEqual(["1-1", "1-2", "1-3", "2-1", "2-2", "2-3"]);

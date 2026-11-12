@@ -302,7 +302,7 @@ bool is_user_only_key(std::string_view key) {
     static const char* const keys[] = {"providers", "defaultProvider", "type", "preset", "command", "argv", "args", "env", "unsetEnv",
                                        "url", "baseUrl", "headers", "apiKey", "apiKeyEnv", "factoriaCommand", "pricing", "license",
                                        "useAntCli", "sendReasoningEffort", "maxRetries", "timeoutSeconds", "path", "plugin", "hooks",
-                                       "note", "inheritUserPlugins", "inheritEnv"};
+                                       "note", "inheritUserPlugins", "inheritEnv", "permissionMode"};
     return std::any_of(std::begin(keys), std::end(keys), [&](const char* k) { return key == k; });
 }
 

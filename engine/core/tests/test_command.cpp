@@ -673,6 +673,8 @@ TEST_CASE("capabilities: the caller kinds grant their named sets") {
     {
         CommandCapabilityScope ro(capability_sets::mcp_read_only());
         CHECK_FALSE(reg.call("t.project").ok);
+        CHECK(reg.call("t.publish").error["code"] == "capability_denied");
+        CHECK(reg.call("t.outside").error["code"] == "capability_denied");
     }
     CHECK(capability_sets::game_player() == CapabilitySet{Capability::Read, Capability::State});
     CHECK(capability_sets::editor_play() == capability_sets::game_player());
@@ -743,7 +745,17 @@ TEST_CASE("capabilities: FACTORIA_CAPABILITIES parses, and an unreadable value i
         CHECK(*command_capabilities_from_env_value(capabilities_env_value(s).c_str()) == s);
 }
 
-TEST_CASE("capabilities: a process floor narrows on every thread, never widens, and names the refused role") {
+namespace {
+// A hint provider that says a fixed text with the refused command's name.
+struct TextHint final : CapabilityHintProvider {
+    explicit TextHint(std::string text) : text_(std::move(text)) {}
+    std::string hint(const CapabilityDenial& denial) const override { return text_ + " [" + denial.command.name + "]"; }
+    std::string text_;
+};
+std::shared_ptr<const CapabilityHintProvider> text_hint(std::string text) { return std::make_shared<TextHint>(std::move(text)); }
+}  // namespace
+
+TEST_CASE("capabilities: a process floor narrows on every thread, never widens, and words the refusals") {
     CommandRegistry reg;
     add_cap_command(reg, "t.project", false);
     add_cap_command(reg, "t.publish", false, CapabilitySet{Capability::Publish});
@@ -751,8 +763,7 @@ TEST_CASE("capabilities: a process floor narrows on every thread, never widens, 
     std::string codeOnThread, messageOnThread, hintOnThread;
     bool readerOnThread = false;
     {
-        CommandCapabilityFloor floor(CapabilitySet{Capability::Read, Capability::State}, "the reviewer role",
-                                     "Ask the user, or use a builder role, for {command}.");
+        CommandCapabilityFloor floor(CapabilitySet{Capability::Read, Capability::State}, text_hint("The reviewer role may not."));
         CHECK(caller_capabilities() == CapabilitySet({Capability::Read, Capability::State}));
         {
             CommandCapabilityFloor wider(CapabilitySet::all());  // inside another floor: the intersection
@@ -773,39 +784,37 @@ TEST_CASE("capabilities: a process floor narrows on every thread, never widens, 
     }
     CHECK(readerOnThread);
     CHECK(codeOnThread == "capability_denied");
-    CHECK(messageOnThread.find("the reviewer role") != std::string::npos);
-    CHECK(hintOnThread.find("Ask the user, or use a builder role, for t.project.") != std::string::npos);
+    CHECK(messageOnThread.find("t.project") != std::string::npos);
+    CHECK(hintOnThread == "The reviewer role may not. [t.project]");
     CHECK(reg.call("t.project").ok);  // the floor ended
 }
 
-TEST_CASE("capabilities: a denial scope changes the words of a refusal, the innermost non-empty text wins, and it travels in the context") {
+TEST_CASE("capabilities: a thread's hint provider beats the floor's, a nested scope without one keeps it, and it travels in the context") {
     CommandRegistry reg;
     add_cap_command(reg, "t.project", false);
-    CommandCapabilityScope ro(CapabilitySet{Capability::Read});
+    CommandCapabilityFloor floor(CapabilitySet::all(), text_hint("floor"));
+    const auto hint_of = [&] { return reg.call("t.project").error["hint"].get<std::string>(); };
     {
-        CommandDenialScope outer("the art critic role", "Use a builder role for {command}.");
-        CommandResult r = reg.call("t.project");
-        REQUIRE_FALSE(r.ok);
-        CHECK(r.error["message"].get<std::string>().find("the art critic role") != std::string::npos);
-        CHECK(r.error["hint"].get<std::string>().find("Use a builder role for t.project.") != std::string::npos);
+        CommandCapabilityScope ro(CapabilitySet{Capability::Read}, text_hint("critic"));
+        CHECK(hint_of() == "critic [t.project]");
         {
-            CommandDenialScope inner("", "Ask for {command} nicely.");  // empty subject: the outer one stays
-            r = reg.call("t.project");
-            CHECK(r.error["message"].get<std::string>().find("the art critic role") != std::string::npos);
-            CHECK(r.error["hint"].get<std::string>().find("Ask for t.project nicely.") != std::string::npos);
+            CommandCapabilityScope inner(CapabilitySet{Capability::Read});  // no provider of its own: the outer one stays
+            CHECK(hint_of() == "critic [t.project]");
         }
         const CommandContext captured = command_context();
-        CHECK(captured.denialSubject == "the art critic role");
-        std::string messageThere;
+        REQUIRE(captured.hint);
+        std::string hintThere;
         std::thread t([&] {
             CommandContextScope scope(captured);
-            messageThere = reg.call("t.project").error["message"].get<std::string>();
+            hintThere = hint_of();
         });
         t.join();
-        CHECK(messageThere.find("the art critic role") != std::string::npos);
+        CHECK(hintThere == "critic [t.project]");
     }
-    const CommandResult plain = reg.call("t.project");  // no scope: the generic words
-    CHECK(plain.error["message"].get<std::string>().find("the art critic role") == std::string::npos);
+    {
+        CommandCapabilityScope ro(CapabilitySet{Capability::Read});  // no provider on the thread: the floor's words
+        CHECK(hint_of() == "floor [t.project]");
+    }
 }
 
 TEST_CASE("capabilities: names, JSON and parsing, with did-you-mean on an unknown name") {

@@ -13,9 +13,9 @@ test("scenes/main.scene.json is what levels/level1.json builds", () => {
   fa.call("fs.delete", { path: rebuilt });
   if (built !== fa.call("fs.read", { path: args.path }).content)
     throw new Error(`${args.path} is not what levels/level1.json builds. Rebuild it with \`factoria call scene.import_ascii @levels/level1.json\` (or undo the hand edit of the scene).`);
-});
+}, { capabilities: ["writeProject"] }); // a test is granted {read, state}; writing the scratch file needs more
 
 test("scenes and prefabs are in the canonical layout", () => {
   // `factoria call scene.format '{"paths":["prefabs","scenes"]}'` rewrites them; `{"check": true}` only lists the files that still need it.
   expect(fa.call("scene.format", { check: true }).notCanonical).toEqual([]);
-});
+}, { capabilities: ["writeProject"] }); // scene.format can rewrite files, so it declares writeProject even with check: true

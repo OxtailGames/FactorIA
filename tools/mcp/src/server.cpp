@@ -368,10 +368,17 @@ Json McpServer::tool_json(const CommandInfo& c) const {
     Json schema = c.inputSchema.is_object() ? c.inputSchema : Json::object();
     if (!schema.contains("type")) schema["type"] = "object";
     t["inputSchema"] = schema;
+    const CapabilitySet caps = c.capabilities;
+    const bool readOnlyHint = CapabilitySet{Capability::Read}.has_all(caps);
+    // Commands whose default behaviour writes only under .factoria/ (game.screenshot...) declare {read, state}, so they are
+    // not destructive; the ones that write project files declare writeProject.
+    const bool destructiveHint = !readOnlyHint && (caps.has(Capability::WriteAnywhere) || caps.has(Capability::Publish) ||
+                                                    caps.has(Capability::Spend) || caps.has(Capability::WriteProject));
+    const bool openWorldHint = caps.has(Capability::Network) || caps.has(Capability::Publish) || caps.has(Capability::Spend);
     t["annotations"] = Json::object({{"title", humanize(c.name)},
-                                     {"readOnlyHint", c.readOnly},
-                                     {"destructiveHint", !c.readOnly},
-                                     {"openWorldHint", false}});
+                                     {"readOnlyHint", readOnlyHint},
+                                     {"destructiveHint", destructiveHint},
+                                     {"openWorldHint", openWorldHint}});
     return t;
 }
 
@@ -673,6 +680,13 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
         if (n == toolName && command.empty()) command = c->name;
         toolNames.push_back(n);
     }
+    if (command.empty()) {
+        for (const CommandInfo* c : host_.commands().list())
+            if (!is_user_only_command(c->name) && mcp_tool_name(c->name) == toolName && !visible(*c))
+                return text_result("tool_not_available: '" + toolName + "' is not served by this server (it only serves the tools tools/list shows).\nhint:ask the user to run it themselves (`factoria call " + c->name +
+                                       "`) or to start `factoria mcp` without --read-only.",
+                                   true);
+    }
     if (command.empty())
         return text_result("unknown_tool: " + did_you_mean(toolName, toolNames) + "\nhint: call tools/list to see the available tools.", true);
     std::vector<std::string> pagingArgs, narrowingArgs;  // read now: the command may replace itself while it runs
@@ -696,6 +710,7 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     CommandResult r;
     {
         CommandCallerScope caller(CommandCaller::Mcp);
+        CommandCapabilityScope granted(capabilities_);
         CommandCancelScope cancelled(cancel);
         r = host_.commands().call(command, args);
     }

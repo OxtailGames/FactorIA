@@ -644,7 +644,7 @@ Json spectrogram_command(const std::string& projectDir, const Json& args) {
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/jump.png\".");
-        outFile = assets_detail::project_file(projectDir, outRel);
+        outFile = assets_detail::project_write_file(projectDir, outRel);
     }
 
     auto analysis = analyze_audio_file(projectDir, rel);
@@ -839,7 +839,7 @@ Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::stri
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/sheet.png\".");
-        outFile = assets_detail::project_file(projectDir, outRel);
+        outFile = assets_detail::project_write_file(projectDir, outRel);
     }
     const int width = std::clamp(widthArg, 400, 2400);
     const int n = int(rows.size());

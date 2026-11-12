@@ -169,7 +169,7 @@ Command make_call_command() {
     c.flags.push_back({"keep-going", "", "Batch: continue after a failed command."});
     c.examples = {"factoria call scene.list_entities",
                   "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform\":{\"position\":[100,50,0]}}}'",
-                  "factoria call game.screenshot '{\"path\":\"/tmp/s.png\"}' --frames-before 60",
+                  "factoria call game.screenshot '{\"path\":\"shots/s.png\"}' --frames-before 60",
                   "factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30",
                   "factoria call --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"time.elapsed\"}}]'",
                   "factoria call docs.search '{\"query\":\"collision\"}'"};

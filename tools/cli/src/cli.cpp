@@ -153,6 +153,13 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
     // With --json a failure is a JSON object on stdout too (report_failure), bad arguments included.
     const bool json = std::find(rest.begin(), rest.end(), "--json") != rest.end();
     try {
+        // A `factoria mcp` started for a critic or reviewer (FACTORIA_ROLE) serves only what observes and plays, as with --read-only
+        // (the commands of `call` and `session` are filtered where they are registered, register_cli_commands).
+        if (cmd->name == "mcp") {
+            const char* role = std::getenv(kRoleEnvVar);
+            if (role && ai::is_review_role(role) && std::find(rest.begin(), rest.end(), "--read-only") == rest.end())
+                rest.push_back("--read-only");
+        }
         bool help = false;
         Args parsed = parse_args(*cmd, rest, path, help);
         if (help || isHelp) {
@@ -182,7 +189,7 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
             if (const auto granted = command_capabilities_from_env()) {
                 const char* role = std::getenv(kRoleEnvVar);
                 const std::string roleName = role ? role : "";
-                capabilityFloor.emplace(*granted, ai::role_denial_subject(roleName), ai::role_denial_hint(roleName));
+                capabilityFloor.emplace(*granted, ai::role_denial_hint(roleName));
             }
         }
         return cmd->run(ctx);

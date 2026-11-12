@@ -154,6 +154,18 @@ listed). The one key the registry removes before validating is `_meta`, the MCP 
 declares a property of that name. Defaults are applied first, then the check. When you add a command, declare every key
 the handler reads, with a `description`; the same rule applies to `project.<name>` tools (their `input`).
 
+**A path argument says what the command does with it: `"x-fa-path": "read" | "write"`.** An annotation on a string property
+(or on an object whose values are paths, such as `publish`'s `folders`) in the `inputSchema`. The validator ignores `x-`
+keys (an unknown keyword is not an error, and `close_object_schemas` keeps them), so the annotation changes nothing at
+run time: it is documentation the schema carries to `describe`, `tools/list` and the docs reference, and what a review or a
+test greps for to find every place a caller can name a file. `write` marks an argument the command writes to: its handler
+must resolve it with `fa::fs::resolve_for_write` or, in tooling, `resolve_write_path` (it passes
+`allowAnywhere = caller_capabilities().has(Capability::WriteAnywhere)` and the project folder the command was registered
+with, and refuses the managed folders), never with `std::filesystem` directly; see "Files". `resolve_project_path` is not
+for such an argument: it never allows an absolute path and leaves the managed folders open, because it also serves reads
+and the tools' own files. `read` marks a file the command reads (annotated where obvious;
+reads are not confined by this rule).
+
 **A description stays under 1.5 KB.** MCP's `tools/list` sends every command's summary and description with every
 request, so `tools/list` costs the sum of them. `tools/cli/tests/mcp_description_budget_test.cpp` walks the real registry and
 fails, naming the command and its size, when the description as MCP sends it (JSON escaped: a quote or a newline
@@ -185,40 +197,60 @@ A command that declares nothing gets a set derived from `readOnly` when it is ad
 `{read, state, writeProject}` (never one of the dangerous four, so a command that needs one must declare it);
 `CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities`.
 
+A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
+declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
+calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
+the project (`fs::resolve_for_write`); the schema property carries `"x-fa-path": "write"`.
+
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
-`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read}`), `agent` (all but `writeAnywhere` and `publish`),
-`game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
+`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state}`: the play commands that the `--read-only` filter serves change the game; the filter
+keeps the editing commands out, and `McpServer::set_capabilities` installs the set on every tools/call),
+`agent` (all but `writeAnywhere` and `publish`), `game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
 `cli_user`, Mcp: `mcp`, Agent: `agent`). **A scope only narrows**: `CommandCapabilityScope` (and `CommandCallerScope`)
 intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested
 call cannot run with "the tool's own set", a handler that needs more than its caller has is refused. Code that hops threads
 (job queues, the editor's main-thread queue) captures `command_context()` (caller and set) and installs it on the other
-thread with a `CommandContextScope`; the context also carries the words of a refusal (below). The editor's main-thread queue
+thread with a `CommandContextScope`; the context also carries the hint provider that words a refusal (below). The editor's main-thread queue
 (`MainThreadQueue`) does this for every command a worker thread queues, so a command an MCP client or an AI role asks for runs
 on the main thread with that caller's set, not with the user's. A job or pool task that runs a command *for a caller* must do the
 same; the editor's background jobs only run the user's own subprocesses, so they need nothing.
 
 **Per AI role** (`fa::ai::role_capabilities`, declared in `tools/ai/include/fa/ai/config.h` next to the role definitions): the
 builder roles (orchestrator, worker, fast, artist, audio) get `capability_sets::agent()`; the critics (`artCritic`, `reviewer`)
-get `{read, state, writeProject}` and only the commands of `is_read_only_tool`, never `writeAnywhere`, `network`, `process`,
-`spend` or `publish`. `writeProject` is there because the play tools write a PNG or a session under `.factoria/`
-(`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`, `play.auto`); what keeps a critic from editing is the tool list, not the
-set, until paths are confined per command. `AgentSession` runs each tool call inside a `CommandCallerScope(Agent)` and a
+get `{read, state}` (`capability_sets::mcp_read_only()`; an unknown role too) and only the commands of `is_read_only_tool`,
+never `writeProject`, `writeAnywhere`, `network`, `process`, `spend` or `publish`. Two barriers hold: the tool list, and the
+set, which refuses a forced `scene.save` with `capability_denied`. The play tools fit the set (`game.screenshot`,
+`anim.filmstrip`, `vfx.filmstrip` and `play.auto` are `{read, state}`); their optional `path` argument needs `writeProject`
+(`resolve_caller_write_path`), so a critic gets its pictures without a `path` and a `path` is refused. `AgentSession` runs each tool call inside a `CommandCallerScope(Agent)` and a
 `CommandCapabilityScope(role set)`, and does not offer (nor accept) a command the set does not cover. A CLI agent gets the set in
 its environment (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`; also in the `env` of the stdio `factoria` server of its MCP config
 and, for Codex, `-c mcp_servers.factoria.env=...`), and `factoria` installs a `CommandCapabilityFloor` from it: on every
 thread of that process `caller_capabilities()` is never wider than the role's. An unparsable value is the empty set. The
-editor's per-run MCP endpoint applies the role's set itself (`endpointRole`).
-
-**The words of a refusal.** `CommandDenialScope(subject, hint)` (per thread, innermost non-empty text wins; also set by
-`CommandCapabilityFloor`) changes who `capability_denied` names ("the Reviewer role" instead of "an AI agent") and the hint
-("{command}" becomes the command's name); it never changes what is granted. An AI role's hint says to ask the user or to use a
-builder role.
+variables are in `base_child_env()`, so a program an agent starts passes them on. For a review role `factoria call`,
+`session`, `ai` and `mcp` also drop every command that is not an `is_read_only_tool` (`mcp` gets `--read-only`), so a reviewer
+that runs `factoria` from its own shell sees what its tool list shows. The editor's per-run MCP endpoint applies the role's
+set itself (`endpointRole`) and, for a review role, serves only the `is_read_only_tool` commands: the `ai.*` commands it
+registers for builders (`ai.run`, `ai.settings.set`...) are neither listed nor callable.
 
 `CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND): a command whose
 capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability
 with its meaning, the caller and the granted set; the hint says where each caller gets what (the CLI user has all, `factoria mcp`
 without `--read-only` all but `writeAnywhere`, a game script `{read, state}`, a test can ask for more with `capabilities` in
-its test options); `error.data` has `command`, `missing`, `needs` and `granted`.
+its test options); `error.data` has `command`, `missing`, `needs` and `granted`. The default hint is generic; a caller that
+knows better installs a `CapabilityHintProvider` (`CommandCapabilityScope`'s second argument, carried by `command_context()` so
+it follows the work to other threads) and its words replace it: that is how a game script, the editor's Play and a test
+each get their own pointer, without core matching strings.
+
+**Scripts as callers (M92.1d).** The script host (`ScriptSystem`, per instance, never a global: two engines in one process
+do not mix) knows its role: `GameRole::Player` (`factoria run`, an exported game) or `EditorPlay` (the editor's engine,
+`EngineConfig::editorMode`), both `{read, state}`. `Impl::run_command` is the only door from JS to the registry and wraps
+the call by mode: *Game* (every entry from C++ into JS: callbacks, events, timers, promises, `game.step`, module top levels)
+installs the game's set and hint; *Test* (the body of a test while `run_tests` runs) installs `test_script` plus the test's
+`capabilities` option; *Caller* (a project tool's handler, `script.eval`) installs nothing, so the thread's set, the caller's,
+applies. A scope only narrows, so a tool a game script calls through `fa.call` runs with the game's set, and a test's set is
+the intersection with whoever runs the tests. The engine library is checked against the declarations: each `fa.call` a
+`factoria` helper makes is `{read, state}` (`tilemap.generate`'s `place` uses `scene.place_ascii`, the in-memory twin of
+`scene.import_ascii`). If a path dispatches commands on another thread or job, carry `command_context()` there.
 
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through
@@ -246,17 +278,28 @@ for the pack; the module loader reads a compiled script from the same `.js` path
 cache, [below](#start-up-order-and-the-shader-cache)); the game folder and the save folder never hold them.
 
 **Paths a caller gives to a command that writes.** `fs::resolve(path)` accepts any absolute path, so a command that writes a
-file named by its caller never uses it: it calls `fs::resolve_for_write(path, root, allowAnywhere)` (`core/fs.h`), the one
+file named by its caller never uses it: it calls `fs::resolve_for_write(path, root, allowAnywhere, managed)` (`core/fs.h`), the one
 place where such a path is confined. `root` is `WriteRoot::Project` (`project_root()`), `Save` (`user_dir()`, the game's save
-folder) or `Export` (`fs::export_dir()`, `set_export_dir`; default `<project>/build/exports`, created by the writer, not by the
+folder) or `Export` (`fs::export_dir()`, `set_export_dir`; default `<project>/build/export`, where `project.export` writes; created by the writer, not by the
 resolution). A relative path is joined to the root: `a/../b` is fine, a `..` that leaves the root is `path_outside_root`, and
 after resolving symlinks (`weakly_canonical`) the result must still be inside, so a link pointing out, or pointing nowhere, is
 refused too. An absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless
-`allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent; even then the
-project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule) stay closed to it. Names
-compare without regard to case on Windows and macOS. Errors say which form was given, what the root accepts, the root's real
-path and the fix, and end with `(code: ...)` (`fs::path_error_code`). The tooling file commands' `resolve_project_path` is a
-wrapper over it (`resolve_for_write_in`, with the project folder they were registered with).
+`allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent. With
+`WriteRoot::Project` the project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule)
+are closed to a relative path and to an absolute one alike (`managed_path_denied`), judged on the path as the caller wrote it
+and again on the real one after symlinks, with the names folded to lower case on every system (a case-insensitive volume
+makes `.GIT` the same folder on Linux too); a command that picks such a target itself (selections, previews, review files
+under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first segment of a relative path and, on
+Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move between them), a name Windows
+cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension) or a
+name ending in a dot or a space. Other names compare without regard to case on Windows and macOS; on Linux they compare byte
+for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's
+real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three entry points:
+`resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to write anywhere
+decides `allowAnywhere`; managed folders refused unless `ManagedFolders::Allow`), `project_write_file(projectDir, rel)` for
+the assets commands, which record project-relative paths and so stay inside the project for everyone, and `fs.write`,
+`fs.edit` and `fs.delete`, which refuse the managed folders on the real path. `resolve_project_path` (`resolve_for_write_in`
+with `allowAnywhere` false and `ManagedFolders::Allow`) is the reader's and the tools' own: selections, previews, reads.
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On

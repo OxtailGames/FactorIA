@@ -211,7 +211,7 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
     auto norm = fs::normalize_checked(outRel);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
         fail("invalid_argument", "The sound goes under assets/, and '" + outRel + "' is not there.", "Use a path such as \"" + default_out(loaded.rel) + "\".");
-    const stdfs::path file = project_file(projectDir, *norm);
+    const stdfs::path file = project_write_file(projectDir, *norm);
     std::error_code ec;
     if (!overwrite && stdfs::exists(file, ec) && !is_ours(projectDir, *norm))
         fail("exists", "'" + *norm + "' already exists and was not made by sfx.render.", "Pass overwrite: true to replace it, or choose another `out`.");
@@ -528,7 +528,7 @@ Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
     std::optional<Json> beforeMeasure;
     if (tooling_detail::arg_bool(a, "render", true)) beforeMeasure = measurements_json(render_in_memory(loaded, plain, "sfx.tweak"));
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
 
     Json result = Json::object({{"patch", rel}, {"macros", changes}});
     if (!tooling_detail::arg_bool(a, "render", true)) {
@@ -622,7 +622,7 @@ Json sfx_edit_command(const std::string& projectDir, const Json& a) {
     auto patch = parse_sfx(json, rel, &issues);
     if (!patch.ok()) throw CommandError("invalid_patch", "sfx.edit: the patch would no longer be valid, so nothing was written. " + patch.error().message, patch.error().hint, Json::object({{"issues", issues_json(issues)}}));
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
     return Json::object({{"patch", rel},
                          {"nextSteps", Json::array({"The patch is changed, not rendered: sfx.render {\"path\":\"" + rel + "\"} renders it, sfx.bake renders every sound that is out of date."})}});
 }
@@ -750,7 +750,7 @@ Json sfx_family_command(const std::string& projectDir, const Json& a) {
     if (!overwrite && !clash.empty()) fail("exists", "sfx.family: " + join(clash, ", ") + " already exist.", "Pass overwrite: true to replace them, or choose another `out` directory.");
     for (const Member& m : members) {
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, m.rel), m.text, &err)) fail("failed", err);
+        if (!tooling_detail::write_file(project_write_file(projectDir, m.rel), m.text, &err)) fail("failed", err);
     }
 
     Json items = Json::array();
@@ -811,7 +811,7 @@ Json sfx_preset_command(const std::string& projectDir, const Json& a) {
         return result;
     }
     const std::string rel = patch_path(pathArg);
-    const stdfs::path file = project_file(projectDir, rel);
+    const stdfs::path file = project_write_file(projectDir, rel);
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(file, ec)) fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     std::string err;

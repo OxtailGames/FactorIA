@@ -48,7 +48,7 @@ test("every baked output is fresh: assets.regenerate {stale: true} has nothing t
   const plan = fa.call("assets.regenerate", { stale: true, dryRun: true });
   const stale = plan.wouldRun.map((r) => (r.outputs || []).join(", ") || r.command);
   expect(stale, `stale outputs: ${stale.join("; ")} (run assets.regenerate {"stale":true})`).toEqual([]);
-});
+}, { capabilities: ["writeProject"] }); // assets.regenerate declares writeProject even with dryRun
 
 test("no picture, sound or model sits under assets/ without a record", () => {
   const { assets, withoutProvenance } = provenance();

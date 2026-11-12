@@ -945,6 +945,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     I.scripts.set_exported_player(config.exportedPlayer);
+    // The game's scripts call commands with {read, state} (capability_sets::game_player; in the editor, where the engine is the
+    // Play window's, editor_play). Tests and tools get their own sets from the script system (ScriptSystem::set_game_role).
+    I.scripts.set_game_role(config.editorMode ? ScriptSystem::GameRole::EditorPlay : ScriptSystem::GameRole::Player);
     if (!I.scripts.init(*this, &serr)) {
         FA_ERROR("script", "Script system init failed: {}", serr);
         I.startupProblems.push_back("script: " + serr);

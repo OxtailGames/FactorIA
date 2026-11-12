@@ -245,6 +245,10 @@ Color colour_arg(const char* command, const Json& v, const std::string& pointer)
 
 // The absolute path of the project-relative `rel` (sandboxed: it cannot leave the project), or a CommandError.
 stdfs::path project_file(const std::string& projectDir, const std::string& rel);
+// The same for a file a command WRITES at a path its caller gave: through fs::resolve_for_write_in, so the tools' own folders
+// (`.git`, `.factoria/` except `.factoria/tmp`) are refused judged on the canonical path (a link into them counts). Inside the
+// project for every caller, the command-line user too (these commands record project paths in assets.json). A CommandError.
+stdfs::path project_write_file(const std::string& projectDir, const std::string& rel);
 
 // fa::assets works on the project of the VFS; this makes `projectDir` that project while it lives.
 struct ProjectRootGuard {

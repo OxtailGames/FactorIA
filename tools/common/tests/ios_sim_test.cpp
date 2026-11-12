@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "fa/core/capability.h"
 #include "fa/core/command.h"
 #include "fa/tooling/ios_sim.h"
 #include "fa/tooling/tooling.h"
@@ -83,4 +84,29 @@ TEST_CASE("player.run_ios_sim is part of the tooling every game project gets") {
     CommandRegistry registry;
     register_tooling_commands(registry, tmp.str());
     CHECK(registry.has("player.run_ios_sim"));
+}
+
+TEST_CASE("player.run_ios_sim: the screenshot stays inside the project for MCP and agents, the command-line user may name any file") {
+    testing::TempDir tmp;
+    testing::TempDir other;
+    testing::write_all(tmp.path / "build" / "factoria_player.app" / "Info.plist", kPlist);
+    CommandRegistry registry;
+    register_ios_sim_commands(registry, tmp.str());
+    const std::string outside = (other.path / "shot.png").generic_string();
+    const auto shot = [&](const std::string& where) {
+        return registry.call("player.run_ios_sim", Json::object({{"app", "build/factoria_player.app"}, {"screenshot", where}, {"dryRun", true}}));
+    };
+    {
+        CommandCapabilityScope mcp(capability_sets::mcp());
+        for (const std::string& bad : {std::string("../shot.png"), outside}) {
+            CAPTURE(bad);
+            auto r = shot(bad);
+            REQUIRE_FALSE(r.ok);
+            CHECK(r.error["code"] == "invalid_argument");
+            CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+        }
+        CHECK(shot("out/shot.png").ok);
+    }
+    auto user = shot(outside);
+    CHECK_MESSAGE(user.ok, user.error.dump());
 }

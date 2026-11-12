@@ -632,7 +632,9 @@ TEST_CASE("import_ascii: unknown glyphs are reported together and warnings point
     CHECK(contains(w, "solidTiles is empty"));
 }
 
-TEST_CASE("import_ascii: callable from a script during a frame (fa.call), re-importing there keeps ids stable") {
+// A game script is granted {read, state} (docs/SCRIPTING.md, "What fa.call can do from a game"): the in-memory twin
+// scene.place_ascii is what it calls; scene.import_ascii can write a file and is refused to it.
+TEST_CASE("place_ascii: callable from a script during a frame (fa.call), re-placing there keeps ids stable") {
     Session s("script");
     s.project.write("scripts/importer.js", R"(
 import { Behaviour, fa } from "factoria";
@@ -641,7 +643,7 @@ export default class Importer extends Behaviour {
   onUpdate(dt) {
     this.frames++;
     if (this.frames === 2 || this.frames === 4) {
-      const r = fa.call("scene.import_ascii", {
+      const r = fa.call("scene.place_ascii", {
         rows: ["o.o", "###"],
         legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json", offset: [0, 2] } },
       });
@@ -1149,7 +1151,7 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     CHECK(contains(info->full_description(), ".factoria/tmp/"));
 }
 
-TEST_CASE("import_ascii path: works inside a frame too (a script can build a scene file)") {
+TEST_CASE("import_ascii path: a game script cannot build a scene file (it is granted {read, state}); a caller with writeProject can") {
     Session s("file_frame");
     s.project.write("scripts/builder.js", R"(
 import { Behaviour, fa } from "factoria";
@@ -1157,12 +1159,14 @@ export default class Builder extends Behaviour {
   frames = 0;
   onUpdate(dt) {
     if (++this.frames !== 2) return;
-    const r = fa.call("scene.import_ascii", {
-      rows: ["o.o", "###"],
-      legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json" } },
-      path: ".factoria/tmp/from_script.scene.json",
-    });
-    this.saved = r.saved;
+    try {
+      fa.call("scene.import_ascii", {
+        rows: ["o.o", "###"],
+        legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json" } },
+        path: ".factoria/tmp/from_script.scene.json",
+      });
+      this.denied = "no";
+    } catch (e) { this.denied = e.code; }
   }
 }
 )");
@@ -1170,7 +1174,12 @@ export default class Builder extends Behaviour {
     s.engine.step(4);
     Json state = s.engine.state();
     CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
-    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.saved"}}).result["value"] == ".factoria/tmp/from_script.scene.json");
+    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.denied"}}).result["value"] == "capability_denied");
+    CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/tmp/from_script.scene.json"));
+    // The same call from the command line (a caller with writeProject) writes it, and the running world has no coins.
+    auto r = s.import(Json::parse(R"({"rows":["o.o","###"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},
+                                      "path":".factoria/tmp/from_script.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(entity_ids(scene_file(s, ".factoria/tmp/from_script.scene.json")) == std::vector<std::string>{"tilemap", "coin_1", "coin_2"});
     CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 0);  // the running world has no coins
 }
