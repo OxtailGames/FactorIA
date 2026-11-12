@@ -111,7 +111,7 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-11):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0) and M101 (0.23.0) are done. Next M97.1 and M97.2, then M92, M93, M94, M95, M96 and M98, and only
+**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0) and M97.1 and M97.2 (0.24.0) are done. Next M92, M93, M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only
 then M71-M89 in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and
 accounts. The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of
 the open entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -385,6 +385,14 @@ story of each milestone is in `feedback/done/`). Hardware and accounts are in M9
   [done/M100.md](done/M100.md) says.
 - Windows editor autotest flake (M100.9): the cause of the flake in section E2 is not confirmed; do not close it as fixed
   until several Windows CI runs in a row are green ([M100](done/M100.md)).
+
+M97.1/M97.2 (0.24.0):
+- Other file caches still key on the path and the modification time only, so a file rewritten with the same size within one clock step (1/64 s under the Windows rules) can serve stale data: engine/scene/src/anim_clip.cpp (~l.689), vfx.cpp (~l.422), sprite_animator.cpp (~l.66), particles.cpp (~l.41). load_skeleton's fix (size + content hash for entries younger than 2 s) is the model.
+- The skeleton cache test (engine/scene/tests/test_anim3d.cpp) assumes its first load comes less than 2 s after the write; assert that, so a stalled CI VM fails with a clear message. The 2 s window equals FAT's time granularity; 3 s would cover it.
+- `docs.write_reference` says "No AI_GUIDE.md" when the file exists but cannot be read.
+- `docs.components`/`docs.commands` accept `maxBytes` from 1000, below the envelope and preamble of a first full page (~1.7 KB); raise the minimum to about 2000.
+- Groups loaded with `tool_load` are lost when the MCP server restarts after an update (the `--tools` profile is kept).
+
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
 Closes the "Found while implementing M7" and "Desktop download: next steps" lists (both in done/M7.md and done/M8.md). One worker
@@ -1185,11 +1193,11 @@ M97.2. A triage of every open entry of `examples/*` opens each milestone.
 
 ## M97. Docs that are true and cheap to read (L; 5 packages) — outside review, 2026-11-09
 
-- M97.1 (M) A cheap first step: AI_GUIDE opens with an index under 5 KB, and its §4 (a hand-written table of about
+- M97.1 (M) — DONE in 0.24.0 A cheap first step: AI_GUIDE opens with an index under 5 KB, and its §4 (a hand-written table of about
   33 KB) is generated from the registry; AGENTS.md and the `make-game` prompt read the index and the sections a task
   needs, never `components` whole (docs/COMPONENTS.md is 1.76 MB); `docs.list` gives each doc a one-line summary and
   its audience (the game's AI, the user, the engine developer).
-- M97.2 (M) Paging: `docs.components` and `docs.commands {full:true}` page with a cursor; MCP `tools/list` offers
+- M97.2 (M) — DONE in 0.24.0 Paging: `docs.components` and `docs.commands {full:true}` page with a cursor; MCP `tools/list` offers
   profiles (core, a group, all) for clients without tool search, like M45's catalog does for the API providers.
 - M97.3 (M) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
   kit (82 % of it) served from the kit instead of embedded; COMPONENTS.md served per component instead of embedded
