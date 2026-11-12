@@ -977,6 +977,37 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     register_assets_review(registry, load, project_dir, *opts);
     register_vfx_review(registry, load, project_dir, *opts);
 
+    // What each command can do outside the engine's memory (capability.h). The ai.* rows below are the table of the commands
+    // registered in this function; the other files declare their own. An agent() scope (the builder roles) gets all of them but
+    // ai.plugin_install (writeAnywhere: it installs software for the user); the critics' {read, state} none that spawns or bills.
+    {
+        using capability_sets::reads;
+        using capability_sets::writes_project;
+        // Starts a model run (a CLI agent or an API loop) that bills the user and may write files of the project.
+        constexpr CapabilitySet agentRun{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
+        // One model call that bills the user and writes a file of the project (entries, reviews).
+        constexpr CapabilitySet modelAndFile{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Spend};
+        declare_command_capabilities(registry, {
+            {"ai.providers", CapabilitySet{Capability::Read, Capability::Process}},  // action doctor runs `<cli> --version`
+            {"ai.models", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // asks a CLI or an API for its models
+            {"ai.tool_servers", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // test:true starts or contacts a server
+            {"ai.extensions", reads()},
+            {"ai.hooks", reads()},
+            {"ai.hooks_test", CapabilitySet{Capability::Read, Capability::Process, Capability::Network, Capability::Spend}},  // the handlers REALLY run
+            {"ai.savers", reads()},
+            {"ai.saver_group", writes_project()},  // .factoria/ai/savers.json
+            {"ai.saver_fact", writes_project()},   // the project's AGENTS.md
+            {"ai.plugin_install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}},
+            {"ai.run", agentRun},
+            {"ai.review", agentRun},  // plays the game with reviewer agents; writes the review files
+            {"ai.review_feedback", modelAndFile},  // rewrites ENGINE_FEEDBACK.json
+            {"ai.reviews", reads()},
+            {"ai.session_timeline", reads()},
+            {"ai.retrospective", modelAndFile},  // files entries in ENGINE_FEEDBACK.json
+            {"ai.tool_plan", reads()},
+        });
+    }
+
     // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
     CommandHooksOptions hooksOptions;
     hooksOptions.loadConfig = load;
