@@ -139,9 +139,7 @@ char* normalize_cb(JSContext* ctx, const char* base, const char* name, void* opa
 JSModuleDef* loader_cb(JSContext* ctx, const char* name, void* opaque) {
     auto* I = static_cast<ScriptSystem::Impl*>(opaque);
     (void)ctx;
-    JSModuleDef* m = I->load_module(name);
-    if (m && I->loadTrace) I->loadTrace->push_back(name);  // after its own imports were loaded: the order they are evaluated in
-    return m;
+    return I->load_module(name);
 }
 
 int interrupt_cb(JSRuntime*, void* opaque) { return static_cast<ScriptSystem::Impl*>(opaque)->check_interrupt() ? 1 : 0; }
@@ -712,6 +710,10 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
         importers[path].insert(basePath);
     }
     std::string name = module_name_for(path);
+    if (baseIsProject && !syntaxBase) {
+        auto& edges = moduleImports[base];
+        if (std::find(edges.begin(), edges.end(), name) == edges.end()) edges.push_back(name);
+    }
     if (!firstImporter.count(name)) firstImporter[name] = baseIsProject ? basePath : std::string();
     return name;
 }
@@ -914,19 +916,30 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
     if (topLevelMode != CapMode::Game) {
         // QuickJS evaluates the whole static import graph inside the one JS_Eval below, under `topLevelMode`, so a game module the
-        // test file imports would run its top level as test code. Load the graph first (compile only: nothing runs), then evaluate
-        // every module it pulled in, dependencies first, as game code; the module itself is then the only one left to run under
-        // `topLevelMode`. A load or syntax error is left to the real evaluation below, which reports it.
-        std::vector<std::string> loaded;
-        loadTrace = &loaded;
+        // test file imports would run its top level as test code. Compile the graph first (nothing runs; normalize_module records
+        // every import in moduleImports, also of modules that were already compiled and not evaluated, e.g. by check_syntax, which
+        // the loader is not called for again), then evaluate the closure of the module's static imports, dependencies first, as
+        // game code; the module itself is then the only one left to run under `topLevelMode`. A load or syntax error is left to
+        // the real evaluation below, which reports it.
         JSValue pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        loadTrace = nullptr;
         if (JS_IsException(pre)) {
             JS_FreeValue(ctx, JS_GetException(ctx));
         } else {
             JS_FreeValue(ctx, pre);
-            for (const std::string& dep : loaded) {
-                if (dep == name || dep == "factoria" || dep == "factoria:test") continue;
+            std::vector<std::string> order;  // post-order: a module comes after everything it imports, source order among siblings
+            std::set<std::string> seen{name};
+            std::function<void(const std::string&)> visit = [&](const std::string& from) {
+                auto edges = moduleImports.find(from);
+                if (edges == moduleImports.end()) return;
+                const std::vector<std::string> targets = edges->second;  // a copy: the map may grow while we walk
+                for (const std::string& dep : targets) {
+                    if (dep == "factoria" || dep == "factoria:test" || !seen.insert(dep).second) continue;
+                    visit(dep);
+                    order.push_back(dep);
+                }
+            };
+            visit(name);
+            for (const std::string& dep : order) {
                 auto ns = import_module(module_file(dep), detail);  // Game: the default
                 if (!ns) return ns.error();
                 JS_FreeValue(ctx, *ns);
