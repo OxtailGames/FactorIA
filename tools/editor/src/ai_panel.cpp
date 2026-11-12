@@ -452,6 +452,14 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
         r->delegate_ended(info, ok, report, error, now_ms());
     };
     ai::register_ai_commands(*reg, ao);
+    // The filter above only saw the engine's commands: a critic's or reviewer's endpoint must not list or run ai.run, ai.review,
+    // ai.settings.set... either. Only what observes and plays stays.
+    if (ai::is_review_role(run.role)) {
+        std::vector<std::string> drop;
+        for (const CommandInfo* ci : reg->list())
+            if (!ai::is_read_only_tool(*ci)) drop.push_back(ci->name);
+        for (const std::string& n : drop) reg->remove(n);
+    }
     // The AI module's own commands run right here on the agent thread, not through the queue (where run_queued offers each review sheet
     // a command makes). One that changes the project and answers with a review sheet id (assets.generate_image with a count: a sheet of
     // candidates for a slot) has its sheet offered the same way: the toast is posted to the UI thread (poll_review shows it).
@@ -663,8 +671,7 @@ std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
         // The CLI agent behind this endpoint can do what its role's capabilities allow and no more (a builder's CLI cannot publish
         // through MCP; a critic's registry holds only the commands that observe and play, make_proxy_registry); the scopes travel
         // with each command to the main thread (MainThreadQueue).
-        CommandCapabilityScope roleCapabilities(ai::role_capabilities(role));
-        CommandDenialScope roleDenial(ai::role_denial_subject(role), ai::role_denial_hint(role));
+        CommandCapabilityScope roleCapabilities(ai::role_capabilities(role), ai::role_denial_hint(role));
         SimpleMcpHost host(*proxy, dir);
         McpServer server(host);  // one server per message, sharing the run's session (handshake, cancellation)
         server.share_session(session);

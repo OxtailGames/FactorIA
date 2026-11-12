@@ -377,7 +377,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels (origin top-left of the view)."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (default: a sheet about 1600 px wide)."},
                "columns":{"type":"integer","minimum":1,"maximum":64,"description":"Pictures per row (default: nearly square)."},
-               "path":{"type":"string","description":"Keep the PNG here (project-relative or absolute)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths and the managed folders are refused)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               const std::string effect = a.value("effect", std::string());
@@ -493,7 +493,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
               SheetLayout l;
               Image img = contact_sheet(shots, labels, wanted, -1, &l);
               const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
-              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_vfx.png" : a["path"].get<std::string>();
+              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_vfx.png" : resolve_caller_write_path(a["path"].get<std::string>(), "vfx.filmstrip");
               auto saved = save_png(img, path);
               if (!saved.ok()) throw CommandError("unavailable", saved.error().message, saved.error().hint.empty() ? "Check the path is inside a writable folder." : saved.error().hint);
               const std::string abs = abs_path(path);
@@ -531,7 +531,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
         {"vfx.list", capability_sets::reads()},
         {"vfx.check", capability_sets::reads()},
         {"vfx.budget", capability_sets::reads()},
-        {"vfx.filmstrip", capability_sets::edits_project()},
+        {"vfx.filmstrip", capability_sets::changes_state()},
     });
 }
 

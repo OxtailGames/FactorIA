@@ -1,6 +1,9 @@
 // What each AI role may do (role_capabilities): the sets, the tools a role is offered, the refusal of a call outside the set and
 // the environment that carries the set to the factoria a CLI agent starts.
+#include <algorithm>
 #include <map>
+#include <sstream>
+#include <string>
 
 #include "fa/ai/cli_agent.h"
 #include "test_common.h"
@@ -19,8 +22,9 @@ std::vector<std::string> tool_names(const std::vector<ToolDef>& tools) {
     return out;
 }
 
-// scene.save (edits the project), the two filmstrips (one PNG under .factoria/: writeProject, so not readOnly) and
-// "scene.export_anywhere", which writes outside the project (writeAnywhere). `ran` counts the handlers that ran, by command name.
+// scene.save (edits the project), the two filmstrips ({read,state} like the real ones: a play tool whose optional `path`
+// is written only after require_capability(writeProject)) and "scene.export_anywhere", which writes outside the project
+// (writeAnywhere). `ran` counts the handlers that ran, by command name.
 CommandRegistry capability_registry(std::map<std::string, int>& ran) {
     CommandRegistry r;
     auto add = [&](const char* name, bool readOnly, CapabilitySet caps) {
@@ -29,16 +33,19 @@ CommandRegistry capability_registry(std::map<std::string, int>& ran) {
         c.summary = name;
         c.readOnly = readOnly;
         c.capabilities = caps;
+        if (std::string(name).find("filmstrip") != std::string::npos) c.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string"}}})");
         const std::string n = name;
-        r.add(c, [&ran, n](const Json&) {
+        r.add(c, [&ran, n](const Json& args) {
+            if (n.find("filmstrip") != std::string::npos && args.contains("path"))
+                require_capability(Capability::WriteProject, n, "writing to the `path` you gave");
             ++ran[n];
             return Json::object();
         });
     };
     add("scene.save", false, {});  // derived: read, state, writeProject
     add("scene.list_entities", true, {});
-    add("anim.filmstrip", false, CapabilitySet{Capability::Read, Capability::WriteProject});
-    add("vfx.filmstrip", false, CapabilitySet{Capability::Read, Capability::WriteProject});
+    add("anim.filmstrip", false, CapabilitySet{Capability::Read, Capability::State});
+    add("vfx.filmstrip", false, CapabilitySet{Capability::Read, Capability::State});
     add("scene.export_anywhere", false, CapabilitySet{Capability::Read, Capability::WriteAnywhere});
     return r;
 }
@@ -56,19 +63,18 @@ TEST_CASE("role capabilities: builders get the agent set, the critics only look 
         CHECK_MESSAGE(role_capabilities(role) == capability_sets::agent(), role);
     for (const char* role : {kRoleArtCritic, kRoleReviewer}) {
         const CapabilitySet set = role_capabilities(role);
-        CHECK(set == CapabilitySet({Capability::Read, Capability::State, Capability::WriteProject}));
-        for (Capability c : {Capability::WriteAnywhere, Capability::Network, Capability::Process, Capability::Spend, Capability::Publish})
+        CHECK(set == CapabilitySet({Capability::Read, Capability::State}));
+        CHECK(set == capability_sets::mcp_read_only());
+        for (Capability c : {Capability::WriteProject, Capability::WriteAnywhere, Capability::Network, Capability::Process, Capability::Spend, Capability::Publish})
             CHECK_FALSE(set.has(c));
     }
     CHECK(role_capabilities("nobody") == role_capabilities(kRoleReviewer));  // what cannot be read is not widened
     CHECK_FALSE(role_capabilities(kRoleWorker).has(Capability::WriteAnywhere));
     CHECK_FALSE(role_capabilities(kRoleWorker).has(Capability::Publish));
-    // the words of a refusal name the role and say what to do
-    CHECK(role_denial_subject(kRoleReviewer).find("Reviewer") != std::string::npos);
-    CHECK(role_denial_hint(kRoleReviewer).find("{command}") != std::string::npos);
-    CHECK(role_denial_hint(kRoleReviewer).find("builder role") != std::string::npos);
-    CHECK(role_denial_hint(kRoleWorker).find("Ask the user") != std::string::npos);
-    CHECK(role_denial_subject("nobody").empty());
+    // the words of a refusal come from a hint provider; an unknown role has none (the registry's generic hint)
+    CHECK(role_denial_hint(kRoleReviewer) != nullptr);
+    CHECK(role_denial_hint(kRoleWorker) != nullptr);
+    CHECK(role_denial_hint("nobody") == nullptr);
 }
 
 TEST_CASE("role capabilities: the filmstrips are play tools, scene.save is not, and a play tool must fit the critics' set") {
@@ -163,21 +169,44 @@ TEST_CASE("role capabilities: the scope a tool call runs in refuses with the rol
     CommandRegistry reg = capability_registry(ran);
     for (const char* role : {kRoleReviewer, kRoleWorker}) {
         CommandCallerScope caller(CommandCaller::Agent);
-        CommandCapabilityScope caps(role_capabilities(role));
-        CommandDenialScope denial(role_denial_subject(role), role_denial_hint(role));
+        CommandCapabilityScope caps(role_capabilities(role), role_denial_hint(role));
         const CommandResult r = reg.call("scene.export_anywhere");
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "capability_denied");
-        CHECK(r.error["message"].get<std::string>().find(role_denial_subject(role)) != std::string::npos);
-        CHECK(r.error["hint"].get<std::string>().find("scene.export_anywhere") != std::string::npos);
-        CHECK(r.error["hint"].get<std::string>().find("the user") != std::string::npos);
+        const std::string hint = r.error["hint"].get<std::string>();
+        CHECK(hint.find(role_display_name(role)) != std::string::npos);
+        CHECK(hint.find("scene.export_anywhere") != std::string::npos);
+        CHECK(hint.find("the user") != std::string::npos);
+        // it describes what the role has, not a fixed claim
+        CHECK(hint.find(role_capabilities(role).to_string()) != std::string::npos);
     }
     {
         CommandCallerScope caller(CommandCaller::Agent);
         CommandCapabilityScope caps(role_capabilities(kRoleWorker));
         CHECK(reg.call("scene.save").ok);  // a builder saves
     }
+    {  // a reviewer cannot save: scene.save needs writeProject, which the critics' set lacks
+        CommandCallerScope caller(CommandCaller::Agent);
+        CommandCapabilityScope caps(role_capabilities(kRoleReviewer), role_denial_hint(kRoleReviewer));
+        const CommandResult r = reg.call("scene.save");
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "capability_denied");
+        CHECK(r.error["hint"].get<std::string>().find("Reviewer") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find("builder role") != std::string::npos);
+        // a filmstrip works without a path and is refused with one (the handler asks for writeProject only then)
+        CHECK(reg.call("anim.filmstrip", Json::object()).ok);
+        const CommandResult withPath = reg.call("anim.filmstrip", Json::object({{"path", "shots/strip.png"}}));
+        REQUIRE_FALSE(withPath.ok);
+        CHECK(withPath.error["code"] == "capability_denied");
+        CHECK(reg.call("vfx.filmstrip", Json::object({{"path", "shots/fx.png"}})).error["code"] == "capability_denied");
+    }
+    {  // a builder may pass the path
+        CommandCallerScope caller(CommandCaller::Agent);
+        CommandCapabilityScope caps(role_capabilities(kRoleWorker));
+        CHECK(reg.call("anim.filmstrip", Json::object({{"path", "shots/strip.png"}})).ok);
+    }
     CHECK(ran["scene.export_anywhere"] == 0);
+    CHECK(ran["scene.save"] == 1);
 }
 
 TEST_CASE("role capabilities: cli_capability_env narrows by the calling thread, the provider's own value and the process, never widens") {

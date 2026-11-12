@@ -385,6 +385,16 @@ public:
     // not have throws with a "did you mean" and the member list); a player has none, so it costs nothing there. And only a
     // player can be older than the engine the game was made with, so only its errors say so.
     void set_exported_player(bool exported);
+    // Who the game's scripts are, for the commands they call (`fa.call` and the library helpers built on it; capability.h):
+    // Player (the default: `factoria run`, an exported player, headless runs, `factoria call`) gives them
+    // capability_sets::game_player(), EditorPlay (the editor's Play) capability_sets::editor_play(). Every command a behaviour,
+    // a timer or an event handler calls runs inside a CommandCapabilityScope with that set, so a game script cannot write a file,
+    // use the network or start a program; the refusal's hint says so. A test file's code gets test_script() plus what the test asks
+    // for (`test(name, fn, { capabilities })`), a project tool (tools/*.js) the set of whoever called it. The set belongs to this
+    // ScriptSystem, so two engines in one process do not share it.
+    enum class GameRole { Player, EditorPlay };
+    void set_game_role(GameRole role);
+    CapabilitySet game_capabilities() const;  // what a behaviour's fa.call may do
 
     // The `plugins` object of scripts (call before init; the typings and api_manifest list them too).
     void set_plugins(std::vector<ScriptPlugin> plugins);

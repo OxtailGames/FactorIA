@@ -201,7 +201,7 @@ def test_template(tmp, template):
                 'test("fs.write is available inside tests", () => {\n'
                 '  fa.call("fs.write", { path: "tests/out/probe.txt", content: "hi" });\n'
                 '  expect(fa.call("fs.read", { path: "tests/out/probe.txt" }).content).toContain("hi");\n'
-                '});\n')
+                '}, { capabilities: ["writeProject"] });\n')  # a test is granted {read, state} unless it asks for more
     code, out, err = run(["test", proj, "--filter", "fs.write is available"])
     check(code == 0 and "1 passed, 0 failed" in out and out.count("fs.write is available") == 1,
           "fs.* works inside factoria test; each result printed once")
@@ -382,8 +382,8 @@ def test_template(tmp, template):
         try:
             step = m.call("game_step", {"frames": 3})
             check(not step.get("isError"), "mcp: game_step")
-            png = os.path.join(tmp, template + "-mcp.png")
-            res = m.call("game_screenshot", {"path": png})
+            png = os.path.join(proj, "shots", template + "-mcp.png")  # an MCP client writes only inside the project
+            res = m.call("game_screenshot", {"path": "shots/" + template + "-mcp.png"})
             kinds = [c.get("type") for c in res.get("content", [])]
             check(not res.get("isError") and "image" in kinds and is_png(png), "mcp: game_screenshot returns an image block (%s)" % kinds)
             res = m.call("feedback_report", {"category": "other", "severity": "nice-to-have", "title": "integration probe",

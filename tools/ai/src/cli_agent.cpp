@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <thread>
 #include <ctime>
@@ -339,6 +340,51 @@ std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains
     return rules;
 }
 
+namespace {
+
+bool argv_has(const std::vector<std::string>& argv, std::initializer_list<const char*> flags) {
+    for (const std::string& a : argv) {
+        for (const char* f : flags) {
+            const std::size_t n = std::strlen(f);
+            if (a == f || (a.size() > n && a.compare(0, n, f) == 0 && a[n] == '=')) return true;
+        }
+    }
+    return false;
+}
+
+// Codex also takes the sandbox as a config override: `-c sandbox_mode="read-only"`.
+bool argv_has_codex_sandbox_override(const std::vector<std::string>& argv) {
+    return std::any_of(argv.begin(), argv.end(), [](const std::string& a) { return a.rfind("sandbox_mode=", 0) == 0; });
+}
+
+}  // namespace
+
+void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::string& permissionMode, bool readOnly,
+                           std::vector<std::string>& argv) {
+    if (kind != ProviderKind::ClaudeCode && kind != ProviderKind::Codex) return;
+    // The built-in argv always carries the mode (the default when none is set); a template of the user's only when the provider
+    // names one, and a flag the template already has wins over both.
+    std::string mode = permissionMode;
+    if (mode.empty() && builtInArgv) mode = default_permission_mode(kind);
+    if (mode.empty()) return;
+    if (kind == ProviderKind::ClaudeCode) {
+        if (argv_has(argv, {"--permission-mode", "--dangerously-skip-permissions"})) return;
+        // A read-only role is never run with the modes that skip or loosen the checks (its edit tools are switched off too).
+        if (readOnly && (mode == "bypassPermissions" || mode == "auto")) mode = "acceptEdits";
+        argv.push_back("--permission-mode");
+        argv.push_back(mode);
+        return;
+    }
+    if (argv_has(argv, {"--sandbox", "-s", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--yolo"}) ||
+        argv_has_codex_sandbox_override(argv)) {
+        return;
+    }
+    if (readOnly) mode = "read-only";
+    if (mode == "default") return;  // no flag: Codex's own configuration decides
+    const auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+    argv.insert(stdinMarker, {"--sandbox", mode});
+}
+
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
     if (kind == ProviderKind::ClaudeCode) {
         std::vector<std::string> disallowed = req.disallowedTools;
@@ -373,8 +419,11 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
             const std::string from = "[\"mcp\",\"--project\",";
             if (a.rfind("mcp_servers.factoria.args=", 0) == 0) a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
         }
-        auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
-        argv.insert(stdinMarker, {"--sandbox", "read-only"});
+        // apply_permission_mode normally put the read-only sandbox there already.
+        if (!argv_has(argv, {"--sandbox", "-s"}) && !argv_has_codex_sandbox_override(argv)) {
+            auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+            argv.insert(stdinMarker, {"--sandbox", "read-only"});
+        }
     }
 }
 
@@ -1022,6 +1071,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);  // {prompt} carries the paths too
     }
     const std::size_t templateArgs = expanded.size();
+    apply_permission_mode(cfg_.kind, cfg_.argv.empty(), cfg_.permissionMode, req.readOnly, expanded);
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
     apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath, expanded);
     // The flags added above go before the "--" that ends the template's options (with_end_of_options puts one right before

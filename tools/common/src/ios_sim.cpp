@@ -106,8 +106,9 @@ Json run_ios_sim(const std::string& projectDir, const Json& args) {
         replay = stdfs::weakly_canonical(p).generic_string();
     }
     std::string shot = arg_string(args, "screenshot", false);
-    if (!shot.empty() && !stdfs::path(shot).is_absolute()) {
-        auto r = resolve_project_path(projectDir, shot);
+    if (!shot.empty()) {
+        // A file this command writes: inside the project (the command-line user may name any file).
+        auto r = resolve_write_path(projectDir, shot);
         if (!r) throw CommandError("invalid_argument", r.error().message, r.error().hint);
         shot = r->generic_string();
     }
@@ -278,12 +279,12 @@ void register_ios_sim_commands(CommandRegistry& registry, const std::string& pro
     info.inputSchema = Json::parse(R"({
       "type":"object","required":["app"],
       "properties":{
-        "app":{"type":"string","description":"The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute)."},
-        "input":{"type":"string","description":"An input replay JSON ({\"frames\":{\"0\":{\"press\":[\"jump\"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs."},
+        "app":{"type":"string","x-fa-path":"read","description":"The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute)."},
+        "input":{"type":"string","x-fa-path":"read","description":"An input replay JSON ({\"frames\":{\"0\":{\"press\":[\"jump\"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs."},
         "orientation":{"type":"string","enum":["portrait","landscape"],"description":"Turn the screen to this orientation about a second after the start."},
         "device":{"type":"string","description":"The simulator: a UDID or a name or part of one (\"iPad Pro 13-inch\"). Default: a booted iPhone, else the first iPhone of the newest iOS runtime."},
         "bundleId":{"type":"string","description":"The app's bundle id. Default: read from the app's Info.plist."},
-        "screenshot":{"type":"string","description":"Write a PNG of the simulator's screen here when the replay is done (project-relative, inside the project, or absolute)."},
+        "screenshot":{"type":"string","x-fa-path":"write","description":"Write a PNG of the simulator's screen here when the replay is done (project-relative and inside the project; an absolute path only from the command line)."},
         "seconds":{"type":"integer","minimum":5,"maximum":3600,"default":90,"description":"How long to wait for the replay to finish."},
         "settleMilliseconds":{"type":"integer","minimum":0,"default":1500,"description":"Wait this long after the last replay frame before the screenshot."},
         "dryRun":{"type":"boolean","default":false,"description":"Return the simctl commands and run nothing."}

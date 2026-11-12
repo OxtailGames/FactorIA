@@ -116,7 +116,7 @@ Loaded load_song_file(const std::string& projectDir, const std::string& rel) {
 
 void write_song(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
-    if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
 Loaded resolve_song(const std::string& projectDir, const Json& a, const char* command) {
@@ -279,7 +279,7 @@ void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc&
     std::filesystem::path outFile;
     if (!outRel.empty()) {
         if (to_lower(fs::extension(outRel)) != ".png") fail("invalid_argument", "`pictureOut` must end in .png.", "Example: \"pictureOut\": \"assets/music/theme.png\".");
-        outFile = project_file(projectDir, outRel);
+        outFile = project_write_file(projectDir, outRel);
     }
     const std::int64_t barTicks = doc.meter.barTicks();
     const long fromBar = std::clamp<long>(tooling_detail::arg_int(a, "fromBar", 1), 1, std::max(1, tl.bars));
@@ -643,7 +643,7 @@ Json music_preview_command(const std::string& projectDir, const Json& a) {
     if (ext != ".wav" && ext != ".ogg") fail("invalid_argument", "`out` '" + out + "' must end in .wav or .ogg.", "Example: \"out\": \"" + default_preview(rel) + "\".");
     auto norm = fs::normalize_checked(out);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/")) fail("invalid_argument", "The preview goes under assets/, and '" + out + "' is not there.", "Use a path such as \"" + default_preview(rel) + "\".");
-    const stdfs::path file = project_file(projectDir, *norm);
+    const stdfs::path file = project_write_file(projectDir, *norm);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
     if (!overwrite && stdfs::exists(file, ec) && !preview_is_ours(projectDir, *norm))

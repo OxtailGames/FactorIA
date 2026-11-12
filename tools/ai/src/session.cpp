@@ -685,8 +685,8 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
     CommandResult cr;
     {
         CommandCallerScope caller(CommandCaller::Agent);  // the model's call, not the user's (ai.settings.set scope "user" refuses it)
-        CommandCapabilityScope capabilities(granted);       // ... and with what its role may do (config.h, role_capabilities)
-        CommandDenialScope denial(role_denial_subject(role), role_denial_hint(role));  // a refusal names the role
+        // ... and with what its role may do (config.h, role_capabilities); a refusal names the role
+        CommandCapabilityScope capabilities(granted, role_denial_hint(role));
         cr = registry_.call(it->second, callInput);
     }
     if (!cr.ok) {

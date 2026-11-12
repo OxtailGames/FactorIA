@@ -11,6 +11,7 @@
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/engine.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/shaders.h"
 #include "headless_run.h"
 #include "util.h"
@@ -467,7 +468,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "baseline+failSlack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, "
         "created}.";
     b.inputSchema = Json::parse(R"({"type":"object","properties":{
-        "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
+        "file":{"type":"string","default":"perf.json","x-fa-path":"write","description":"Budget file, project-relative and inside the project (an absolute path only from the command line)."},
         "frames":{"type":"integer","description":"Frames per run; stored in the file (default: the file's value, else 300)."},
         "scene":{"type":"string","description":"Start scene; stored in the file."},
         "input":{"type":"string","description":"Project-relative input replay; stored in the file."},
@@ -475,7 +476,10 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "tolerance":{"type":"object","description":"Tolerances to store in the file: cpuMedian, cpuP95, cpuFail, memory, memoryFail, drawCalls, entities, triangles, lights, textureMB, startup (ratios), cpuSlackMs, cpuFailSlackMs, memorySlackMB, memoryFailSlackMB, textureSlackMB, startupSlackMs, countSlack."}}})");
     registry.add(b, [projectDir](const Json& a) {
         require_project(projectDir);
-        const std::string file = abs_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
+        // The file this command writes: confined to the project (the command-line user may name any file).
+        auto budgetFile = resolve_write_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
+        if (!budgetFile.ok()) throw CommandError("invalid_argument", budgetFile.error().message, budgetFile.error().hint);
+        const std::string file = fs::path_to_utf8(budgetFile.value());
         Json budget = load_budget(file, false);
         const bool created = budget.empty();
         RunSpec def;
@@ -535,7 +539,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "warnLimit?, warned?, exceeded}], message, provisional?, baselineEntry?}; a failure is an error "
         "`perf_budget_exceeded` with the same data.";
     c.inputSchema = Json::parse(R"({"type":"object","properties":{
-        "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
+        "file":{"type":"string","default":"perf.json","x-fa-path":"read","description":"Budget file, project-relative (or absolute)."},
         "strictTime":{"type":"boolean","description":"Make a time over its limit fail even outside CI (default: only in CI)."},
         "requireBaseline":{"type":"boolean","default":false,"description":"Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything."},
         "budgets":{"type":"object","description":"Absolute caps that fail whatever the baseline says (they replace the same keys of the file's \"budgets\"): maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs."}}})");

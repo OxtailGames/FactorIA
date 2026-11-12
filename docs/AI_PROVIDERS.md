@@ -30,7 +30,7 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
    ```json
    { "roles": { "orchestrator": { "provider": "claude-code", "model": "opus" } } }
    ```
-FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
+FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode <mode>` (`<mode>` is `acceptEdits` unless you set another, see [Permission mode](#permission-mode)),
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
@@ -47,7 +47,7 @@ run files there (`mcp-<provider>-<n>-<n>.json`, `settings-<provider>-<n>-<n>.jso
 2. Run `codex` once (or `codex login`) and sign in with ChatGPT.
 3. Use provider `codex`. FactorIA runs
    `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
-   with the prompt on standard input. Codex starts a **fresh session every message**: FactorIA does not resume it,
+   with the prompt on standard input (plus `--sandbox <mode>` when you set a [permission mode](#permission-mode) other than the default). Codex starts a **fresh session every message**: FactorIA does not resume it,
    so a follow-up in the editor chat does not remember the earlier messages (the transcript on screen does).
 
 ### CLI agents in the editor
@@ -504,9 +504,10 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   change the project on disk.
 * **Every role has a capability set** (docs/ARCHITECTURE.md, "Capabilities"). Builders (orchestrator, worker, fast, artist,
   audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
-  `{read, state, writeProject}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and
-  `play.auto` (one PNG or session under `.factoria/`). A tool call that falls outside the set fails with `capability_denied` naming
-  the role and saying to ask the user or use a builder role. The set also reaches the `factoria mcp` a CLI agent starts
+  `{read, state}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and `play.auto`.
+  Those pictures are returned to the model; a `path` argument (a copy written to the project) needs `writeProject` and is refused
+  to them. A tool call that falls outside the set fails with `capability_denied` whose hint names the role, what it has and
+  that the user or a builder role must do it. The set also reaches the `factoria mcp` a CLI agent starts
   (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`), so a CLI builder over MCP cannot publish either: run that command yourself in a
   terminal (`factoria call <command>`) or in the editor.
 * **The automatic player supports the reviewer, it does not replace playing.** A game reviewer (not the art critic) may run
@@ -783,10 +784,56 @@ asks the user, and a per-run or per-day limit refuses it. `ai.providers` lists e
 `factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
 of asset is assigned to.
 
+## Permission mode
+
+FactorIA starts Claude Code and Codex without a terminal, so nothing can answer "may I edit this file?". The **permission mode** of
+a provider says how much its agent may do on its own. It is the `permissionMode` key of the provider in your `ai.json`, in the
+**Agents** tab of the AI settings window (a combo per agent, with one line under it for what each value allows), or through the
+commands `ai.settings.get` (the `permissionModes` field lists every value with what it allows) and `ai.settings.set` with the
+pointer `/providers/claude-code/permissionMode` (scope `user`; value `null` goes back to the default):
+
+```json
+{ "providers": { "claude-code": { "permissionMode": "plan" }, "codex": { "permissionMode": "workspace-write" } } }
+```
+
+Only the `claude-code` and `codex` providers have it, and only **your** `ai.json` can hold it: a project's `.factoria/ai/settings.json`
+that sets it is refused, and `ai.settings.set` refuses scope `user` to an MCP or agent caller, so neither a project you downloaded nor the
+AI can widen what an agent may do. An unknown value is an error that names the pointer and lists the choices.
+
+| Agent | Value | What the agent may do |
+|-------|-------|-----------------------|
+| Claude Code | `manual` | Reads files and uses the FactorIA tools. Every file edit and shell command would need a yes nobody can give in a background run, so it is refused. |
+| Claude Code | `plan` | Reads and plans only: no file is edited and no command runs. |
+| Claude Code | `dontAsk` | Never asks: uses what is already allowed (the FactorIA tools, the sites you listed) and refuses everything else, edits included. |
+| Claude Code | `acceptEdits` | **Default.** Edits and creates files in the project without asking; other shell commands and tools that are not already allowed are refused. |
+| Claude Code | `auto` | A safety check approves the actions it judges safe and blocks the rest. Less strict than `acceptEdits`. |
+| Claude Code | `bypassPermissions` | **Dangerous.** No permission checks: it edits or deletes any file it can reach, runs any shell command and uses the network. |
+| Codex | `read-only` | Reads files; its shell cannot write or use the network. The FactorIA tools still work (they run in FactorIA, not in the sandbox). |
+| Codex | `default` | **Default.** No flag: Codex uses its own `~/.codex/config.toml`, which is a read-only sandbox without one. |
+| Codex | `workspace-write` | Its shell may edit files in the project folder and temporary folders; no network, nothing outside those folders. |
+| Codex | `danger-full-access` | **Dangerous.** No sandbox: its shell edits or deletes any file you can, runs any command and uses the network. |
+
+The Claude Code values are the ones `claude --help` lists for `--permission-mode`; the Codex values are the ones documented for
+`codex exec --sandbox` (they were taken from its documentation: Codex was not installed where this was written, so the exact
+sandbox behaviour of your version is worth a look at `codex exec --help`).
+
+* **Dangerous modes need an explicit choice.** `bypassPermissions` and `danger-full-access` are never a default: they are in the file
+  only when you wrote them (the window asks "Yes, allow it" before it saves one, and `ai.settings.set` answers with `dangerous: true`).
+  They are not forbidden, because an agent in a throwaway folder or a container is a real use and the choice is yours alone to
+  make (see above), but they are labelled dangerous everywhere they appear.
+* **A role that only reads stays read-only.** A reviewer (and any run FactorIA starts read-only) is held to read-only whatever the
+  mode is: for Codex the sandbox is `read-only`; for Claude Code `bypassPermissions` and `auto` become `acceptEdits` for that run
+  and its edit tools stay switched off (`--disallowedTools`), as they were before the setting existed.
+* **A command line of your own wins.** With the built-in command line the flag is always added (the default when you set none).
+  With your own `argv` template the flag is added only when the provider has a `permissionMode`, and never when the template already
+  has `--permission-mode`, `--dangerously-skip-permissions`, or for Codex `--sandbox`, `-s`, `--full-auto`,
+  `--dangerously-bypass-approvals-and-sandbox`, `--yolo` or `-c sandbox_mode=...`: what you wrote stays, with no second flag.
+* `generic-cli` providers have no permission mode: their command line is yours.
+
 ## The AI settings window
 
 **AI > AI Settings...** (the AI menu of the menu bar) is where the roles and the asset side of `ai.json` are set up. Its
-**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has three sections; the first two share one
+**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Agents** tab sets the [permission mode](#permission-mode) of Claude Code and Codex; the **Assets** tab has three sections; the first two share one
 **Save** button:
 
 * **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only

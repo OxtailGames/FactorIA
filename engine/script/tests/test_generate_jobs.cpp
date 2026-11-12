@@ -20,6 +20,9 @@ TEST_CASE("tilemap.generate jobs: shutting the script system down drops the jobs
         return Json::object({{"done", false}, {"progress", 0.0}, {"attempts", 1}, {"work", 0}});
     });
     h.cmds.add({"tilemap.generate_cancel", "builtin", "", anyObject, false, "scene"}, [](const Json&) { return Json::object({{"cancelled", true}}); });
+    // The real commands change memory only ({read, state}): the stand-ins say so, as a game script is granted no more.
+    for (const char* name : {"tilemap.generate_start", "tilemap.generate_step", "tilemap.generate_cancel"})
+        REQUIRE(h.cmds.declare_capabilities(name, capability_sets::changes_state()));
     h.file("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[]})");
     h.file("tests/g.test.js", R"JS(
 import { test, expect, game } from "factoria:test";

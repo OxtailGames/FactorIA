@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
@@ -28,10 +29,10 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
-thread_local std::string t_denial_subject, t_denial_hint;  // CommandDenialScope
+thread_local std::shared_ptr<const CapabilityHintProvider> t_hint;  // CommandCapabilityScope: who words capability_denied hints
 std::atomic<std::uint32_t> g_capability_floor{CapabilitySet::all().bits()};  // CommandCapabilityFloor: the process-wide maximum
-std::mutex g_floor_words_mutex;                                                // guards the two strings below (read on a refusal only)
-std::string g_floor_subject, g_floor_hint;
+std::mutex g_floor_words_mutex;                                                // guards the hint below (read on a refusal only)
+std::shared_ptr<const CapabilityHintProvider> g_floor_hint;                    // the floor's hint provider (null = none)
 
 CapabilitySet set_from_bits(std::uint32_t bits) {
     CapabilitySet s = CapabilitySet::all();
@@ -50,23 +51,20 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
         first = false;
         message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
     }
-    std::string subject = t_denial_subject, hint = t_denial_hint;
-    {
+    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
+               "; the command needs " + info.capabilities.to_string() + ".";
+    std::string hint;
+    std::shared_ptr<const CapabilityHintProvider> provider = t_hint;
+    if (!provider) {
         std::lock_guard<std::mutex> lock(g_floor_words_mutex);
-        if (subject.empty()) subject = g_floor_subject;
-        if (hint.empty()) hint = g_floor_hint;
+        provider = g_floor_hint;
     }
-    if (subject.empty()) subject = command_caller_name(command_caller());
-    if (hint.empty()) {
+    if (provider) hint = provider->hint(CapabilityDenial{info, missing, granted});
+    if (hint.empty())
         hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
                "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-               "(docs/SCRIPTING.md). Ask the user to run this command themselves (`factoria call {command}` in a terminal, which has "
-               "every capability), or to start the tool with that capability.";
-    }
-    for (std::size_t at = hint.find("{command}"); at != std::string::npos; at = hint.find("{command}", at + info.name.size()))
-        hint.replace(at, 9, info.name);
-    message += ", which " + subject + " is not granted here. Granted: " + granted.to_string() + "; the command needs " +
-               info.capabilities.to_string() + ".";
+               "(docs/SCRIPTING.md). Ask the user to run `factoria call " + info.name +
+                   "` in their own terminal, or to start the tool with that capability.";
     CommandResult r = fail("capability_denied", std::move(message), std::move(hint));
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
@@ -110,41 +108,34 @@ CapabilitySet capabilities_for_caller(CommandCaller caller) {
     return capability_sets::cli_user();
 }
 
-CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted) : previous_(t_granted) { t_granted = t_granted.intersect(granted); }
+CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint)
+    : previous_(t_granted), previousHint_(t_hint) {
+    t_granted = t_granted.intersect(granted);
+    if (hint) t_hint = std::move(hint);
+}
 
-CommandCapabilityScope::~CommandCapabilityScope() { t_granted = previous_; }
+CommandCapabilityScope::~CommandCapabilityScope() {
+    t_granted = previous_;
+    t_hint = std::move(previousHint_);
+}
 
 CapabilitySet caller_capabilities() {
     return t_granted.intersect(capabilities_for_caller(command_caller())).intersect(set_from_bits(g_capability_floor.load()));
 }
 
-CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_denial_subject, t_denial_hint}; }
+CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_hint}; }
 
-CommandDenialScope::CommandDenialScope(std::string subject, std::string hint)
-    : previousSubject_(t_denial_subject), previousHint_(t_denial_hint) {
-    if (!subject.empty()) t_denial_subject = std::move(subject);
-    if (!hint.empty()) t_denial_hint = std::move(hint);
-}
-
-CommandDenialScope::~CommandDenialScope() {
-    t_denial_subject = std::move(previousSubject_);
-    t_denial_hint = std::move(previousHint_);
-}
-
-CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted, std::string subject, std::string hint) {
+CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint) {
     std::lock_guard<std::mutex> lock(g_floor_words_mutex);
     previous_ = set_from_bits(g_capability_floor.load());
-    previousSubject_ = g_floor_subject;
     previousHint_ = g_floor_hint;
     g_capability_floor.store(previous_.intersect(granted).bits());
-    if (!subject.empty()) g_floor_subject = std::move(subject);
-    if (!hint.empty()) g_floor_hint = std::move(hint);
+    if (hint) g_floor_hint = std::move(hint);
 }
 
 CommandCapabilityFloor::~CommandCapabilityFloor() {
     std::lock_guard<std::mutex> lock(g_floor_words_mutex);
     g_capability_floor.store(previous_.bits());
-    g_floor_subject = std::move(previousSubject_);
     g_floor_hint = std::move(previousHint_);
 }
 
@@ -385,6 +376,42 @@ Json CommandRegistry::describe() const {
                                     {"category", i.category}}));
     }
     return arr;
+}
+
+}  // namespace fa
+
+namespace fa {
+
+void require_capability(Capability needed, std::string_view command, std::string_view reason) {
+    const CapabilitySet granted = caller_capabilities();
+    if (granted.has(needed)) return;
+    const std::string name = capability_name(needed);
+    throw CommandError("capability_denied",
+                       "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" + name + "' (" +
+                           capability_doc(needed) + "), which " + command_caller_name(command_caller()) +
+                           " is not granted here. Granted: " + granted.to_string() + ".",
+                       "Call it without that argument, or ask the user to run `factoria call " + std::string(command) +
+                           "` in their own terminal, or to start the tool with that capability.",
+                       Json::object({{"command", std::string(command)},
+                                     {"missing", CapabilitySet{needed}.to_json()},
+                                     {"granted", granted.to_json()}}));
+}
+
+std::string resolve_caller_write_path(std::string_view path, std::string_view command) {
+    require_capability(Capability::WriteProject, command, "writing to the `path` you gave");
+    auto resolved = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+    if (!resolved.ok()) {
+        const std::string code(fs::path_error_code(resolved.error()));
+        throw CommandError(code.empty() ? "invalid_argument" : code, resolved.error().message, resolved.error().hint);
+    }
+    const std::string abs = fs::path_to_utf8(resolved.value());
+    // A relative path is not judged for the managed folders (.git, .factoria) by resolve_for_write: the second step is ours.
+    // Judged on the spelling given (project-relative) and on the resolved one (an absolute path inside the project).
+    auto writable = fs::check_writable(path);
+    if (writable.ok()) writable = fs::check_writable(abs);
+    if (!writable.ok())
+        throw CommandError("managed_path_denied", writable.error().message, writable.error().hint);
+    return abs;
 }
 
 }  // namespace fa

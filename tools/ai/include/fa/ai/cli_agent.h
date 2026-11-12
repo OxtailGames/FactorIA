@@ -110,6 +110,16 @@ std::vector<std::string> with_end_of_options(ProviderKind kind, std::vector<std:
 // with or without "www." (the rule matches the exact host).
 std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains);
 
+// Adds the provider's permission mode (`permissionMode` of ProviderConfig, "" = not set) to an expanded argv: Claude Code gets
+// `--permission-mode <mode>`, Codex `--sandbox <mode>` (before the "-" that reads standard input; the mode "default" adds no
+// flag, Codex's own configuration decides). The built-in argv always gets one (the kind's default when none is set); a user
+// template (`builtInArgv` false) only when the provider names a mode. A permission flag the argv already has wins: nothing is
+// added. A read-only role (`readOnly`) never runs with the loosest modes: Codex gets `--sandbox read-only` whatever the mode,
+// Claude Code `acceptEdits` instead of `bypassPermissions` or `auto` (its edit tools are switched off by disallowedTools). Other
+// CLIs are left alone.
+void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::string& permissionMode, bool readOnly,
+                           std::vector<std::string>& argv);
+
 // Adds what `req` restricts to an expanded argv: Claude Code gets `--disallowedTools <comma separated>` (with WebSearch when
 // `webOnlyListed`) and the WebFetch rules of `webDomains` added to its `--allowedTools` list; Codex with its
 // built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.

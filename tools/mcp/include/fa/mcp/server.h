@@ -204,6 +204,12 @@ public:
     using CommandFilter = std::function<bool(const CommandInfo&)>;
     void set_command_filter(CommandFilter allow) { filter_ = std::move(allow); }
 
+    // The capabilities every tools/call runs with (CommandCapabilityScope; it only narrows, so it never exceeds what the
+    // calling thread has). Default capability_sets::mcp() (all but writeAnywhere): a command that needs more is refused
+    // with capability_denied. `factoria mcp --read-only` sets capability_sets::mcp_read_only().
+    void set_capabilities(CapabilitySet granted) { capabilities_ = granted; }
+    CapabilitySet capabilities() const { return capabilities_; }
+
     // A tool profile: tools/list offers the core commands (fa/tooling/tool_groups.h) plus the commands of `groups` (command
     // categories, exact command names, "core") and three loader tools: `tool_load` {groups} adds groups to the list and sends
     // notifications/tools/list_changed, `tool_describe` {commands} returns the full definition of any command and
@@ -269,6 +275,7 @@ private:
     mutable std::mutex noticeMutex_;
     Sink sink_;
     CommandFilter filter_;
+    CapabilitySet capabilities_ = capability_sets::mcp();
     bool profile_ = false;                // a profile other than "all" is set
     std::vector<std::string> loaded_;     // the groups the profile and tool_load added (the core set is always in)
     mutable std::mutex profileMutex_;
