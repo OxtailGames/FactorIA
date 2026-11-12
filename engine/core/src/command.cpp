@@ -27,6 +27,8 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
+thread_local std::shared_ptr<const CapabilityHintProvider> t_hint;  // CommandCapabilityScope: who words capability_denied hints
+
 // The refusal of a call whose command needs capabilities the caller was not granted (code "capability_denied").
 CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) {
     const CapabilitySet granted = caller_capabilities();
@@ -39,10 +41,13 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
     }
     message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
                "; the command needs " + info.capabilities.to_string() + ".";
-    CommandResult r = fail("capability_denied", std::move(message),
-                           "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
-                           "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-                           "(docs/SCRIPTING.md). Ask the user to run this command themselves, or to start the tool with that capability.");
+    std::string hint;
+    if (t_hint) hint = t_hint->hint(CapabilityDenial{info, missing, granted});
+    if (hint.empty())
+        hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
+               "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
+               "(docs/SCRIPTING.md). Ask the user to run this command themselves, or to start the tool with that capability.";
+    CommandResult r = fail("capability_denied", std::move(message), std::move(hint));
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
                                     {"needs", info.capabilities.to_json()},
@@ -85,13 +90,20 @@ CapabilitySet capabilities_for_caller(CommandCaller caller) {
     return capability_sets::cli_user();
 }
 
-CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted) : previous_(t_granted) { t_granted = t_granted.intersect(granted); }
+CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint)
+    : previous_(t_granted), previousHint_(t_hint) {
+    t_granted = t_granted.intersect(granted);
+    if (hint) t_hint = std::move(hint);
+}
 
-CommandCapabilityScope::~CommandCapabilityScope() { t_granted = previous_; }
+CommandCapabilityScope::~CommandCapabilityScope() {
+    t_granted = previous_;
+    t_hint = std::move(previousHint_);
+}
 
 CapabilitySet caller_capabilities() { return t_granted.intersect(capabilities_for_caller(command_caller())); }
 
-CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities()}; }
+CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_hint}; }
 
 CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
     if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));

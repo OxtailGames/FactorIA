@@ -2004,10 +2004,11 @@
     if (h.$place) {
       if (N.sceneGeneration() !== h.$gen) return generateFail(h, { message: "the scene that asked for this level is no longer the current one, so its objects were not placed", hint: "Start the generation again in the new scene." }, false);
       const args = Object.assign({}, h.$place, { rows: result.rows, legend: result.legend });
-      const r = N.callCommand("scene.import_ascii", plain(args));
+      // scene.place_ascii is the running-world half of scene.import_ascii: it never writes a file, so a game script (read + state) may place a level.
+      const r = N.callCommand("scene.place_ascii", plain(args));
       if (!r.ok) {
         const err = r.error || {};
-        return generateFail(h, { message: `placing the level with scene.import_ascii failed: ${err.message || "unknown error"}`, hint: err.hint, code: err.code }, false);
+        return generateFail(h, { message: `placing the level with scene.place_ascii failed: ${err.message || "unknown error"}`, hint: err.hint, code: err.code }, false);
       }
       result.placed = r.result;
     }
@@ -4193,29 +4194,41 @@
     // A skipped test may be only a name ("pending"): there is nothing to run, so a missing body is fine there.
     if (typeof fn !== "function" && !(who === "test.skip" && fn === undefined && options === undefined)) throw new Error(`${who}('${name}', fn): the second argument must be a function`);
     let expected = [];
+    let capabilities = [];
     if (options !== undefined) {
       if (!isObj(options)) throw new Error(`${who}('${name}', fn, options): options must be an object like { expectErrors: [/pattern/] }, but got ${inspect(options)}`);
       for (const k of Object.keys(options)) {
-        if (k !== "expectErrors") throw new Error(`${who}('${name}', fn, options): unknown option '${k}'; the only option is expectErrors`);
+        if (k !== "expectErrors" && k !== "capabilities") {
+          const sug = closest(k, ["expectErrors", "capabilities"]);
+          throw new Error(`${who}('${name}', fn, options): unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The options are expectErrors and capabilities`);
+        }
       }
       if (options.expectErrors !== undefined) {
         if (!Array.isArray(options.expectErrors)) throw new Error(`${who}('${name}', fn, options): expectErrors must be an array of RegExp or strings, but got ${inspect(options.expectErrors)}`);
         expected = errorPatterns(options.expectErrors, `${who}('${name}', fn, { expectErrors })`);
       }
+      if (options.capabilities !== undefined) {
+        const list = typeof options.capabilities === "string" ? [options.capabilities] : options.capabilities;
+        if (!Array.isArray(list)) throw new Error(`${who}('${name}', fn, options): capabilities must be an array of capability names such as ["writeProject"], but got ${inspect(options.capabilities)}`);
+        // The teaching error of CapabilitySet::parse: the unknown name, its JSON pointer inside the option and "did you mean".
+        const bad = N.capabilitiesCheck(list, "/options/capabilities");
+        if (bad) throw new Error(`${currentFile}: ${who}('${name}', fn, { capabilities }): ${bad}`);
+        capabilities = list;
+      }
     }
-    return expected;
+    return { expected, capabilities };
   }
   function test(name, fn, options) {
-    const expected = testArgs("test", name, fn, options);
+    const { expected, capabilities } = testArgs("test", name, fn, options);
     tests.push({
       name: [...suiteStack.map((s) => s.name), name].join(" > "),
-      fn, skip: suiteStack.some((s) => s.skip), expected,
+      fn, skip: suiteStack.some((s) => s.skip), expected, capabilities,
       before: suiteStack.flatMap((s) => s.beforeEach), after: suiteStack.flatMap((s) => s.afterEach),
     });
   }
   test.skip = (name, fn, options) => {
     testArgs("test.skip", name, fn, options);
-    tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, expected: [], before: [], after: [] });
+    tests.push({ name: [...suiteStack.map((s) => s.name), name].join(" > "), fn, skip: true, expected: [], capabilities: [], before: [], after: [] });
   };
   const beforeEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].beforeEach.push(fn); else throw new Error("beforeEach must be called inside describe()"); };
   const afterEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].afterEach.push(fn); else throw new Error("afterEach must be called inside describe()"); };
@@ -4692,6 +4705,7 @@
       consoleErrorTexts.clear();
       consoleErrorsOn = true;
       testExpected = t.expected.map((e) => ({ pattern: e.pattern, hit: false }));
+      N.testCapabilities(t.capabilities);  // what fa.call in this test may do: read and state, plus what the test asked for
       const cuts0 = N.watchdogCuts();
       let passed = true, message = "", loggedError = false;
       N.guardBegin(`test '${t.name}'`, 60.0);
@@ -4746,6 +4760,7 @@
     N.resetInput();
     N.setTimeScale(1); pausedScale = null; tweens.reset();
     N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);
+    N.testCapabilities([]);
     testCurrentName = "";
     return results;
   }

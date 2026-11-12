@@ -221,7 +221,7 @@ test("project.generate_level is deterministic and has the required entities", ()
   expect(ids).toContain("player");
   expect(ids).toContain("goal");
   expect(ids).toContain("map");
-});
+}, { capabilities: ["writeProject"] }); // the tool is not read-only: a test is granted {read, state} unless it asks for more
 
 test("project.generate_level composes ASCII rows and scene.import_ascii builds the scene from them", () => {
   const out = fa.call("project.generate_level", { width: 30, seed: 3, difficulty: 2, dryRun: true });
@@ -267,7 +267,7 @@ test("project.generate_level composes ASCII rows and scene.import_ascii builds t
   const baseProps = base.entities.find((e) => e.id === "level").components.Script.props;
   expect(baseProps.killY).toBeLessThan(0);
   expect(byId.level.components.Script.props).toEqual({ ...baseProps, levelIndex: 3 });
-});
+}, { capabilities: ["writeProject"] });
 
 // scene.import_ascii {path, from, edits} edits the scene FILE in a scratch world: there is nothing to restore afterwards.
 test("project.generate_level never touches the running game, with or without dryRun", () => {
@@ -301,7 +301,7 @@ test("project.generate_level never touches the running game, with or without dry
   expect(left).not.toContain(".factoria/tmp/generate_level.base.scene.json");
   fa.call("fs.delete", { path });
   game.release("move_right");
-});
+}, { capabilities: ["writeProject"] });
 
 test("project.generate_level writes a scene file that loads and plays", () => {
   const path = ".factoria/tmp/generate_level.scene.json";
@@ -316,7 +316,7 @@ test("project.generate_level writes a scene file that loads and plays", () => {
   expect(game.find("goal")).not.toBeNull();
   fa.call("fs.delete", { path }); // .factoria/tmp/ is the scratch folder: files written there can be deleted again
   expect(fa.call("fs.list", { path: ".factoria/tmp" }).entries.map((e) => e.path)).not.toContain(path);
-});
+}, { capabilities: ["writeProject"] });
 
 // The ASCII maps in levels/ are the source of truth of the hand-made levels. Importing a map into its own scene must
 // change nothing: if this fails, rebuild the scene (see README.md, "Levels") or fix the map.
@@ -338,7 +338,7 @@ for (const name of ["level1", "level2"]) {
     game.load(scene);
     expectCameraFitsMap();
     expectCameraDerivesLimitsFromMap();
-  });
+  }, { capabilities: ["writeProject"] });
 }
 
 test("the committed generated level (scenes/generated.scene.json) loads and runs", () => {

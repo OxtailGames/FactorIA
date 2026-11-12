@@ -170,6 +170,6 @@ describe("record the store replays", () => {
         path: `.factoria/tmp/record_${floor.name}.json`,
         content: JSON.stringify({ name: floor.name, frames: frame, outcome, replay: { frames }, marks }),
       });
-    });
+    }, { capabilities: ["writeProject"] }); // fs.write needs writeProject; a test is granted {read, state}
   }
 });
