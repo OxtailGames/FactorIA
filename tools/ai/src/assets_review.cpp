@@ -255,8 +255,8 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
                                  {"paths", Json(paths)}, {"warnings", warnings}, {"nextSteps", steps}});
         return out;
     });
-    // Reads the pictures and sends them to a vision model: network and spend, nothing written.
-    declare_command_capabilities(registry, {{"assets.review", CapabilitySet{Capability::Read, Capability::Network, Capability::Spend}}});
+    // Reads the pictures and sends them to a vision model (network, spend; process when the model is a CLI agent): nothing written.
+    declare_command_capabilities(registry, {{"assets.review", CapabilitySet{Capability::Read, Capability::Process, Capability::Network, Capability::Spend}}});
 }
 
 }  // namespace fa::ai

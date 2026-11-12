@@ -985,8 +985,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         using capability_sets::writes_project;
         // Starts a model run (a CLI agent or an API loop) that bills the user and may write files of the project.
         constexpr CapabilitySet agentRun{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
-        // One model call that bills the user and writes a file of the project (entries, reviews).
-        constexpr CapabilitySet modelAndFile{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Spend};
+        // One model call (a CLI agent needs process) that bills the user and writes a file of the project (entries, reviews).
+        constexpr CapabilitySet modelAndFile{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network, Capability::Spend};
         declare_command_capabilities(registry, {
             {"ai.providers", CapabilitySet{Capability::Read, Capability::Process}},  // action doctor runs `<cli> --version`
             {"ai.models", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},  // asks a CLI or an API for its models

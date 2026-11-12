@@ -42,9 +42,9 @@ TEST_CASE("tools/ai commands: every one declares exactly the capabilities of wha
     World w;
     const CapabilitySet reads{C::Read};
     const CapabilitySet writes{C::Read, C::WriteProject};
-    const CapabilitySet generate{C::Read, C::WriteProject, C::Network, C::Spend};
+    const CapabilitySet generate{C::Read, C::WriteProject, C::Process, C::Network, C::Spend};
     const CapabilitySet agentRun{C::Read, C::WriteProject, C::Process, C::Network, C::Spend};
-    const CapabilitySet imageEdit{C::Read, C::State, C::WriteProject, C::Network, C::Spend};
+    const CapabilitySet imageEdit{C::Read, C::State, C::WriteProject, C::Process, C::Network, C::Spend};
     const std::map<std::string, CapabilitySet> expected = {
         {"ai.providers", {C::Read, C::Process}},
         {"ai.models", {C::Read, C::Process, C::Network}},
@@ -75,8 +75,8 @@ TEST_CASE("tools/ai commands: every one declares exactly the capabilities of wha
         {"assets.generate_model", generate},
         {"assets.pick", writes},
         {"assets.set_provenance", writes},
-        {"assets.review", {C::Read, C::Network, C::Spend}},
-        {"vfx.review", {C::Read, C::State, C::Network, C::Spend}},
+        {"assets.review", {C::Read, C::Process, C::Network, C::Spend}},
+        {"vfx.review", {C::Read, C::State, C::Process, C::Network, C::Spend}},
         {"image.inpaint", imageEdit},
         {"image.generate_layer", imageEdit},
         {"skills.list", reads},
