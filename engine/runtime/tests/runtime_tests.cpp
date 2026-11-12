@@ -403,7 +403,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     r = c.call("game.screenshot", Json{{"path", shot}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["$image"]["mimeType"] == "image/png");
-    CHECK(r.result["$image"]["path"] == shot);
+    CHECK(stdfs::equivalent(stdfs::path(r.result["$image"]["path"].get<std::string>()), stdfs::path(shot)));  // the resolved (canonical) spelling
     CHECK(r.result["width"] == 320);
     auto img = load_image(shot);
     REQUIRE(img.ok());

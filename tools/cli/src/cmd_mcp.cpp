@@ -203,8 +203,10 @@ Command make_mcp_command() {
         std::error_code ec;
         SimpleMcpHost host(*registry, dir.empty() ? fsys::current_path(ec).string() : dir);
         McpServer server(host);
-        if (ctx.args.has("read-only"))
+        if (ctx.args.has("read-only")) {
             server.set_command_filter([](const CommandInfo& info) { return ai::is_read_only_tool(info); });
+            server.set_capabilities(capability_sets::mcp_read_only());
+        }
         if (ctx.args.has("tools")) {
             const std::string err = server.set_tool_profile(split_tool_groups(ctx.args.str("tools")));
             if (!err.empty())

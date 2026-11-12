@@ -182,6 +182,8 @@ void register_play_auto_commands(CommandRegistry& registry, const std::string& p
         "bot":{"type":"string","enum":["auto","hook","explorer"],"default":"auto","description":"auto: scripts/autoplay.js when the project has one, else the generic explorer. hook: the file is required (error without it). explorer: ignore the file and press the declared actions in seeded patterns."},
         "screenshots":{"type":"boolean","default":true,"description":"Take a screenshot per phase, per problem and at the end (needs a GPU; without one the session says so in its notes). false: numbers only, a little faster."}}})");
     registry.add(c, [projectDir](const Json& a) { return run_play_auto(a, projectDir); });
+    // It takes no path of the caller and writes only .factoria/sessions/ (the engine's own records): {read, state}.
+    registry.declare_capabilities("play.auto", capability_sets::changes_state());
 }
 
 }  // namespace fa

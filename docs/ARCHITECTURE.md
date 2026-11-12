@@ -197,9 +197,15 @@ A command that declares nothing gets a set derived from `readOnly` when it is ad
 `{read, state, writeProject}` (never one of the dangerous four, so a command that needs one must declare it);
 `CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities`.
 
+A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
+declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
+calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
+the project (`fs::resolve_for_write`); the schema property carries `"x-fa-path": "write"`.
+
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
-`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read}`), `agent` (all but `writeAnywhere` and `publish`),
-`game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
+`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state}`: the play commands that the `--read-only` filter serves change the game; the filter
+keeps the editing commands out, and `McpServer::set_capabilities` installs the set on every tools/call),
+`agent` (all but `writeAnywhere` and `publish`), `game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
 `cli_user`, Mcp: `mcp`, Agent: `agent`). **A scope only narrows**: `CommandCapabilityScope` (and `CommandCallerScope`)
 intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested
 call cannot run with "the tool's own set", a handler that needs more than its caller has is refused. Code that hops threads
