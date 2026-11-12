@@ -491,7 +491,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
                "onionSkin":{"type":"boolean","default":false,"description":"Draw faint copies of the neighbouring poses under each pose."},
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels; default: around the character."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (default: a sheet about 1600 px wide)."},
-               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths and the managed folders are refused)."}}})"),
+               "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused)."}}})"),
            false, "anim"},
           [&engine, &I](const Json& a) {
               const Entity e = need_entity(I.world, a, "entity");

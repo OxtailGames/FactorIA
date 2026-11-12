@@ -4,7 +4,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <vector>
 
+#include "fa/core/capability.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 
@@ -123,4 +126,111 @@ TEST_CASE("capabilities: the path of game.screenshot needs writeProject and stay
         CHECK(code_of("shots/a.png") == "capability_denied");
     }
     CHECK_FALSE(stdfs::exists(p.dir / "x.png"));
+}
+
+namespace {
+
+// Arguments of every command of the runtime that writes a file at a path its caller gives (M92.2b2), for the path `p`.
+// `ext` is the file name ending the command wants.
+struct WriterCase {
+    const char* command;
+    const char* ext;
+    std::function<Json(const std::string& p)> args;
+};
+
+std::vector<WriterCase> writer_cases(const std::string& mesh) {
+    return {
+        {"scene.save", ".scene.json", [](const std::string& p) { return Json::object({{"path", p}}); }},
+        {"scene.import_ascii", ".scene.json",
+         [](const std::string& p) {
+             return Json::object({{"rows", Json::parse(R"(["#."])")}, {"legend", Json::parse(R"({"#":0})")}, {"path", p}});
+         }},
+        {"scene.ascii_edit", ".json",
+         [](const std::string& p) {
+             return Json::object({{"file", p}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
+         }},
+        {"anim.create_clip", ".anim.json", [](const std::string& p) { return Json::object({{"path", p}, {"duration", 1.0}}); }},
+        {"anim.restore", ".anim.json", [](const std::string& p) { return Json::object({{"path", p}, {"clip", nullptr}}); }},
+        {"mesh.save", ".glb", [mesh](const std::string& p) { return Json::object({{"id", mesh}, {"path", p}}); }},
+    };
+}
+
+std::string error_code(const CommandResult& r) { return r.ok ? std::string("ok") : r.error.value("code", std::string()); }
+
+// The path rules refused the call (the command may still fail for its own reasons: a missing file...).
+bool path_refused(const std::string& code) {
+    return code == "capability_denied" || code == "absolute_path_denied" || code == "path_outside_root" || code == "managed_path_denied" ||
+           code == "invalid_path";
+}
+
+}  // namespace
+
+TEST_CASE("capabilities: every command that writes a caller's path confines it (M92.2b2)") {
+    TempProject p;
+    TempProject outside;  // a folder that is not the project
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const CommandResult mesh = e.commands().call(
+        "mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")}, {"indices", Json::parse("[0,1,2,0,2,3]")}}));
+    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
+    const std::string meshId = mesh.result["id"].get<std::string>();
+    const std::vector<WriterCase> cases = writer_cases(meshId);
+
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        for (const WriterCase& w : cases) {
+            CAPTURE(w.command);
+            const std::string name = std::string("x") + w.ext;
+            CHECK(error_code(e.commands().call(w.command, w.args("../" + name))) == "path_outside_root");
+            CHECK(error_code(e.commands().call(w.command, w.args((outside.dir / name).generic_string()))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args("/tmp/" + name))) == "absolute_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args(".git/" + name))) == "managed_path_denied");
+            CHECK(error_code(e.commands().call(w.command, w.args(".factoria/" + name))) == "managed_path_denied");
+            // A plain project path is not refused by the path rules.
+            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/" + name)))), w.command);
+        }
+        // input.record: a refused path leaves the recording running; a good one stops it.
+        REQUIRE(e.commands().call("input.record", Json::object({{"action", "start"}})).ok);
+        for (const char* bad : {"../r.json", "/tmp/r.json", ".git/r.json", ".factoria/r.json"}) {
+            CAPTURE(bad);
+            const CommandResult r = e.commands().call("input.record", Json::object({{"action", "stop"}, {"path", bad}}));
+            CHECK(path_refused(error_code(r)));
+            CHECK(e.input_recording());
+        }
+        const CommandResult good = e.commands().call("input.record", Json::object({{"action", "stop"}, {"path", "replays/r.json"}}));
+        CHECK_MESSAGE(good.ok, good.error.dump());
+        CHECK(stdfs::exists(p.dir / "replays" / "r.json"));
+    }
+    CHECK_FALSE(stdfs::exists(outside.dir / "x.scene.json"));
+    CHECK_FALSE(stdfs::exists(p.dir / ".git"));
+
+    {
+        // A read-only MCP session may not write any of them.
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        for (const WriterCase& w : cases) {
+            CAPTURE(w.command);
+            CHECK(error_code(e.commands().call(w.command, w.args(std::string("out/y") + w.ext))) == "capability_denied");
+        }
+    }
+
+    // The command-line user (and the editor) may name an absolute path.
+    CHECK(error_code(e.commands().call("scene.save", Json::object({{"path", (outside.dir / "abs.scene.json").generic_string()}}))) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.scene.json"));
+    CHECK(error_code(e.commands().call("anim.create_clip", Json::object({{"path", (outside.dir / "abs.anim.json").generic_string()}, {"duration", 1.0}}))) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.anim.json"));
+    CHECK(error_code(e.commands().call("mesh.save", Json::object({{"id", meshId}, {"path", (outside.dir / "abs.glb").generic_string()}}))) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.glb"));
+    // An absolute path inside the project is the same file as the relative one and is kept in its relative spelling.
+    const CommandResult inside = e.commands().call("scene.save", Json::object({{"path", (p.dir / "scenes" / "inside.scene.json").generic_string()}}));
+    REQUIRE_MESSAGE(inside.ok, inside.error.dump());
+    CHECK(inside.result["saved"] == "scenes/inside.scene.json");
+    // The managed folders stay closed to the user too; the scratch folder is open.
+    CHECK(error_code(e.commands().call("scene.save", Json::object({{"path", ".git/x.scene.json"}}))) == "managed_path_denied");
+    CHECK(error_code(e.commands().call("scene.save", Json::object({{"path", ".factoria/x.scene.json"}}))) == "managed_path_denied");
+    CHECK(error_code(e.commands().call("scene.save", Json::object({{"path", ".factoria/tmp/x.scene.json"}}))) == "ok");
 }

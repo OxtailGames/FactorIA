@@ -200,7 +200,12 @@ A command that declares nothing gets a set derived from `readOnly` when it is ad
 A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
 declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
 calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
-the project (`fs::resolve_for_write`); the schema property carries `"x-fa-path": "write"`.
+the project (`fs::resolve_for_write`; an absolute path needs `writeAnywhere`); the schema property carries `"x-fa-path": "write"`.
+`resolve_caller_project_path` is the same check returning the path in the project's own spelling (relative to the project when
+the file is inside it): the runtime's file commands use it for the path they also read back or report, so `scene.save`,
+`scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `input.record` (`path`), `anim.*` (`path`), `mesh.save`
+(`save_mesh_glb(data, path, allowAnywhere)`; a game script's `mesh.save` is always confined to the project) refuse `..`, absolute paths, `.git/` and `.factoria/` (except `.factoria/tmp/`) for an MCP client
+or an agent and check the path before any other work (`input.record` keeps its recording when the path is refused).
 
 What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
 `cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read, state}`: the play commands that the `--read-only` filter serves change the game; the filter
