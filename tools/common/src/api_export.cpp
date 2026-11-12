@@ -439,7 +439,7 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
         info.summary = "Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.";
         info.description =
             "Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), "
-            "components/<category>.md and commands/<category>.md, all generated from the registries of this session. Run it outside "
+            "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/AI_GUIDE.md; all generated from the registries of this session. Run it outside "
             "a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares "
             "the committed files with this output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the "
             "repository root.";
@@ -455,6 +455,16 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
                     throw CommandError("write_failed", "Cannot write " + p.path + " under " + out.generic_string() + ": " + err,
                                        "Check that the folder exists and is writable.");
                 written.push_back(p.path);
+            }
+            // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays).
+            if (auto guide = tooling_detail::read_file(out / "AI_GUIDE.md")) {
+                guide->erase(std::remove(guide->begin(), guide->end(), '\r'), guide->end());
+                std::string err;
+                if (!splice_ai_guide_tools_table(*guide, registry, &err)) throw CommandError("write_failed", err, "Restore the markers in section 4.");
+                if (!tooling_detail::write_file(out / "AI_GUIDE.md", *guide, &err))
+                    throw CommandError("write_failed", "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
+                                       "Check that the file is writable.");
+                written.push_back("AI_GUIDE.md");
             }
             return Json::object({{"out", out.generic_string()}, {"written", written}});
         });
