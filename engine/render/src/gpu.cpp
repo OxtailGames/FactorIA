@@ -20,7 +20,6 @@
 namespace fa::render {
 
 namespace {
-constexpr sg_pixel_format kColorFormat = SG_PIXELFORMAT_RGBA8;
 constexpr sg_pixel_format kDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
 
 sg_sampler make_sampler(sg_filter minmag, sg_filter mip, sg_wrap wrap, const char* label) {
@@ -79,15 +78,27 @@ bool Gpu::init(int sampleCount, std::string* error) {
         }
     }
 
+    {
+        // The format of the game target and of every pass that draws into it or reads it (bloom, colour filter): RGBA16F where
+        // the GPU renders to it with blending and filtering (and multisampling when asked), so a colour above white (an emissive
+        // above 1, a bright additive sum) reaches bloom, else RGBA8, which keeps the frame but clamps at white.
+        const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+        const bool halfOk = half.render && half.blend && half.filter && (sampleCount_ <= 1 || half.msaa);
+        sceneFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_RGBA8;
+        if (const char* want = std::getenv("FA_SCENE_FORMAT"))
+            if (std::string(want) == "rgba8") sceneFormat_ = SG_PIXELFORMAT_RGBA8;
+    }
+
     quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
     quadPlainShader_ = make_shader(quad_quad_plain_shader_desc(backend), "quad_quad_plain");
     mesh_shader_ = make_shader(mesh_mesh_shader_desc(backend), "mesh_mesh");
     sky_shader_ = make_shader(sky_sky_shader_desc(backend), "sky_sky");
     shadow_shader_ = make_shader(mesh_shadow_shader_desc(backend), "mesh_shadow");
     blit_shader_ = make_shader(blit_blit_shader_desc(backend), "blit_blit");
+    blitKeepShader_ = make_shader(blit_blit_keep_shader_desc(backend), "blit_blit_keep");
     meshSkinShader_ = make_shader(mesh_mesh_skin_shader_desc(backend), "mesh_mesh_skin");
     shadowSkinShader_ = make_shader(mesh_shadow_skin_shader_desc(backend), "mesh_shadow_skin");
-    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, meshSkinShader_, shadowSkinShader_}) {
+    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, blitKeepShader_, meshSkinShader_, shadowSkinShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
                 *error = "Failed to create a built-in shader for the " + std::string(backend == SG_BACKEND_GLCORE ? "OpenGL" : "current") +
@@ -139,7 +150,7 @@ void Gpu::shutdown() {
     for (auto& s : samplers_) { sg_destroy_sampler(s); s = {}; }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
-    for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_, &meshSkinShader_, &shadowSkinShader_}) {
+    for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_, &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
         *s = {};
     }
@@ -154,6 +165,13 @@ void Gpu::shutdown() {
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
+}
+
+void Gpu::drop_pipelines() {
+    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so the whole cache can go: the ones that draw into the
+    // scene (quads, meshes, sky, bloom, colour filter) carry the old format, and making the others again is cheap.
+    for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
+    pipelines_.clear();
 }
 
 void Gpu::destroy_shader(sg_shader shader) {
@@ -203,7 +221,7 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.depth.pixel_format = kDepthFormat;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = kColorFormat;
+    d.colors[0].pixel_format = sceneFormat_;
     d.colors[0].blend.enabled = !opaque;
     switch (blend) {
         case BlendMode::Additive:  // dst + src.rgb * src.a  (glow: overlapping items accumulate light)
@@ -248,7 +266,7 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;
-    d.colors[0].pixel_format = kColorFormat;
+    d.colors[0].pixel_format = sceneFormat_;
     if (blended) {
         d.colors[0].blend.enabled = true;
         d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
@@ -271,7 +289,7 @@ sg_pipeline Gpu::sky_pipeline() {
     d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = kColorFormat;
+    d.colors[0].pixel_format = sceneFormat_;
     d.sample_count = sampleCount_;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "sky";
@@ -345,6 +363,21 @@ bool Gpu::bloom_ready() {
     return true;
 }
 
+sg_pipeline Gpu::blit_keep_pipeline() {
+    PipelineKey key{0x900u};  // 0x800 | format << 12 is the light pipeline's (lightFormat_ NONE = 0 would be this key)
+    sg_pipeline_desc d{};
+    d.shader = blitKeepShader_;
+    d.layout.attrs[ATTR_blit_blit_keep_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8;
+    d.sample_count = 1;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "blit-keep";
+    return find_or_make(key, d);
+}
+
 sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
     PipelineKey key{0x600u | std::uint32_t(stage) | (std::uint32_t(sampleCount) << 4)};
     sg_pipeline_desc d{};
@@ -354,7 +387,7 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
     d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = kColorFormat;
+    d.colors[0].pixel_format = sceneFormat_;
     d.sample_count = sampleCount;
     d.face_winding = SG_FACEWINDING_CCW;
     switch (stage) {
@@ -398,7 +431,7 @@ sg_pipeline Gpu::colorfilter_pipeline() {
     d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = kColorFormat;
+    d.colors[0].pixel_format = sceneFormat_;
     d.sample_count = 1;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "colorfilter";

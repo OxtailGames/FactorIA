@@ -87,6 +87,7 @@ void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
+    if (cfg.forceTouch) input.set_force_touch(true);
     // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
     // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
     if (project.uiScale != appliedProjectUiScale) {
@@ -414,6 +415,13 @@ void Engine::Impl::settle_visuals() {
     world.particles().update(world, 0.0f);
 }
 
+void Engine::set_force_touch(bool on) {
+    Impl& I = *impl_;
+    I.input.set_force_touch(on);
+    I.ui.sync_touch_controls(I.world, I.input, I.design_size());
+    I.renderStale = true;
+}
+
 void Engine::Impl::draw(double dt, bool settled) {
     if (!renderer) return;
     if (!settled) settle_visuals();  // a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
@@ -422,6 +430,7 @@ void Engine::Impl::draw(double dt, bool settled) {
     const LoadTrace::ReadingFor reading(traceOwner);
     apply_localization();  // entities created or keyed since the frame ended (a paused game, the editor) are drawn translated
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
+    if (input.force_touch()) ui.sync_touch_controls(world, input, design_size());  // a scene loaded since the last step
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
     renderer->end_frame();
@@ -560,7 +569,14 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             // pose after them: IK2D turns its chains so the tip reaches the target, and what it moves is what gets drawn.
             // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
             // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
-            update_ik2d(world);
+            update_ik2d(world, [this](Vec2 from, Vec2 to, std::int32_t mask, Entity ignore) -> std::optional<Vec2> {
+                RaycastOptions ro;
+                ro.mask = mask;
+                ro.ignore = ignore;
+                auto hit = physics.raycast2d(world, from, to, ro);
+                if (!hit) return std::nullopt;
+                return Vec2{hit->point.x, hit->point.y};
+            });
             // IK3D rewrites the palettes of the skinned models after their clips (docs/ANIMATION.md, "3D IK"); its foot rays
             // ask the physics world, which has just stepped.
             update_ik3d(world, float(fixedDt * scale),
@@ -1397,6 +1413,7 @@ void Engine::start_input_recording() {
             if (const float v = in.gamepad_raw_axis(p, GamepadAxis(a)); v != 0.0f) I.recorder.gamepad_axis(f, p, GamepadAxis(a), v);
     }
     for (const Touch& t : in.touches()) I.recorder.touch_begin(f, t.id, t.position);
+    for (const std::string& name : in.action_overrides()) I.recorder.action(f, name, true);  // game.input actions held now
 }
 Json Engine::stop_input_recording() {
     Impl& I = *impl_;
@@ -1539,7 +1556,9 @@ ProfMemory Engine::profile_memory() {
     m.entities = int(I.world.entity_count());
     m.jsHeapBytes = std::uint64_t(I.scripts.stats().value("memoryBytes", 0LL));
     if (I.renderer) m.textureBytes = I.renderer->texture_bytes();
-    m.audioDecodedBytes = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+    const Json audio = I.audio.stats();
+    m.audioDecodedBytes = std::uint64_t(audio.value("decodedBytes", 0LL));
+    m.musicBytes = std::uint64_t(audio.value("musicBytes", 0LL));
     return m;
 }
 

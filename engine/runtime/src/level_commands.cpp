@@ -749,11 +749,11 @@ void apply_edits(World& scratch, const Json& edits) {
 }
 
 // ---- prefab references in the written file
-// The scratch World holds every entity expanded, so save_scene writes the prefabs' contents into each level. The file is
-// better as it was authored: legend objects as {"id", "prefab", "tags", "components": {overrides + position}} and the base
-// scene's prefab entries as they were, so editing a prefab changes every level without importing again. Only entities
-// that no `edits` entry touches are turned back into references (an edit changes the expanded entity, which a reference
-// cannot express); the rest stay expanded. Entries without an id also stay expanded (nothing identifies them).
+// The scratch World remembers which entities a prefab made, so save_scene (PrefabSave::Keep) writes each as {"id",
+// "prefab", only the differences}; an entity that an `edits` entry touched keeps its edit as such a difference. The file is
+// better as it was authored for the entities nothing touched: legend objects as {"id", "prefab", "tags", "components":
+// {overrides + position}} and the base scene's prefab entries exactly as they were, so these two replace what the
+// writer produced.
 struct PrefabRef {
     Json ref;
     bool fromLegend = false;  // the position comes from the written (expanded) entity
@@ -865,7 +865,9 @@ Json import_into_scene_file(const Request& q, const Grid& grid, std::vector<Lege
     Json out = apply_import(scratch, true, q, grid, legend, cells);
     apply_edits(scratch, q.edits);  // after the import, so they can also reach what it placed; before the write, so a wrong one writes nothing
 
-    Json scene = save_scene(scratch);
+    SaveSceneOptions saveOptions;
+    saveOptions.prefabs = PrefabSave::Keep;  // the instances of the scene stay instances (an edited one keeps its differences)
+    Json scene = save_scene(scratch, saveOptions);
     if (scene.contains("entities"))
         rewrite_prefab_refs(scene["entities"], prefab_refs(q, source, !startedEmpty, cells), q.edits);
     out["path"] = q.path;
@@ -1282,7 +1284,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "\"tags\", \"components\": {the legend overrides + Transform.position}} and the prefab entries of "
          "the base scene stay as they are, so editing a prefab file changes every level without importing "
          "again and level files stay small (a scene loaded into the world still expands them). An entity "
-         "that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes "
+         "that `edits` touches is written as its prefab plus the differences (the edit). `dryRun` writes "
          "nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that "
          "scene's entities right after the map is imported and before the write, e.g. the camera and sky "
          "colour of a base scene: {\"<entity id>\": {\"<Component>\": {field: value}}}, each entry exactly "

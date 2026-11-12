@@ -11,6 +11,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/particles.h"
 #include "fa/scene/tilemap.h"
+#include "serialize_internal.h"
 
 namespace fa {
 
@@ -103,7 +104,8 @@ public:
         message(LoadMessage::Severity::Warning, ptr, std::move(msg), std::move(hint));
     }
 
-    Entity load_entity(const Json& jIn, Entity parent, const std::string& ptr, bool quietIds);
+    // `inContent`: the entity is part of the content of a prefab (EntityInfo::fromPrefab).
+    Entity load_entity(const Json& jIn, Entity parent, const std::string& ptr, bool quietIds, bool inContent = false);
     // Applies EntityInfo-style keys (id, name, tags, active).
     void apply_info_key(Entity e, const std::string& key, const Json& v, const std::string& ptr, bool quietIds);
     // Adds/patches a component from JSON. Returns false if nothing could be applied.
@@ -279,6 +281,29 @@ bool json_names(const Json& c, const std::string& seg) {
     return (c.contains("id") && c["id"].is_string() && c["id"].get<std::string>() == seg) ||
            (c.contains("name") && c["name"].is_string() && c["name"].get<std::string>() == seg);
 }
+
+// The node a key of "overrides" names: an id or a name (the first match, pre-order) or a path of ids/names from the root.
+Json* resolve_override_key(Json& root, const std::vector<std::pair<std::string, Json*>>& all, const std::string& key) {
+    if (key.find('/') == std::string::npos) {
+        for (const auto& [path, node] : all)
+            if (json_names(*node, key)) return node;
+        return nullptr;
+    }
+    Json* cur = &root;
+    std::size_t pos = 0;
+    while (cur && pos <= key.size()) {
+        std::size_t slash = key.find('/', pos);
+        const std::string seg = key.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
+        Json* next = nullptr;
+        if (cur->contains("children") && (*cur)["children"].is_array())
+            for (Json& c : (*cur)["children"])
+                if (c.is_object() && json_names(c, seg)) { next = &c; break; }
+        cur = next;
+        if (slash == std::string::npos) break;
+        pos = slash + 1;
+    }
+    return cur;
+}
 }  // namespace
 
 // Applies {"<child id|name|path>": {name, tags, active, components}} to the descendants of a prefab's entity JSON.
@@ -295,27 +320,7 @@ bool Loader::apply_child_overrides(Json& root, const Json& overrides, const std:
     for (auto it = overrides.begin(); it != overrides.end(); ++it) {
         const std::string key = it.key();
         const std::string kptr = ptr + "/" + escape_token(key);
-        Json* target = nullptr;
-        if (key.find('/') == std::string::npos) {
-            for (auto& [path, node] : all)
-                if (json_names(*node, key)) { target = node; break; }
-        } else {
-            // A path: each segment is the id or the name of a child of the previous one.
-            Json* cur = &root;
-            std::size_t pos = 0;
-            while (cur && pos <= key.size()) {
-                std::size_t slash = key.find('/', pos);
-                const std::string seg = key.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
-                Json* next = nullptr;
-                if (cur->contains("children") && (*cur)["children"].is_array())
-                    for (Json& c : (*cur)["children"])
-                        if (c.is_object() && json_names(c, seg)) { next = &c; break; }
-                cur = next;
-                if (slash == std::string::npos) break;
-                pos = slash + 1;
-            }
-            target = cur;
-        }
+        Json* target = resolve_override_key(root, all, key);
         if (!target) {
             std::vector<std::string> cands;
             auto add = [&](const std::string& c) {
@@ -389,8 +394,7 @@ bool Loader::expand_prefab(const Json& j, const std::string& ptr, Json& out) {
             if (!merged.contains("components") || !merged["components"].is_object()) merged["components"] = Json::object();
             json_merge(merged["components"], *it);
         } else if (k == "children" && it->is_array()) {
-            if (!merged.contains("children") || !merged["children"].is_array()) merged["children"] = Json::array();
-            for (const Json& c : *it) merged["children"].push_back(c);
+            continue;  // load_entity loads them after the prefab's own children, as entities added to the instance
         } else {
             merged[k] = *it;
         }
@@ -399,7 +403,7 @@ bool Loader::expand_prefab(const Json& j, const std::string& ptr, Json& out) {
     return true;
 }
 
-Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& ptr, bool quietIds) {
+Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& ptr, bool quietIds, bool inContent) {
     if (!jIn.is_object()) {
         error(ptr, "entity must be a JSON object, got " + describe_json_value(jIn),
               "Example: {\"id\": \"player\", \"components\": {\"Sprite\": {}}}.");
@@ -414,13 +418,18 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
     }
     Json expanded;
     const Json* jp = &jIn;
+    const bool quietIdsIn = quietIds;
     std::string savedNote = note_;
     bool pushedPrefab = false;
+    bool expandedHere = false;
+    std::string prefabPath;
     if (jIn.contains("prefab")) {
         std::string path = jIn["prefab"].is_string() ? jIn["prefab"].get<std::string>() : std::string();
         if (expand_prefab(jIn, ptr, expanded)) {
             jp = &expanded;
             quietIds = true;
+            expandedHere = true;
+            prefabPath = path;
             note_ = "(entity expanded from prefab '" + path + "')";
             prefabStack_.push_back(path);
             pushedPrefab = true;
@@ -431,13 +440,21 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
     Entity e = world_.create();
     report_.created.push_back(e);
     if (!parent.is_null()) world_.set_parent(e, parent);
+    {
+        EntityInfo& made = info_of(world_, e);
+        made.prefab = prefabPath;
+        made.fromPrefab = inContent;   // the root of an instance added by a scene is not the content of another prefab
+        // The in-memory snapshots (undo, Play/Stop) carry the origin in these two keys (EntityJsonOptions::prefabs).
+        if (const auto m = j.find("$prefab"); m != j.end() && m->is_string() && !expandedHere) made.prefab = m->get<std::string>();
+        if (const auto m = j.find("$fromPrefab"); m != j.end() && m->is_boolean() && m->get<bool>()) made.fromPrefab = true;
+    }
 
     // Unknown keys
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& key = it.key();
         const auto& valid = entity_keys();
         if (std::find(valid.begin(), valid.end(), key) != valid.end()) continue;
-        if (key == "$schema" || key == "_comment" || key == "comment" || key == "description") continue;
+        if (key == "$schema" || key == "$prefab" || key == "$fromPrefab" || key == "_comment" || key == "comment" || key == "description") continue;
         std::string hint;
         if (const TypeInfo* t = TypeRegistry::global().find_ci(key); t && !is_special_type(*t))
             hint = "'" + key + "' is a component: put it under \"components\", e.g. \"components\": {\"" + t->name + "\": {...}}.";
@@ -534,12 +551,22 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
         if (!kids.is_array()) {
             error(ptr + "/children", "'children' must be an array of entity objects, got " + describe_json_value(kids));
         } else {
-            for (std::size_t i = 0; i < kids.size(); ++i) load_entity(kids[i], e, ptr + "/children/" + std::to_string(i), quietIds);
+            for (std::size_t i = 0; i < kids.size(); ++i)
+                load_entity(kids[i], e, ptr + "/children/" + std::to_string(i), quietIds, inContent || expandedHere);
         }
     }
-
+    // The prefab's own content is done: what follows (the children added to the instance) is not part of it, so the prefab
+    // leaves the include stack (an added child may be an instance of the same prefab) and the note and the id warnings are
+    // the scene's again.
     if (pushedPrefab) prefabStack_.pop_back();
+    pushedPrefab = false;
     note_ = savedNote;
+    // The children written next to "prefab" are added to the instance, after the prefab's own.
+    if (expandedHere && jIn.contains("children") && jIn["children"].is_array()) {
+        const Json& added = jIn["children"];
+        for (std::size_t i = 0; i < added.size(); ++i)
+            load_entity(added[i], e, ptr + "/children/" + std::to_string(i), quietIdsIn, inContent);
+    }
     return e;
 }
 
@@ -550,6 +577,15 @@ Json json_for_field(const World& w, const FieldInfo& f, const void* obj) {
 }
 
 }  // namespace
+
+namespace detail {
+Json field_json(const World& world, const FieldInfo& field, const void* object) { return json_for_field(world, field, object); }
+Json* find_override_target(Json& prefabEntity, const std::string& key) {
+    std::vector<std::pair<std::string, Json*>> all;
+    collect_descendants(prefabEntity, "", all);
+    return resolve_override_key(prefabEntity, all, key);
+}
+}  // namespace detail
 
 // ------------------------------------------------------------- components --
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults, bool includeRuntime) {
@@ -641,10 +677,28 @@ void apply_pose_rest(const PoseRest& pose, Entity e, const TypeInfo& t, bool inc
 }
 }  // namespace
 
+namespace detail {
+void apply_pose_rest_values(const PoseRest& pose, Entity e, const TypeInfo& type, bool includeDefaults, Json& component) {
+    apply_pose_rest(pose, e, type, includeDefaults, component);
+}
+bool skip_spawned_entity(const World& world, Entity e, const EntityJsonOptions& opts) { return skip_spawned_subtree(world, e, opts); }
+}  // namespace detail
+
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts) {
     Json j = Json::object();
     if (!world.alive(e)) return j;
     const EntityInfo& inf = world.info(e);
+    if (opts.prefabs == PrefabSave::Keep && opts.includeChildren && !opts.includeDefaults && !opts.includeRuntime && !inf.prefab.empty()) {
+        // An instance of a prefab: {id, prefab, only what differs}, unless the differences cannot be written that way.
+        PrefabDiffOptions d;
+        d.useMarks = true;
+        d.poseRest = opts.poseRest;
+        d.cache = opts.prefabCache;
+        d.childOptions = &opts;
+        PrefabDiff r = diff_entity_with_prefab(world, e, inf.prefab, d);
+        if (r.expressible) return std::move(r.entry);
+        if (opts.prefabsExpanded) opts.prefabsExpanded->push_back({inf.id, inf.prefab, r.reason});
+    }
     j["id"] = inf.id;
     if (!inf.name.empty() || opts.includeDefaults) j["name"] = inf.name;
     if (!inf.tags.empty() || opts.includeDefaults) {
@@ -653,6 +707,10 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
         j["tags"] = tags;
     }
     if (!inf.active || opts.includeDefaults) j["active"] = inf.active;
+    if (opts.prefabs == PrefabSave::Marks) {
+        if (!inf.prefab.empty()) j["$prefab"] = inf.prefab;
+        if (inf.fromPrefab) j["$fromPrefab"] = true;
+    }
 
     Json comps = Json::object();
     for (const TypeInfo* t : world.components_of(e)) {
@@ -784,10 +842,28 @@ Json settings_to_json(const World& world) {
 }  // namespace
 
 Json save_scene(const World& world, bool skipSpawned, SpawnedSkip* skipped) {
+    SaveSceneOptions o;
+    o.skipSpawned = skipSpawned;
+    o.skipped = skipped;
+    return save_scene(world, o);
+}
+
+Json snapshot_scene(const World& world) {
+    SaveSceneOptions o;
+    o.prefabs = PrefabSave::Marks;
+    return save_scene(world, o);
+}
+
+Json save_scene(const World& world, const SaveSceneOptions& options) {
+    const bool skipSpawned = options.skipSpawned;
     const PoseRest pose = collect_pose_rest(world);
+    PrefabBaseCache cache;
     EntityJsonOptions eo;
     eo.skipSpawned = skipSpawned;
-    eo.skipped = skipped;
+    eo.skipped = options.skipped;
+    eo.prefabs = options.prefabs;
+    eo.prefabCache = &cache;
+    eo.prefabsExpanded = options.prefabsExpanded;
     if (!pose.empty()) eo.poseRest = &pose;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
@@ -875,8 +951,14 @@ std::vector<std::string> project_scene_files(std::string_view dir) {
     return out;
 }
 
-Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned, SpawnedSkip* skipped) {
-    return save_scene_json_file(path, save_scene(world, !includeSpawned, skipped));
+Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned, SpawnedSkip* skipped,
+                             std::vector<PrefabExpanded>* prefabsExpanded) {
+    SaveSceneOptions o;
+    o.skipSpawned = !includeSpawned;
+    o.skipped = skipped;
+    o.prefabs = PrefabSave::Keep;
+    o.prefabsExpanded = prefabsExpanded;
+    return save_scene_json_file(path, save_scene(world, o));
 }
 
 // ---------------------------------------------------------------- prefabs --

@@ -150,6 +150,9 @@ struct ImageUi {
     std::string addKind = "pixels";     // the kind the Add button of the layer list makes
     std::string newDocName = "art/new";
     int newDocSize = 64;
+    int resizeWidth = 0, resizeHeight = 0;   // the Resize canvas popup (0 = take the document's size when it opens)
+    int resizeAnchor = 4;                    // index into the nine anchors, 4 = center
+    float toolbarRight = 0, toolbarLimit = 0;  // last frame's right edge of the toolbar's widest item and of the panel (autotest: it fits)
     bool focused = false;               // the panel's window had the keyboard last frame (Ctrl+S saves the image)
     std::uint64_t lastPoll = 0;         // uiFrame_ of the last look at the files on disk
     double antsPhase = 0;

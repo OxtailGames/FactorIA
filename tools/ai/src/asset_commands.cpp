@@ -243,7 +243,11 @@ void record(const std::string& path, const Json& provenance, const Json& sheet =
     auto r = assets::update_entry(path, [&](Json& entry) {
         entry.erase("analysis");
         entry.erase("sheet");
+        // What the picture is for (style role) does not change because it was made again.
+        Json role;
+        if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role") && !provenance.contains("role")) role = entry["provenance"]["role"];
         entry["provenance"] = provenance;
+        if (!role.is_null()) entry["provenance"]["role"] = role;
         if (sheet.is_object()) entry["sheet"] = sheet;
     });
     if (!r) {
@@ -813,7 +817,16 @@ Json provenance_command(const Ctx&, const Json& args) {
 }
 
 Json set_provenance(const Ctx&, const Json& args) {
-    const std::string path = asset_path(args);
+    // A 3D bone clip (*.anim.json) is recorded wherever the project keeps it; every other asset lives under assets/.
+    std::string path;
+    if (const std::string raw = str(args, "path"); raw.size() > 10 && raw.compare(raw.size() - 10, 10, ".anim.json") == 0) {
+        auto n = fs::normalize_checked(raw);
+        if (!n) throw CommandError("invalid_path", n.error().message, n.error().hint);
+        if (fs::is_absolute(raw) || n->empty()) throw CommandError("invalid_path", std::format("'{}' is not a project path", raw), "Use a project-relative path such as 'anim/hero_walk.anim.json'.");
+        path = *n;
+    } else {
+        path = asset_path(args);
+    }
     if (!fs::exists(path)) {
         throw CommandError("not_found", std::format("'{}' does not exist", path),
                            "Create or import the file first: provenance describes a file that is in the project.");
@@ -830,18 +843,38 @@ Json set_provenance(const Ctx&, const Json& args) {
     }
     if (const std::optional<i64> seed = seed_arg(args)) p["seed"] = *seed;
     if (std::vector<std::string> refs = string_list(args, "references"); !refs.empty()) p["references"] = refs;
+    if (const std::string role = str(args, "role"); !role.empty()) {
+        const auto& roles = style_roles();
+        if (std::find(roles.begin(), roles.end(), role) == roles.end())
+            throw CommandError("invalid_argument", std::format("unknown role '{}'. {}", role, did_you_mean(role, roles)), "A role is ui, icon or effect.");
+        p["role"] = role;
+    }
+    // `role` null or "" takes the role back; no `role` keeps the one the entry has.
+    const bool dropRole = args.contains("role") && (args["role"].is_null() || (args["role"].is_string() && args["role"].get<std::string>().empty()));
+    bool roleRemoved = false;
     // The recipe of a made asset (assets.regenerate) is not something to type here: describing who made the file keeps it.
     auto r = assets::update_entry(path, [&](Json& entry) {
-        if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
+        const bool hadProvenance = entry.contains("provenance") && entry["provenance"].is_object();
+        if (hadProvenance && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
+        if (hadProvenance && entry["provenance"].contains("role")) {
+            if (dropRole) roleRemoved = true;
+            else if (!p.contains("role")) p["role"] = entry["provenance"]["role"];
+        }
         entry["provenance"] = p;
     });
     if (!r) fail("manifest_failed", r.error());
-    return Json::object({{"path", path}, {"provenance", p}});
+    Json out = Json::object({{"path", path}, {"provenance", p}});
+    if (roleRemoved) out["roleRemoved"] = true;
+    return out;
 }
 
 Json disclosure(const Ctx&, const Json&) {
     const Json manifest = assets::manifest();
-    const std::vector<std::string> files = fs::list("assets");
+    std::vector<std::string> files = fs::list("assets");
+    // A 3D clip lives wherever the project keeps its animations (anim/...), not under assets/: its record counts when the file exists.
+    if (const Json* all = child(manifest, "assets"); all && all->is_object())
+        for (const auto& [path, entry] : all->items())
+            if (path.rfind("assets/", 0) != 0 && path.size() > 10 && path.compare(path.size() - 10, 10, ".anim.json") == 0 && fs::exists(path)) files.push_back(path);
     return Json::object({{"markdown", ai_content_disclosure(manifest, files)},
                          {"hasAiContent", has_ai_content(manifest)},
                          {"withoutProvenance", assets_without_provenance(manifest, files)},
@@ -1059,6 +1092,8 @@ ReviewOutcome apply_pick(PickState& st, const Json& sheetMeta, const std::string
         Json entry = list.contains(st.slot) && list[st.slot].is_object() ? list[st.slot] : Json::object();
         entry.erase("analysis");  // what the tools measured or sliced from the old file
         entry.erase("sheet");
+        if (!provenance.contains("role") && entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("role"))
+            provenance["role"] = entry["provenance"]["role"];  // what the slot is for does not change with the picture
         entry["provenance"] = provenance;
         for (const std::string& k : keys) list.erase(k);
         list[st.slot] = entry;
@@ -1186,7 +1221,30 @@ Json pick_command(const Ctx& ctx, const Json& args) {
     return out;
 }
 
+void add_read_only_asset_commands(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx) {
+    add_command(
+        registry, ctx, "assets.provenance", "Show where assets came from: the provenance record of one file, or all of them.",
+        "With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many "
+        "are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {\"path\":\"assets/hero.png\"}",
+        Json::parse(R"({"type":"object","properties":{
+            "path":{"type":"string","description":"Project-relative path under assets/. Omit to list every record."}},
+            "additionalProperties":false})"),
+        true, provenance_command);
+    add_command(
+        registry, ctx, "assets.disclosure", "Write the AI-generated content disclosure for store forms (Steam) from the provenance records.",
+        "Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was "
+        "pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that "
+        "nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that "
+        "still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as "
+        "AI_CONTENT_DISCLOSURE.md. Example: {}",
+        Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
+}
+
 }  // namespace
+
+void register_read_only_asset_commands(CommandRegistry& registry, std::function<std::string()> projectDir) {
+    add_read_only_asset_commands(registry, std::make_shared<Ctx>(Ctx{{}, std::move(projectDir), {}, nullptr, {}, {}}));
+}
 
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
                              ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey, AssetApprover approver) {
@@ -1315,24 +1373,16 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         false, file_handler(MediaKind::Model3d));
 
     add_command(
-        registry, ctx, "assets.provenance", "Show where assets came from: the provenance record of one file, or all of them.",
-        "With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many "
-        "are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {\"path\":\"assets/hero.png\"}",
-        Json::parse(R"({"type":"object","properties":{
-            "path":{"type":"string","description":"Project-relative path under assets/. Omit to list every record."}},
-            "additionalProperties":false})"),
-        true, provenance_command);
-    add_command(
         registry, ctx, "assets.set_provenance", "Record where an asset came from (hand-made, imported, or made with AI elsewhere).",
-        "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this "
+        "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` \"\" or null, are kept). The generate commands write it for you; use this "
         "for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to "
         "true for origin generated, false otherwise). Example: {\"path\":\"assets/music/theme.ogg\",\"origin\":\"imported\","
         "\"ai\":false,\"license\":\"CC0\",\"source\":\"https://example.com/theme\",\"author\":\"A. Composer\"}",
         Json::parse(R"({"type":"object","properties":{
-            "path":{"type":"string","description":"Project-relative path of an existing file under assets/."},
+            "path":{"type":"string","description":"Project-relative path of an existing file under assets/ (or a 3D clip, *.anim.json, anywhere in the project)."},
             "origin":{"type":"string","enum":["generated","imported","original"],"description":"generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game."},
             "ai":{"type":"boolean","description":"Whether AI made the content. Default: true for origin generated, false otherwise."},
-            "kind":{"type":"string","enum":["image","sound","music","voice","model3d"],"description":"What the asset is, so the disclosure can tell sound effects, music and voice apart."},
+            "kind":{"type":"string","enum":["image","sound","music","voice","model3d","anim3d"],"description":"What the asset is, so the disclosure can tell sound effects, music and voice apart. anim3d: a 3D bone clip (*.anim.json), which the anim3d commands record themselves."},
             "provider":{"type":"string","description":"Tool or provider that made it (\"openai\", \"suno\", \"Aseprite\"...)."},
             "model":{"type":"string","description":"Model that made it, for AI-made assets."},
             "prompt":{"type":"string","description":"The prompt it was made from, for AI-made assets."},
@@ -1342,17 +1392,11 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
             "author":{"type":"string","description":"Person, studio or agent that made or chose the asset."},
             "source":{"type":"string","description":"Where an imported asset came from: a URL or the original file."},
             "date":{"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}$","description":"YYYY-MM-DD. Default: today."},
-            "notes":{"type":"string","description":"Anything else, such as edits made by hand."}},
+            "notes":{"type":"string","description":"Anything else, such as edits made by hand."},
+            "role":{"type":["string","null"],"enum":["ui","icon","effect","",null],"description":"What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. \"\" or null takes the role back. docs.read ASSETS, \"Scoping the style rules\"."}},
             "required":["path","origin"],"additionalProperties":false})"),
         false, set_provenance);
-    add_command(
-        registry, ctx, "assets.disclosure", "Write the AI-generated content disclosure for store forms (Steam) from the provenance records.",
-        "Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was "
-        "pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that "
-        "nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that "
-        "still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as "
-        "AI_CONTENT_DISCLOSURE.md. Example: {}",
-        Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
+    add_read_only_asset_commands(registry, ctx);
 }
 
 namespace asset_support {

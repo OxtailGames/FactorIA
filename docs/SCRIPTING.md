@@ -149,7 +149,10 @@ Each issue starts with `file:line:column`:
 
 A colour written as numbers is read as 0..255 when any of its channels is over 1 (`[255, 128, 0, 255]` is orange). A
 mixed colour such as `[255, 255, 255, 1]` is therefore an alpha of 1/255, and validate warns about it (JSON pointer, both
-readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255.
+readings) in scenes and prefabs; write every channel as 0..1 or every channel as 0..255. A colour with a channel over 1, no
+channel between 0 and 1 and none over 8 (`[3, 2, 2, 3]`, an attempt at "brighter than white") is read as 0..255 too, which is
+almost black: validate warns about that as well. For `MeshRenderer.emissive` both warnings point to `emissiveStrength` (the
+HDR multiplier) as the way to glow above white.
 
 ### Reading a member that does not exist
 
@@ -609,7 +612,10 @@ if (window.available) {
 ```
 
 ### audio
-- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `play(path, { volume, pitch, pan, loop, bus, onEnded, priority, position, range })` → voice id (0 when it did not play) · `stop(id)` · `stopAll()`
+- `position: [x, y, z]` (`[x, y]` in a 2D game, or `{x, y, z}`) plays the sound from a place without an entity, heard from the
+  `AudioListener` like an `AudioSource` with `spatial: true`; `range` is the distance where it reaches 0 (default 800). It
+  does not follow anything (docs/SOUND.md, "A sound at a place").
 - `priority` (0..255, default 128) decides who keeps a voice when all 64 play: a new sound replaces the lowest priority voice,
   the quietest of those, when its priority is higher, or the same and it is louder; otherwise it does not play and `play`
   returns 0. Age never decides; music is never replaced (docs/SOUND.md, "Voice stealing").
@@ -912,9 +918,9 @@ The entity throws if it has no `MusicPlayer` (`entity.get("MusicPlayer")` answer
 change with a `quantize` (`"none"`, `"beat"`, `"bar"`, `"section"`; default: the component's `quantize`, `layerQuantize` for the intensity) lands on that boundary's exact audio frame.
 - `play(song?)` or `play({song, section, intensity})` starts at once (a hard start); `stop({quantize, fade})`; `setIntensity(0..1, {quantize})`;
   `goToSection(name, {quantize, fade})`; `playStinger({clip | section, quantize, volume, tail, bus, duck, duckAttack, duckHold, duckRelease})` (a string is the clip);
-  `crossfadeTo(song, {section, quantize, bars})`. A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
+  `crossfadeTo(song, {section, quantize, bars})` (the other song starts at `section` or its beginning). `setIntensity`, `goToSection` and `crossfadeTo` return `{frame, time, quantize}`, where the change lands (null `frame` and `time` while nothing plays). A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
   or a stinger with nothing playing throws an Error that says what to do; a misspelled option or event name gets a "did you mean".
-- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity`, `status` (everything, including `stemGains`, `pending` and `error`).
+- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity` (= `requestedIntensity`, the last value set), `appliedIntensity` (the one the layers follow), `pendingSong`, `pendingSection`, `pendingAt` (the next queued jump or crossfade, null when none waits), `status` (everything, including `stemGains`, `pending` and `error`).
 - `on(name, fn)` listens to one player and returns the function that unsubscribes: `ready`, `beat`, `bar`, `section`, `loop`, `ended`, `stinger`, `crossfade`. `fn(data)` gets
   `id`, `song`, `frame` (the audio frame it sounded on) and `time` (seconds), plus `bar`, `beat`, `section`, `index` for a beat; `bar`, `section`, `count` for a bar; `section`, `pass`, `bar` for a
   section; `count` for a loop; `stopped` for `ended`; `kind` and `section` for a stinger; `mode` for `ready`. They are the game events `music.beat`... too, so `world.on("music.bar", ...)`
@@ -1838,6 +1844,19 @@ test("dump the menu layout", () => {
 **Commands from a test.** `fa.call(name, args)` runs any command and returns its result. Scripts have no `ui.state()`
 function (`ui` has `rectOf`, `widgetAt`, `focus`...): the list of widgets is the command, `fa.call("ui.state")`, and the
 localization state is `fa.call("i18n.state")`.
+
+The registry of a test is that of `factoria test`: the engine's commands and the project's tooling commands (`game.*`,
+`ui.*`, `fs.*`, `project.*`, `assets.regenerate`, `anim.*`...), plus the read-only `assets.provenance` and `assets.disclosure`
+(what an assets test needs: every asset has a recipe or a record, no file without provenance). A command that is not there
+answers "Unknown command". The ones missing are those of the AI module, which call a provider, the user's AI settings or
+the review queue, or write the manifest by hand; they belong to `factoria call`, the MCP server and the editor. A test
+keeps this list true.
+
+<!-- fa-call-not-in-tests -->
+- Not available: `ai.*`, `skills.*`, `assets.generate_image`, `assets.generate_sprite_sheet`, `assets.generate_sound`, `assets.generate_music`,
+  `assets.generate_voice`, `assets.generate_model`, `assets.pick`, `assets.review`, `assets.set_provenance`,
+  `image.generate_layer`, `image.inpaint`, `vfx.review`
+<!-- end -->
 
 ```js
 test("every widget fits and the Spanish table is complete", () => {

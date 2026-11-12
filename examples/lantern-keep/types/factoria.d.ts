@@ -565,6 +565,9 @@ declare module "factoria" {
      * Every entity with this name, in creation order. Skips the ones destroyed this frame.
      */
     findAll(name: string): Entity[];
+    /**
+     * Every alive entity that has this tag, in creation order, without the ones destroyed this frame.
+     */
     findByTag(tag: string): Entity[];
     /**
      * All alive entities in creation order, without the ones destroyed this frame.
@@ -977,6 +980,31 @@ declare module "factoria" {
      * @since 0.21.0
      */
     priority?: number;
+    /**
+     * Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play("assets/sfx/bite.wav", { position: [4, 0, -2], range: 30 }).
+     * @since 0.23.0
+     */
+    position?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
+     * @since 0.23.0
+     */
+    rolloff?: "linear" | "inverse" | "exponential";
+    /**
+     * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
+     * @since 0.23.0
+     */
+    refDistance?: number;
+    /**
+     * With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position.
+     * @since 0.23.0
+     */
+    rolloffFactor?: number;
+    /**
+     * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
+     * @since 0.23.0
+     */
+    range?: number;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
@@ -4815,6 +4843,11 @@ declare module "factoria" {
      */
     mode: "forward" | "reverse" | "pingpong";
     /**
+     * What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded.
+     * @since 0.23.0
+     */
+    loopMode: "inherit" | "loop" | "once";
+    /**
      * Index in the sheet's grid (row-major from the top-left) of the frame shown.
      * @since 0.6.0
      */
@@ -4971,6 +5004,28 @@ declare module "factoria" {
   }
 
   /**
+   * What music.setIntensity, goToSection and crossfadeTo return: where the change lands. The frame is worked out from the mixer's latest state, so it is exact on the null device (headless runs, tests) and a block or two off with a sound device that has not caught up; the "section" or "crossfade" event carries the real one.
+   * @since 0.23.0
+   */
+  export interface MusicChange {
+    /**
+     * The audio frame the change lands on (the same count as `frame` in the music events and audio.music_state's mixedFrames); null when it cannot be placed yet (nothing plays, or the song is still loading).
+     * @since 0.23.0
+     */
+    frame: number | null;
+    /**
+     * That frame in seconds of the audio clock; null with the frame.
+     * @since 0.23.0
+     */
+    time: number | null;
+    /**
+     * The boundary used: the one given or the player's own default.
+     * @since 0.23.0
+     */
+    quantize: "none" | "beat" | "bar" | "section";
+  }
+
+  /**
    * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
    * @since 0.16.0
    */
@@ -4986,35 +5041,35 @@ declare module "factoria" {
      */
     stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
-     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
+     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade. `entity.music.intensity` is the new value at once; `appliedIntensity` (and `status.intensity`) is the one the layers follow, which changes at that boundary. Returns where the layers start to follow it: {frame, time, quantize} (frame and time are null before the song plays).
      * @since 0.16.0
      */
-    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
+    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): MusicChange;
     /**
-     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
+     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the audible song does not have, listing the ones it has. Before the song is loaded it only sets where it will start. Returns {frame, time, quantize}: the audio frame the jump lands on, the `frame` of the "section" event it fires (null when nothing plays yet); `pendingSection` and `pendingAt` show it until then.
      * @since 0.16.0
      */
-    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
+    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): MusicChange;
     /**
      * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
      * @since 0.16.0
      */
     playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
     /**
-     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
+     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default the beginning of that song, never the component's startSection). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song. The component's `song` field is the new song at once while the old one stays audible until the boundary: `status.song` is the audible one and `pendingSong` the queued one. Returns {frame, time, quantize}: the audio frame the crossfade starts on (null while the song loads or when nothing plays). A scene loaded before that frame drops the change.
      * @since 0.16.0
      */
-    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
+    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): MusicChange;
     /**
      * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
      * @since 0.16.0
      */
     on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
     /**
-     * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
+     * A snapshot of the player (what audio.music_state shows). `song` and `section` are what is audible now. `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `pendingSong`, `pendingSection` and `pendingAt` (an audio frame, as `frame` in the events) say where the next queued section change or crossfade lands, null when none waits (a song asked for but not scheduled yet has no `pendingAt`). `intensity` = `appliedIntensity` is what the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last value set. `error` why it could not start.
      * @since 0.16.0
      */
-    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
+    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; appliedIntensity: number; requestedIntensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; pendingSong: string | null; pendingSection: string | null; pendingAt: number | null; heads: number; error: string };
     /**
      * True once the song is loaded and can sound.
      * @since 0.16.0
@@ -5026,7 +5081,7 @@ declare module "factoria" {
      */
     readonly playing: boolean;
     /**
-     * The song that plays (or is loading).
+     * The song that is audible now (status.song), or the one asked for while nothing plays. After crossfadeTo it is still the old song until the crossfade starts: pendingSong is the new one (the component's `song` field is already the new one).
      * @since 0.16.0
      */
     readonly song: string;
@@ -5051,10 +5106,35 @@ declare module "factoria" {
      */
     readonly tempo: number;
     /**
-     * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
+     * MusicPlayer.intensity: the value last set (= requestedIntensity), not what the layers follow (appliedIntensity) nor their fades (status.stemGains).
      * @since 0.16.0
      */
     readonly intensity: number;
+    /**
+     * The intensity last set (MusicPlayer.intensity): the layers follow it from the layerQuantize boundary on.
+     * @since 0.23.0
+     */
+    readonly requestedIntensity: number;
+    /**
+     * The intensity the layers follow now (status.intensity); it changes on the layerQuantize boundary after a setIntensity, so it differs from `intensity` until then.
+     * @since 0.23.0
+     */
+    readonly appliedIntensity: number;
+    /**
+     * The song the next queued section change or crossfade lands in (status.pendingSong); null when none waits. `song` stays the audible one until then.
+     * @since 0.23.0
+     */
+    readonly pendingSong: string | null;
+    /**
+     * The section that queued change lands in (status.pendingSection); null when none waits.
+     * @since 0.23.0
+     */
+    readonly pendingSection: string | null;
+    /**
+     * The audio frame that queued change lands on (the `frame` of the "section" or "crossfade" event it fires); null when none waits or it is not scheduled yet.
+     * @since 0.23.0
+     */
+    readonly pendingAt: number | null;
     /**
      * The section names of the song, in order; empty until it is loaded.
      * @since 0.16.0
@@ -5930,9 +6010,14 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop. Older alias of `loopMode`: false = once, true = inherit; prefer `loopMode`.
      */
     loop: boolean;
+    /**
+     * Whether the animation restarts after its last frame, whatever the clip says: inherit (the default) = the clip's own loop flag (with no clip, the `loop` field); loop = always restart, even a clip baked as non-looping; once = stop on the last frame and send `clipEnded`, even a looping clip. The same sheet clip can so loop in one entity and play once in another. Anything but inherit wins over `loop`.
+     * @since 0.23.0
+     */
+    loopMode: "inherit" | "loop" | "once";
     /**
      * Set false to pause, true to play.
      */
@@ -6065,6 +6150,26 @@ declare module "factoria" {
      * @since 0.7.0
      */
     solver: "twoBone" | "ccd";
+    /**
+     * Ground snapping (planted feet as data): a bitmask of the physics layers a ray looks for the floor in; 0 (the default) = off, the tip is brought to the target as it is. When set, every solve casts a ray straight down at the target's x, from `groundReach` above it to `groundReach` below it, and aims at the point it finds instead of at the target: hit height + `groundOffset` + the lift (how far the target is above its rest height, see `groundRest`). The target entity is never moved. No hit = the target is used as it is (the engine warns once when the ray has never hit anything). The ray is always vertical (world down), even for a rotated character. The colliders of the chain's character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that holds both the character and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and anim.check report (ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the engine's fixed step has it, a one-off solve (ik2d solve commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.
+     * @since 0.23.0
+     */
+    groundMask: number;
+    /**
+     * Ground snapping: how far above and below the target the ray looks for the floor, in world units. A floor further away than this from the target is not found and the target is used as it is. World units: not scaled by the character's scale. The ray starts at target.y + groundReach, so a thin ceiling just above the character's head (within reach of the target) can be the first hit: keep it smaller than the gap to any ceiling. 24 by default.
+     * @since 0.23.0
+     */
+    groundReach: number;
+    /**
+     * Ground snapping: the distance, in world units, from the hit point up to where the tip of the chain rests (the ankle's height above the sole). World units: not scaled by the root's scale. 0 by default.
+     * @since 0.23.0
+     */
+    groundOffset: number;
+    /**
+     * Ground snapping: the height of the target above the ORIGIN of the character (its root: the nearest ancestor with a RigidBody2D, else the topmost ancestor) when the foot is planted on flat ground, in world units (not scaled with the root's scale; negative for a foot below the origin). A walk clip lifts the marker while a foot swings: the part of the target's height above this rest height is kept as a lift on top of the ground, so the swinging foot still rises and a planted foot (at or below the rest height) sits exactly on the floor. Rule: aim.y = hit.y + groundOffset + max(0, target.y - (root.y + groundRest)). 0 by default.
+     * @since 0.23.0
+     */
+    groundRest: number;
   }
   /**
    * Untextured 2D primitive for prototypes, UI panels and debug visuals.
@@ -6735,6 +6840,11 @@ declare module "factoria" {
      */
     get emissive(): Color;
     set emissive(value: ColorLike);
+    /**
+     * HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch.
+     * @since 0.23.0
+     */
+    emissiveStrength: number;
     /**
      * true = ignore lighting and draw the flat base color.
      */
@@ -7585,9 +7695,24 @@ declare module "factoria" {
      */
     spatial: boolean;
     /**
-     * Spatial only: distance in world units where the volume reaches 0.
+     * Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it.
      */
     range: number;
+    /**
+     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
+     * @since 0.23.0
+     */
+    rolloff: "linear" | "inverse" | "exponential";
+    /**
+     * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
+     * @since 0.23.0
+     */
+    refDistance: number;
+    /**
+     * Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away.
+     * @since 0.23.0
+     */
+    rolloffFactor: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
      * @since 0.21.0
@@ -7607,7 +7732,7 @@ declare module "factoria" {
      */
     song: string;
     /**
-     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; long ogg stems stream from their encoded ogg in memory through a small window of decoded chunks instead of being decoded whole; it falls back to live, with a warning, when they are missing. auto: stems whenever the song has stem files and they are current, live when it has none or when the song was edited after music.render (live, with a warning, so the edit is heard; docs/MUSIC.md).
      * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
@@ -8937,7 +9062,7 @@ declare module "factoria" {
     get knobColor(): Color;
     set knobColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -9086,7 +9211,7 @@ declare module "factoria" {
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
-     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch.
      * @since 0.2.0
      */
     touchOnly: boolean;
@@ -9797,15 +9922,15 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
-    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
+    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
@@ -9818,7 +9943,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; priority?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential"; refDistance?: number; rolloffFactor?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
@@ -10405,7 +10530,20 @@ declare module "factoria:test" {
      * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
      */
     touchEnd(id?: number): void;
+    /**
+     * Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame.
+     */
     find(idOrName: string): Entity | null;
+    /**
+     * Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame.
+     * @since 0.23.0
+     */
+    findAll(name: string): Entity[];
+    /**
+     * Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag("wolf").length.
+     * @since 0.23.0
+     */
+    findByTag(tag: string): Entity[];
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**

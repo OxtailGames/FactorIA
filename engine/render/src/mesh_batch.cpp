@@ -47,7 +47,7 @@ namespace {
 auto material_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic, r.roughness,
-                           r.emissive.r, r.emissive.g, r.emissive.b, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
+                           r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
                            r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
 }
 
@@ -67,7 +67,7 @@ auto order_key(const MeshItem& a) {
     return std::make_tuple(name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r),
                            order_float(r.color.g), order_float(r.color.b), order_float(r.color.a),
                            order_float(r.metallic), order_float(r.roughness), order_float(r.emissive.r),
-                           order_float(r.emissive.g), order_float(r.emissive.b), r.unlit, r.receiveShadows,
+                           order_float(r.emissive.g), order_float(r.emissive.b), order_float(r.emissiveStrength), r.unlit, r.receiveShadows,
                            order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale),
                            a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
                            a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b),

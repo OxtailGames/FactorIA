@@ -360,7 +360,7 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
         e.erase("sheet");
         Json prov = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"date", assets::today()},
                                   {"notes", "Drawn from shapes and text by assets.draw_icon."}, {"recipe", recipe}});
-        for (const char* key : {"license", "author"})  // what a person recorded for this file stays
+        for (const char* key : {"license", "author", "role"})  // what a person recorded for this file stays, and what it is for (style role)
             if (e.contains("provenance") && e["provenance"].contains(key)) prov[key] = e["provenance"][key];
         e["provenance"] = prov;
     });

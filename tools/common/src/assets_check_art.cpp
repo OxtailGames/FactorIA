@@ -303,6 +303,8 @@ struct Asset {
     std::vector<std::string> tileKinds;
     int firstTile = 0;
     Verdict verdict = Verdict::Ok;
+    std::string role, roleSource;       // the asset's role (ui, icon, effect) and where it was set
+    std::vector<StyleSkip> skipped;     // style rules left out by style.ignore or the role
 };
 
 void contrast_rules(Asset& a, const EdgeStats& edge) {
@@ -558,6 +560,7 @@ Json check(const std::string& projectDir, const Json& a) {
     StyleParse styleParse;
     if (applyStyle) styleParse = load_style_guide(projectDir);
     const StyleGuide& style = styleParse.guide;
+    const Json manifest = assets::manifest();
     const ProjectArtUse project = scan_art_use(projectDir);
     const ReferenceScreens screens = reference_screens(project);
 
@@ -637,8 +640,12 @@ Json check(const std::string& projectDir, const Json& a) {
         contrast_rules(asset, edge);
         readability_rules(asset, pixelArt);
         fringe_rules(asset, pixelArt);
-        if (applyStyle)
-            for (ArtRule& r : evaluate_style_rules(asset.measure, style, asset.uses)) asset.rules.push_back(std::move(r));
+        if (applyStyle) {
+            std::vector<ArtRule> styleRules = evaluate_style_rules(asset.measure, style, asset.uses);
+            asset.role = style_role_of(manifest, style, asset.path, &asset.roleSource);
+            apply_style_scope(style, asset.path, asset.role, asset.roleSource, styleRules, asset.skipped);
+            for (ArtRule& r : styleRules) asset.rules.push_back(std::move(r));
+        }
         for (const ArtRule& r : asset.rules) asset.verdict = worse(asset.verdict, r.verdict);
     }
     std::vector<ArtRule> setRules;
@@ -736,6 +743,12 @@ Json check(const std::string& projectDir, const Json& a) {
         for (const std::string& s : scenes) uses.push_back(s);
         j["scenes"] = uses;
         j["rules"] = rules_json(asset.rules);
+        if (!asset.role.empty()) j["role"] = Json::object({{"role", asset.role}, {"from", asset.roleSource}});
+        if (!asset.skipped.empty()) {
+            Json skipped = Json::array();
+            for (const StyleSkip& sk : asset.skipped) skipped.push_back(Json::object({{"rule", sk.rule}, {"reason", sk.reason}}));
+            j["styleSkipped"] = skipped;
+        }
         Json tilesJson = Json::array();
         for (std::size_t i = 0; i < asset.tileKinds.size(); ++i) tilesJson.push_back(Json::object({{"tile", asset.firstTile + int(i)}, {"shows", asset.tileKinds[i]}}));
         j["tiles"] = tilesJson;

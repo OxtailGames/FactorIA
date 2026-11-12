@@ -23,7 +23,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "a7ed0921",
+      "notes": [
+        "Fixed in a7ed0921 (M101.1b, after M101.1a counted the music): the stems of a song stream from their ogg (a window of 4.5 s of decoded audio per stem, about 2 to 3 MB, instead of 10.1 MB per minute per stem), filled ahead by audio.stream jobs; mode auto plays the stem files whenever the song has them. perf.measure of scenes/game.scene.json on the Mac: musicMB 45.05 -> 7.01 (the 65 s night song has four stems that stream; the 11 s and 16 s songs are decoded whole), peakMemoryMB 131.9 -> 72.0, drawCalls 38 and entities 164 unchanged. The menu's 80 s title song has no stem files (a single mix), so it still renders live and holds 13.71 MB (a flat mix is not streamed yet). docs/MUSIC.md has the MB per minute per mode."
+      ]
     },
     {
       "id": "FB-0002",
@@ -51,7 +55,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "479c7bd2",
       "notes": [
-        "Fixed in 479c7bd2 (M60): schemas/assets.schema.json takes provenance kind \"prefab\" and `extras`; model.game_ready then factoria validate gives 0 errors (triage 2026-11-10). The suggested schema test of every recipe command's output is M101.6."
+        "Fixed in 479c7bd2 (M60): schemas/assets.schema.json takes provenance kind \"prefab\" and `extras`; model.game_ready then factoria validate gives 0 errors (triage 2026-11-10). The suggested schema test of every recipe command's output is M101.6.",
+        "Fixed in 76bdc6bc (M101.6): tools/common/tests/recipe_schema_test.cpp runs every recipe command and validates the assets.json it writes against the schema; a new recipe command without a schema kind fails it."
       ]
     },
     {
@@ -77,7 +82,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): crossfadeTo without `section` starts the other song at its beginning, never at the component's `startSection`; the director no longer passes `section`."
+      ]
     },
     {
       "id": "FB-0004",
@@ -102,7 +111,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): the next scene's player adopts the music that is playing and drops the crossfades and section changes the scene before had queued (or takes the target song when the crossfade had started); the director starts the scene without a hard play. `pendingSong`, `pendingSection` and `pendingAt` show what waits."
+      ]
     },
     {
       "id": "FB-0005",
@@ -124,7 +137,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "b781d772",
+      "notes": [
+        "Fixed in b781d772 (M101.2): `status.song` stays the audible song, `status.pendingSong` (also `entity.music.pendingSong`) is the one asked for, and the component's `song` is the last one asked for; the director keeps no record of its own."
+      ]
     },
     {
       "id": "FB-0006",
@@ -149,7 +166,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in a6649245: audio.play(path, { position, range }) plays a one-shot from a place with the AudioSource spatial model (docs/SOUND.md, \"A sound at a place\"). There is no rolloff option: AudioSource has only the linear fall-off."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0007",
@@ -171,7 +192,12 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "image.resize {path, width, height, anchor, fill} moves or crops every layer, frame and cel by one of nine anchors and keeps palette, ramps, tags and sheet; the Image panel has Resize... as one undo step (docs/IMAGES.md, 'Resizing the canvas').",
+        "Fixed in a8fe09b5"
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0008",
@@ -192,7 +218,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA unreleased (M101.9a)",
+      "notes": [
+        "Fixed in 15988dfd (M101.9a, branch m101/9a-prefab-save): the world remembers which entities a prefab made, and scene.save (and the editor's Save) writes an instance as {id, prefab, only the differences} (components, overrides, added children), so the file keeps following the prefab; an instance that form cannot express is written inline and listed under expandedPrefabs in the result. The workaround (restoring the reference by hand) is no longer needed."
+      ]
     },
     {
       "id": "FB-0009",
@@ -217,7 +247,12 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "style.ignore takes {path, rules} to skip single rules, and a role (ui, icon, effect) from style.set_role or provenance turns off the rules that do not apply; assets.check_art lists styleSkipped with the reason. assets.json now uses style.roles instead of the ignore list of ten paths (docs/ASSETS.md, 'Scoping the style rules').",
+        "Fixed in a8fe09b5"
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0010",
@@ -239,7 +274,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dfd754a1",
+      "notes": [
+        "Fixed in dfd754a1: sfx.bake takes path (one patch or a list)."
+      ]
     },
     {
       "id": "FB-0011",
@@ -265,7 +304,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dfd754a1",
+      "notes": [
+        "Fixed in dfd754a1: master.normalize.shared levels all variants with one gain; assets.regenerate lists the inputs it compared. footstep.sfx.json uses it and the import.normalize workaround is gone."
+      ]
     },
     {
       "id": "FB-0012",
@@ -290,7 +333,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: input.record writes an action pressed with game.input by name as an \"actions\" event of the frame and the replay plays it back with set_action_override (same world hash). The replay replays/first_night.json, recorded with key names, stays valid."
+      ]
     },
     {
       "id": "FB-0013",
@@ -315,7 +362,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: assets.provenance and assets.disclosure are registered in the test runtime; docs/SCRIPTING.md lists the commands fa.call lacks in a test and a cli test keeps the list true. tests/assets.test.js uses assets.provenance."
+      ]
     },
     {
       "id": "FB-0014",
@@ -337,7 +388,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: game.findByTag and game.findAll in factoria:test, like world's. The Kindlewatch tests use game.findByTag."
+      ]
     },
     {
       "id": "FB-0015",
@@ -362,7 +417,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "dbfb8e5c",
+      "notes": [
+        "Fixed in dbfb8e5c: factoria run --touch, ui.force_touch and game.screenshot {forceTouch} show the touch-only controls on a desktop (one switch, Input::set_force_touch); game.touch on a widget already drove them by finger."
+      ]
     },
     {
       "id": "FB-0016",
@@ -387,7 +446,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: model.game_ready's collider takes part (fit to one named part, also with merge), radius and height. pine.model.json uses {shape capsule, part trunk, radius 0.32}; the 66 scene overrides are removed."
+      ]
     },
     {
       "id": "FB-0017",
@@ -409,7 +472,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "76bdc6bc",
+      "notes": [
+        "Fixed in 76bdc6bc (M101.6): anim3d.generate and anim3d.retarget record a provenance recipe, every clip write leaves a record, assets.set_provenance takes kind anim3d. The clips under anim/ now have records and tests/assets.test.js checks them."
+      ]
     },
     {
       "id": "FB-0018",
@@ -515,7 +582,11 @@
       },
       "reviewed": true,
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "0072cc15",
+      "notes": [
+        "Fixed in 0072cc15: rig.bake {mergeParts} regroups the skinned submeshes by material (same vertices, weights and bind pose). The three rigs are baked with it; the game's drawCalls go 75 -> 38 (tools/cli/tests/perf/kindlewatch.perf.json)."
+      ]
     }
   ]
 }

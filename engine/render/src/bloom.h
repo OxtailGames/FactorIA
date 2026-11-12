@@ -5,7 +5,8 @@
 //        ^                                              |  blur H, blur V (separable gaussian)
 //        '------------------- composite (add) ----------'
 //
-// Everything is RGBA8 and deterministic (no randomness, fixed tap pattern), so headless runs are reproducible.
+// Every target is in the game target's format (Gpu::scene_format(): RGBA16F where the GPU can, so a colour above white keeps its
+// strength through the blur) and deterministic (no randomness, fixed tap pattern), so headless runs are reproducible.
 #pragma once
 
 #include "render_internal.h"
@@ -49,7 +50,7 @@ private:
         sg_view att[2]{};
         sg_view tex[2]{};
     };
-    bool ensure(int level, int targetW, int targetH, bool needSecond);
+    bool ensure(int level, int targetW, int targetH, bool needSecond, sg_pixel_format fmt);
 
     Level levels_[kLevels];
     int targetW_ = 0, targetH_ = 0;

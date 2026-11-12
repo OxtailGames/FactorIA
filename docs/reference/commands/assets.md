@@ -114,7 +114,7 @@ Measure every sound of the project together: loudness per bus, music masking eff
 
 Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Example: {"targets":{"music":-16,"sfx":-14}}
 
-Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
+Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature; a .wav with loop points, as an audio document's `loop` step writes it, is judged across the join it plays, the crossfade, not across the file's ends); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. A sound that is only an input of an audio document's recipe (a recording the document is baked from) and that no scene or script plays is not judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, findings, sounds (one row of numbers per sound), skipped, targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -656,14 +656,14 @@ Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
 
-Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, and its style `role`, unless you pass `role` "" or null, are kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Project-relative path of an existing file under assets/. |
+| `path` | string | yes | Project-relative path of an existing file under assets/ (or a 3D clip, *.anim.json, anywhere in the project). |
 | `origin` | string ["generated","imported","original"] | yes | generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game. |
 | `ai` | boolean | no | Whether AI made the content. Default: true for origin generated, false otherwise. |
-| `kind` | string ["image","sound","music","voice","model3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. |
+| `kind` | string ["image","sound","music","voice","model3d","anim3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. anim3d: a 3D bone clip (*.anim.json), which the anim3d commands record themselves. |
 | `provider` | string | no | Tool or provider that made it ("openai", "suno", "Aseprite"...). |
 | `model` | string | no | Model that made it, for AI-made assets. |
 | `prompt` | string | no | The prompt it was made from, for AI-made assets. |
@@ -674,6 +674,7 @@ Replaces the provenance record of an existing file in assets.json (the recipe th
 | `source` | string | no | Where an imported asset came from: a URL or the original file. |
 | `date` | string | no | YYYY-MM-DD. Default: today. |
 | `notes` | string | no | Anything else, such as edits made by hand. |
+| `role` | any ["ui","icon","effect","",null] | no | What the picture is for: the style checks leave out the rules that do not apply to it (ui and icon: texelsPerUnit, lightDirection; effect: also outline, value, saturation). Left out: the role the asset already has stays. "" or null takes the role back. docs.read ASSETS, "Scoping the style rules". |
 
 ## `assets.slice_sheet` (modifies state)
 
@@ -894,6 +895,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 | `description` | string | no | A sentence for people and AIs about the picture. |
 | `palette` | any | no | For indexed (pixel-art) layers: "style" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each "#rrggbb" or {"name", "color"}; at most 81. See docs.read IMAGES, "Pixel art". |
 | `ramps` | array | no | Colour ramps for shading by index: lists of palette colours (index, name or "#rrggbb") from the darkest to the lightest, e.g. [["skin-dark","skin","skin-light"]]. |
+| `output` | string | no | The PNG the document bakes to, project-relative, ending in .png (e.g. "assets/art/enemy.png" to replace an existing picture). Default: next to the document, its name with .image.json replaced by .png. |
 | `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
 | `bake` | boolean | no | Also draw the PNG. Default true. |
 
@@ -1476,6 +1478,23 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 | `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
+## `image.resize` (modifies state)
+
+Since 0.23.0.
+
+Change the canvas size of an image document, moving or cropping every layer, frame and cel by an anchor, and bake.
+
+Sets the canvas to `width` x `height` (1..4096). `anchor` is the part of the old canvas that stays put (top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right; default center): with "top-left" a bigger canvas grows at the right and bottom, a smaller one is cropped there. An odd difference rounds down. Every top-level layer moves by the anchor's offset (groups take their children along). A fill, gradient or procedural layer with no size just covers the new size, unless it has `masks` (they are in the layer's own pixels): then it becomes a box of the old canvas size and moves, so its masks stay on the same pixels and it no longer covers the added area (a warning names it). Adjustment layers with masks move too. Pixels and picture layers keep their PNG; the text rows of indexed layers and cels are CUT to the new canvas (never padded: a big canvas costs nothing; over 64 MB of rows fails). Palette, ramps, frames, tags and sheet settings are kept; the bake takes the new cell size. `fill` (default transparent) paints the area a bigger canvas adds as a masked fill layer 'resize fill' at the bottom. Stored selections must be made again (a warning). One undo step. Example: {"path":"assets/art/heart.image.json","width":12,"height":12,"anchor":"top-left"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `width` | integer | yes | New canvas width in pixels. |
+| `height` | integer | yes | New canvas height in pixels. |
+| `anchor` | string ["top-left","top","top-right","left","center","right","bottom-left","bottom","bottom-right"] | no | The part of the old canvas that stays put; the canvas grows or is cropped on the opposite sides. Default "center". |
+| `fill` | any | no | Colour of the area a bigger canvas adds: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Default transparent. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
 ## `image.save` (modifies state)
 
 Since 0.16.0.
@@ -1825,9 +1844,9 @@ Since 0.16.0.
 
 Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
 
-Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
+Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
 
-The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
+`collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1835,7 +1854,7 @@ The result is checked before anything is written, then the bake writes <name>.gl
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
 | `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
 | `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
-| `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution}. |
+| `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution, part, radius, height}. |
 | `platforms` | array | no | Budgets to check: desktop, mobile, web. |
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
 | `bake` | boolean | no | Bake after writing. Default true. |
@@ -2322,7 +2341,9 @@ Since 0.16.0.
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
-Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/hero.rig.json"}
+Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `mergeParts` joins parts that share a material (fewer draw calls). Example: {} or {"path":"assets/models/hero.rig.json"}
+
+`mergeParts` welds the skinned parts that share a material into one submesh after the fit (a rigged character of 8 parts with 2 materials then draws in 2 calls per pass instead of 8): only the index list is regrouped, so the weights, joints and bind pose are the same and a posed frame looks the same; the result lists `submeshesBefore` and `submeshes`, and the part names of a merged submesh are joined with "+". The choice is kept in the recipe, so a later bake or `factoria export` repeats it. `factoria export` bakes the stale documents first.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2330,6 +2351,7 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 | `force` | boolean | no | Bake documents that are fresh too. Default false. |
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no rig document baked. Default false. |
+| `mergeParts` | boolean | no | Weld the skinned parts that share a material into one submesh (fewer draw calls). Left out: what the last bake of the document used (false the first time); the choice is kept in the recipe. |
 
 ## `rig.create` (modifies state)
 
@@ -2409,11 +2431,12 @@ Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
-Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
+Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). `path` (one patch or a list) bakes only those patches, with the same rules (stale or missing only, `force` renders them anyway). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
+| `path` | any | no | Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project. |
 | `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
 | `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
 
@@ -2717,6 +2740,34 @@ Moves the weights of each vertex towards the average of the vertices that share 
 | `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
 | `iterations` | integer | no | Passes, 1 to 50 (default 1). |
 | `strength` | number | no | How far each pass moves a vertex to its neighbours' average, 0 to 1 (default 0.5). |
+
+## `style.ignore` (modifies state)
+
+Since 0.23.0.
+
+Skip style rules for a file, folder or glob (all rules, or only the rules you name); recorded in assets.json style.ignore.
+
+Adds {path, rules} to `style.ignore` of assets.json, so the style checks (assets.check_art, project.validate) do not judge those rules for the asset. `path` is a project-relative file, a folder ending in a slash ("assets/ui/") or a glob ("assets/fx/**"). `rules` names the rules to skip: outline (outline.color, outline.width), value (value.min, value.max), saturation, lightDirection, texelsPerUnit, pixelArt (pixelArt.edges, pixelArt.colours), palette (palette.offShare); without `rules` every rule is skipped for the path (the old plain-path entry). Naming only the rules that do not fit keeps the others checking, so a real problem is not hidden. assets.check_art still checks a file you name, and lists what it left out under `styleSkipped` with the reason. To skip by kind of asset instead, give it a role: style.set_role or assets.set_provenance `role`. `remove: true` takes an entry (or, with `rules`, those rules of it) back. Example: {"path":"assets/art/flame.png","rules":["texelsPerUnit","lightDirection"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob (* and ? stay inside a folder, ** crosses folders). |
+| `rules` | array | no | Rules to skip: outline, outline.color, outline.width, value, value.min, value.max, saturation, saturation.min, saturation.max, lightDirection, texelsPerUnit, pixelArt, pixelArt.edges, pixelArt.colours, palette, palette.offShare. Omit for every rule. |
+| `remove` | boolean | no | Take the entry back (with `rules`: only those rules). Default false. |
+
+## `style.set_role` (modifies state)
+
+Since 0.23.0.
+
+Give every asset that matches a path or glob a role (ui, icon, effect); the style rules that do not apply to the role are turned off for them.
+
+Writes `style.roles[path] = role` in assets.json. A role names what the picture is for, so the style checks leave out the rules that do not apply to it: ui and icon turn off texelsPerUnit and lightDirection (an interface picture is not on a mesh and is shaded as drawn); effect (a flame, a spark: lit by itself) also turns off outline, value and saturation. The rules that are not turned off keep checking. A role set in an asset's provenance (assets.set_provenance `role`) wins over a glob. assets.check_art lists every skipped rule under `styleSkipped` with the role and where it came from. `remove: true` deletes the glob; a role in an asset's provenance is taken back with assets.set_provenance `role` "". Example: {"path":"assets/ui/**","role":"ui"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative file, folder ending in a slash, or glob ("assets/ui/**"). |
+| `role` | string ["ui","icon","effect"] | no | What the pictures are for. Required unless `remove`. |
+| `remove` | boolean | no | Delete the role of this path. Default false. |
 
 ## `vector.add` (modifies state)
 

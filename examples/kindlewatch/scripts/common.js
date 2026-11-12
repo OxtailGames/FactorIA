@@ -1,7 +1,7 @@
 // @ts-check
 // Shared numbers and helpers of Kindlewatch. The level is a clearing around the campfire at the origin, the ground is
 // the XZ plane, +Y is up. The models face +Z, so the yaw that turns one to look along (dx, dz) is atan2(dx, dz).
-import { world, audio } from "factoria";
+import { world } from "factoria";
 
 export const DEG = 180 / Math.PI;
 /** Half the side of the square clearing (the invisible walls stand a little outside it), metres. */
@@ -41,24 +41,4 @@ export function behaviourOf(id) {
 /** Sets a Text's key arguments (the {placeholders} of its locale text). */
 export function setArgs(entity, args) {
   if (entity) entity.get("Text").keyArgs = args;
-}
-
-/**
- * Plays a one-shot sound as if it came from a point of the clearing: quieter with the distance to the camera's ground
- * point and panned by the side (audio.play has no position; only an AudioSource has).
- */
-export function playAt(path, point, options = {}) {
-  const { range = 28, ...rest } = options;
-  const ears = world.find("camera");
-  const p = point.position ?? point;
-  let volume = rest.volume ?? 1;
-  let pan = 0;
-  if (ears) {
-    const e = ears.position;
-    const d = Math.hypot(p.x - e.x, p.z - (e.z - 10));
-    volume *= Math.max(0, 1 - d / range);
-    pan = Math.max(-0.8, Math.min(0.8, (p.x - e.x) / 14));
-  }
-  if (volume <= 0.01) return 0;
-  return audio.play(path, { bus: "sfx", ...rest, volume, pan });
 }

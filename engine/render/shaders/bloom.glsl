@@ -1,6 +1,6 @@
 // FactorIA camera bloom (Camera.bloom): bright-pass + downsample, separable gaussian blur, additive composite.
-// Every program draws one full-screen triangle; all intermediate targets are RGBA8 so the chain runs on every
-// sokol_gfx backend (GL 4.3 core, GLES3, D3D11, Metal) without float-render-target extensions.
+// Every program draws one full-screen triangle; all intermediate targets have the format of the game target (RGBA16F where the
+// GPU renders to it with blending and filtering, so a colour above white keeps its strength through the blur; else RGBA8).
 //
 //   bright     game target (full res)  -> 1/2 or 1/4 res: per-source-pixel threshold, then a 2x2 or 4x4 average
 //   down       1/2^n res               -> 1/2^(n+1) res: 2x2 box average (one bilinear tap at the texel corner)
@@ -40,9 +40,21 @@ layout(binding=1) uniform bloom_bright_params {
 in vec2 uv;
 out vec4 frag_color;
 
+// One channel of the float game target made safe: NaN, Inf and anything from 65000 up (RGBA16F tops out at 65504, where an
+// overflow ends) become 0, a negative becomes 0. NaN/Inf are found by their bits (an all-ones exponent), not by a comparison
+// or isnan(): drivers compile with fast-math (Metal by default) and may fold those away, because they assume no NaN or Inf
+// exists. Without this one NaN pixel (a pow() of a negative in a custom material, a 0/0) would spread through the blur over
+// the whole glow. A multisample resolve can average an Inf at a lamp's edge into a large finite value, which is light as far
+// as this pass can tell.
+float sane(float x) {
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
+    return max(x, 0.0);
+}
+
 // Keeps the hue; scales the color from 0 (at the threshold) to 1 (at full brightness). "Brightness" is the largest
 // channel so saturated neon colors (pure magenta, cyan...) glow as much as white does.
 vec3 bright(vec3 c) {
+    c = vec3(sane(c.r), sane(c.g), sane(c.b));
     float v = max(c.r, max(c.g, c.b));
     float f = clamp((v - p.z) * p.w, 0.0, 1.0);
     return c * f;

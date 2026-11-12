@@ -886,7 +886,7 @@ struct Generator::Impl {
         return best;
     }
 
-    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1) {
+    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1, bool cutOff = false) {
         attemptRunning = false;
         failure.attempt = attempt;
         failure.x = x;
@@ -896,7 +896,10 @@ struct Generator::Impl {
         failure.cellRule = -1;
         ++failedAttempts;
         if (isContradiction) ++stats.contradictions;
-        else ++stats.rejected;
+        else {
+            ++stats.rejected;
+            if (cutOff) ++stats.cutOff;
+        }
         if (attempt >= opt.maxAttempts) {
             status = GenStatus::Failed;
             if (isContradiction) failure.cellRule = nearest_cell_rule(x, y);
@@ -1010,6 +1013,7 @@ struct Generator::Impl {
     void accept_chunk() {
         if (opt.check) {
             if (!acceptBegun) {
+                opt.check->refusedCutOff = false;
                 opt.check->begin(output);
                 acceptBegun = true;
             }
@@ -1018,7 +1022,8 @@ struct Generator::Impl {
             const GridCheck::Verdict v = opt.check->step(kAcceptChunk, why, work);
             charge(std::max<std::int64_t>(work, 1));
             if (v == GridCheck::Verdict::More) return;
-            if (v == GridCheck::Verdict::Refused) return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
+            if (v == GridCheck::Verdict::Refused)
+                return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false, -1, opt.check->refusedCutOff);
         } else if (opt.accept) {
             std::string why;
             std::int64_t acceptWork = 0;
@@ -1554,6 +1559,10 @@ std::string Generator::failure_message() const {
         }
     } else {
         m += ". The last finished level was refused: " + f.reason;
+        if (s.cutOff * 2 > s.attempts)
+            m += ". Cut-off areas refused " + std::to_string(s.cutOff) + " of " + std::to_string(s.attempts) +
+                 " attempts, so the sample's shape is the cause: it joins its open areas (rooms) by passages one cell wide, or draws walkable pockets "
+                 "closed by walls, and the level repeats that, leaving islands";
     }
     return m;
 }
@@ -1578,6 +1587,9 @@ std::string Generator::failure_hint() const {
         if (!o.forbidden.empty()) h += ", fewer forbidden tiles (they remove every pattern that holds them)";
         if (anyMin) h += ", lower minimums (a missing tile is pinned at a cell drawn from the seed, which can clash with its neighbours)";
         h += ".";
+    } else if (f.x < 0 && impl_->stats.cutOff * 2 > impl_->stats.attempts) {
+        h = "Fix the sample: draw open areas with passages 2-3 cells wide, no walkable pocket closed by walls, and no isolated walkable tile; "
+            "or drop reachability.allConnected (or give reachability.from so only the area around it must be whole), or give more attempts (maxAttempts) or another seed.";
     } else if (f.countRule >= 0) {
         h = "Lower the minimum or raise the maximum, ask for a bigger output, make the sample show the tile (a tile that is rare in the sample is rare in the level, and one drawn only on the sample's edge can hardly be placed), "
             "give more attempts (maxAttempts), or use another seed.";

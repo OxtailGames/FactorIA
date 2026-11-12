@@ -295,6 +295,135 @@ TEST_CASE("audio: spatial sources pan and attenuate relative to the listener") {
     CHECK(far.peak() < 0.001f);
 }
 
+TEST_CASE("audio: play_at is heard from a place like a spatial AudioSource") {
+    Fixture fx;
+    World world;
+    Entity listener = world.create("ear", "ear");
+    world.add<AudioListener>(listener);
+    PlayParams pp;
+    pp.volume = 0.8f;
+    auto last = [&]() { return fx.audio.play_log().back(); };
+
+    VoiceId near = fx.audio.play_at(world, "sounds/sine.wav", pp, {0, 0, 0}, 100.0f);
+    CHECK(near != 0);
+    CHECK(last().volume == doctest::Approx(0.8f));
+    CHECK(last().pan == doctest::Approx(0.0f));
+    VoiceId half = fx.audio.play_at(world, "sounds/sine.wav", pp, {50, 0, 0}, 100.0f);  // half the range, to the right
+    CHECK(half != 0);
+    CHECK(last().volume == doctest::Approx(0.4f));
+    CHECK(last().pan == doctest::Approx(1.0f));
+    fx.audio.play_at(world, "sounds/sine.wav", pp, {-25, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.6f));
+    CHECK(last().pan == doctest::Approx(-0.5f));
+    const std::size_t logged = fx.audio.play_log().size();
+    CHECK(fx.audio.play_at(world, "sounds/sine.wav", pp, {100, 0, 0}, 100.0f) == 0);  // at the range: silent, no voice
+    CHECK(fx.audio.play_log().size() == logged);
+    // the listener's zoom stretches the reach
+    world.get<AudioListener>(listener)->zoom = 2.0f;
+    fx.audio.play_at(world, "sounds/sine.wav", pp, {100, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.4f));
+    // no listener: plays as play() does
+    World empty;
+    fx.audio.play_at(empty, "sounds/sine.wav", pp, {900, 0, 0}, 100.0f);
+    CHECK(last().volume == doctest::Approx(0.8f));
+}
+
+TEST_CASE("audio: rolloff curves") {
+    // linear: the classic 1 - d/range by default, from refDistance with one
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 25, 100) == doctest::Approx(0.75f));
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 100, 100) == 0.0f);
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 10, 100, 20) == doctest::Approx(1.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 60, 100, 20) == doctest::Approx(0.5f));
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 60, 100, 20, 0.5f) == doctest::Approx(0.75f));
+    // inverse: r / (r + k (d - r)); refDistance 0 = range / 20
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 3, 100, 10) == doctest::Approx(1.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 20, 100, 10) == doctest::Approx(0.5f));
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 20, 100, 10, 2.0f) == doctest::Approx(1.0f / 3.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 10, 100) == doctest::Approx(0.5f));  // r = 100 / 20 = 5
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 100, 100, 10) == 0.0f);               // cut at the range
+    // exponential: (d / r) ^ -k
+    CHECK(audio_spatial_gain(AudioRolloff::Exponential, 20, 100, 10) == doctest::Approx(0.5f));
+    CHECK(audio_spatial_gain(AudioRolloff::Exponential, 20, 100, 10, 2.0f) == doctest::Approx(0.25f));
+    CHECK(audio_spatial_gain(AudioRolloff::Exponential, 5, 100, 10, 2.0f) == doctest::Approx(1.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Exponential, 150, 100, 10) == 0.0f);
+    // exactly at the reach: 0 for the three; refDistance at or above the range holds at 99.9% of it
+    for (AudioRolloff r : {AudioRolloff::Linear, AudioRolloff::Inverse, AudioRolloff::Exponential})
+        CHECK(audio_spatial_gain(r, 100, 100, 10) == 0.0f);
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 50, 100, 500) == doctest::Approx(1.0f));
+    CHECK(audio_spatial_gain(AudioRolloff::Linear, 99.95f, 100, 500) == doctest::Approx(0.5f).epsilon(0.01));
+    // a tiny refDistance with factor 0 stays at full volume
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 50, 100, 1e-8f, 0.0f) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
+    Fixture fx;
+    World world;
+    Entity listener = world.create("ear", "ear");
+    world.add<AudioListener>(listener);
+    struct Case { AudioRolloff r; float ref, k; };
+    const Case cases[] = {{AudioRolloff::Linear, 0, 1}, {AudioRolloff::Linear, 20, 1}, {AudioRolloff::Inverse, 10, 1},
+                          {AudioRolloff::Inverse, 0, 2}, {AudioRolloff::Exponential, 10, 1.5f}};
+    for (const Case& c : cases) {
+        PlayParams pp;
+        pp.volume = 1.0f;
+        fx.audio.play_at(world, "sounds/sine.wav", pp, {40, 0, 0}, 100.0f, c.r, c.ref, c.k);
+        const float viaPlay = fx.audio.play_log().back().volume;
+        CHECK(viaPlay == doctest::Approx(audio_spatial_gain(c.r, 40, 100, c.ref, c.k)));
+        CHECK(viaPlay > 0.0f);
+
+        World w2;
+        Entity l2 = w2.create("ear", "ear");
+        w2.add<AudioListener>(l2);
+        Entity s = w2.create("src", "src");
+        AudioSource& src = w2.add<AudioSource>(s);
+        src.clip = "sounds/sine.wav";
+        src.playOnStart = true;
+        src.spatial = true;
+        src.range = 100.0f;
+        src.rolloff = c.r;
+        src.refDistance = c.ref;
+        src.rolloffFactor = c.k;
+        w2.get<Transform>(s)->position = {40, 0, 0};
+        const std::size_t before = fx.audio.play_log().size();
+        for (int i = 0; i < 3; ++i) { fx.audio.update(w2, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        REQUIRE(fx.audio.play_log().size() == before + 1);
+        CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
+        fx.audio.update(world, 1.0f / 60.0f);  // back to the first World: the next w2 may reuse this one's address
+    }
+    // zoom != 1 with a refDistance: both stretch together and AudioSource agrees with play_at
+    {
+        world.get<AudioListener>(listener)->zoom = 2.0f;
+        PlayParams pp;
+        pp.volume = 1.0f;
+        fx.audio.play_at(world, "sounds/sine.wav", pp, {60, 0, 0}, 100.0f, AudioRolloff::Inverse, 10.0f, 1.0f);
+        const float viaPlay = fx.audio.play_log().back().volume;
+        CHECK(viaPlay == doctest::Approx(audio_spatial_gain(AudioRolloff::Inverse, 60, 200, 20, 1.0f)));
+        World w3;
+        Entity l3 = w3.create("ear", "ear");
+        w3.add<AudioListener>(l3).zoom = 2.0f;
+        Entity s = w3.create("src", "src");
+        AudioSource& src = w3.add<AudioSource>(s);
+        src.clip = "sounds/sine.wav";
+        src.playOnStart = true;
+        src.spatial = true;
+        src.range = 100.0f;
+        src.rolloff = AudioRolloff::Inverse;
+        src.refDistance = 10.0f;
+        w3.get<Transform>(s)->position = {60, 0, 0};
+        const std::size_t before = fx.audio.play_log().size();
+        for (int i = 0; i < 3; ++i) { fx.audio.update(w3, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        REQUIRE(fx.audio.play_log().size() == before + 1);
+        CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
+        fx.audio.update(world, 1.0f / 60.0f);
+        world.get<AudioListener>(listener)->zoom = 1.0f;
+    }
+    // a silent sound inside the range (muted listener) still gets an id; only out of range returns 0
+    world.get<AudioListener>(listener)->volume = 0.0f;
+    PlayParams pp;
+    CHECK(fx.audio.play_at(world, "sounds/sine.wav", pp, {10, 0, 0}, 100.0f) != 0);
+    CHECK(fx.audio.play_at(world, "sounds/sine.wav", pp, {500, 0, 0}, 100.0f) == 0);
+}
+
 TEST_CASE("audio: scene music starts when SceneSettings.music changes") {
     Fixture fx;
     World world;

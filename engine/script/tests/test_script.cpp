@@ -1177,6 +1177,59 @@ std::string tiny_wav() {
 }
 }  // namespace
 
+TEST_CASE("audio.play at a position is attenuated and panned by the listener") {
+    TestHost h("audioat");
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+const scene = { format: "factoria.scene/1", entities: [{ id: "ear", components: { AudioListener: {} } }] };
+test("position and range", () => {
+  game.loadJson(scene);
+  game.step(1);
+  audio.play("assets/sfx/coin.wav", { position: [50, 0, 0], range: 100 });
+  audio.play("assets/sfx/coin.wav", { position: { x: 0, y: 0 }, range: 100, volume: 0.5 });
+  expect(audio.play("assets/sfx/coin.wav", { position: [100, 0, 0], range: 100 })).toBe(0);
+  const log = game.audioLog();
+  expect(log).toHaveLength(2);
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[0].pan).toBeCloseTo(1);
+  expect(log[1].volume).toBeCloseTo(0.5);
+  expect(log[1].pan).toBeCloseTo(0);
+});
+test("rolloff, loop and captions", () => {
+  game.loadJson(scene);
+  game.step(1);
+  audio.play("assets/sfx/coin.wav", { position: [20, 0, 0], range: 100, rolloff: "inverse", refDistance: 10 });
+  audio.play("assets/sfx/coin.wav", { position: [20, 0, 0], range: 100, rolloff: "exponential", refDistance: 10, rolloffFactor: 2 });
+  const log = game.audioLog();
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[1].volume).toBeCloseTo(0.25);
+  expect(audio.play("assets/sfx/coin.wav", { position: [500, 0, 0], range: 100, caption: "far" })).toBe(0);
+  expect(game.captions()).toHaveLength(0);
+  // a clip that fails to load inside the range still shows its caption
+  game.expectErrors(/missing\.wav/);
+  expect(audio.play("assets/sfx/missing.wav", { position: [1, 0, 0], range: 100, caption: "lost" })).toBe(0);
+  expect(game.captions()).toHaveLength(1);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], loop: true })).toThrow(/AudioSource/);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [900, 0, 0], range: 10, loop: true })).toThrow(/AudioSource/);
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1, 0, 0], rolloff: "inverze" })).toThrow(/did you mean "inverse"/);
+  expect(() => audio.play("assets/sfx/coin.wav", { rolloff: "inverse" })).toThrow(/needs a position/);
+});
+test("bad arguments explain", () => {
+  expect(() => audio.play("assets/sfx/coin.wav", { position: [1] })).toThrow(/position is \[x, y, z\]/);
+  expect(() => audio.play("assets/sfx/coin.wav", { range: 5 })).toThrow(/needs a position/);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 3);
+    CHECK_MESSAGE(rep.cases[0].passed, rep.cases[0].message);
+    CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+    CHECK_MESSAGE(rep.cases[2].passed, rep.cases[2].message);
+}
+
 TEST_CASE("tests: game.audioLog and toContainPlayed assert which sounds played") {
     TestHost h("audiolog");
     h.file("assets/sfx/jump.wav", tiny_wav());

@@ -35,6 +35,13 @@ struct EntityInfo {
     // Not serialized and not reflected: set on entities a script created at runtime (world.spawn, world.spawnPrefab).
     // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
     bool scriptSpawned = false;
+    // Not serialized and not reflected: where the entity came from when a prefab made it. `prefab` is the project-relative
+    // path of the prefab on the ROOT of an instance (a scene entry {"prefab": ...}, scene.spawn or instantiate_prefab) and
+    // empty everywhere else. `fromPrefab` is true on the root of an instance and on every entity the prefab's own content
+    // made (its children, nested prefabs too), false on a child that was added under the instance afterwards. scene.save
+    // uses them to write the instance as {prefab, only the differences} instead of expanding it (docs/AI_GUIDE.md, section 6).
+    std::string prefab;
+    bool fromPrefab = false;
 };
 
 // Present on every entity (added by World::create).
@@ -161,6 +168,7 @@ struct Sprite {
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
 enum class SpriteAnimMode : std::int32_t { Forward, Reverse, PingPong };
+enum class SpriteLoopMode : std::int32_t { Inherit, Loop, Once };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
 // it overwrites Sprite.region every frame. `clip` takes the grid and the clip from the sheet entry of the texture in
@@ -171,7 +179,8 @@ struct SpriteAnimator {
     std::int32_t firstFrame = 0;      // inclusive, row-major index into the grid
     std::int32_t lastFrame = 0;       // inclusive
     float fps = 10.0f;
-    bool loop = true;
+    bool loop = true;                 // alias kept for old scenes: false = once; true (default) = no opinion (see loopMode)
+    SpriteLoopMode loopMode = SpriteLoopMode::Inherit;  // inherit: the clip's own loop flag (or `loop`); loop; once
     bool playing = true;
     float time = 0.0f;                // runtime: elapsed time in the current clip (seconds)
     std::int32_t frame = 0;           // runtime: current frame index
@@ -216,7 +225,14 @@ struct IK2D {
     IKBend bend = IKBend::Positive;   // twoBone: which way the middle joint bends
     float weight = 1.0f;              // 0 = keep the animated pose, 1 = the solved pose; in between blends the angles
     IKSolver solver = IKSolver::TwoBone;
+    std::int32_t groundMask = 0;      // physics layers the foot ray hits (bitmask); 0 = ground snapping off (the target is reached as it is)
+    float groundReach = 24.0f;        // the ray looks this far above and below the target (world units)
+    float groundOffset = 0.0f;        // distance from the hit point up to where the tip rests (world units)
+    float groundRest = 0.0f;          // height of the target over the character root's origin when the foot is planted on flat ground
     bool warned = false;              // runtime, not reflected: a problem was already logged for this component
+    bool groundHit = false;           // runtime, not reflected: a ground ray has hit something at least once
+    bool warnedGround = false;        // runtime, not reflected: the "ray never hits" warning was logged
+    std::int32_t groundMisses = 0;    // runtime, not reflected: ground rays that hit nothing, counted until the first hit
 };
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
@@ -858,6 +874,7 @@ struct MeshRenderer {
     float metallic = 0.0f;
     float roughness = 0.6f;
     Color emissive{0, 0, 0, 1};
+    float emissiveStrength = 1.0f;    // HDR multiplier of the emissive light (glTF KHR_materials_emissive_strength): above 1 passes white and feeds bloom
     bool unlit = false;               // ignore lighting
     bool castShadows = true;
     bool receiveShadows = true;
@@ -1144,6 +1161,9 @@ struct NavLink3D {
 };
 
 // ---------------------------------------------------------------- audio ---
+// How a spatial sound gets quieter with distance (AudioSource.rolloff, audio.play's rolloff): see audio_spatial_gain in fa/audio/audio.h.
+enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential };
+
 struct AudioSource {
     std::string clip;                 // asset path (.wav, .ogg, .mp3)
     std::int32_t variants = 0;        // 0 or 1: play `clip`; 2..64: each play picks one of clip_01 ... clip_NN (sfx.bake of a patch with `variations`)
@@ -1154,6 +1174,9 @@ struct AudioSource {
     bool playing = false;             // runtime: true while a voice is playing; set true to play, false to stop
     bool spatial = false;             // pan/attenuate relative to the AudioListener
     float range = 800.0f;             // spatial: distance where volume reaches 0 (world units)
+    AudioRolloff rolloff = AudioRolloff::Linear;  // spatial: the fall-off curve between refDistance and range
+    float refDistance = 0.0f;         // spatial: distance up to which the sound is at full volume (0: linear starts at 0, the others use range / 20)
+    float rolloffFactor = 1.0f;       // spatial: steepness of the curve (linear: 1 reaches 0 at range; inverse and exponential: higher = faster)
     std::int32_t priority = 128;      // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 

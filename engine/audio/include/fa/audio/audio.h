@@ -115,6 +115,14 @@ using AudioSnapshots = std::map<std::string, AudioSnapshot>;
 
 struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
 
+// The volume factor (0..1) of a spatial sound `distance` away from the listener, the one model of AudioSource (spatial) and
+// Audio::play_at. `reach` is the range already stretched by the listener's zoom; `refDistance` and `factor` are in the same
+// units (refDistance 0 = the default: 0 for linear, reach / 20 for the others). Beyond `reach` it is 0 for every curve.
+//   linear:      1 - factor * (d - r) / (reach - r)            (d >= r; 1 below)
+//   inverse:     r / (r + factor * (d - r))
+//   exponential: (d / r) ^ -factor
+float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f, float factor = 1.0f);
+
 class Audio {
 public:
     Audio();
@@ -140,6 +148,16 @@ public:
     bool clip_loaded(std::string_view clipPath) const;
     // Starts a clip; 0 when it cannot be loaded, or when every voice is taken by sounds that win over it (PlayParams::priority).
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
+    // A one-shot heard from a place, without an entity: params.volume and params.pan are replaced by what an AudioSource with
+    // `spatial` computes for `position` and `range` (volume falls linearly to 0 at `range` times the listener's zoom, pan by the
+    // side of the AudioListener, else the primary camera). The curve is `rolloff` (audio_spatial_gain, the same as an AudioSource's).
+    // It does not follow anything after it starts. Without a listener it plays as play() does; beyond the range it returns 0
+    // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
+    // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
+    // Game thread only: it reads the World.
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f,
+                    AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f, float rolloffFactor = 1.0f,
+                    bool* outOfRange = nullptr);
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
     // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when
@@ -243,21 +261,32 @@ public:
     // Fades the music out over `fadeSeconds` (negative: 0.3) once the boundary of `quantize` comes.
     void music_stop(World& world, Entity e, MusicQuantize quantize = MusicQuantize::None, float fadeSeconds = -1.0f);
     // Sets the intensity; it reaches the layers on the boundary of `quantize` (empty: the component's layerQuantize).
-    void music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
+    // Returns where the layers start to follow it (MusicChange: the frame is empty before the song plays).
+    MusicChange music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
     // Jumps to a section on the boundary (empty: the component's quantize) with a crossfade of `fadeSeconds` (negative: transitionFade).
-    // Before the song is loaded it only sets where the song will start.
-    Result<void> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
-                                     float fadeSeconds = -1.0f);
+    // Before the song is loaded it only sets where the song will start. Returns the frame the jump lands on.
+    Result<MusicChange> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
+                                            float fadeSeconds = -1.0f);
     Result<void> music_play_stinger(World& world, Entity e, const MusicStingerSpec& stinger);
     // Crosses over to another song on the boundary (empty: the component's quantize) over `bars` bars of the outgoing song
-    // (negative: crossfadeBars). It starts at `section` ("" = the beginning). Without music playing the song just starts.
-    Result<void> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
-                                    std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
+    // (negative: crossfadeBars). It starts at `section` ("" = the beginning of the song, never the component's startSection).
+    // Without music playing the song just starts. Returns the frame the crossfade starts on (empty while the song loads).
+    Result<MusicChange> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
+                                           std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
     // The state of the player of `e` (exists = false when it has none). With a device it is the mixer's state after its last
     // block: a change sent in this frame shows from the next one.
     MusicStatus music_status(World& world, Entity e) const;
     // Every player: [{entity, ...status}], the ones playing out after a scene change included.
     Json music_players() const;
+    // Bytes of music in memory now: the 16-bit PCM of every stem that is decoded whole (2 bytes per sample, stereo at 44.1 kHz =
+    // 176400 bytes per second per stem) plus, for a stem that streams from its ogg, its window of decoded chunks, its scratch
+    // buffers and its encoded file. Counts the cache, the sources a player still plays after the cache let go of them (a song
+    // that changed on disk) and the loads that finished but are not cached yet; a load still decoding is not counted. Cheap; the
+    // same number as stats()["musicBytes"].
+    std::size_t music_bytes() const;
+    // The cached songs as [{song, mode, bytes, streamed, underruns, stems: [{name, bytes, streamed}]}], what music_bytes() adds
+    // up. Eviction and unloading remove a song from it.
+    Json music_cache_json() const;
     // Frames the mixer has mixed (the musical clock; the null device counts exactly the time update() was given).
     std::uint64_t mixed_frames() const;
 
@@ -284,14 +313,18 @@ public:
     bool stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut = nullptr,
                         int* rateOut = nullptr);
 
-    // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
-    // of the voices that stream) and streamedClips (the loaded clips that stream), busEffects (the bus_state of every bus,
-    // master included) and snapshot (the last one applied, "" = none). The real-time path: underruns / underrunFrames
-    // (a streamed voice found nothing decoded and played that many frames of silence), commandsDropped / settingsDropped
-    // (a stalled device: the oldest plays and voice settings, then bus and music settings, dropped from the full queue; a
-    // dropped setting is sent again from the game's copy once the queue has emptied), commandsCoalesced (repeated pauses,
-    // effect resets, stops of everything and music retunes merged while a stalled device has a long queue) and
-    // voicesStolen / voicesRejected (voice stealing with every voice taken).
+    // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers of the
+    // voices that stream, plus musicBytes), musicBytes (the music in memory: the cache's decoded stems and the windows of the
+    // streamed ones, plus a source a player still plays after the cache let go of it and a load that finished but is not in the
+    // cache yet; part of decodedBytes), streamedSongs (the cached songs with a stem that streams) and streamedClips (the loaded
+    // clips that stream), busEffects (the bus_state of every bus, master included) and snapshot (the last one applied, "" = none).
+    // The real-time path: underruns / underrunFrames (a streamed voice found nothing decoded and played that many frames of
+    // silence), commandsDropped / settingsDropped (a stalled device: the oldest plays and voice settings, then bus and music
+    // settings, dropped from the full queue; a dropped setting is sent again from the game's copy once the queue has emptied),
+    // commandsCoalesced (repeated pauses, effect resets, stops of everything and music retunes merged while a stalled device has
+    // a long queue) and voicesStolen / voicesRejected (voice stealing with every voice taken). musicUnderruns /
+    // musicUnderrunFrames count the same for the streamed stems of the music, whether their song is still cached or not (they are
+    // part of `underruns`).
     Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)

@@ -195,7 +195,16 @@ struct Baked {
 
 // Renders `loaded` and writes `outRel` (.wav, or .ogg through the engine's Vorbis encoder) with provenance and the recipe in
 // assets.json. `recipeArgs` are the arguments that make the same file again.
-Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const std::string& outRel, const RenderArgs& args, const Json& recipeArgs, bool overwrite) {
+// The shared normalization gain of a patch's variants, found once per call: the key is the patch and the recipe arguments without
+// the variant and the output name (everything else changes the gain).
+using SharedGains = std::map<std::string, double>;
+
+Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const std::string& outRel, const RenderArgs& argsIn, const Json& recipeArgs, bool overwrite,
+                 SharedGains* gains = nullptr) {
+    if (!recipeArgs.is_object())
+        fail("invalid_argument", "The recipe of '" + outRel + "' in " + std::string(assets::kManifestFile) + " has `args` that is not an object (provenance.recipe.args).",
+             "Edit provenance.recipe.args to an object such as {\"path\": \"" + loaded.rel + "\"}, or delete the recipe and run sfx.render again.");
+    RenderArgs args = argsIn;
     const std::string ext = to_lower(fs::extension(outRel));
     if (ext != ".wav" && ext != ".ogg")
         fail("invalid_argument", "`out` '" + outRel + "' must end in .wav or .ogg.", "Example: \"out\": \"" + default_out(loaded.rel) + "\".");
@@ -209,6 +218,19 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
     require_usable_manifest(projectDir);
 
     const SfxPatch patch = effective_patch(loaded, args, kRender);
+    if (gains && args.options.variant >= 0 && (args.options.normalize ? args.options.normalize->shared : patch.normalize.shared)) {
+        Json keyArgs = recipeArgs;
+        keyArgs.erase("variant");
+        keyArgs.erase("out");
+        const std::string key = loaded.rel + "|" + keyArgs.dump();
+        auto it = gains->find(key);
+        if (it == gains->end()) {
+            auto g = sfx_shared_gain_db(patch, args.options);
+            if (!g.ok()) fail("failed", loaded.rel + ": " + g.error().message, g.error().hint);
+            it = gains->emplace(key, *g).first;
+        }
+        args.options.sharedGainDb = it->second;
+    }
     auto audio = render_sfx(patch, args.options);
     if (!audio.ok()) fail("failed", loaded.rel + ": " + audio.error().message, audio.error().hint);
     std::vector<std::uint8_t> bytes = sfx_wav_bytes(*audio);
@@ -316,13 +338,14 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
         Json items = Json::array();
         std::vector<audio_mix::SheetRow> rows;
         std::vector<double> lufs;
+        SharedGains gains;
         for (int n = 1; n <= count; ++n) {
             RenderArgs va = args;
             va.variant = n;
             va.options.variant = n - 1;
             const std::string out = out_for(loaded, va);
             Json ra = recipe_args(a, {{"path", rel}, {"out", out}, {"variants", Json()}, {"variant", n}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}});
-            const Baked b = bake_patch(projectDir, loaded, out, va, ra, overwrite);
+            const Baked b = bake_patch(projectDir, loaded, out, va, ra, overwrite, &gains);
             items.push_back(Json::object({{"variant", n}, {"path", b.out}, {"bytes", b.bytes}, {"measurements", measurements_json(b.audio)}}));
             rows.push_back(sheet_row(file_stem(b.out), b.audio));
             lufs.push_back(b.audio.lufs);
@@ -348,7 +371,7 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
     steps.push_back("Play it: audio.play(\"" + baked.out + "\") in a script, or an AudioSource \"clip\". Same patch, same seed, same bytes.");
     if (loaded.patch.variations.count > 0 && args.variant == 0)
         steps.push_back(rel + " declares " + std::to_string(loaded.patch.variations.count) + " variations: {\"variants\": true} renders them all and shows one row per variant; sfx.bake writes them with the sound.");
-    steps.push_back("After editing the patch, sfx.bake renders every patch whose sound is missing or out of date.");
+    steps.push_back("After editing the patch, sfx.bake {\"path\":\"" + rel + "\"} renders just it (without `path` it renders every patch whose sound is missing or out of date).");
     result["nextSteps"] = steps;
     return result;
 }
@@ -356,12 +379,35 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
 // ---- sfx.bake ----
 
 Json sfx_bake_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("sfx.bake", a, "", {"force", "dryRun", "macros"});
+    check_arg_keys("sfx.bake", a, "", {"force", "dryRun", "macros", "path"});
     const bool force = tooling_detail::arg_bool(a, "force", false), dryRun = tooling_detail::arg_bool(a, "dryRun", false);
     // `macros` here are for the render of every patch that is baked in this call; they are kept in the recipe.
     if (a.contains("macros")) render_args("sfx.bake", Json::object({{"macros", a["macros"]}}));
     Json baked = Json::array(), unchanged = Json::array(), skipped = Json::array(), failed = Json::array();
-    const std::vector<std::string> patches = list_patches(projectDir);
+    std::vector<std::string> patches = list_patches(projectDir);
+    if (a.contains("path") && !a["path"].is_null()) {
+        // Only these patches (one path or a list); a path that is not a patch of the project is an error, nothing is rendered.
+        std::vector<std::string> wanted;
+        if (a["path"].is_string()) wanted.push_back(a["path"].get<std::string>());
+        else if (a["path"].is_array())
+            for (std::size_t i = 0; i < a["path"].size(); ++i) {
+                if (!a["path"][i].is_string()) fail("invalid_argument", "sfx.bake: `path`[" + std::to_string(i) + "] must be a string.", "Pass \"path\": \"assets/audio/jump.sfx.json\" or a list of such paths.");
+                wanted.push_back(a["path"][i].get<std::string>());
+            }
+        else fail("invalid_argument", "sfx.bake: `path` must be a string or a list of strings.", "Pass \"path\": \"assets/audio/jump.sfx.json\" or a list of such paths.");
+        if (wanted.empty()) fail("invalid_argument", "sfx.bake: `path` is an empty list.", "List the patches to bake, or leave `path` out to bake every stale patch.");
+        std::vector<std::string> chosen;
+        for (const std::string& w : wanted) {
+            const std::string rel = patch_path(w);
+            auto it = std::find_if(patches.begin(), patches.end(), [&](const std::string& p) { return to_lower(p) == to_lower(rel); });
+            if (it == patches.end())
+                fail("not_found", "sfx.bake: '" + rel + "' is not a sound patch of the project.", did_you_mean(rel, patches) + " sfx.preset writes a new patch.");
+            if (std::find(chosen.begin(), chosen.end(), *it) == chosen.end()) chosen.push_back(*it);
+        }
+        std::sort(chosen.begin(), chosen.end());
+        patches = std::move(chosen);
+    }
+    SharedGains gains;
     std::string manifestText = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile).value_or(std::string());
     Json entries = Json::object();
     if (!manifestText.empty())
@@ -413,7 +459,7 @@ Json sfx_bake_command(const std::string& projectDir, const Json& a) {
                 if (a.contains("macros")) recipeArgs["macros"] = a["macros"];
                 const RenderArgs args = render_args(kRender, recipeArgs);
                 const std::string target = ours ? recipeArgs.value("out", out) : out;
-                const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true);
+                const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true, &gains);
                 Json item = Json::object({{"patch", rel}, {"out", b.out}, {"reason", reason}, {"measurements", measurements_json(b.audio)}});
                 if (variant > 0) item["variant"] = variant;
                 baked.push_back(item);
@@ -968,10 +1014,12 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
             "recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, "
             "and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). "
             "A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). "
+            "`path` (one patch or a list) bakes only those patches, with the same rules (stale or missing only, `force` renders them anyway). "
             "No pictures are returned; use sfx.render for one patch. Example: {\"dryRun\":true} lists what would be rendered.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"additionalProperties", false},
                                          {"properties", obj({{"force", boolean("Render every patch again, even when its sound is up to date.", false)},
+                                                             {"path", Json::object({{"oneOf", Json::array({Json::object({{"type", "string"}}), Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}})})}, {"description", "Bake only this patch (assets/audio/jump.sfx.json) or this list of patches, not every patch of the project."}})},
                                                              {"macros", Json::object({{"type", "object"}, {"additionalProperties", number("Knob position.", -1, 1)}, {"description", "Macro values for every sound rendered by this call, e.g. {\"weight\": 0.4}. Forces the render and is kept in the recipes."}})},
                                                              {"dryRun", boolean("List what would be rendered and why, and write nothing.", false)}})}});
         registry.add(info, [projectDir](const Json& args) { return sfx_bake_command(projectDir, args.is_null() ? Json::object() : args); });

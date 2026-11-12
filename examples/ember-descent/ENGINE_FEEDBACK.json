@@ -48,7 +48,11 @@
       "suggestion": "Say it in docs/AI_GUIDE.md section 9.8 next to allConnected (done in the same change as this example) and let the refused-level error name the sample shape as a cause when cut-off areas are the reason for more than half of the attempts.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e10a8c7d",
+      "notes": [
+        "Fixed in e10a8c7d: when cut-off areas refused more than half of the attempts, the generation_failed error says the sample's shape is the cause (rooms joined by one-cell passages, closed pockets) and the hint says how to fix the sample."
+      ]
     },
     {
       "id": "FB-0003",

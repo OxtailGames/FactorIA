@@ -206,6 +206,7 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
             if (previousProv.contains("source") && previousProv["source"].is_string()) prov["source"] = previousProv["source"];
             if (previousProv.contains("notes") && previousProv["notes"].is_string()) prov["notes"] = previousProv["notes"];
         }
+        if (previousProv.is_object() && previousProv.contains("role") && previousProv["role"].is_string()) prov["role"] = previousProv["role"];  // style.set_role / assets.set_provenance
         result.provenance = prov;
         ProjectRootGuard root(projectDir);
         const Json previousRecipe = previousProv.is_object() ? previousProv.value("recipe", Json()) : Json();

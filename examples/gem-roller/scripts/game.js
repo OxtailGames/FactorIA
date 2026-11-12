@@ -1,6 +1,7 @@
 // @ts-check
 // Game manager: countdown timer, gem counter, HUD, win / lose screens, restart.
-import { Behaviour, input, audio, scene, fa, game } from "factoria";
+import { Behaviour, input, audio, scene, game } from "factoria";
+import { scatterGems } from "./scatter_gems.js";
 
 export default class Game extends Behaviour {
   timeLimit = 90;
@@ -13,7 +14,7 @@ export default class Game extends Behaviour {
     this.gems = 0;
     this.status = "playing"; // "playing" | "won" | "lost"
     if (this.gemCount > 0) {
-      const r = fa.call("project.scatter_gems", { count: this.gemCount, seed: this.seed, clear: true });
+      const r = scatterGems({ count: this.gemCount, seed: this.seed, clear: true });
       this.total = r.placed;
     } else {
       this.total = this.world.findByTag("gem").length;

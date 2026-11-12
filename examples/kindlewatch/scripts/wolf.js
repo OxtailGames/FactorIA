@@ -4,8 +4,11 @@
 // A rigged model with an Animator (idle, trot, gallop, bite, hit) moved by a CharacterController3D.
 //
 // Other scripts use: hurt(damage, [dx, dz]), flee(), dead, hp, kind. Events sent: wolf_down {kind}, wolf_roar {kind}.
-import { Behaviour, physics, world, rng, camera } from "factoria";
-import { yawOf, turnToward, flatDistance, behaviourOf, playAt } from "./common.js";
+import { Behaviour, physics, world, rng, camera, audio } from "factoria";
+import { yawOf, turnToward, flatDistance, behaviourOf } from "./common.js";
+
+/** How far from the camera (the listener: it sits at (0, 15, 10), about 18 units from the clearing's centre) a wolf sound is heard, in world units. */
+const EARS = 48;
 
 export default class Wolf extends Behaviour {
   /** "wolf" or "alpha". */
@@ -54,7 +57,7 @@ export default class Wolf extends Behaviour {
     this.anim = this.entity.animator;
     this.unsub = world.on("wolf_bite_hit", (_d, source) => source?.id === this.entity.id && this.biteLands());
     this.entity.get("Transform").rotation = [0, this.yaw, 0];
-    playAt("assets/audio/wolf_growl.wav", this.entity, { variants: 3, volume: this.kind === "alpha" ? 1 : 0.7 });
+    audio.play("assets/audio/wolf_growl.wav", { position: this.entity.position, range: EARS, bus: "sfx", variants: 3, volume: this.kind === "alpha" ? 1 : 0.7 });
   }
 
   onDestroy() {
@@ -170,14 +173,14 @@ export default class Wolf extends Behaviour {
     const wb = warden?.behaviour;
     if (wb && flatDistance(warden, p) <= this.reach + 0.7 && !wb.locked) {
       if (wb.hurt([p.x, p.z], this.damage)) {
-        playAt("assets/audio/wolf_bite.wav", p, { variants: 3, volume: 0.9 });
+        audio.play("assets/audio/wolf_bite.wav", { position: p, range: EARS, bus: "sfx", variants: 3, volume: 0.9 });
         return;
       }
     }
     const fire = behaviourOf("campfire");
     if (fire && Math.hypot(p.x, p.z) <= this.fireReach + 0.8) {
       fire.bite(this.fireBite);
-      playAt("assets/audio/wolf_bite.wav", p, { variants: 3, volume: 0.7 });
+      audio.play("assets/audio/wolf_bite.wav", { position: p, range: EARS, bus: "sfx", variants: 3, volume: 0.7 });
     }
   }
 
@@ -185,7 +188,7 @@ export default class Wolf extends Behaviour {
   hurt(damage, from) {
     if (this.dead) return;
     this.hp -= damage;
-    playAt("assets/audio/wolf_hit.wav", this.entity, { variants: 4, volume: 0.9 });
+    audio.play("assets/audio/wolf_hit.wav", { position: this.entity.position, range: EARS, bus: "sfx", variants: 4, volume: 0.9 });
     world.spawnPrefab("prefabs/puff.prefab.json", { position: [this.entity.position.x, 0.9, this.entity.position.z] });
     const d = Math.hypot(from[0], from[1]) || 1;
     this.vx = (from[0] / d) * this.knock;
@@ -202,7 +205,7 @@ export default class Wolf extends Behaviour {
     this.enraged = true;
     this.speed *= 1.3;
     this.biteCooldown *= 0.75;
-    playAt("assets/audio/alpha_howl.wav", this.entity, { volume: 1, range: 60 });
+    audio.play("assets/audio/alpha_howl.wav", { position: this.entity.position, bus: "sfx", volume: 1, range: 90 });
     world.emit("wolf_roar", { kind: this.kind });
     camera.shake(0.7, { duration: 0.5 }); // the engine's shake: trauma squared, smooth, off with reduce motion
     behaviourOf("game")?.callWolves(2);

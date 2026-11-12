@@ -794,7 +794,7 @@
       },
       {
        "sig": "findByTag(tag: string): Entity[]",
-       "doc": ""
+       "doc": "Every alive entity that has this tag, in creation order, without the ones destroyed this frame."
       },
       {
        "sig": "entities(): Entity[]",
@@ -1218,6 +1218,26 @@
       {
        "sig": "priority?: number",
        "doc": "Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255."
+      },
+      {
+       "sig": "position?: number[] | { x: number, y: number, z?: number }",
+       "doc": "Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play(\"assets/sfx/bite.wav\", { position: [4, 0, -2], range: 30 })."
+      },
+      {
+       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\"",
+       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
+      },
+      {
+       "sig": "refDistance?: number",
+       "doc": "With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position."
+      },
+      {
+       "sig": "rolloffFactor?: number",
+       "doc": "With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position."
+      },
+      {
+       "sig": "range?: number",
+       "doc": "With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0."
       },
       {
        "sig": "caption?: string",
@@ -4670,6 +4690,10 @@
        "doc": "Order of the frames."
       },
       {
+       "sig": "loopMode: \"inherit\" | \"loop\" | \"once\"",
+       "doc": "What happens at the last frame: inherit = the clip's own loop flag (or SpriteAnimator.loop), loop = start again, once = stop on the last frame and fire clipEnded."
+      },
+      {
        "sig": "readonly frame: number",
        "doc": "Index in the sheet's grid (row-major from the top-left) of the frame shown."
       },
@@ -4798,6 +4822,25 @@
      ]
     },
     {
+     "kind": "interface",
+     "name": "MusicChange",
+     "doc": "What music.setIntensity, goToSection and crossfadeTo return: where the change lands. The frame is worked out from the mixer's latest state, so it is exact on the null device (headless runs, tests) and a block or two off with a sound device that has not caught up; the \"section\" or \"crossfade\" event carries the real one.",
+     "members": [
+      {
+       "sig": "frame: number | null",
+       "doc": "The audio frame the change lands on (the same count as `frame` in the music events and audio.music_state's mixedFrames); null when it cannot be placed yet (nothing plays, or the song is still loading)."
+      },
+      {
+       "sig": "time: number | null",
+       "doc": "That frame in seconds of the audio clock; null with the frame."
+      },
+      {
+       "sig": "quantize: \"none\" | \"beat\" | \"bar\" | \"section\"",
+       "doc": "The boundary used: the one given or the player's own default."
+      }
+     ]
+    },
+    {
      "kind": "class",
      "name": "MusicAPI",
      "doc": "Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on(\"bar\", () => ...); m.setIntensity(0.8); m.goToSection(\"battle\", {quantize: \"bar\"})`.",
@@ -4811,28 +4854,28 @@
        "doc": "Fades the music out over `fade` seconds (default 0.3) once the `quantize` boundary comes (default none: now). The component's `playing` is false at once. Fires \"ended\" with stopped true."
       },
       {
-       "sig": "setIntensity(intensity: number, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\" }): void",
-       "doc": "Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade."
+       "sig": "setIntensity(intensity: number, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\" }): MusicChange",
+       "doc": "Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade. `entity.music.intensity` is the new value at once; `appliedIntensity` (and `status.intensity`) is the one the layers follow, which changes at that boundary. Returns where the layers start to follow it: {frame, time, quantize} (frame and time are null before the song plays)."
       },
       {
-       "sig": "goToSection(section: string, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; fade?: number }): void",
-       "doc": "Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start."
+       "sig": "goToSection(section: string, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; fade?: number }): MusicChange",
+       "doc": "Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the audible song does not have, listing the ones it has. Before the song is loaded it only sets where it will start. Returns {frame, time, quantize}: the audio frame the jump lands on, the `frame` of the \"section\" event it fires (null when nothing plays yet); `pendingSection` and `pendingAt` show it until then."
       },
       {
        "sig": "playStinger(options: string | { clip?: string; section?: string; quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void",
        "doc": "Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires \"stinger\"."
       },
       {
-       "sig": "crossfadeTo(song: string, options?: { section?: string; quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; bars?: number }): void",
-       "doc": "Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires \"crossfade\". Throws for a song that does not exist or is not a song."
+       "sig": "crossfadeTo(song: string, options?: { section?: string; quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; bars?: number }): MusicChange",
+       "doc": "Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default the beginning of that song, never the component's startSection). Each song keeps its own tempo. Without music playing the song just starts. Fires \"crossfade\". Throws for a song that does not exist or is not a song. The component's `song` field is the new song at once while the old one stays audible until the boundary: `status.song` is the audible one and `pendingSong` the queued one. Returns {frame, time, quantize}: the audio frame the crossfade starts on (null while the song loads or when nothing plays). A scene loaded before that frame drops the change."
       },
       {
        "sig": "on(event: \"ready\" | \"beat\" | \"bar\" | \"section\" | \"loop\" | \"ended\" | \"stinger\" | \"crossfade\", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void",
        "doc": "Listens to an event of THIS entity's player; returns the unsubscribe function. world.on(\"music.beat\", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind (\"clip\" or \"section\") and section."
       },
       {
-       "sig": "readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string }",
-       "doc": "A snapshot of the player (what audio.music_state shows). `mode` is \"live\" or \"stems\" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start."
+       "sig": "readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; appliedIntensity: number; requestedIntensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; pendingSong: string | null; pendingSection: string | null; pendingAt: number | null; heads: number; error: string }",
+       "doc": "A snapshot of the player (what audio.music_state shows). `song` and `section` are what is audible now. `mode` is \"live\" or \"stems\" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `pendingSong`, `pendingSection` and `pendingAt` (an audio frame, as `frame` in the events) say where the next queued section change or crossfade lands, null when none waits (a song asked for but not scheduled yet has no `pendingAt`). `intensity` = `appliedIntensity` is what the layers follow (it changes on the layerQuantize boundary), `requestedIntensity` the last value set. `error` why it could not start."
       },
       {
        "sig": "readonly ready: boolean",
@@ -4844,7 +4887,7 @@
       },
       {
        "sig": "readonly song: string",
-       "doc": "The song that plays (or is loading)."
+       "doc": "The song that is audible now (status.song), or the one asked for while nothing plays. After crossfadeTo it is still the old song until the crossfade starts: pendingSong is the new one (the component's `song` field is already the new one)."
       },
       {
        "sig": "readonly section: string",
@@ -4864,7 +4907,27 @@
       },
       {
        "sig": "readonly intensity: number",
-       "doc": "MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains)."
+       "doc": "MusicPlayer.intensity: the value last set (= requestedIntensity), not what the layers follow (appliedIntensity) nor their fades (status.stemGains)."
+      },
+      {
+       "sig": "readonly requestedIntensity: number",
+       "doc": "The intensity last set (MusicPlayer.intensity): the layers follow it from the layerQuantize boundary on."
+      },
+      {
+       "sig": "readonly appliedIntensity: number",
+       "doc": "The intensity the layers follow now (status.intensity); it changes on the layerQuantize boundary after a setIntensity, so it differs from `intensity` until then."
+      },
+      {
+       "sig": "readonly pendingSong: string | null",
+       "doc": "The song the next queued section change or crossfade lands in (status.pendingSong); null when none waits. `song` stays the audible one until then."
+      },
+      {
+       "sig": "readonly pendingSection: string | null",
+       "doc": "The section that queued change lands in (status.pendingSection); null when none waits."
+      },
+      {
+       "sig": "readonly pendingAt: number | null",
+       "doc": "The audio frame that queued change lands on (the `frame` of the \"section\" or \"crossfade\" event it fires); null when none waits or it is not scheduled yet."
       },
       {
        "sig": "readonly sections: string[]",
@@ -5886,7 +5949,15 @@
       },
       {
        "sig": "find(idOrName: string): Entity | null",
-       "doc": ""
+       "doc": "Same as world.find: by stable id first, then by name; null when nothing matches. Skips an entity destroyed this frame."
+      },
+      {
+       "sig": "findAll(name: string): Entity[]",
+       "doc": "Same as world.findAll: every entity with this name, in creation order, without the ones destroyed this frame."
+      },
+      {
+       "sig": "findByTag(tag: string): Entity[]",
+       "doc": "Same as world.findByTag: every entity with this tag, without the ones destroyed this frame. Saves importing world in a test: game.findByTag(\"wolf\").length."
       },
       {
        "sig": "readonly world: WorldAPI",

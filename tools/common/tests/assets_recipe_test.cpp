@@ -218,6 +218,35 @@ TEST_CASE("assets.regenerate: what a person recorded in the provenance survives,
     CHECK(entry["sheet"]["columns"] == 2);
 }
 
+TEST_CASE("assets.regenerate keeps the style role of the provenance") {
+    AssetsProject p;
+    p.ok("assets.rasterize_svg", {{"path", "assets/art/coin.png"}, {"svg", kSvg}, {"width", 64}});
+    set_provenance(p, "assets/art/coin.png", {{"origin", "original"}, {"role", "effect"}});
+    p.ok("assets.regenerate", {{"path", "assets/art/coin.png"}});
+    const Json prov = p.manifest()["assets"]["assets/art/coin.png"]["provenance"];
+    CHECK(prov["role"] == "effect");
+    CHECK(prov.contains("recipe"));
+}
+
+TEST_CASE("assets.draw_icon and assets.generate_texture draw over a file again and keep the style role of its provenance") {
+    AssetsProject p;
+    const Json icon = Json::parse(R"({"background":{"color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})");
+    p.ok("assets.draw_icon", icon);
+    set_provenance(p, "assets/icon.png", {{"origin", "original"}, {"role", "icon"}});
+    p.ok("assets.draw_icon", icon);
+    CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"]["role"] == "icon");
+    CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"].contains("recipe"));
+
+    const Json tex = {{"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 32}, {"height", 32}, {"normalMap", true}};
+    p.ok("assets.generate_texture", tex);
+    set_provenance(p, "assets/tex/paper.png", {{"origin", "original"}, {"role", "effect"}});
+    Json again = tex;
+    again["overwrite"] = true;
+    p.ok("assets.generate_texture", again);
+    CHECK(p.manifest()["assets"]["assets/tex/paper.png"]["provenance"]["role"] == "effect");
+    CHECK_FALSE(p.manifest()["assets"]["assets/tex/paper_n.png"]["provenance"].contains("role"));  // the normal map had none
+}
+
 TEST_CASE("assets.regenerate: errors say what to do") {
     AssetsProject p;
     write_all(p.file("assets/art/coin.svg"), kSvg);
@@ -264,6 +293,20 @@ TEST_CASE("assets.regenerate: only asset makers run, whatever a hand-edited reci
     r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["hint"].get<std::string>().find("assets.rasterize_svg") != std::string::npos);
+    // the rule: a writing assets.* maker, anim3d.generate and anim3d.retarget; the hand edits of the anim family are not recipes
+    for (const char* edit : {"anim3d.set_keys", "anim3d.restore", "anim3d.create", "ik3d.key", "anim3d.info"}) {
+        m["assets"]["assets/art/coin.png"]["provenance"]["recipe"]["command"] = edit;
+        write_all(p.file("assets.json"), m.dump(2));
+        r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK_MESSAGE(r.error["code"] == "unknown_command", edit);
+    }
+    // the did-you-mean covers the anim3d makers too
+    m["assets"]["assets/art/coin.png"]["provenance"]["recipe"]["command"] = "anim3d.generat";
+    write_all(p.file("assets.json"), m.dump(2));
+    r = p.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["hint"].get<std::string>().find("anim3d.generate") != std::string::npos);
 }
 
 TEST_CASE("recipes: project.validate warns about stale assets and missing inputs, with the regenerate command") {

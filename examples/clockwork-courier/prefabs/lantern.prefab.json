@@ -34,7 +34,8 @@
             "color": [1, 0.8, 0.4, 1],
             "roughness": 0.8,
             "castShadows": false,
-            "emissive": [1, 0.8, 0.3, 1]
+            "emissive": [1, 0.667, 0.25, 1],
+            "emissiveStrength": 1.2
           }
         }
       },

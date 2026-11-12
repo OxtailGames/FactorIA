@@ -373,6 +373,7 @@ public:
     std::atomic<std::uint64_t> underrunEvents{0};  // a streamed voice found nothing decoded (once per voice and block)
     std::atomic<std::uint64_t> underrunFrames{0};  // the frames of silence those played
     std::atomic<std::uint32_t> peakBits{0};        // the last block's peak (a float's bits)
+    std::atomic<std::uint64_t> musicSeq{0};        // publish_music() calls so far: the clock the streamed stems' heads are stamped with
     std::atomic<std::uint64_t> callbacks{0};       // device callbacks so far
     std::atomic<int> firstCallbackFrames{0}, firstCallbackChannels{0};
 

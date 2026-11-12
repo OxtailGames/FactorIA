@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "fa/audio/music_player.h"
@@ -40,9 +41,23 @@ constexpr std::size_t kMusicMaxHeads = 8;
 constexpr std::size_t kMusicMaxPending = 24;
 constexpr std::size_t kMusicEventCapacity = 1024;
 
+constexpr std::size_t kMusicMaxWants = 12;
+
+// Where a song is going to be read, for the decode jobs of streamed stems: a playhead, or the target of a jump or stinger that waits.
+struct MusicWant {
+    const MusicSource* src = nullptr;
+    double pos = 0.0;                 // song frames
+    double end = 0.0;                 // where the playhead wraps or ends (0 = nowhere known)
+    double wrapStart = 0.0;           // it continues from here at `end` (only when `wraps`)
+    bool wraps = false;
+};
+
 // A copy of what the game side reads of a transport, fixed size: the mixer makes one after each block it mixes (capture()) and
 // hands it over without a lock. status_of() turns it into a MusicStatus.
 struct MusicTransportState {
+    // The places the music is read next, most urgent first: the main playhead, the other heads, then the jumps and stingers that wait.
+    std::array<MusicWant, kMusicMaxWants> wants{};
+    std::size_t wantCount = 0;
     bool playing = false, ended = false, active = false;
     const MusicSource* src = nullptr;  // of the main playhead
     double pos = 0.0;                  // song frames of the main playhead
@@ -51,6 +66,15 @@ struct MusicTransportState {
     std::uint64_t mixed = 0;
     std::array<float, kMusicMaxStems> stemGains{};
     std::size_t stemCount = 0;
+    double limit = 0.0;                // where the main playhead wraps or ends (song frames; 0 = no limit)
+    double ratio = 1.0;                // song frames per output frame
+    // The earliest quantized jump that waits (a section change or a crossfade): the source and position it lands on, and the
+    // output frame. The latest intensity change that waits, if any.
+    const MusicSource* pendingSrc = nullptr;
+    double pendingPos = 0.0;
+    std::uint64_t pendingAt = 0;
+    bool hasPendingIntensity = false;
+    float pendingIntensity = 0.0f;
     std::array<const MusicSource*, kMusicMaxHeads + kMusicMaxPending> refs{};  // every source a head or a pending reads
     std::size_t refCount = 0;
 };
@@ -61,6 +85,9 @@ public:
 
     // ---- configuration (game thread)
     void set_rate_ratio(double ratio) { ratio_ = ratio > 0.0 ? ratio : 1.0; }
+    // On (the default): when mix() finds a chunk of a streamed stem not decoded it decodes it on the spot, so the output does not depend
+    // on any job (the null device, the web, offline tests). Off with a sound device: it plays silence and counts an underrun.
+    void set_sync_decode(bool on) { syncDecode_ = on; }
     double rate_ratio() const { return ratio_; }
     void set_volume(float volume, float seconds = 0.02f);
     float volume() const { return volume_; }
@@ -87,6 +114,11 @@ public:
     // A stinger that is not a section (a clip the mixer plays itself): the output-frame delay until the boundary, so the mixer can start
     // its voice on the same frame; schedules the stinger event. Returns that delay.
     std::int64_t schedule_clip_stinger(MusicQuantize q);
+    // Drops the section changes, crossfades and intensity changes that wait for their boundary (the player of the next scene adopted
+    // this transport and wants none of what the previous one asked for). A crossfade that has started is not undone.
+    void drop_pending_changes();
+    // The output frame a change with `q` requested now (when the mixer is in `state`) lands on; empty when nothing plays.
+    static std::optional<std::uint64_t> schedule_of(const MusicTransportState& state, MusicQuantize q);
     // Dips the music while a stinger plays, from the boundary on: down by `amount` (0..1) in `attack` seconds, held for `hold` seconds, back in `release`.
     void duck(MusicQuantize q, float amount, float attack, float hold, float release);
     // Crosses over to another song: from the boundary (of the song now playing), the new one starts at `section` (-1: the beginning) and
@@ -184,6 +216,7 @@ private:
     int main_ = -1;
     bool ended_ = false, loop_ = true;
     double ratio_ = 1.0;
+    bool syncDecode_ = true;
     std::uint64_t mixed_ = 0, seq_ = 0;
     float intensity_ = 0.0f;
     float volume_ = 1.0f, volCur_ = 1.0f, volStep_ = 0.0f;

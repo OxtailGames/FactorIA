@@ -116,6 +116,7 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
 void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
 void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);  // assets.check_art
+void register_style_commands(CommandRegistry& registry, const std::string& projectDir);  // style.ignore, style.set_role (style_commands.cpp)
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
 void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
 void register_review_commands(CommandRegistry& registry, const std::string& projectDir);  // review.sheet, review.pick, review.list, review.info
@@ -178,6 +179,7 @@ std::string recipe_path(const std::string& rel);
 struct RecipeCheck {
     std::vector<std::string> changed;
     std::vector<std::string> missing;
+    Json compared;  // array: every input the check read, {path, sha256} (the recorded hash, which the file still has unless it is in `changed`), and the style values it compared
     bool stale() const { return !changed.empty(); }
     bool ok() const { return changed.empty() && missing.empty(); }
 };

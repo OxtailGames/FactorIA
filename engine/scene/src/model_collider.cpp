@@ -8,6 +8,7 @@
 #include <set>
 
 #include "vhacd_deterministic.h"
+#include "fa/core/strings.h"
 #include "fa/scene/model_game_ready.h"
 #include "manifold/manifold.h"
 #include "meshoptimizer.h"
@@ -106,6 +107,36 @@ MeshData model_hull_mesh(const ModelHull& h) {
 
 Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderSpec& spec) {
     if (m.indices.empty() || m.submeshes.empty()) return make_error("the mesh has no triangles to fit a collider to", "Fit a collider to a mesh that has triangles.");
+    if (!spec.part.empty()) {
+        // the submeshes of one part (a merged submesh lists its parts joined with "+")
+        MeshData sub = m;
+        sub.submeshes.clear();
+        std::vector<std::string> names;
+        for (const MeshSubmesh& s : m.submeshes) {
+            std::size_t from = 0;
+            bool hit = false;
+            while (from <= s.part.size()) {
+                std::size_t plus = s.part.find('+', from);
+                if (plus == std::string::npos) plus = s.part.size();
+                const std::string one = s.part.substr(from, plus - from);
+                if (!one.empty() && std::find(names.begin(), names.end(), one) == names.end()) names.push_back(one);
+                hit = hit || one == spec.part;
+                from = plus + 1;
+            }
+            if (hit) sub.submeshes.push_back(s);
+        }
+        if (sub.submeshes.empty()) {
+            std::string list;
+            for (const std::string& n : names) list += (list.empty() ? "" : ", ") + n;
+            return make_error("the model has no part named '" + spec.part + "' to fit the collider to",
+                              (names.empty() ? std::string("The model has no named parts: give nodes a `part` (docs/MODELING.md).") : did_you_mean(spec.part, names) + " The parts are: " + list + "."));
+        }
+        ModelColliderSpec whole = spec;
+        whole.part.clear();
+        auto r = model_fit_collider(sub, whole);
+        if (r.ok()) r->warnings.insert(r->warnings.begin(), "fitted to the part '" + spec.part + "' only.");
+        return r;
+    }
     ModelCollider c;
     c.shape = spec.shape;
     // the points of the triangles that are drawn
@@ -136,7 +167,7 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         float r2 = 0;
         for (const Vec3& p : pts) r2 = std::max(r2, length_sq(p - mid));
         c.center = mid;
-        c.radius = std::sqrt(r2);
+        c.radius = spec.radius > 0 ? float(spec.radius) : std::sqrt(r2);
         c.volume = 4.0 / 3.0 * pi * double(c.radius) * c.radius * c.radius;
     } else if (spec.shape == "capsule") {
         // along Y, the way Collider3D's capsule stands: the radius reaches the farthest point from the axis through the middle
@@ -145,7 +176,15 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         c.center = mid;
         c.radius = std::min(std::sqrt(r2), size.y * 0.5f);
         c.height = std::max(size.y, 2 * c.radius);
-        if (std::sqrt(r2) > size.y * 0.5f + 1e-6f)
+        const bool wide = std::sqrt(r2) > size.y * 0.5f + 1e-6f && spec.radius <= 0;
+        if (spec.radius > 0) c.radius = float(spec.radius);
+        if (spec.height > 0) c.height = float(spec.height);
+        if (spec.height > 0 && c.height < 2 * c.radius)
+            c.warnings.push_back(std::format("collider.height {:.3g} is less than twice the radius ({:.3g}), so the capsule was made {:.3g} tall: a capsule is never shorter than its two caps. "
+                                             "Give a height of at least {:.3g}, or a smaller collider.radius, or use shape \"sphere\".",
+                                             double(spec.height), double(c.radius), double(2 * c.radius), double(2 * c.radius)));
+        c.height = std::max(c.height, 2 * c.radius);
+        if (wide)
             c.warnings.push_back("the model is wider than it is tall, so a capsule standing on Y clips its sides; use a box or sphere, or lay it out along Y.");
         const double r = c.radius;
         c.volume = pi * r * r * (double(c.height) - 2 * r) + 4.0 / 3.0 * pi * r * r * r;

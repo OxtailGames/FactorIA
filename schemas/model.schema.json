@@ -124,6 +124,22 @@
               "minimum": 10000.0,
               "maximum": 4000000.0,
               "description": "decomposed: voxels the volume is split into. Default 100000."
+            },
+            "part": {
+              "type": "string",
+              "description": "Fit the collider to this part of the model only (the `part` of a node, e.g. a pine's \"trunk\" so the canopy does not block). Default: the whole model."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 10000.0,
+              "description": "sphere, capsule: this radius in metres instead of the fitted one."
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 10000.0,
+              "description": "capsule: this total height in metres (caps included) instead of the fitted one."
             }
           }
         },
@@ -891,7 +907,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1054,7 +1070,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1206,7 +1222,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1363,7 +1379,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1516,7 +1532,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1649,7 +1665,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1797,7 +1813,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -1938,7 +1954,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2089,7 +2105,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2230,7 +2246,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2385,7 +2401,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2527,7 +2543,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2695,7 +2711,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2813,7 +2829,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -2970,7 +2986,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3166,7 +3182,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3329,7 +3345,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3449,7 +3465,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3588,7 +3604,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3779,7 +3795,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -3946,7 +3962,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4084,7 +4100,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4208,7 +4224,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4337,7 +4353,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4483,7 +4499,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4622,7 +4638,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4768,7 +4784,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -4911,7 +4927,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5052,7 +5068,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5169,7 +5185,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5297,7 +5313,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5451,7 +5467,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5587,7 +5603,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5726,7 +5742,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5862,7 +5878,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -5977,7 +5993,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6099,7 +6115,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6226,7 +6242,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6366,7 +6382,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6511,7 +6527,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6663,7 +6679,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6804,7 +6820,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -6945,7 +6961,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -7079,7 +7095,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -7217,7 +7233,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",
@@ -7394,7 +7410,7 @@
         },
         "part": {
           "type": "string",
-          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. A name may not contain \"+\" (rig.bake mergeParts joins names with it). Left out: the part of the group above, else none."
         },
         "material": {
           "type": "string",

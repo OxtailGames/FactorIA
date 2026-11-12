@@ -322,8 +322,8 @@ describe("adaptive score", () => {
     expect(m.state).toBe("fighting");
     hold(m);
     crowd(2);
-    game.step(40); // the layers follow on the next beat (0.45 s)
-    const few = music().status.intensity;
+    game.step(40); // the layers follow from the next beat (0.45 s)
+    const few = music().appliedIntensity;
     expect(few).toBeGreaterThan(0.3);
     expect(few).toBeLessThan(0.65); // the drums are in, the arpeggio is not
     game.step(120);
@@ -332,10 +332,10 @@ describe("adaptive score", () => {
 
     crowd(12);
     game.step(2);
-    expect(music().intensity).toBeGreaterThan(0.65); // what the script asked for, at once (status.intensity is the one the layers follow, a beat later)
+    expect(music().requestedIntensity).toBeGreaterThan(0.65); // what the script asked for, at once (appliedIntensity is the one the layers follow, from the next beat)
     game.step(38);
-    expect(music().status.intensity).toBeGreaterThan(0.65);
-    expect(music().status.intensity).toBeGreaterThan(few);
+    expect(music().appliedIntensity).toBeGreaterThan(0.65);
+    expect(music().appliedIntensity).toBeGreaterThan(few);
     game.step(120);
     expect(music().status.stemGains[2]).toBeGreaterThan(0.9); // the whole song
 
@@ -344,7 +344,7 @@ describe("adaptive score", () => {
     m.timer = 9999; // no next wave while the music is measured
     game.step(40);
     expect(m.state).toBe("intermission");
-    expect(music().status.intensity).toBeLessThan(0.1);
+    expect(music().appliedIntensity).toBeLessThan(0.1);
     game.step(150);
     expect(music().status.stemGains[1]).toBeLessThan(0.1);
     expect(music().status.stemGains[2]).toBeLessThan(0.1);
@@ -360,14 +360,22 @@ describe("adaptive score", () => {
     game.step(2);
     hold(m);
     crowd(2);
-    game.step(160); // a bar of 4/4 at 132 bpm is 1.8 s
-    expect(music().status.section).toBe("battle");
+    // The jump waits for the bar line (a bar of 4/4 at 132 bpm is 1.8 s) and the status says where it lands.
+    game.step(3);
+    expect(music().pendingSection).toBe("battle");
+    expect(typeof music().pendingAt).toBe("number");
+    expect(music().section).toBe("calm");
+    for (let i = 0; i < 200 && music().section !== "battle"; i++) game.step(1);
+    expect(music().section).toBe("battle");
+    expect(music().pendingAt).toBe(null);
     m.pending = [];
     clearEnemies();
     m.timer = 9999;
-    game.step(160);
+    game.step(3);
     expect(m.state).toBe("intermission");
-    expect(music().status.section).toBe("calm");
+    expect(music().pendingSection).toBe("calm");
+    for (let i = 0; i < 200 && music().section !== "calm"; i++) game.step(1);
+    expect(music().section).toBe("calm");
   });
 
   test("a wave and a hit are stingers over the music", () => {

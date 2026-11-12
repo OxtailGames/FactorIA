@@ -42,7 +42,7 @@ vertex carries up to four bones with normalised weights, computed from the docum
 | `rig.create {path, model, template, options?, parts?, landmarks?, strict?, output?, skin?, doc?, overwrite?, bake?}` | Writes a document, fits the template to the model, bakes the `.glb`. A `generic` rig gets one bone per part of the model. |
 | `rig.fit {path, parts?, landmarks?, options?, symmetryX?, strict?, skin?, dryRun?, bake?, overwrite?}` | Changes what the fit is told (merged key by key; null removes a key), checks the whole document, writes it, answers with the fit and bakes again. With nothing to change it only shows the fit. `dryRun` shows the fit the changes would give without writing. |
 | `rig.info {path, fit?}` | Validity with ALL issues (JSON pointer, what is wrong, fix, "did you mean"), the output, whether the `.glb` is fresh, and the fit. Read-only. |
-| `rig.bake {path?, force?, dryRun?, overwrite?}` | Bakes the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones), with provenance and a recipe in `assets.json`. |
+| `rig.bake {path?, force?, dryRun?, overwrite?, mergeParts?}` | Bakes the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones), with provenance and a recipe in `assets.json`. `mergeParts` welds the parts that share a material into one submesh (see "The `.glb`"). |
 
 The `skin3d.*` commands (below) change the document's `skin` section and look at the weights.
 
@@ -104,7 +104,7 @@ A rig has at most **64 bones**, the limit of one skin in the renderer; a templat
 ## How the fit works
 
 The model is evaluated (the model document with its `gameReady.origin` applied, so the skin sits where the model is drawn; LODs and
-the merge by material are not used: the parts are what the fit looks at), then each landmark, every head and every leaf tail,
+the merge by material are not used: the parts are what the fit looks at; `rig.bake {mergeParts}` merges them after the fit), then each landmark, every head and every leaf tail,
 comes from the first of these that applies:
 
 | Source | Where it comes from |
@@ -154,6 +154,18 @@ skeleton and the model every time the `.glb` is baked, deterministically, so the
 the model document, every file the model reads and, for a textured model, its baked picture. When any changes the `.glb` is stale:
 `rig.info` says so, `project.validate` warns, and `rig.bake` or `assets.regenerate {"stale": true}` builds it again. The same inputs
 give the same bytes on every platform (the fit uses `+ - * /` and `sqrt` and ordered iteration only).
+
+
+**Fewer draw calls: `mergeParts`.** Every part of the model is a submesh, and a skinned submesh is a draw call in each pass, so a character of
+8 parts costs 16 calls with a shadow pass. `rig.bake {"path": ..., "mergeParts": true}` joins, after the fit, the submeshes that share a
+material into one (in order of first appearance; the part names of a merged submesh are joined with `+`). Only the index list is regrouped: the
+vertices, their joints and weights and the bind pose are the same, so a posed frame looks the same. The result lists `submeshesBefore` and
+`submeshes`. The choice is kept in the recipe (`args.mergeParts`): a later `rig.bake` that leaves it out, `assets.regenerate` and `factoria
+export` repeat it; `"mergeParts": false` turns it off. Without `path`, an explicit `mergeParts` bakes only the fresh documents whose recorded
+choice differs (the others would write the same bytes); `force` bakes them all. Parts with different materials stay apart, and a model whose
+parts all differ gains nothing (the bake warns). Because `+` joins the names, a part name may not contain `+` (the model document refuses it).
+Merging inside a submesh with `blend` (alpha blending) loses the draw order the separate parts had: the triangles are drawn in the order of the
+merged index list, so keep parts that must sort against each other apart (a different material) or do not merge that model.
 
 ## Skin weights
 

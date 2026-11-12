@@ -389,6 +389,30 @@ TEST_CASE("assets.provenance and assets.set_provenance") {
     CHECK_FALSE(game.call("assets.set_provenance", {{"path", "assets/hero.png"}, {"origin", "original"}, {"date", "yesterday"}}).ok);
 }
 
+TEST_CASE("assets.set_provenance: a role is kept when left out, removed with \"\" or null, and kept when the picture is made again") {
+    Game game(fake_config());
+    game.ok("assets.generate_image", {{"prompt", "a flame"}, {"path", "assets/fx/flame.png"}, {"width", 16}, {"height", 16}});
+    const Json set = game.ok("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"role", "effect"}});
+    CHECK(set["provenance"]["role"] == "effect");
+    // left out: the role stays
+    game.ok("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"author", "Ana"}});
+    CHECK(game.provenance("assets/fx/flame.png")["role"] == "effect");
+    // generating the file again keeps what it is for
+    game.ok("assets.generate_image", {{"prompt", "a bigger flame"}, {"path", "assets/fx/flame.png"}, {"width", 16}, {"height", 16}, {"overwrite", true}});
+    const Json again = game.provenance("assets/fx/flame.png");
+    CHECK(again["role"] == "effect");
+    CHECK(again["prompt"] == "a bigger flame");
+    // "" and null take it back
+    const Json cleared = game.ok("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"role", ""}});
+    CHECK(cleared["roleRemoved"] == true);
+    CHECK_FALSE(game.provenance("assets/fx/flame.png").contains("role"));
+    game.ok("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"role", "ui"}});
+    game.ok("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"role", nullptr}});
+    CHECK_FALSE(game.provenance("assets/fx/flame.png").contains("role"));
+    // a wrong role still teaches
+    CHECK_FALSE(game.call("assets.set_provenance", {{"path", "assets/fx/flame.png"}, {"origin", "original"}, {"role", "icn"}}).ok);
+}
+
 TEST_CASE("assets.disclosure answers the store survey from the provenance records") {
     Game game(fake_config());
     game.ok("assets.generate_image", {{"prompt", "a gem"}, {"path", "assets/gem.png"}, {"width", 16}, {"height", 16}});

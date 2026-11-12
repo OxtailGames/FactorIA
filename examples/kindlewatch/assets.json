@@ -37,20 +37,301 @@
       },
       "toleranceLu": 4
     },
-    "ignore": [
-      "assets/art/sky.png",
-      "assets/art/logo.png",
-      "assets/art/pine_art.png",
-      "assets/art/flame.png",
-      "assets/art/icon_log.png",
-      "assets/art/icon_heart.png",
-      "assets/art/icon_sun.png",
-      "assets/art/panel.png",
-      "assets/art/bar_back.png",
-      "assets/art/bar_fill.png"
-    ]
+    "roles": {
+      "assets/art/sky.png": "ui",
+      "assets/art/logo.png": "ui",
+      "assets/art/pine_art.png": "ui",
+      "assets/art/panel.png": "ui",
+      "assets/art/bar_back.png": "ui",
+      "assets/art/bar_fill.png": "ui",
+      "assets/art/icon_*.png": "icon",
+      "assets/art/flame.png": "effect"
+    }
   },
   "assets": {
+    "anim/alpha_wolf_bite.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/alpha_wolf_gallop.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/alpha_wolf_trot.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/warden_attack.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/warden_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/warden.rig.glb: hit.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/warden.rig.glb",
+            "kind": "hit",
+            "params": {
+              "duration": 0.6,
+              "strength": 18.0,
+              "fromAngle": 0.0,
+              "attack": 0.18,
+              "fps": 30.0,
+              "event": "",
+              "doc": ""
+            },
+            "out": "anim/warden_hit.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.rig.glb",
+              "sha256": "6460df6c1752e0575f0eeac233512b50761b2b02dadab7e788e6eafa24bdbf9d"
+            }
+          ]
+        }
+      }
+    },
+    "anim/warden_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/warden.rig.glb: idle.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/warden.rig.glb",
+            "kind": "idle",
+            "params": {
+              "duration": 4.0,
+              "breaths": 1.0,
+              "breathAmount": 2.0,
+              "weightShift": 1.0,
+              "tailSwing": 8.0,
+              "fps": 30.0,
+              "doc": ""
+            },
+            "out": "anim/warden_idle.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.rig.glb",
+              "sha256": "6460df6c1752e0575f0eeac233512b50761b2b02dadab7e788e6eafa24bdbf9d"
+            }
+          ]
+        }
+      }
+    },
+    "anim/warden_run.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/warden_walk.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/wolf_bite.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.create",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Keyed by hand with anim3d.create and anim3d.set_keys for the rig in `source`."
+      }
+    },
+    "anim/wolf_gallop.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
+    "anim/wolf_hit.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/wolf.rig.glb: hit.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/wolf.rig.glb",
+            "kind": "hit",
+            "params": {
+              "duration": 0.6,
+              "strength": 18.0,
+              "fromAngle": 0.0,
+              "attack": 0.18,
+              "fps": 30.0,
+              "event": "",
+              "doc": ""
+            },
+            "out": "anim/wolf_hit.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.rig.glb",
+              "sha256": "20d2205c63371b464f375cc21046b5259b6c0c822c942abe04a1815cd55246c8"
+            }
+          ]
+        }
+      }
+    },
+    "anim/wolf_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Generated from assets/models/wolf.rig.glb: idle.",
+        "date": "2026-11-11",
+        "recipe": {
+          "command": "anim3d.generate",
+          "args": {
+            "rig": "assets/models/wolf.rig.glb",
+            "kind": "idle",
+            "params": {
+              "duration": 4.0,
+              "breaths": 1.0,
+              "breathAmount": 2.0,
+              "weightShift": 1.0,
+              "tailSwing": 8.0,
+              "fps": 30.0,
+              "doc": ""
+            },
+            "out": "anim/wolf_idle.anim.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.rig.glb",
+              "sha256": "20d2205c63371b464f375cc21046b5259b6c0c822c942abe04a1815cd55246c8"
+            }
+          ]
+        }
+      }
+    },
+    "anim/wolf_trot.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-11",
+        "kind": "anim3d",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.glb",
+        "notes": "Made by anim3d.generate for the rig in `source`, then keyed further by hand with anim3d.set_keys (no recipe: regenerating would drop the edits)."
+      }
+    },
     "assets/art/bar_back.png": {
       "provenance": {
         "origin": "original",
@@ -541,7 +822,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -551,13 +832,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_01.wav": {
@@ -570,7 +848,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 1, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -582,13 +860,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_02.wav": {
@@ -601,7 +876,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 2, 0.13 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -613,13 +888,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_03.wav": {
@@ -632,7 +904,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 3, 0.15 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -644,13 +916,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_04.wav": {
@@ -663,7 +932,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 4, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -675,13 +944,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_05.wav": {
@@ -694,7 +960,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 5, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -706,13 +972,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/footstep_06.wav": {
@@ -725,7 +988,7 @@
         "license": "CC0-1.0",
         "author": "factoria",
         "notes": "sound patch assets/audio/footstep.sfx.json variant 6, 0.14 s, seed 0",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "sfx.render",
           "args": {
@@ -737,13 +1000,10 @@
           "inputs": [
             {
               "path": "assets/audio/footstep.sfx.json",
-              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+              "sha256": "eb04b926c5505b99f6f72b406ca71431e093b49bbf50187377d3f4e1b7798228"
             }
           ]
         }
-      },
-      "import": {
-        "normalize": true
       }
     },
     "assets/audio/log_feed.wav": {
@@ -1816,11 +2076,12 @@
         "author": "factoria",
         "source": "assets/models/alpha_wolf.rig.json",
         "notes": "A quadruped skeleton of 28 bones fitted to the model 'assets/models/alpha_wolf.model.json' by rig document 'assets/models/alpha_wolf.rig.json': 34 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/alpha_wolf.rig.json"
+            "path": "assets/models/alpha_wolf.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {
@@ -2002,7 +2263,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Built from the model document 'assets/models/pine.model.json': 212 triangles, 2 submeshes; parts: trunk, leaves.",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2011,7 +2272,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         },
@@ -2032,7 +2293,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2041,7 +2302,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2057,7 +2318,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2066,7 +2327,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2082,7 +2343,7 @@
         "author": "factoria",
         "source": "assets/models/pine.model.json",
         "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "model.bake",
           "args": {
@@ -2091,7 +2352,7 @@
           "inputs": [
             {
               "path": "assets/models/pine.model.json",
-              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+              "sha256": "9dc77405e588a1e9ace9c27302a9471463024167fbc1483c2a2898aeb864e516"
             }
           ]
         }
@@ -2237,11 +2498,12 @@
         "author": "factoria",
         "source": "assets/models/warden.rig.json",
         "notes": "A humanoid skeleton of 19 bones fitted to the model 'assets/models/warden.model.json' by rig document 'assets/models/warden.rig.json': 24 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/warden.rig.json"
+            "path": "assets/models/warden.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {
@@ -2291,11 +2553,12 @@
         "author": "factoria",
         "source": "assets/models/wolf.rig.json",
         "notes": "A quadruped skeleton of 27 bones fitted to the model 'assets/models/wolf.model.json' by rig document 'assets/models/wolf.rig.json': 33 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
-        "date": "2026-11-04",
+        "date": "2026-11-11",
         "recipe": {
           "command": "rig.bake",
           "args": {
-            "path": "assets/models/wolf.rig.json"
+            "path": "assets/models/wolf.rig.json",
+            "mergeParts": true
           },
           "inputs": [
             {

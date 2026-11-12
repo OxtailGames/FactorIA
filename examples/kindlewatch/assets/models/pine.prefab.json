@@ -18,12 +18,12 @@
       },
       "Collider3D": {
         "shape": "capsule",
-        "radius": 1.02892,
-        "height": 3.7546,
+        "radius": 0.32,
+        "height": 1.5,
         "offset": [
-          0.0,
-          1.8773,
-          0.0
+          -0.01133,
+          0.75,
+          0.00616
         ]
       }
     }

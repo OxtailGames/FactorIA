@@ -658,6 +658,8 @@
     set clip(v) { this.component.clip = v; }
     get mode() { return this.component.mode; }
     set mode(v) { this.component.mode = v; }
+    get loopMode() { return this.component.loopMode; }
+    set loopMode(v) { this.component.loopMode = v; }
     get frame() { return this.component.frame; }
     get time() { return this.component.time; }
     set time(v) { this.component.time = v; }
@@ -789,12 +791,12 @@
     setIntensity(intensity, options) {
       if (typeof intensity !== "number" || !Number.isFinite(intensity))
         throw new Error(`music.setIntensity(intensity) expects a number from 0 (calm) to 1 (full), got ${typeof intensity === "number" ? intensity : typeof intensity}`);
-      N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
+      return N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
     }
     goToSection(section, options) {
       if (typeof section !== "string" || !section)
         throw new Error(`music.goToSection(section) expects the name of a section of the song, e.g. "battle"; music.sections lists them`);
-      N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
+      return N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
     }
     playStinger(options) {
       const o = typeof options === "string" ? { clip: options } : musicOptions("playStinger", options, ["clip", "section", "quantize", "volume", "tail", "bus", "duck", "duckAttack", "duckHold", "duckRelease"]);
@@ -803,7 +805,7 @@
     crossfadeTo(song, options) {
       if (typeof song !== "string" || !song)
         throw new Error(`music.crossfadeTo(song) expects the path of a song, e.g. "music/battle.song.json"`);
-      N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
+      return N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
     }
     on(name, fn) {
       if (!MUSIC_EVENTS.includes(name)) {
@@ -822,6 +824,11 @@
     get beat() { return this.status.beat; }
     get tempo() { return this.status.tempo; }
     get intensity() { return this.component.intensity; }
+    get requestedIntensity() { return this.component.intensity; }
+    get appliedIntensity() { return this.status.appliedIntensity; }
+    get pendingSong() { return this.status.pendingSong; }
+    get pendingSection() { return this.status.pendingSection; }
+    get pendingAt() { return this.status.pendingAt; }
     get sections() { return N.musicCall(this.$h, "status").sections; }
   }
 
@@ -1540,7 +1547,31 @@
       }
       if (o.priority !== undefined && !(typeof o.priority === "number" && o.priority >= 0 && o.priority <= 255))
         throw new Error(`audio.play(path, { priority }): priority is a number from 0 to 255 (default 128; higher wins a voice when all 64 play), but got ${inspect(o.priority)}`);
-      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128);
+      let at = null;
+      if (o.position !== undefined) {
+        const q = o.position;
+        const xyz = Array.isArray(q) ? q : (q !== null && typeof q === "object" ? [q.x, q.y, q.z ?? 0] : null);
+        if (!xyz || (xyz.length !== 2 && xyz.length !== 3) || !xyz.every((v) => typeof v === "number" && Number.isFinite(v)))
+          throw new Error(`audio.play(path, { position }): position is [x, y, z] (or [x, y] in a 2D game, or an object { x, y, z }), numbers in world units, but got ${inspect(q)}`);
+        if (o.range !== undefined && !(typeof o.range === "number" && o.range > 0))
+          throw new Error(`audio.play(path, { range }): range is the distance in world units where the sound reaches 0 (default 800, as AudioSource.range), a number above 0, but got ${inspect(o.range)}`);
+        if (o.loop)
+          throw new Error(`audio.play(path, { position, loop: true }): a sound from a place is attenuated once, when it starts, so a loop would keep that volume (and never start if the place is out of range then). Put an AudioSource with spatial: true, loop: true on an entity at that place instead (docs/SOUND.md, "A sound at a place")`);
+        const rolloffs = ["linear", "inverse", "exponential"];
+        if (o.rolloff !== undefined && !rolloffs.includes(o.rolloff))
+          throw new Error(`audio.play(path, { rolloff }): rolloff is "linear" (default), "inverse" or "exponential", but got ${inspect(o.rolloff)}${typeof o.rolloff === "string" && didYouMean(o.rolloff, rolloffs) ? ` (did you mean "${didYouMean(o.rolloff, rolloffs)}"?)` : ""}`);
+        if (o.refDistance !== undefined && !(typeof o.refDistance === "number" && o.refDistance >= 0))
+          throw new Error(`audio.play(path, { refDistance }): refDistance is the distance in world units up to which the sound is at full volume (0 = the default of the rolloff), a number from 0, but got ${inspect(o.refDistance)}`);
+        if (o.rolloffFactor !== undefined && !(typeof o.rolloffFactor === "number" && o.rolloffFactor >= 0 && o.rolloffFactor <= 100))
+          throw new Error(`audio.play(path, { rolloffFactor }): rolloffFactor is how fast the volume falls (default 1), a number from 0 to 100, but got ${inspect(o.rolloffFactor)}`);
+        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800, Math.max(0, rolloffs.indexOf(o.rolloff ?? "linear")), o.refDistance ?? 0, o.rolloffFactor ?? 1];
+      } else {
+        for (const k of ["range", "rolloff", "refDistance", "rolloffFactor"])
+          if (o[k] !== undefined) throw new Error(`audio.play(path, { ${k} }) needs a position: add position: [x, y, z], or drop ${k}`);
+      }
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128,
+        !!at, at ? at[0] : 0, at ? at[1] : 0, at ? at[2] : 0, at ? at[3] : 800,
+        at ? at[4] : 0, at ? at[5] : 0, at ? at[6] : 1);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },
@@ -4489,6 +4520,8 @@
       N.testTouch(0, 1, a[0], a[1]); stepN(frames); N.testTouch(2, 1, 0, 0); stepN(1);
     },
     find(idOrName) { return world.find(idOrName); },
+    findAll(name) { return world.findAll(name); },
+    findByTag(tag) { return world.findByTag(tag); },
     get world() { return world; },
     get time() { return time; },
     // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
