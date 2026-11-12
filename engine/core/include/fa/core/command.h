@@ -319,7 +319,9 @@ public:
     // not granted (caller_capabilities()) -> code "capability_denied", before the arguments are looked at.
     CommandResult call(std::string_view name, const Json& args = Json::object()) const;
 
-    // [{name, summary, description, details, inputSchema, readOnly, capabilities, category}, ...]
+    // [{name, summary, description, details, inputSchema, readOnly, capabilities, capabilitiesDeclared, category}, ...]
+    // `capabilities`: camelCase names of what the command may do (capability.h). `capabilitiesDeclared`: false while the command
+    // has not declared them itself (the set is then derived from readOnly and is only a guess).
     Json describe() const;
 
     // Called at the start of every outermost call() (not for calls made from inside a running handler, nor from a job

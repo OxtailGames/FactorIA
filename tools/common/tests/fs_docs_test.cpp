@@ -349,6 +349,21 @@ TEST_CASE("api export: markdown for components and commands") {
     CHECK(md.find("### `docs.read`") != std::string::npos);
     CHECK(md.find("| `name` |") != std::string::npos);
     CHECK(export_commands_json(reg).size() == 3);
+    // Every command page has a Capabilities line; docs.* are not declared in this registry.
+    CHECK(md.find("Capabilities: not declared yet") != std::string::npos);
+    CommandInfo spendy;
+    spendy.name = "t.spendy";
+    spendy.summary = "Calls a paid API.";
+    spendy.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
+    reg.add(spendy, [](const Json&) { return Json::object(); });
+    reg.declare_capabilities("t.spendy", CapabilitySet{Capability::Read, Capability::Network, Capability::Spend});
+    md = export_commands_markdown(reg);
+    CHECK(md.find("Capabilities: read, network, spend") != std::string::npos);
+    for (const Json& c : export_commands_json(reg))
+        if (c["name"] == "t.spendy") {
+            CHECK(c["capabilities"] == Json::parse(R"(["read","network","spend"])"));
+            CHECK(c["capabilitiesDeclared"] == true);
+        }
 }
 
 TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read ends with contents and the call that continues") {

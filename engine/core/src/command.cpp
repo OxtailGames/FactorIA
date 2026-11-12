@@ -373,6 +373,7 @@ Json CommandRegistry::describe() const {
                                     {"inputSchema", i.inputSchema},
                                     {"readOnly", i.readOnly},
                                     {"capabilities", i.capabilities.to_json()},
+                                    {"capabilitiesDeclared", i.capabilitiesDeclared},
                                     {"category", i.category}}));
     }
     return arr;

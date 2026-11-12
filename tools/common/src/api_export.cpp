@@ -105,6 +105,7 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
     const std::string since = since_line(api_since("commands", c->name));
     if (!since.empty()) o << since << "\n\n";
     o << c->summary << "\n\n";
+    o << "Capabilities: " << capabilities_line(*c) << "\n\n";
     if (!c->description.empty()) o << c->description << "\n\n";
     if (!c->details.empty()) o << c->details << "\n\n";
     const Json& props = c->inputSchema.contains("properties") ? c->inputSchema["properties"] : Json::object();
@@ -127,6 +128,15 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
 }
 
 }  // namespace
+
+std::string capabilities_line(const CommandInfo& info) {
+    if (!info.capabilitiesDeclared) return "not declared yet";
+    const std::vector<std::string> names = info.capabilities.names();
+    if (names.empty()) return "none";
+    std::string out;
+    for (const std::string& n : names) out += (out.empty() ? "" : ", ") + n;
+    return out;
+}
 
 std::string command_details_pointer(const CommandInfo& info) {
     if (info.details.empty()) return {};
