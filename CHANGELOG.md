@@ -6,6 +6,9 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
 
 ## Unreleased
 
+- The programs the AI starts (command hooks, Claude Code, Codex and other CLI agents, model listing, asset commands, stdio tool servers, `curl`) no longer inherit the editor's whole environment, which holds API keys and signing passwords: they get an allow-list (`ProcessOptions::inheritEnv`, `ChildOptions::inheritEnv`; the base list, the provider's own key, `CLAUDE_*`/`ANTHROPIC_*` for Claude Code, `CODEX_*`/`OPENAI_*` for Codex, plus the new `inheritEnv` names of ai.json, top level, per provider or per tool server). A hook or agent that relied on another variable (`AWS_PROFILE`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`) needs its name listed; see docs/AI_PROVIDERS.md, "Environment of the programs the AI starts".
+- Files with secrets are private on Windows too: `fs::write_private` creates them with a protected ACL that holds only your account (ai.json, the feedback admin token, the Android keystore).
+
 ## 0.24.0
 
 FactorIA 0.24.0 (M97.1 and M97.2) makes the docs cheap for an AI to read. The AI guide opens with an index under 5 KB

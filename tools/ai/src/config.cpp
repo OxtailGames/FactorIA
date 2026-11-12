@@ -15,6 +15,7 @@
 #endif
 
 #include "fa/core/fs.h"
+#include "fa/core/private_file.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/mcp_config.h"
 #include "fa/tooling/user_config.h"
@@ -601,6 +602,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
     AiConfig cfg = default_config();
     cfg.sourcePath = std::string(sourceName);
     cfg.defaultProvider = str(j, "defaultProvider", cfg.defaultProvider);
+    if (const Json* n = child(j, "inheritEnv")) {
+        auto names = parse_env_names(*n, std::string(sourceName) + ": /inheritEnv");
+        if (!names) return names.error();
+        cfg.inheritEnv = std::move(*names);
+    }
 
     bool anyApiKey = false;
     if (const Json* provs = child(j, "providers")) {
@@ -665,6 +671,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (const Json* u = child(pj, "unsetEnv")) {
                 c.unsetEnv.clear();
                 for (const auto& e : *u) c.unsetEnv.push_back(e.get<std::string>());
+            }
+            if (const Json* n = child(pj, "inheritEnv")) {
+                auto names = parse_env_names(*n, std::string(sourceName) + ": /providers/" + name + "/inheritEnv");
+                if (!names) return names.error();
+                c.inheritEnv = std::move(*names);
             }
             if (pj.contains("factoriaCommand")) c.factoriaCommand = str(pj, "factoriaCommand");
             if (pj.contains("license")) c.license = str(pj, "license");
@@ -889,7 +900,31 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
     }
     (void)anyApiKey;
+    // The programs get the file's list from the provider / server they start (no config is passed down to them).
+    for (auto& [pname, p] : cfg.providers) p.inheritEnvGlobal = cfg.inheritEnv;
+    for (ToolServer& s : cfg.toolServers) s.inheritEnvGlobal = cfg.inheritEnv;
     return cfg;
+}
+
+Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_view at) {
+    if (!array.is_array()) {
+        return make_error(std::string(at) + ": must be an array of environment variable names",
+                          "For example [\"AWS_PROFILE\", \"AWS_*\"]: a name ending in * stands for every variable with that start.");
+    }
+    std::vector<std::string> out;
+    std::size_t index = 0;
+    for (const Json& e : array) {
+        const std::string name = e.is_string() ? e.get<std::string>() : std::string();
+        const bool bad = name.empty() || name.find_first_of("= \t\r\n") != std::string::npos ||
+                         (name.find('*') != std::string::npos && name.find('*') != name.size() - 1);
+        if (bad) {
+            return make_error(std::string(at) + "/" + std::to_string(index) + ": '" + name + "' is not an environment variable name",
+                              "Write the name only (no =, no spaces), for example \"AWS_PROFILE\"; a * is allowed at the end only.");
+        }
+        if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(name);
+        ++index;
+    }
+    return out;
 }
 
 Result<AiConfig> load_config(std::string_view pathIn, const EnvLookup& env) {
@@ -1009,6 +1044,7 @@ static Json asset_sources_to_json(const AssetSources& sources) {
 Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     Json out = Json::object();
     out["defaultProvider"] = cfg.defaultProvider;
+    if (!cfg.inheritEnv.empty()) out["inheritEnv"] = cfg.inheritEnv;
     const AiConfig builtin = default_config();
     Json provs = Json::object();
     for (const auto& [name, p] : cfg.providers) {
@@ -1037,6 +1073,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
             for (const auto& [k, v] : p.env) e[k] = v;
             pj["env"] = e;
         }
+        if (!p.inheritEnv.empty()) pj["inheritEnv"] = p.inheritEnv;
         provs[name] = pj;
     }
     out["providers"] = provs;
@@ -1116,49 +1153,9 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
 
 namespace {
 
-// Writes text where only the owner can read it, from the first byte: a temporary file made private BEFORE the key goes in,
-// then renamed over the target (fs::write_text makes its temporary file with the default permissions). A symlinked target is
-// written through, as fs::write_bytes does (the link stays, the file it points to is replaced). The temporary file is named
-// after the process and a counter, so two writers (threads or processes) never share one.
-// Windows: this is fs::write_text. Nothing here sets an ACL: the file gets what its folder gives it (the user's profile folder,
-// where ~/.factoria lives, is normally readable by that user, SYSTEM and administrators only).
-Result<void> write_private(std::string_view path, const std::string& text) {
-#ifdef _WIN32
-    return fs::write_text(path, text);
-#else
-    static std::atomic<unsigned> counter{0};
-    fsys::path target(path);
-    std::error_code ec;
-    if (target.has_parent_path()) fsys::create_directories(target.parent_path(), ec);
-    if (fsys::is_symlink(fs::os_path(target), ec)) {
-        const fsys::path resolved = fsys::canonical(fs::os_path(target), ec);
-        if (!ec) target = resolved;  // a link that points nowhere (yet) is replaced by the file, as a plain write would
-    }
-    fsys::path tmp = target;
-    tmp += ".fa-tmp" + std::to_string(static_cast<long long>(::getpid())) + "_" + std::to_string(counter++);
-    {
-        std::ofstream create(tmp, std::ios::binary | std::ios::trunc);
-        if (!create) return make_error("Cannot write '" + std::string(path) + "'", "Check the directory exists and is writable.");
-    }
-    fsys::permissions(tmp, fsys::perms::owner_read | fsys::perms::owner_write, fsys::perm_options::replace, ec);
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        out << text;
-        if (!out) {
-            out.close();
-            fsys::remove(tmp, ec);
-            return make_error("Cannot write '" + std::string(path) + "'", "Is the disk full?");
-        }
-    }
-    fs::replace_file(tmp, target, ec);
-    if (ec) {
-        std::error_code ignored;
-        fsys::remove(tmp, ignored);
-        return make_error("Cannot replace '" + std::string(path) + "'", "Check the file is writable.");
-    }
-    return {};
-#endif
-}
+// fs::write_private (core/private_file.h) writes text where only the owner can read it, from the first byte: 0600 on Linux and
+// macOS, a protected owner-only DACL on Windows.
+Result<void> write_private(std::string_view path, const std::string& text) { return fs::write_private(path, text); }
 
 }  // namespace
 

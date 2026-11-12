@@ -196,6 +196,8 @@ TEST_CASE("project settings: keys that define a provider, server or extension ar
         {R"({"extensions": {"skills": {"gdd": {"path": "/tmp/x"}}}})", "/extensions/skills/gdd/path"},
         {R"({"extensions": {"hooks": {"log": {"hooks": {}}}}})", "/extensions/hooks/log/hooks"},
         {R"({"assets": {"image": {"apiKeyEnv": "X"}}})", "/assets/image/apiKeyEnv"},
+        {R"({"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]})", "/inheritEnv"},  // a project could pull a secret into a hook or an agent
+        {R"({"mcpServers": {"scenario": {"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]}}})", "/mcpServers/scenario/inheritEnv"},
     };
     for (const auto& c : refused) {
         INFO(c.file);

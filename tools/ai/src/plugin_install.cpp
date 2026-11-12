@@ -7,6 +7,7 @@
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/extensions.h"
 #include "fa/core/strings.h"
+#include "ai_env.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -176,6 +177,7 @@ PythonCheck check_python(const std::string& minimum, const PluginInstallHooks& h
     for (const std::string& c : candidates) {
         ProcessOptions po;
         po.argv = {c, "--version"};
+        po.inheritEnv = plain_inherit_env();
         po.timeoutSeconds = 15;
         po.cancel = hooks.cancel;
         auto pr = run_process(po);

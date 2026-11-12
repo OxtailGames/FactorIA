@@ -12,7 +12,10 @@
 #include <curl/curl.h>
 #endif
 
+#include "ai_env.h"
 #include "fa/ai/process.h"
+#include "fa/core/fs.h"
+#include "fa/core/private_file.h"
 #include "fa/core/strings.h"
 
 namespace fa::ai {
@@ -205,12 +208,17 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
         f << "user-agent = \"factoria-ai/0.1\"\n";
         if (!f) { resp.error = "cannot write temp curl config"; cleanup(); return resp; }
     }
-    fsys::permissions(cfg, fsys::perms::owner_read | fsys::perms::owner_write, ec);
+    if (auto priv = fa::fs::make_private(fa::fs::path_to_utf8(cfg)); !priv.ok()) {  // the file holds the Authorization header
+        resp.error = "cannot make the temp curl config private: " + priv.error().message;
+        cleanup();
+        return resp;
+    }
     if (req.method != "GET") {
         std::ofstream f(bodyFile, std::ios::binary);
         f.write(req.body.data(), static_cast<std::streamsize>(req.body.size()));
     }
     ProcessOptions po;
+    po.inheritEnv = plain_inherit_env();  // proxies and certificate files yes, the other providers' keys no
     po.argv = {"curl", "--silent", "--show-error", "--no-buffer", "--include", "--config", cfg.string(),
                "--connect-timeout", std::to_string(static_cast<int>(req.connectTimeoutSeconds)),
                "--location", "--max-redirs", "5"};  // follow redirects, as the libcurl backend does

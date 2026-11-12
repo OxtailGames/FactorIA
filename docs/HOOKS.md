@@ -108,6 +108,14 @@ A program also gets the environment variables `CLAUDE_PROJECT_DIR` and `FACTORIA
 own**, so a hook that calls the engine cannot trigger itself in a loop. For the same reason, commands that a hook makes the registry
 run in the same process are not hooked.
 
+A program does **not** inherit the editor's whole environment: it holds API keys and signing passwords, and a hook that is a
+shell line could print or send them. It gets a short base list (`PATH`, `HOME`, `USER`, the locale, the temporary folders and, on
+Windows, `SystemRoot`, `ComSpec`, `USERPROFILE`, `APPDATA`... so that `cmd.exe` and the system tools work), the variables above,
+and the names the user lists in the top-level `"inheritEnv"` of `~/.factoria/ai.json` (exact names, or a prefix ending in `*`,
+like `"AWS_*"`). A hook that needs `AWS_PROFILE`, a proxy (`HTTPS_PROXY`) or `GIT_SSH_COMMAND` needs the name listed there; a
+project's own AI settings file cannot list names (it could pull a secret into its own hooks). See
+[AI_PROVIDERS.md](AI_PROVIDERS.md#environment-of-the-programs-the-ai-starts).
+
 ## What a hook answers
 
 * **Exit 0**: the action goes on. Stdout may be a JSON object with decisions (below). For `SessionStart` and `UserPromptSubmit` plain

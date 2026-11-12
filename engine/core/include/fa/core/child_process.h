@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,8 @@ struct ChildOptions {
     std::string workingDir;                   // empty = inherit
     std::map<std::string, std::string> env;   // overrides added to the inherited environment
     std::vector<std::string> unsetEnv;
+    // Allow-list mode, as ProcessOptions::inheritEnv: nullopt = inherit everything, a list = only the variables it names.
+    std::optional<std::vector<std::string>> inheritEnv;
 };
 
 class ChildProcess {

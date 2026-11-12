@@ -10,6 +10,7 @@
 #include <regex>
 #include <set>
 
+#include "fa/core/process.h"
 #include "fa/core/strings.h"
 #include "fa/ai/hook_js.h"
 #include "util.h"
@@ -495,6 +496,7 @@ void run_command_handler(const HookHandler& h, HookEvent event, const std::strin
     po.argv = {"/bin/sh", "-c", h.command};
 #endif
     po.workingDir = ctx.projectDir;
+    po.inheritEnv = fa::child_env_allow(ctx.inheritEnv);  // base list + the user's "inheritEnv": no API key or signing password
     po.env["CLAUDE_PROJECT_DIR"] = ctx.projectDir;
     po.env["FACTORIA_PROJECT_DIR"] = ctx.projectDir;
     po.env["FACTORIA_HOOK_EVENT"] = hook_event_name(event);
