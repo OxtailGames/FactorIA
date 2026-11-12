@@ -324,6 +324,10 @@ Result<std::filesystem::path> resolve_for_write(std::string_view path, WriteRoot
 // holds its own project folder (the tooling commands get it when they are registered, not from project_root()).
 Result<std::filesystem::path> resolve_for_write_in(const std::filesystem::path& rootDir, WriteRoot root, std::string_view path,
                                                    bool allowAnywhere, ManagedFolders managed = ManagedFolders::Refuse);
+// The spelling of a path that resolve_for_write returned for the project: relative to the project folder (forward slashes, ""
+// for the folder itself) when it lies inside it, else the absolute path. The form the rest of this API (read_text, exists,
+// write_text...) takes for a project file, so a command keeps its own bookkeeping (watched files, undo records) in it.
+std::string project_spelling(const std::filesystem::path& resolved);
 // The code of an error that resolve_for_write gave ("path_outside_root"...), or "" for any other error.
 std::string_view path_error_code(const Error& error);
 
