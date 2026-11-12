@@ -1157,6 +1157,28 @@ struct ScratchDir {
 };
 }  // namespace
 
+TEST_CASE("commands: with FACTORIA_ROLE=reviewer the list omits scene.save and keeps game.step") {
+    auto names_of = [](const std::string& json) {
+        std::set<std::string> names;
+        const fa::Json all = fa::Json::parse(json);
+        for (const auto& c : all) names.insert(c["name"].get<std::string>());
+        return names;
+    };
+    {
+        auto c = run({"commands", "--json"});
+        REQUIRE(c.code == 0);
+        const auto names = names_of(c.out);
+        CHECK(names.count("scene.save") == 1);
+        CHECK(names.count("game.step") == 1);
+    }
+    EnvVar role("FACTORIA_ROLE", "reviewer");
+    auto c = run({"commands", "--json"});
+    REQUIRE(c.code == 0);
+    const auto names = names_of(c.out);
+    CHECK(names.count("scene.save") == 0);
+    CHECK(names.count("game.step") == 1);
+}
+
 TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot change the user's AI defaults") {
     namespace stdfs = std::filesystem;
     const ScratchDir scratch("fa_cli_caller_");

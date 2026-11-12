@@ -224,6 +224,7 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
     CHECK(argv_of(codex, "fake_codex.sh", false).find("--sandbox\nworkspace-write\n") != std::string::npos);
     const std::string ro = argv_of(codex, "fake_codex.sh", true);
     CHECK(ro.find("--sandbox\nread-only\n") != std::string::npos);
+    CHECK(ro.find("\n-\nstdin:") != std::string::npos);  // the last argument is `-`: the prompt comes through stdin
     CHECK(ro.find("workspace-write") == std::string::npos);
 }
 #endif

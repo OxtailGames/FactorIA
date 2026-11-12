@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { networkOf } from "../src/keys.js";
 import { ADMIN_TOKEN, HMAC_SECRET, INSTALL, admin, body, entry, makeServer, post, pullAll, sendReports, uuid } from "./helpers.js";
 
 const batch = (from, n) => Array.from({ length: n }, (_, i) => entry(from + i));
@@ -234,7 +235,7 @@ test("ALLOW_NO_CLIENT_IP is on only for 1 or true (any case, trimmed)", async ()
         const s = makeServer({ env });
         return (await rawPost(s.app, "/v1/reports", body([entry(1)]), { "x-factoria-install": INSTALL })).status;
     };
-    for (const on of ["1", "TRUE", " true "]) assert.equal(await run(on), 200, on);
+    for (const on of ["1", "TRUE", " true ", true]) assert.equal(await run(on), 200, String(on));
     for (const off of ["yes", "0", "", undefined]) assert.equal(await run(off), 400, String(off));
 });
 
@@ -265,4 +266,34 @@ test("IPv6 addresses are limited per /64, IPv4-mapped ones like the plain IPv4",
     assert.deepEqual(await hit(["198.51.100.7", "::ffff:198.51.100.7"]), [200, 429]);
     assert.deepEqual(await hit(["198.51.100.7", "::ffff:c633:6407"]), [200, 429]);
     assert.deepEqual(await hit(["198.51.100.7", "::ffff:198.51.100.8"]), [200, 200]);
+});
+
+test("networkOf: the key an address gets (table)", () => {
+    const table = [
+        // IPv4 stays as it is
+        ["203.0.113.5", "203.0.113.5"],
+        [" 203.0.113.5 ", "203.0.113.5"],
+        // IPv6: the /64 prefix, lower case, "::" expanded
+        ["2001:db8:1:2::1", "2001:db8:1:2::/64"],
+        ["2001:DB8::1", "2001:db8:0:0::/64"],
+        ["::", "0:0:0:0::/64"],
+        ["::1", "0:0:0:0::/64"],
+        // a zone id is dropped
+        ["fe80::1%eth0", "fe80:0:0:0::/64"],
+        // IPv4-mapped: the IPv4 address, whatever the case or the notation
+        ["::ffff:1.2.3.4", "1.2.3.4"],
+        ["::FFFF:1.2.3.4", "1.2.3.4"],
+        ["::ffff:102:304", "1.2.3.4"],
+        // an IPv4 tail that is not under ::ffff: is just an IPv6 address
+        ["::1.2.3.4", "0:0:0:0::/64"],
+        ["64:ff9b::1.2.3.4", "64:ff9b:0:0::/64"],
+        // malformed input is kept as it is (lower case): Cloudflare sets the header, so it never gets here from a client
+        ["::ffff:1.2.3.256", "::ffff:1.2.3.256"],
+        ["1:::2", "1:::2"],
+        ["[::1]", "[::1]"],
+        ["1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7:8:9"],
+        ["1:2:3:4:5:6:7", "1:2:3:4:5:6:7"],
+        ["not-an-ip", "not-an-ip"],
+    ];
+    for (const [input, expected] of table) assert.equal(networkOf(input), expected, input);
 });

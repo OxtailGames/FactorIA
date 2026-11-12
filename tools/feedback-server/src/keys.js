@@ -19,6 +19,8 @@ export async function reporterKey(secret, githubUserId) {
  * The address a rate-limit bucket is keyed on. An IPv4 address stays as it is, an IPv4-mapped IPv6 address
  * (::ffff:a.b.c.d) becomes that IPv4 address, and any other IPv6 address becomes its /64 prefix (the first four hextets,
  * "::" expanded, lower case), so one host cannot get fresh buckets by rotating through its own /64. Anything else is kept.
+ * Malformed input is keyed as it is on purpose: Cloudflare sets the header, so a malformed value is not a client's choice and
+ * it still gets a bucket of its own (rejecting it would only add a failure path).
  */
 export function networkOf(ip) {
     let a = String(ip).trim().toLowerCase();
