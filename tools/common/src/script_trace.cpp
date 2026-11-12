@@ -428,6 +428,9 @@ void register_script_trace_commands(CommandRegistry& registry, const std::string
         "maxHits":{"type":"integer","default":20,"minimum":1,"description":"Hits (or log lines) recorded per point; one more sets truncated and the point stops recording."},
         "depth":{"type":"integer","default":1,"minimum":0,"maximum":6,"description":"How far objects in locals and watch are expanded into JSON (0 = previews only; nested objects beyond the depth are previews). An object shows at most 100 entries."}}})");
     registry.add(c, [projectDir](const Json& a) { return run_trace(a, projectDir); });
+    // script.trace runs the scripts in a headless engine inside this process and writes nothing.
+    declare_command_capabilities(registry, {
+        {"script.trace", capability_sets::reads()}});
 }
 
 }  // namespace fa

@@ -219,6 +219,9 @@ void register_style_commands(CommandRegistry& registry, const std::string& proje
           "remove":{"type":"boolean","default":false,"description":"Delete the role of this path."}}})");
         registry.add(info, [projectDir](const Json& args) { return style_set_role(projectDir, args); });
     }
+    declare_command_capabilities(registry, {
+        {"style.ignore", capability_sets::writes_project()},
+        {"style.set_role", capability_sets::writes_project()}});
 }
 
 }  // namespace fa::assets_detail

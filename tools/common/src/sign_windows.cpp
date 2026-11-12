@@ -736,6 +736,9 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
+    // runs signtool, which signs the exported files in place and asks a timestamp server.
+    declare_command_capabilities(registry, {
+        {"sign.windows", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

@@ -428,6 +428,10 @@ void register_docs_commands(CommandRegistry& registry) {
             return Json::object({{"count", arr.size()}, {"results", arr}});
         });
     }
+    declare_command_capabilities(registry, {
+        {"docs.list", capability_sets::reads()},
+        {"docs.read", capability_sets::reads()},
+        {"docs.search", capability_sets::reads()}});
 }
 
 }  // namespace fa

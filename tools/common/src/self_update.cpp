@@ -243,6 +243,8 @@ void register_update_commands(CommandRegistry& registry) {
         "docs_read {\"name\":\"mcp\"}. Example: {}.";
     info.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
     registry.add(info, [](const Json&) { return update_status_json(process_update_watch()); });
+    declare_command_capabilities(registry, {
+        {"engine.update_status", capability_sets::reads()}});
 }
 
 }  // namespace fa

@@ -1553,7 +1553,8 @@ TEST_CASE("setup: the commands are registered with the documentation an AI needs
     REQUIRE(install);
     CHECK(status->category == "setup");
     CHECK(install->category == "setup");
-    CHECK(status->readOnly);
+    CHECK_FALSE(status->readOnly);  // it runs the tools it probes (process) and may fetch a licence text (network)
+    CHECK(status->capabilities.has(Capability::Process));
     CHECK_FALSE(install->readOnly);
     CHECK(install->description.find("acceptLicenses") != std::string::npos);
     CHECK(install->description.find("license_required") != std::string::npos);

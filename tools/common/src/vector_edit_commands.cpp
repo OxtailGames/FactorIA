@@ -876,6 +876,8 @@ void register_vector_edit_commands(CommandRegistry& registry, const std::string&
         info.readOnly = false;
         Json schema = Json::object({{"type", "object"}, {"properties", d.props}});
         if (!d.required.empty()) schema["required"] = d.required;
+        for (const char* k : {"source", "document", "out"})
+            if (schema["properties"].contains(k)) schema["properties"][k]["x-fa-path"] = "write";
         info.inputSchema = schema;
         const std::string name = d.name;
         auto fn = d.fn;
@@ -884,6 +886,7 @@ void register_vector_edit_commands(CommandRegistry& registry, const std::string&
             if (!args.is_object()) fail("invalid_argument", name + ": the arguments must be an object.", "Example: {\"source\": \"assets/art/badge.svg\"}.");
             return fa::vec::cmd::run(projectDir, args, name.c_str(), props, false, [fn](Ctx& c) { return fn(c); });
         });
+        registry.declare_capabilities(name, capability_sets::writes_project());
     }
 }
 

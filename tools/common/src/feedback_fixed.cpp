@@ -260,6 +260,8 @@ void register_feedback_fixed_commands(CommandRegistry& registry, const std::stri
             out["note"] = "Closed entries move to ENGINE_FEEDBACK.archive.json with feedback.archive; check whether their workarounds can go.";
         return out;
     });
+    declare_command_capabilities(registry, {
+        {"feedback.check_fixed", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

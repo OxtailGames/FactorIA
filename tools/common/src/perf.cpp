@@ -666,6 +666,12 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         }
         throw CommandError("perf_budget_exceeded", "Over the performance budget of runner '" + runner + "' (" + file + "):" + over + slowest + provisionalNote, how, result);
     });
+    // perf.measure and perf.profile run the game in a second headless engine inside this process: they read the project and write nothing.
+    declare_command_capabilities(registry, {
+        {"perf.measure", capability_sets::reads()},
+        {"perf.profile", capability_sets::reads()},
+        {"perf.baseline", capability_sets::writes_project()},
+        {"perf.check", capability_sets::reads()}});
 }
 
 }  // namespace fa

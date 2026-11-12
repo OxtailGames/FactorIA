@@ -140,6 +140,9 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
             return r->to_json();
         });
     }
+    // project.create makes a new folder where its caller says (with no project open there is no root to keep it in: the bootstrap flow of
+    // `factoria mcp` without a project calls it with an absolute folder), so it is declared writeProject, not writeAnywhere.
+    declare_command_capabilities(registry, {{"project.templates", capability_sets::reads()}, {"project.create", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

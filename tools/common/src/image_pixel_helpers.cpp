@@ -883,7 +883,7 @@ void register_pixel_helper_commands(CommandRegistry& registry, const std::string
         info.description = description;
         info.inputSchema = Json::parse(schema);
         add_frame_support(info, frames ? "to change" : "whose cel receives the pixel art");
-        registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
+        add_image_command(registry, info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
 
     add("image.pixel.outline", "Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).",
