@@ -1,0 +1,20 @@
+# Bug-finding checks only (no style, no modernize): every hit should be a real defect or a near one. Run on the files a
+# change touches by scripts/tidy-changed.sh and by the `lint` job of CI (docs/BUILDING.md, "Formatting and lint").
+Checks: >
+  -*,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-undefined-memory-manipulation,
+  bugprone-sizeof-expression,
+  bugprone-string-constructor,
+  bugprone-suspicious-memset-usage,
+  bugprone-suspicious-string-compare,
+  bugprone-unused-raii,
+  bugprone-move-forwarding-reference,
+  bugprone-inaccurate-erase,
+  bugprone-swapped-arguments,
+  misc-redundant-expression,
+  performance-move-const-arg
+WarningsAsErrors: '*'
+# Only the project's own headers: never external/ or the system.
+HeaderFilterRegex: '^.*/(engine|tools|player|platforms)/.*'

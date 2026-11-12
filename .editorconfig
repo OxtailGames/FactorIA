@@ -1,0 +1,41 @@
+# https://editorconfig.org. Formatting of C and C++ is decided by .clang-format (scripts/format.sh).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{c,cc,cpp,h,hpp,m,mm}]
+max_line_length = 120
+
+[{CMakeLists.txt,*.cmake}]
+indent_size = 4
+
+[*.{json,yml,yaml,js,mjs,ts,tsx,glsl,shader}]
+indent_size = 2
+
+[*.md]
+# A trailing double space is a line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.sh]
+indent_size = 4
+
+# CRLF on every checkout (.gitattributes).
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# Gradle wrapper script of the Android template: LF (.gitattributes).
+[gradlew]
+end_of_line = lf
+
+# Binary-like or byte-exact files.
+[*.{ktx2,png,zst,lz4,bin,jar}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
