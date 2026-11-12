@@ -297,7 +297,7 @@ same data through `docs.components`, `docs.commands` and `factoria api`.
 
 ## MCP
 
-### `factoria mcp [--project DIR] [--scene S] [--date YYYY-MM-DD] [--no-graphics] [--no-hot-reload]`
+### `factoria mcp [--project DIR] [--scene S] [--date YYYY-MM-DD] [--no-graphics] [--no-hot-reload] [--tools PROFILE]`
 Model Context Protocol server on stdio (details: [MCP.md](MCP.md)). Creates a headless engine for the project
 (GPU if available, otherwise logic-only: `game_screenshot` then reports why), registers the engine, tooling,
 project (`project.create`, `project.templates`, `project.test`) and `ai.*` commands, and serves them. `mcp`, `call`,
@@ -306,7 +306,9 @@ project (`project.create`, `project.templates`, `project.test`) and `ai.*` comma
 drawn when `game_screenshot` asks (`--render-all` draws every frame); `storage.*` is in memory (`--persist-storage`). Scripts
 and `tools/*.js` are watched; clients receive `notifications/tools/list_changed` when the tool set changes.
 stdout carries protocol messages only. Without a project it starts with documentation and project-creation
-tools so an AI can bootstrap one.
+tools so an AI can bootstrap one. `--tools all` (the default) lists every command; `--tools core` lists the core set
+plus `tool_load`, `tool_describe` and `tool_call`; `--tools core,anim,physics` adds those groups (command categories
+or exact command names) to the list. An unknown group is refused at start with suggestions (MCP.md, "Tool profiles").
 ```
 claude mcp add factoria -- factoria mcp --project .
 ```

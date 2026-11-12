@@ -381,6 +381,113 @@ TEST_CASE("mcp: a command filter hides commands from tools/list and refuses to c
     CHECK(blocked["isError"] == true);
 }
 
+namespace {
+std::set<std::string> listed_tool_names(Fixture& f) {
+    std::set<std::string> names;
+    const Json listed = f.rpc("tools/list");
+    for (const auto& t : listed["result"]["tools"]) names.insert(t["name"].get<std::string>());
+    return names;
+}
+void add_group_command(Fixture& f, const char* name, const char* category, bool readOnly) {
+    CommandInfo i;
+    i.name = name;
+    i.category = category;
+    i.summary = "A command of a group.";
+    i.readOnly = readOnly;
+    f.registry.add(i, [](const Json&) { return Json::object({{"ran", true}}); });
+}
+}  // namespace
+
+TEST_CASE("mcp: a tool profile lists the core set and the loader tools; tool_load adds a group and says so") {
+    Fixture f;
+    add_group_command(f, "wobble.spin", "wobble", true);
+    add_group_command(f, "wobble.stop", "wobble", false);
+    f.initialize();
+    const std::size_t all = listed_tool_names(f).size();
+    CHECK(listed_tool_names(f).count("tool_load") == 0);  // no profile: every command, no loader tools
+    CHECK(f.server.set_tool_profile({"core"}).empty());
+    std::set<std::string> names = listed_tool_names(f);
+    CHECK(names.size() < all);
+    CHECK(names.count("tool_load") == 1);
+    CHECK(names.count("tool_describe") == 1);
+    CHECK(names.count("tool_call") == 1);
+    CHECK(names.count("wobble_spin") == 0);
+    CHECK(names.count("fs_read") == 1);
+    const Json listed = f.rpc("tools/list");
+    for (const auto& t : listed["result"]["tools"]) CHECK(t["description"].get<std::string>().size() < 1536);
+    // The description names the groups with their counts.
+    for (const auto& t : listed["result"]["tools"])
+        if (t["name"] == "tool_load") CHECK(t["description"].get<std::string>().find("wobble (2)") != std::string::npos);
+    f.server.drain_outgoing();
+    const Json res = f.call("tool_load", {{"groups", Json::array({"wobble"})}})["result"];
+    CHECK(res["isError"] == false);
+    CHECK(result_json(res)["added"] == 2);
+    bool notified = false;
+    for (const std::string& line : f.server.drain_outgoing())
+        if (Json::parse(line).value("method", "") == "notifications/tools/list_changed") notified = true;
+    CHECK(notified);
+    names = listed_tool_names(f);
+    CHECK(names.count("wobble_spin") == 1);
+    CHECK(names.count("wobble_stop") == 1);
+    // Loading it again changes nothing and sends nothing.
+    CHECK(result_json(f.call("tool_load", {{"groups", Json::array({"wobble"})}})["result"])["added"] == 0);
+    CHECK(f.server.drain_outgoing().empty());
+    // No groups: the list of groups.
+    CHECK(result_json(f.call("tool_load")["result"]).contains("groups"));
+    // "all" is the default again for a profile list that holds it.
+    CHECK(f.server.set_tool_profile({"all"}).empty());
+    CHECK_FALSE(f.server.tool_profile_active());
+}
+
+TEST_CASE("mcp: tool_describe and tool_call reach a command outside the profile; an unknown group is refused") {
+    Fixture f;
+    add_group_command(f, "wobble.spin", "wobble", true);
+    f.initialize();
+    CHECK(f.server.set_tool_profile({"core"}).empty());
+    const Json described = result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.spin", "wobble_spun"})}})["result"]);
+    REQUIRE(described["commands"].size() == 1);
+    CHECK(described["commands"][0]["tool"] == "wobble_spin");
+    CHECK(described["unknown"][0]["hint"].get<std::string>().find("wobble.spin") != std::string::npos);
+    const Json called = f.call("tool_call", {{"command", "wobble.spin"}, {"arguments", Json::object()}})["result"];
+    CHECK(called["isError"] == false);
+    CHECK(result_json(called)["ran"] == true);
+    CHECK(listed_tool_names(f).count("wobble_spin") == 0);  // the list did not change
+    const Json missing = f.call("tool_call", {{"command", "wobble.spun"}})["result"];
+    CHECK(missing["isError"] == true);
+    CHECK(missing["content"][0]["text"].get<std::string>().find("wobble.spin") != std::string::npos);
+    // An unknown group: refused with a suggestion, nothing is loaded, no notification.
+    f.server.drain_outgoing();
+    const Json bad = f.call("tool_load", {{"groups", Json::array({"wobbel"})}})["result"];
+    CHECK(bad["isError"] == true);
+    CHECK(bad["content"][0]["text"].get<std::string>().find("wobble") != std::string::npos);
+    CHECK(f.server.drain_outgoing().empty());
+    CHECK(listed_tool_names(f).count("wobble_spin") == 0);
+    const std::string err = f.server.set_tool_profile({"core", "wobbel"});
+    CHECK(err.find("wobbel") != std::string::npos);
+    CHECK(err.find("wobble") != std::string::npos);
+    // A profile that was refused leaves the server as it was.
+    CHECK(f.server.tool_profile_active());
+}
+
+TEST_CASE("mcp: a read-only filter and the user-only commands still apply through the profile tools") {
+    Fixture f;
+    add_group_command(f, "wobble.spin", "wobble", true);
+    add_group_command(f, "wobble.stop", "wobble", false);
+    CommandInfo i;
+    i.name = "ai.plugin_install";
+    i.category = "ai";
+    i.summary = "Installs a plugin.";
+    i.readOnly = true;
+    f.registry.add(i, [](const Json&) { return Json::object(); });
+    f.server.set_command_filter([](const CommandInfo& c) { return c.readOnly; });
+    f.initialize();
+    CHECK(f.server.set_tool_profile({"core"}).empty());
+    CHECK(f.call("tool_call", {{"command", "wobble.spin"}})["result"]["isError"] == false);
+    CHECK(f.call("tool_call", {{"command", "wobble.stop"}})["result"]["isError"] == true);
+    CHECK(f.call("tool_call", {{"command", "ai.plugin_install"}})["result"]["isError"] == true);
+    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.stop"})}})["result"]).contains("unknown"));  // not read-only: not there
+}
+
 TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user installs software)") {
     Fixture f;
     bool ran = false;

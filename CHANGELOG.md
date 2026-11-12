@@ -7,6 +7,10 @@ Older versions, one file per minor version with its patch releases: [0.22](chang
 ## Unreleased
 
 - docs/AI_GUIDE.md starts with a short `## Index` (every section in under 5 KB; read it alone with `docs_read {"name":"ai-guide","heading":"Index"}`), and the tools table of its section 4 is generated from the command registry by `docs.write_reference`: one row per command category, so it no longer goes stale and is a third of its former size.
+- `factoria mcp --tools core` (or a comma list such as `core,anim,physics`) lists only the core commands and the
+  chosen groups, plus `tool_load`, `tool_describe` and `tool_call` to reach the rest, for MCP clients without tool
+  search that would load ~400 definitions. The default `all` changes nothing. The core list and the group rules moved
+  to `fa/tooling/tool_groups.h`, shared with the built-in agent's catalog.
 
 ## 0.23.0
 
