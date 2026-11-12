@@ -225,6 +225,19 @@ for the pack; the module loader reads a compiled script from the same `.js` path
 `fs::cache_dir()` / `fs::set_cache_dir()` is the per-user folder for files the engine can always rebuild (the shader
 cache, [below](#start-up-order-and-the-shader-cache)); the game folder and the save folder never hold them.
 
+**Paths a caller gives to a command that writes.** `fs::resolve(path)` accepts any absolute path, so a command that writes a
+file named by its caller never uses it: it calls `fs::resolve_for_write(path, root, allowAnywhere)` (`core/fs.h`), the one
+place where such a path is confined. `root` is `WriteRoot::Project` (`project_root()`), `Save` (`user_dir()`, the game's save
+folder) or `Export` (`fs::export_dir()`, `set_export_dir`; default `<project>/build/exports`, created by the writer, not by the
+resolution). A relative path is joined to the root: `a/../b` is fine, a `..` that leaves the root is `path_outside_root`, and
+after resolving symlinks (`weakly_canonical`) the result must still be inside, so a link pointing out, or pointing nowhere, is
+refused too. An absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless
+`allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent; even then the
+project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule) stay closed to it. Names
+compare without regard to case on Windows and macOS. Errors say which form was given, what the root accepts, the root's real
+path and the fix, and end with `(code: ...)` (`fs::path_error_code`). The tooling file commands' `resolve_project_path` is a
+wrapper over it (`resolve_for_write_in`, with the project folder they were registered with).
+
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On
 macOS and Linux the environment variable `FA_FS_WINDOWS_RULES=1` (ctest sets it for every test: docs/BUILDING.md, "Running
