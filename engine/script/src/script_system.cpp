@@ -695,8 +695,11 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
     }
     std::string path = *norm;
     if (path.find('*') != std::string::npos) {
-        // A glob import of JSON data: `import tables from "../data/dialogue/*.json"`. Only the file name may hold `*`.
-        const std::string dir = fs::parent(path), pattern = fs::filename(path);
+        // A glob import of JSON data: `import tables from "../data/dialogue/*.json"`. Only the file name may hold `*`. The
+        // spec may be a module name this function returned, with its "?v=N" (import_module's pre-pass imports a test's
+        // dependencies by name): the check reads the file part.
+        const std::string file = module_file(path);
+        const std::string dir = fs::parent(file), pattern = fs::filename(file);
         if (dir.find('*') != std::string::npos || pattern.find("**") != std::string::npos ||
             fs::extension(pattern) != ".json") {
             if (err)

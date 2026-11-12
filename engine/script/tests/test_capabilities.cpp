@@ -447,3 +447,27 @@ test("a module compiled earlier by check_syntax runs its top level as game code"
     CHECK(rep.ok());
     CHECK(rep.passed == 1);
 }
+
+TEST_CASE("capabilities: a test's static imports may reach JSON and glob data modules, also after a reload bumps versions") {
+    TestHost h("cap_import_glob_data");
+    // Two test files: run_tests bumps the module versions between them, so the second one's pre-pass imports the data
+    // modules by a versioned name ("data/t/*.json?v=N"), which the glob rule must not read as part of the extension.
+    h.file("data/t/a.json", R"({ "n": 1 })");
+    h.file("data/t/b.json", R"({ "n": 2 })");
+    h.file("data/one.json", R"({ "n": 3 })");
+    h.file("scripts/tables.js", "import tables from \"../data/t/*.json\";\nimport one from \"../data/one.json\";\n"
+                                "export const total = tables[\"a.json\"].n + tables[\"b.json\"].n + one.n;\n");
+    const char* body = R"JS(
+import { test, expect } from "factoria:test";
+import { total } from "scripts/tables.js";
+test("data modules load", () => { expect(total).toBe(6); });
+)JS";
+    h.file("tests/first.test.js", body);
+    h.file("tests/second.test.js", body);
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/first.test.js", "tests/second.test.js"});
+    for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
+    for (auto& e : rep.loadErrors) MESSAGE(e.file, ": ", e.message);
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
+}
