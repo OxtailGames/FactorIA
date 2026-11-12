@@ -381,6 +381,10 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            false, "game"},
           [&engine, &I](const Json& a) {
               const std::string effect = a.value("effect", std::string());
+              // The caller's `path` is judged first, before the game steps and the strip is drawn: a path it may not write fails
+              // without having changed anything.
+              const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
+              const std::string requested = temporary ? std::string() : resolve_caller_write_path(a["path"].get<std::string>(), "vfx.filmstrip");
               if (!I.renderer || !I.renderer->initialized())
                   throw CommandError("unavailable", "No renderer: the engine runs with graphics=false.", "vfx.filmstrip needs graphics (headless needs Mesa/EGL). vfx.budget and vfx.check work without.");
               auto doc = load_vfx(effect);
@@ -492,8 +496,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
 
               SheetLayout l;
               Image img = contact_sheet(shots, labels, wanted, -1, &l);
-              const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
-              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_vfx.png" : resolve_caller_write_path(a["path"].get<std::string>(), "vfx.filmstrip");
+              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_vfx.png" : requested;
               auto saved = save_png(img, path);
               if (!saved.ok()) throw CommandError("unavailable", saved.error().message, saved.error().hint.empty() ? "Check the path is inside a writable folder." : saved.error().hint);
               const std::string abs = abs_path(path);

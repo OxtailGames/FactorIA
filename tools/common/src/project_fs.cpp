@@ -118,8 +118,7 @@ Result<stdfs::path> resolve_write_path(const std::string& projectDir, std::strin
     stdfs::path rootDir(projectDir);
     // The tooling commands know their own project folder (projectDir), which need not be fs::project_root(): the default export
     // folder follows it, a folder set with set_export_dir does not.
-    if (root == fs::WriteRoot::Export && fs::export_dir() == fs::project_root() / "build" / "export") rootDir = rootDir / "build" / "export";
-    else if (root == fs::WriteRoot::Export) rootDir = fs::export_dir();
+    if (root == fs::WriteRoot::Export) rootDir = fs::export_dir_is_set() ? fs::export_dir() : rootDir / "build" / "export";
     else if (root == fs::WriteRoot::Save) rootDir = fs::user_dir();
     return fs::resolve_for_write_in(rootDir, root, path, anywhere, managed);
 }

@@ -64,8 +64,10 @@ void restore_user_dir(const std::filesystem::path& dir, void (*done)());
 // The system's temporary folder as an absolute path, resolved here and not by std::filesystem::temp_directory_path, which on
 // Windows (both STLs) fails when the folder does not exist yet. Linux and macOS: TMPDIR, TMP, TEMP, TEMPDIR, else the
 // platform's default (/tmp). Windows: GetTempPath2W where it exists, else GetTempPathW (TMP, TEMP, USERPROFILE), kept in
-// UTF-16. The folder may not exist (make_temp_dir makes it). A RELATIVE answer (TMPDIR=tmp) is refused with an error, not
-// resolved against the working directory, which can change.
+// UTF-16. The folder may not exist (make_temp_dir makes it). Linux and macOS: a RELATIVE variable (TMPDIR=tmp) is refused with
+// an error, not resolved against the working directory, which can change. Windows: GetTempPath itself makes a relative TMP
+// absolute, against the working directory of that call, so the answer is always absolute (and follows a later chdir only
+// when the next call is made); an answer that still is not absolute is refused the same way.
 Result<std::filesystem::path> temp_base();
 
 // Creates a fresh, empty scratch directory under temp_base(), named <prefix>_<process id>_<n>. Unique per
@@ -302,6 +304,9 @@ enum class ManagedFolders { Refuse, Allow };
 void set_export_dir(const std::filesystem::path& dir);
 // The export folder: set_export_dir's, else <project_root()>/build/export (where project.export puts its output). Returned by value (another thread may set it).
 std::filesystem::path export_dir();
+// Whether set_export_dir named a folder (false: export_dir() is the default <project_root()>/build/export). A tooling command that
+// knows its own project folder asks this instead of comparing paths.
+bool export_dir_is_set();
 
 // Resolves `path` (UTF-8 text; / and \ both separate) for a write below `root`. Gives the absolute, canonical host path to
 // write, or an error that says which form of path was given, what this root accepts, where the root really is, and the fix.

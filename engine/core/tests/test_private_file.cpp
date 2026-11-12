@@ -226,37 +226,44 @@ TEST_CASE("make_temp_dir: a folder that already has the next name is never reuse
 namespace {
 // Points the temporary folder somewhere else for one test (TMPDIR on Linux and macOS; TMP and TEMP on Windows).
 struct ScopedTempEnv {
+    // The native string of the platform: UTF-16 on Windows (a path with accents must not go through the ANSI code page).
+    using Text = stdfs::path::string_type;
     struct Saved {
-        std::string name, value;
+        Text name, value;
         bool had = false;
     };
     std::vector<Saved> saved;
     explicit ScopedTempEnv(const stdfs::path& where) {
 #ifdef _WIN32
-        const char* names[] = {"TMP", "TEMP"};
+        const wchar_t* names[] = {L"TMP", L"TEMP"};
+        for (const wchar_t* name : names) {
 #else
         const char* names[] = {"TMPDIR"};
-#endif
         for (const char* name : names) {
+#endif
             Saved s;
             s.name = name;
+#ifdef _WIN32
+            if (const wchar_t* old = _wgetenv(name)) {
+#else
             if (const char* old = std::getenv(name)) {
+#endif
                 s.had = true;
                 s.value = old;
             }
             saved.push_back(s);
-            set(name, where.string());
+            set(s.name, where.native());
         }
     }
     ~ScopedTempEnv() {
-        for (const Saved& s : saved) set(s.name.c_str(), s.had ? s.value : std::string());
+        for (const Saved& s : saved) set(s.name, s.had ? s.value : Text());
     }
-    static void set(const char* name, const std::string& value) {
+    static void set(const Text& name, const Text& value) {
 #ifdef _WIN32
-        _putenv_s(name, value.c_str());
+        _wputenv_s(name.c_str(), value.c_str());  // an empty value removes the variable
 #else
-        if (value.empty()) ::unsetenv(name);
-        else ::setenv(name, value.c_str(), 1);
+        if (value.empty()) ::unsetenv(name.c_str());
+        else ::setenv(name.c_str(), value.c_str(), 1);
 #endif
     }
 };

@@ -204,7 +204,9 @@ export) and a native plugin (`set_command_capabilities`) do the same; if a JS to
 `{read}`, the engine logs one warning that names the tool, since `readOnly` is derived. An empty set is refused everywhere
 (`capabilities: []`, `[]` from a plugin, an empty set in a table): a command needs at least `read`, and the error says so; the
 command keeps what it had. `process` is for a program the command itself runs; a platform helper behind a game feature (the
-speech helper `spd-say` that `ui.speak` starts on Linux) counts as `state`. `describe()` lists them under `capabilities` (camelCase names) and `capabilitiesDeclared` (bool). The same two fields appear in
+speech helper `spd-say` that `ui.speak` starts on Linux) counts as `state`. A command that runs a child `factoria call` of the
+same engine to render for itself (`assets.contact_sheet` on a .glb, `assets.bake_sheet`) does not declare `process` either: the child is
+this engine, not an external program, and the command judges every path it passes on before it starts the child. `describe()` lists them under `capabilities` (camelCase names) and `capabilitiesDeclared` (bool). The same two fields appear in
 `api.commands`, `factoria commands [--json]`, `factoria api --json` (api.json); every command page of the generated reference
 has a "Capabilities:" line ("not declared yet" while `capabilitiesDeclared` is false); an MCP tool carries them in its
 `_meta` (`factoria/capabilities`, `factoria/capabilitiesDeclared`) and `tool_describe` returns them per command.
@@ -305,33 +307,39 @@ for the pack; the module loader reads a compiled script from the same `.js` path
 `fs::cache_dir()` / `fs::set_cache_dir()` is the per-user folder for files the engine can always rebuild (the shader
 cache, [below](#start-up-order-and-the-shader-cache)); the game folder and the save folder never hold them.
 
-**Paths a caller gives to a command that writes.** `fs::resolve(path)` accepts any absolute path, so a command that writes a
-file named by its caller never uses it: it calls `fs::resolve_for_write(path, root, allowAnywhere, managed)` (`core/fs.h`), the one
-place where such a path is confined. `root` is `WriteRoot::Project` (`project_root()`), `Save` (`user_dir()`, the game's save
-folder) or `Export` (`fs::export_dir()`, `set_export_dir`; default `<project>/build/export`, where `project.export` writes; created by the writer, not by the
-resolution). A relative path is joined to the root: `a/../b` is fine, a `..` that leaves the root is `path_outside_root`, and
-after resolving symlinks (`weakly_canonical`) the result must still be inside, so a link pointing out, or pointing nowhere, is
-refused too. An absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless
-`allowAnywhere`, which only a caller that owns the machine (the command-line user) is given, never an agent. With
-`WriteRoot::Project` the project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule)
-are closed to a relative path and to an absolute one alike (`managed_path_denied`): a path is refused when EITHER its
-normalized spelling OR its canonical form (after symlinks) is managed, so a link `meta -> .factoria` and a link
-`.factoria -> data` both fail; names are folded to lower case on every system (a case-insensitive volume makes `.GIT` the same
-folder on Linux too) and lose a trailing dot or space (Windows strips it: `.git.` is `.git`); a command that picks such a target itself (selections, previews, review files
-under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first segment of a relative path and, on
-Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move between them), a name Windows
-cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1`-`COM9`, `LPT1`-`LPT9`, and `COM`/`LPT`
-with a superscript 1, 2 or 3, with or without an extension) or a name ending in a dot or a space. That rule is about
-CREATING a name: on Linux and macOS it applies to every segment that is not an existing regular file, folder or link, so a
-file that already has such a name (made on Linux) can still be read, and deleted. On Windows it applies to every segment, as
-such a file cannot be there (`NUL` exists in every folder, with an extension too, and `scenes.` is `scenes`). Other names compare without regard to case on Windows and macOS; on Linux they compare byte
-for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root accepts, the root's
-real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three entry points:
-`resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to write anywhere
-decides `allowAnywhere`; managed folders refused unless `ManagedFolders::Allow`), `project_write_file(projectDir, rel)` for
-the assets commands, which record project-relative paths and so stay inside the project for everyone, and `fs.write`,
-`fs.edit` and `fs.delete`, which refuse the managed folders on the real path. `resolve_project_path` (`resolve_for_write_in`
-with `allowAnywhere` false and `ManagedFolders::Allow`) is the reader's and the tools' own: selections, previews, reads.
+**Paths a caller gives to a command that writes.** `fs::resolve(path)` accepts any absolute path, so a command that writes
+a file named by its caller never uses it: it calls `fs::resolve_for_write(path, root, allowAnywhere, managed)`
+(`core/fs.h`), the one place where such a path is confined. `root` is `WriteRoot::Project` (`project_root()`), `Save`
+(`user_dir()`, the game's save folder) or `Export` (`fs::export_dir()`, `set_export_dir`; default
+`<project>/build/export`, where `project.export` writes; created by the writer, not by the resolution). A relative path is
+joined to the root: `a/../b` is fine, a `..` that leaves the root is `path_outside_root`, and after resolving symlinks
+(`weakly_canonical`) the result must still be inside, so a link pointing out, or pointing nowhere, is refused too (for every caller, `allowAnywhere` included: a shared asset folder linked
+into the project cannot be written through the link, only by its absolute path from the command line; `project_spelling` also
+returns the symlink-resolved form of a path). An
+absolute path (`/x`, `C:\x`, drive-relative `C:x`, UNC, `\\?\`, `~`) is `absolute_path_denied` unless `allowAnywhere`,
+which only a caller that owns the machine (the command-line user) is given, never an agent. With `WriteRoot::Project` the
+project's managed folders (`.git`, `.factoria/` except `.factoria/tmp/`: `check_writable`'s rule) are closed to a relative
+path and to an absolute one alike (`managed_path_denied`): a path is refused when EITHER its normalized spelling OR its
+canonical form (after symlinks) is managed, so a link `meta -> .factoria` and a link `.factoria -> data` both fail; names
+are folded to lower case on every system (a case-insensitive volume makes `.GIT` the same folder on Linux too) and lose a
+trailing dot or space (Windows strips it: `.git.` is `.git`); a command that picks such a target itself (selections,
+previews, review files under `.factoria/`) passes `ManagedFolders::Allow`. A NUL byte, a drive in the first segment of a
+relative path and, on Windows, a `:` in any segment are `invalid_path`; so is, on every system (a project must move
+between them), a name Windows cannot create: a device name (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`,
+`COM1`-`COM9`, `LPT1`-`LPT9`, and `COM`/`LPT` with a superscript 1, 2 or 3, with or without an extension) or a name ending
+in a dot or a space. That rule is about CREATING a name: on Linux and macOS it applies to every segment that is not an
+existing regular file, folder or link, so a file that already has such a name (made on Linux) can still be read, and
+deleted. On Windows it applies to every segment, as such a file cannot be there (`NUL` exists in every folder, with an
+extension too, and `scenes.` is `scenes`). Other names compare without regard to case on Windows and macOS; on Linux they
+compare byte for byte, so a name that is not UTF-8 stays what it is. Errors say which form was given, what the root
+accepts, the root's real path and the fix, and end with `(code: ...)` (`fs::path_error_code`). In tooling there are three
+entry points: `resolve_write_path(projectDir, path, root, managed)` for a path the caller names (the caller's right to
+write anywhere decides `allowAnywhere`; managed folders refused unless `ManagedFolders::Allow`),
+`project_write_file(projectDir, rel)` for the assets commands, which record project-relative paths and so stay inside the
+project for everyone, and `fs.write`, `fs.edit` and `fs.delete`, which refuse the managed folders on the real path.
+`resolve_project_path` (`resolve_for_write_in` with `allowAnywhere` false and `ManagedFolders::Allow`) is the reader's and
+the tools' own: selections, previews, reads. The checks resolve the path and the caller opens it afterwards: a link
+swapped in between is out of scope (it takes a local attacker with write access to the project).
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On

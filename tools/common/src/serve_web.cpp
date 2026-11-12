@@ -1184,6 +1184,8 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         ServeWebOptions o;
         o.projectDir = projectDir;
         o.lan = tooling_detail::arg_bool(args, "lan", false);
+        // Listening on every network interface hands the game to whoever is on the network: that is publishing it.
+        if (o.lan) require_capability(Capability::Publish, "project.serve_web", "`lan: true` (serving the game to the network)");
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
         if (std::string player = tooling_detail::arg_string(args, "player", false); !player.empty()) {
             const stdfs::path p(player);

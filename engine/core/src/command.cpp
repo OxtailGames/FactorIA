@@ -412,7 +412,14 @@ void require_capability(Capability needed, std::string_view command, std::string
     CommandInfo asked;
     asked.name = std::string(command);
     asked.capabilities = CapabilitySet{Capability::Read, needed};
-    const std::string hint = capability_denied_hint(asked, CapabilitySet{needed}, granted);
+    std::string hint = capability_denied_hint(asked, CapabilitySet{needed}, granted);
+    // A command with a `dryRun` argument writes nothing in a dry run, which asks for no writeProject: say so.
+    if (needed == Capability::WriteProject && !t_active_calls.empty()) {
+        const CommandInfo* running = t_active_calls.back()->info(command);
+        if (running && running->inputSchema.is_object() && running->inputSchema.contains("properties") &&
+            running->inputSchema["properties"].is_object() && running->inputSchema["properties"].contains("dryRun"))
+            hint += " `dryRun: true` needs no writeProject: it writes nothing and shows what would be written.";
+    }
     throw CommandError("capability_denied",
                        "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" + name + "' (" +
                            capability_doc(needed) + "), which " + command_caller_name(command_caller()) +

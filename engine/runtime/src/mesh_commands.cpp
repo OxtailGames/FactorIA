@@ -120,11 +120,17 @@ void register_mesh_commands(Engine& engine, Engine::Impl& I) {
               const std::string id = need_id(a);
               if (!a.contains("path") || !a["path"].is_string())
                   throw CommandError("invalid_argument", "Missing 'path'.", "Pass the file to write, e.g. \"assets/models/tree.glb\".");
-              // Judged before anything is built: capability, inside the project, not a managed folder.
-              const std::string path = resolve_caller_project_path(a["path"].get<std::string>(), "mesh.save");
+              // Judged before anything is built, once: the capability, then the path (inside the project, not a managed folder, a .glb;
+              // its errors keep their codes).
+              require_capability(Capability::WriteProject, "mesh.save", "writing to the `path` you gave");
+              auto path = mesh_glb_path(a["path"].get<std::string>(), caller_capabilities().has(Capability::WriteAnywhere));
+              if (!path.ok()) {
+                  const std::string code(fs::path_error_code(path.error()));
+                  throw CommandError(code.empty() ? "invalid_argument" : code, path.error().message, path.error().hint);
+              }
               auto got = I.world.meshes().get(id);
               if (!got.ok()) fail(got.error());
-              auto saved = save_mesh_glb((*got)->data, path, caller_capabilities().has(Capability::WriteAnywhere));
+              auto saved = save_mesh_glb_at((*got)->data, *path);
               if (!saved.ok()) fail(saved.error());
               return Json::object({{"saved", *saved}, {"submeshes", (*got)->data.submeshes.size()}});
           });

@@ -677,10 +677,11 @@ void register_model_texture_commands(CommandRegistry& registry, const std::strin
         mark_paths(info.inputSchema, "read", {"path"});
         registry.add(info, [projectDir](const Json& args) { return model_bake_maps_command(projectDir, args.is_null() ? Json::object() : args); });
     }
-    // Capabilities (capability.h): texture, decal and palette change a document (and bake it); bake_maps measures in memory.
+    // Capabilities (capability.h): texture, decal and palette change a document (and bake it); bake_maps measures in memory and makes a temporary
+    // picture, so it is declared like the preview commands (model.preview, anim3d.preview): changes_state.
     using namespace capability_sets;
     declare_command_capabilities(registry, {{"model.texture", writes_project()}, {"model.decal", writes_project()}, {"model.palette", writes_project()},
-                                            {"model.bake_maps", reads()}});
+                                            {"model.bake_maps", changes_state()}});
 }
 
 }  // namespace fa::assets_detail

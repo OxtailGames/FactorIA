@@ -1224,7 +1224,12 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
         info.description = d.description;
         info.category = "assets";
         info.readOnly = d.readOnly;
-        Json schema = Json::object({{"type", "object"}, {"properties", d.props}});
+        // A read-only command (vector.info) writes nothing, so it takes no `out` or `overwrite`: with them in its schema the whole command
+        // would carry a write path (readOnlyHint false) and a caller could think it saves a file.
+        Json props = d.props;
+        if (d.readOnly)
+            for (const char* k : {"out", "overwrite"}) props.erase(k);
+        Json schema = Json::object({{"type", "object"}, {"properties", props}});
         if (!d.required.empty()) schema["required"] = d.required;
         // `source` and `document` are rewritten by the commands that edit; `out` is always the file to write
         for (const char* k : {"source", "document"})
@@ -1233,7 +1238,6 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
         info.inputSchema = schema;
         const std::string name = d.name;
         auto fn = d.fn;
-        const Json props = d.props;
         const bool ro = d.readOnly;
         registry.add(info, [projectDir, name, fn, props, ro](const Json& args) {
             if (!args.is_object()) fail("invalid_argument", name + ": the arguments must be an object.", "Example: {\"source\": \"assets/art/badge.svg\"}.");

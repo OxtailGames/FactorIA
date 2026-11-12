@@ -68,6 +68,9 @@ const std::vector<Writer>& caller_path_writers() {
         {"assets.spectrogram", "out", [](const std::string& p) { return Json{{"path", "assets/tone.wav"}, {"out", p}}; }},
         {"assets.contact_sheet", "path", [](const std::string& p) { return Json{{"paths", Json::array({"assets/a.png"})}, {"path", p}}; }},
         {"music.info", "pictureOut", [](const std::string& p) { return Json{{"path", "assets/music/t.song.json"}, {"pictureOut", p}}; }},
+        // Both judge `out` before they open the clip or the rig, so the files need not exist.
+        {"anim3d.preview", "out", [](const std::string& p) { return Json{{"path", "assets/anim/walk.anim.json"}, {"out", p}}; }},
+        {"skin3d.preview", "out", [](const std::string& p) { return Json{{"path", "assets/models/hero.rig.json"}, {"out", p}}; }},
     };
     return list;
 }
@@ -140,10 +143,29 @@ TEST_CASE("a picture kept at a caller's path: the command-line user can still wr
     CHECK(p.exists("assets/crate.png"));
 }
 
+TEST_CASE("a pictureOut with the picture switched off is refused with a hint, not ignored") {
+    Fixture p;
+    CommandResult r = p.call("audio.render", Json{{"path", "assets/audio/door.audio.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(code_of(r) == "invalid_argument");
+    CHECK(message_of(r).find("pictureOut") != std::string::npos);
+    CHECK(message_of(r).find("`picture` is false") != std::string::npos);
+    CHECK_FALSE(r.error.value("hint", std::string()).empty());
+    CHECK_FALSE(p.exists("assets/kept.png"));
+    // The contradiction is judged before the song is opened.
+    r = p.call("music.info", Json{{"path", "assets/music/t.song.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(code_of(r) == "invalid_argument");
+    CHECK(message_of(r).find("pictureOut") != std::string::npos);
+    // With the picture on the contradiction is gone (the call may still fail for its own reasons).
+    r = p.call("audio.render", Json{{"path", "assets/audio/door.audio.json"}, {"pictureOut", "assets/kept.png"}});
+    CHECK_MESSAGE(r.ok, r.error.dump());
+}
+
 TEST_CASE("the previews that keep a picture only at a caller's path are not read-only; {read,state} may look but not keep") {
     Fixture p;
     for (const char* name : {"model.preview", "audio.render", "assets.spectrogram", "assets.contact_sheet", "assets.preview_sheet",
-                             "assets.preview_in_scene", "music.info", "anim3d.preview", "skin3d.preview", "assets.check_art"}) {
+                             "assets.preview_in_scene", "music.info", "anim3d.preview", "skin3d.preview", "assets.check_art", "model.bake_maps"}) {
         CAPTURE(name);
         const CommandInfo* info = p.registry.info(name);
         REQUIRE(info != nullptr);

@@ -374,38 +374,41 @@ std::vector<std::string> scene_files() {
     return out;
 }
 
-// `path` / `from` / `file`: a project-relative scene file. A file that is only READ (`from`, and `path` of a dry run) refuses an
-// absolute path (the project folder is the sandbox of the file mode). A file that is WRITTEN goes through
-// resolve_caller_project_path (writeProject, inside the project, not .git or .factoria/ except .factoria/tmp/; an absolute path
-// only for a caller that may write anywhere). `command` is the command whose argument it is: its errors name it.
+// `path` / `from` / `file`: a project-relative file (`kind` says which: a scene file, or the level file that scene.ascii_edit
+// rewrites). A file that is only READ (`from`, and `path` of a dry run) refuses an absolute path (the project folder is the
+// sandbox of the file mode). A file that is WRITTEN goes through resolve_caller_project_path (writeProject, inside the project,
+// not .git or .factoria/ except .factoria/tmp/; an absolute path only for a caller that may write anywhere). `command` is the
+// command whose argument it is: its errors name it.
 // `predictWrite` (a dry run's `path`): nothing is written, so no writeProject is needed, but the path is judged by the same rules
-// as the real call would (inside the project, not .git or .factoria/ except .factoria/tmp/), so the dry run predicts it.
-std::string scene_file_arg(const Json& v, const char* key, bool forWrite, const char* command, bool predictWrite = false) {
+// as the real call would (resolve_for_write with the caller's right to write anywhere: inside the project, not .git or
+// .factoria/ except .factoria/tmp/, an absolute path only for the command line), so the dry run predicts it.
+std::string scene_file_arg(const Json& v, const char* key, bool forWrite, const char* command, bool predictWrite = false,
+                           const char* kind = "scene file", const char* example = "scenes/level1.scene.json") {
     const std::string k = key;
     if (!v.is_string() || v.get<std::string>().empty())
-        bad_arg("'" + k + "' of " + command + " must be a project-relative scene file path, got " + describe_json_value(v),
-                "Example: \"" + k + "\": \"scenes/level1.scene.json\".");
+        bad_arg("'" + k + "' of " + command + " must be a project-relative " + kind + " path, got " + describe_json_value(v),
+                "Example: \"" + k + "\": \"" + example + "\".");
     const std::string raw = v.get<std::string>();
     std::string path;
     if (forWrite) {
         path = resolve_caller_project_path(raw, command);
+    } else if (predictWrite) {
+        auto judged = fs::resolve_for_write(raw, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+        if (!judged.ok()) {
+            const std::string code(fs::path_error_code(judged.error()));
+            throw CommandError(code.empty() ? "invalid_argument" : code, judged.error().message, judged.error().hint);
+        }
+        path = fs::project_spelling(judged.value());
     } else {
         if (fs::is_absolute(raw))
             bad_arg("'" + k + "' of " + command + " must be project-relative, but '" + raw + "' is an absolute path",
-                    "Use the path inside the project, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
+                    "Use the path inside the project, e.g. \"" + k + "\": \"" + example + "\".");
         auto norm = fs::normalize_checked(raw);
         if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
         path = norm.value();
-        if (predictWrite) {
-            auto judged = fs::resolve_for_write(path, fs::WriteRoot::Project, false);
-            if (!judged.ok()) {
-                const std::string code(fs::path_error_code(judged.error()));
-                throw CommandError(code.empty() ? "invalid_argument" : code, judged.error().message, judged.error().hint);
-            }
-        }
     }
     if (path.empty() || fs::is_directory(path))
-        bad_arg("'" + k + "' of " + command + " is '" + raw + "', which is a folder, not a scene file", "Name the file, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
+        bad_arg("'" + k + "' of " + command + " is '" + raw + "', which is a folder, not a " + kind, "Name the file, e.g. \"" + k + "\": \"" + example + "\".");
     return path;
 }
 
@@ -1167,7 +1170,7 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
                 "Example: \"ops\": [{\"op\": \"fill\", \"rect\": [0, 5, 3, 1], \"glyph\": \"#\"}]. Ops: fill, replace, insertColumns, deleteColumns, put.");
     // `file` is rewritten (not by a dry run, which needs no writeProject): judged first, before it is read or anything is built.
     const bool dryRun = a.value("dryRun", false), rebuild = a.value("rebuild", true);
-    const std::string file = scene_file_arg(a["file"], "file", !dryRun, "scene.ascii_edit", dryRun);
+    const std::string file = scene_file_arg(a["file"], "file", !dryRun, "scene.ascii_edit", dryRun, "level file", "levels/1-1.json");
     if (!fs::exists(file)) {
         std::vector<std::string> jsons = fs::list("", true, ".json");
         throw CommandError("not_found", "'file' '" + file + "' does not exist. " + did_you_mean(file, jsons),
