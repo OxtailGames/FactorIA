@@ -736,7 +736,9 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
         ImGui::TextDisabled("This file has no part to edit: see Problems.");
         return;
     }
-    const Json& part = doc["parts"][std::size_t(index)];
+    // A COPY of the part: a row below edits the model in this same frame (a drag previews, a click applies), which replaces
+    // the document and frees the nodes a reference into it points at (found by the ASan run: heap-use-after-free).
+    const Json part = doc["parts"][std::size_t(index)];
     const std::string type = part.is_object() ? part.value("type", std::string()) : std::string();
     ImGui::SeparatorText(std::format("Part {}: {}", index, type).c_str());
 

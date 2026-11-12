@@ -159,6 +159,127 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Linux with Clang and AddressSanitizer + UndefinedBehaviorSanitizer (and LeakSanitizer, which only Linux has): the whole
+  # Debug suite on a build whose every target, external/ included, is instrumented (FA_SANITIZE, preset linux-asan;
+  # docs/BUILDING.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
+  # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
+  linux-asan:
+    name: Linux (Clang, ASan + UBSan)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120  # instrumented code runs 2-3x slower than the Debug build of the linux job; a cold ccache adds the build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          ./scripts/bootstrap-linux.sh
+          sudo apt-get install -y clang llvm  # llvm: llvm-symbolizer, for readable sanitizer stack traces
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-asan-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-asan-
+
+      - name: Configure and build (linux-asan)
+        run: |
+          ccache --zero-stats
+          cmake --preset linux-asan
+          cmake --build --preset linux-asan
+          ccache --show-stats --verbose
+
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() }}
+        run: ccache --evict-older-than 7200s
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-asan-${{ github.run_id }}
+
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/linux-asan/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/linux-asan/tools/cli"; exit 1; }
+          "$cli" setup shaders
+
+      - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan
+        env:
+          FA_REQUIRE_SHDC: '1'
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-asan --parallel 4  # the runner's 4 vCPUs
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-asan-test-output
+          path: |
+            build/**/Testing/**
+            build/**/test-output/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Linux with Clang and ThreadSanitizer: only the tests that run threads (ctest label `tsan`: the job system and the background
+  # reads in core, the jobs engine and the background loads in runtime, all of audio and of mcp; CMakeLists.txt, "ThreadSanitizer").
+  # A data race fails the test (TSan's exit code). The suppressions are tools/ci/sanitizers/tsan.supp.
+  linux-tsan:
+    name: Linux (Clang, TSan, threaded tests)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          ./scripts/bootstrap-linux.sh
+          sudo apt-get install -y clang llvm
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-tsan-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-tsan-
+
+      # Only the targets the threaded tests link, not the editor, the player or the other test programs.
+      - name: Configure and build (linux-tsan)
+        run: |
+          ccache --zero-stats
+          cmake --preset linux-tsan
+          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp
+          ccache --show-stats --verbose
+
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() }}
+        run: ccache --evict-older-than 7200s
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-tsan-${{ github.run_id }}
+
+      - name: Test under Xvfb (Mesa llvmpipe), ThreadSanitizer
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-tsan -L tsan --parallel 2
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tsan-test-output
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+          retention-days: 7
+
   # The Linux release programs, built the way release.yml builds them: in the Steam Runtime "sniper" SDK container (glibc
   # 2.31, GCC 14, libstdc++ and libgcc static), so they run on the Steam Linux Runtime (Steam, the Steam Deck), Ubuntu 20.04
   # and newer, Debian 11 and newer. Builds the preset linux-sniper (no tests: the `linux` job has them), fails when factoria
@@ -1059,7 +1180,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator, web]
+    needs: [changes, linux, linux-asan, linux-tsan, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
     permissions:
       actions: write  # gh cache delete

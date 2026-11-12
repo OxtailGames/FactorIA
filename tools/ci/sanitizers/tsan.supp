@@ -1,0 +1,5 @@
+# ThreadSanitizer suppressions (FA_SANITIZE=thread). Read through TSAN_OPTIONS=suppressions=...
+# Policy: a race in engine or tool code is fixed, never listed. Only races inside system libraries we do not build may be
+# listed, each with its reason above it. Format: race:<function or library pattern>
+#
+# (nothing needed suppressing yet)
