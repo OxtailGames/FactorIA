@@ -365,25 +365,44 @@ TEST_CASE("capabilities: a module first imported by a test keeps the game's set 
     h.file("scripts/top.js", R"JS(
 import { Behaviour, fa } from "factoria";
 let r = "ok";
-try { fa.call("fake.write", {}); } catch (e) { r = e.code; }
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
 globalThis.TOP = r;
 export default class Top extends Behaviour {}
 )JS");
     h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
       { "id": "t", "components": { "Script": { "path": "scripts/top.js" } } } ] })");
+    // The refusal is worded for whoever's set the code ran under ("Game scripts get ..." for the game, a test's own words for a
+    // test), so the hint tells which one a module's top level ran as. Static imports of the test file: a game module, and a helper whose own import is a game module (transitive). The test
+    // file's `capabilities` option grants writeProject to its tests, not to the top level of what it imports.
+    const char* record = R"JS(
+import { fa } from "factoria";
+let r = "ok";
+try { fa.call("fake.write", {}); } catch (e) { r = e.code + "|" + e.hint; }
+)JS";
+    h.file("scripts/static_game.js", std::string(record) + "globalThis.STATIC = r;\nexport const value = 1;\n");
+    h.file("scripts/deep_game.js", std::string(record) + "globalThis.DEEP = r;\nexport const deep = 2;\n");
+    h.file("tests/helper.js", "import { deep } from \"scripts/deep_game.js\";\nexport const helper = deep + 1;\n");
     h.file("tests/top.test.js", R"JS(
 import { test, expect, game } from "factoria:test";
 import { fa } from "factoria";
+import { value } from "scripts/static_game.js";
+import { helper } from "tests/helper.js";
 test("the test itself may write", () => { fa.call("fake.write", {}); }, { capabilities: ["writeProject"] });
+test("modules the test file imports statically (and what they import) run their top level as game code", () => {
+  expect(value).toBe(1);
+  expect(helper).toBe(3);
+  expect(globalThis.STATIC).toContain("Game scripts get {read, state}");
+  expect(globalThis.DEEP).toContain("Game scripts get {read, state}");
+}, { capabilities: ["writeProject"] });
 test("a behaviour module first loaded here runs its top level as game code", () => {
   game.load("scenes/main.scene.json");
   game.step(1);
-  expect(globalThis.TOP).toBe("capability_denied");
+  expect(globalThis.TOP).toContain("Game scripts get {read, state}");
 }, { capabilities: ["writeProject"] });
 )JS");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/top.test.js"});
     for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
     CHECK(rep.ok());
-    CHECK(rep.passed == 2);
+    CHECK(rep.passed == 3);
 }

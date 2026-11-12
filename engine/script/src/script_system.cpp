@@ -139,7 +139,9 @@ char* normalize_cb(JSContext* ctx, const char* base, const char* name, void* opa
 JSModuleDef* loader_cb(JSContext* ctx, const char* name, void* opaque) {
     auto* I = static_cast<ScriptSystem::Impl*>(opaque);
     (void)ctx;
-    return I->load_module(name);
+    JSModuleDef* m = I->load_module(name);
+    if (m && I->loadTrace) I->loadTrace->push_back(name);  // after its own imports were loaded: the order they are evaluated in
+    return m;
 }
 
 int interrupt_cb(JSRuntime*, void* opaque) { return static_cast<ScriptSystem::Impl*>(opaque)->check_interrupt() ? 1 : 0; }
@@ -910,6 +912,27 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
 
     Json quoted = name;
     std::string src = "import * as m from " + quoted.dump() + "; globalThis.__fa_import = m;";
+    if (topLevelMode != CapMode::Game) {
+        // QuickJS evaluates the whole static import graph inside the one JS_Eval below, under `topLevelMode`, so a game module the
+        // test file imports would run its top level as test code. Load the graph first (compile only: nothing runs), then evaluate
+        // every module it pulled in, dependencies first, as game code; the module itself is then the only one left to run under
+        // `topLevelMode`. A load or syntax error is left to the real evaluation below, which reports it.
+        std::vector<std::string> loaded;
+        loadTrace = &loaded;
+        JSValue pre = JS_Eval(ctx, src.c_str(), src.size(), "<import>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        loadTrace = nullptr;
+        if (JS_IsException(pre)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        } else {
+            JS_FreeValue(ctx, pre);
+            for (const std::string& dep : loaded) {
+                if (dep == name || dep == "factoria" || dep == "factoria:test") continue;
+                auto ns = import_module(module_file(dep), detail);  // Game: the default
+                if (!ns) return ns.error();
+                JS_FreeValue(ctx, *ns);
+            }
+        }
+    }
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("loading " + path, 10.0);
     timedOut = false;
