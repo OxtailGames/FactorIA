@@ -29,6 +29,21 @@ TEST_CASE("json: parse errors carry source, line, column and a hint") {
     CHECK(ok.value()["a"].size() == 2);
 }
 
+TEST_CASE("json: a number outside the range of a double is an error, not an exception (found by the fuzz target)") {
+    for (const char* text : {"1e999", "[1, -1e999]", "{\"a\": {\"b\": 123e4567}}", "[0.1e-400]"}) {
+        CAPTURE(text);
+        auto r = parse_json(text, "x.json");  // 0.1e-400 underflows to zero and parses; the others overflow
+        if (std::string(text) == "[0.1e-400]") {
+            CHECK(r.ok());
+            continue;
+        }
+        REQUIRE(!r.ok());
+        CHECK(r.error().message.find("x.json: invalid JSON") == 0);
+        CHECK(r.error().message.find("number overflow") != std::string::npos);
+        CHECK(r.error().hint.find("1e999") != std::string::npos);
+    }
+}
+
 TEST_CASE("json: vectors accept several spellings") {
     std::string err;
     Vec2 v2;

@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- Fuzzing (M93.2): `tools/fuzz/` has fuzz targets for `parse_json`, `validate_json` and the schema helpers, `load_scene`, `entity_from_json`, the game pack reader, the MCP JSON-RPC server (read-only capabilities, empty project) and the translation tables (`read_csv`, `read_xliff`), each one `.cpp` plus a corpus folder. Every build replays the corpus as the ctests `fuzz_<name>` (label `fuzz`); `-DFA_FUZZ=ON` with Clang builds them as libFuzzer programs with AddressSanitizer and UBSan (`tools/fuzz/run.sh`), and the CI job `linux-fuzz` runs each for a minute. docs/BUILDING.md, "Fuzzing", says how to add a target and a crash.
+- `PackReader::open_memory` opens a game pack from bytes in memory (the fuzz target of the pack format uses it) and gives the same errors as `open` for a damaged one.
+- A JSON number outside the range of a double (`1e999`) is now an `invalid JSON` error with a hint instead of an exception that ended the program (found by the `json` fuzz target); it affected every file the engine parses with `parse_json`.
+
 ## 0.25.0
 
 FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,

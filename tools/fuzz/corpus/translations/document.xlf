@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"><file original="en.json" source-language="en" target-language="es" datatype="plaintext"><body><group><trans-unit id="1" resname="menu.play"><source>Play</source><target>Jugar &#x41; &amp; <g id="1">m&aacute;s</g></target><alt-trans><target>x</target></alt-trans></trans-unit></group><trans-unit id="menu.quit"><source>Quit</source><target><![CDATA[Salir <ya>]]></target></trans-unit><trans-unit id="b"><source>Back</source></trans-unit></body></file></xliff>
