@@ -93,7 +93,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.hooks_test`](commands/ai.md#aihooks_test-modifies-state): Run the configured hooks of one event with a sample input and show what they decide. _Since 0.11.0._
 - [`ai.models`](commands/ai.md#aimodels-modifies-state): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.plugin_install`](commands/ai.md#aiplugin_install-modifies-state): Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions. _Since 0.11.0._
-- [`ai.providers`](commands/ai.md#aiproviders-modifies-state): List configured AI providers and roles, or diagnose which ones are usable (doctor).
+- [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
 - [`ai.retrospective`](commands/ai.md#airetrospective-modifies-state): Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries. _Since 0.17.0._
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
@@ -106,7 +106,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.settings.get`](commands/ai.md#aisettingsget): Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine. _Since 0.17.0._
 - [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes. _Since 0.17.0._
 - [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Since 0.11.0._
-- [`ai.tool_servers`](commands/ai.md#aitool_servers-modifies-state): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
+- [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 
 ### [anim](commands/anim.md)
 
