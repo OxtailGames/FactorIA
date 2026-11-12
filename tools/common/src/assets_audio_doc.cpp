@@ -221,7 +221,7 @@ Json audio_info_command(const std::string& projectDir, const Json& a) {
 Json audio_render_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("audio.render", a, "", {"path", "document", "seed", "stopAfter", "compare", "picture", "pictureOut", "width"});
     // A kept picture is a file the caller names: refuse it before the render (writeProject, inside the project).
-    if (tooling_detail::arg_bool(a, "picture", true)) check_kept_picture(projectDir, a, "audio.render");
+    check_kept_picture(projectDir, a, "audio.render");
     bool inlineDoc = false;
     const Loaded loaded = document_arg("audio.render", projectDir, a, inlineDoc);
     AudioRenderOptions options;

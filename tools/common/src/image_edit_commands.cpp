@@ -21,8 +21,6 @@ using tooling_detail::arg_string;
 
 namespace {
 
-const char* kExamplePath = "assets/art/hero.image.json";
-
 Json required_arg(const Json& a, const char* command, const char* key, const char* what, const std::string& example) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) arg_error(command, std::string("/") + key, std::string("`") + key + "` is required: " + what + ".", example);
@@ -257,13 +255,14 @@ Image scale_nearest(const Image& src, int w, int h) {
 Json image_export(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.export";
     check_arg_keys(cmd, a, "", {"path", "out", "scale", "layer", "trim", "filter", "overwrite", "frame"});
-    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
-    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
+    // `out` is judged first, before the document is opened and rendered: a path that may not be written fails without any work.
     const std::string outArg = arg_string(a, "out", true);
     auto outNorm = fs::normalize_checked(outArg);
     if (!outNorm.ok() || outNorm->empty() || !ends_with(to_lower(*outNorm), ".png"))
         arg_error(cmd, "/out", "'" + outArg + "' is not a project-relative .png path.", "Example: \"assets/art/hero-export.png\".");
     check_write_target(projectDir, *outNorm, cmd, "out");
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd, false);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     auto outPath = resolve_project_path(projectDir, *outNorm);
     if (!outPath.ok()) fail("invalid_argument", outPath.error().message, outPath.error().hint);
     std::error_code ec;

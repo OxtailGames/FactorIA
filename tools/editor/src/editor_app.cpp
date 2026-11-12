@@ -734,7 +734,10 @@ void Editor::install_command_overrides() {
             std::vector<PrefabExpanded> expanded;
             auto r = save_scene_file(world(), path, false, nullptr, &expanded);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
-            if (path == scenePath_) dirty_ = false;
+            // Same scene or not is a question about the file, not the text: `path` is the resolved spelling (normalized, symlinks
+            // followed), so the scene's own path ("./scenes/a.scene.json", a link) is brought to that spelling to compare.
+            auto current = fs::resolve_for_write(scenePath_, fs::WriteRoot::Project, true, fs::ManagedFolders::Allow);
+            if (path == scenePath_ || (current.ok() && fs::project_spelling(*current) == path)) dirty_ = false;
             Json out = Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
             if (!expanded.empty()) {
                 Json list = Json::array();

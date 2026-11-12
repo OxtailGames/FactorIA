@@ -23,6 +23,21 @@ struct Call {
     Json args;
 };
 
+// Whether a failed call was refused by a path rule: the rule's own error code, or an invalid_argument whose message says which rule it was
+// (the image, vector and signing commands wrap the rule: "(code: path_outside_root)", "is not a path inside the project"...).
+bool refused_by_a_path_rule(const CommandResult& r) {
+    const std::string code = r.error.is_object() ? r.error.value("code", std::string()) : std::string();
+    const std::string message = r.error.is_object() ? r.error.value("message", std::string()) : std::string();
+    const std::vector<std::string> rules = {"path_outside_root", "absolute_path_denied", "managed_path_denied", "invalid_path"};
+    for (const std::string& rule : rules)
+        if (code == rule || message.find("(code: " + rule + ")") != std::string::npos) return true;
+    if (code != "invalid_argument") return false;
+    for (const char* wording : {"is not a path inside the project", "is not a project path", "cannot be written", "escapes the project", "does not accept",
+                                "must be a project-relative path", "is not under assets/"})
+        if (message.find(wording) != std::string::npos) return true;
+    return false;
+}
+
 }  // namespace
 
 TEST_CASE("tooling commands declare their capabilities explicitly (M92.1b2b)") {
@@ -79,6 +94,7 @@ TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the
     const std::string outsideDoc = (other.path / "evil.image.json").generic_string();
     const std::string outsidePng = (other.path / "evil.png").generic_string();
     const std::string outsideSvg = (other.path / "evil.svg").generic_string();
+    const std::string outsidePrefab = (other.path / "evil.prefab.json").generic_string();
 
     auto create = [&](const char* key, const std::string& value) {
         Json args = Json::object({{"path", "assets/art/ok.image.json"}, {"width", 8}, {"height", 8}});
@@ -98,19 +114,19 @@ TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the
         {"image.frame.add", Json::object({{"path", outsideDoc}})},
         {"image.frame.add", Json::object({{"path", ".git/evil.image.json"}})},
         {"image.tile.set", Json::object({{"path", ".git/evil.image.json"}, {"enabled", true}})},
-        {"image.pixel", Json::object({{"path", "../evil.image.json"}})},
-        {"image.draw", Json::object({{"path", outsideDoc}})},
+        {"image.pixel", Json::object({{"path", "../evil.image.json"}, {"layer", "0"}})},
+        {"image.draw", Json::object({{"path", outsideDoc}, {"layer", "0"}, {"shapes", Json::array({Json::object({{"type", "fill"}, {"at", Json::array({0, 0})}, {"color", "x"}})})}})},
         {"image.tileset.build", Json::object({{"path", "../evil.image.json"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"output", "../evil.png"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"output", ".git/evil.png"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"rules", "../evil.json"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"rules", ".git/evil.json"}})},
         // vector and vector_rig
-        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", "../evil.svg"}, {"shape", "rect"}})},
-        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", outsideSvg}, {"shape", "rect"}})},
-        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", ".git/evil.svg"}, {"shape", "rect"}})},
+        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", "../evil.svg"}, {"kind", "rect"}})},
+        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", outsideSvg}, {"kind", "rect"}})},
+        {"vector.add", Json::object({{"source", "assets/art/a.svg"}, {"out", ".git/evil.svg"}, {"kind", "rect"}})},
         {"vector.to_rig", Json::object({{"source", "assets/art/a.svg"}, {"out", "../evil.prefab.json"}})},
-        {"vector.to_rig", Json::object({{"source", "assets/art/a.svg"}, {"out", outsideSvg}})},
+        {"vector.to_rig", Json::object({{"source", "assets/art/a.svg"}, {"out", outsidePrefab}})},
         {"vector.to_rig", Json::object({{"source", "assets/art/a.svg"}, {"out", ".git/evil.prefab.json"}})},
         {"vector.to_rig", Json::object({{"source", "assets/art/a.svg"}, {"atlas", ".git/evil.png"}})},
         // sign.macos: `app` is signed in place
@@ -125,7 +141,9 @@ TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the
             CAPTURE(c.args.dump());
             REQUIRE(reg.has(c.command));
             auto r = reg.call(c.command, c.args);
-            CHECK_FALSE(r.ok);
+            REQUIRE_FALSE(r.ok);
+            // Refused by a path rule, not by another argument that failed first.
+            CHECK_MESSAGE(refused_by_a_path_rule(r), "not refused by a path rule: " << r.error.dump());
         }
     }
     for (const char* name : {"evil.image.json", "evil.png", "evil.svg", "evil.prefab.json", "Evil.app"})

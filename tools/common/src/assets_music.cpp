@@ -273,8 +273,8 @@ bool is_black_key(int midi) {
 
 }  // namespace
 
-void check_picture_out(const std::string& projectDir, const Json& a, const char* command) {
-    check_kept_picture(projectDir, a, command);
+void check_picture_out(const std::string& projectDir, const Json& a, const char* command, bool pictureDefault) {
+    check_kept_picture(projectDir, a, command, pictureDefault);
 }
 
 void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& tl, Json& result, const char* command) {
@@ -435,7 +435,7 @@ bool preview_is_ours(const std::string& projectDir, const std::string& outRel) {
 
 Json music_info_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.info", a, "", {"path", "song", "picture", "pictureOut", "width", "fromBar", "bars"});
-    if (tooling_detail::arg_bool(a, "picture", true)) check_picture_out(projectDir, a, "music.info");
+    check_picture_out(projectDir, a, "music.info");
     Loaded loaded = resolve_song(projectDir, a, "music.info");
     const SongTimeline tl = expand_or_fail(loaded.doc, loaded.rel);
     Json result = summary_json(loaded.doc, tl);
@@ -636,6 +636,7 @@ SongRenderOptions render_options(const std::string& command, const std::string& 
 Json music_preview_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.preview", a, "", {"path", "out", "fromBar", "bars", "solo", "mute", "seed", "sampleRate", "overwrite", "picture", "pictureOut", "width", "height"});
     const std::string rel = song_path(tooling_detail::arg_string(a, "path", true));
+    check_picture_out(projectDir, a, "music.preview");
     Loaded loaded = load_song_file(projectDir, rel);
     const SongTimeline tl = expand_or_fail(loaded.doc, rel);
 

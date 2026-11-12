@@ -494,6 +494,10 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
                "path":{"type":"string","x-fa-path":"write","description":"Keep the PNG here, inside the project (needs the writeProject capability; absolute paths need writeAnywhere, and the managed folders are refused)."}}})"),
            false, "anim"},
           [&engine, &I](const Json& a) {
+              // The caller's `path` is judged first, before the game steps and the strip is drawn: a path it may not write fails
+              // without having changed anything.
+              const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
+              const std::string requested = temporary ? std::string() : resolve_caller_write_path(a["path"].get<std::string>(), "anim.filmstrip");
               const Entity e = need_entity(I.world, a, "entity");
               Animator& an = need_animator(I, e, "anim.filmstrip");
               const std::string name = clip_name_of(e, an, a.contains("clip") ? a["clip"] : Json(), I.world);
@@ -581,8 +585,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
               }
               SheetLayout l;
               Image img = contact_sheet(shots, labels, wanted, -1, &l);
-              const bool temporary = !(a.contains("path") && a["path"].is_string() && !a["path"].get<std::string>().empty());
-              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_anim.png" : resolve_caller_write_path(a["path"].get<std::string>(), "anim.filmstrip");
+              const std::string path = temporary ? ".factoria/screenshots/frame_" + std::to_string(I.frame) + "_anim.png" : requested;
               auto saved = save_png(img, path);
               if (!saved.ok()) throw CommandError("unavailable", saved.error().message, saved.error().hint.empty() ? "Check the path is inside a writable folder." : saved.error().hint);
               const std::string abs = abs_path(path);
