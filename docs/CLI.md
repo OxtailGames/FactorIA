@@ -284,6 +284,10 @@ ends the session. Logs go to stderr, so stdout is pure JSON lines.
 
 ### `factoria commands [prefix-or-name] [--project DIR] [--json]`
 Lists commands by category (`*` = modifies state). With an exact name it prints the description and argument schema.
+With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
+command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
+them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/ARCHITECTURE.md, "Capabilities").
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
