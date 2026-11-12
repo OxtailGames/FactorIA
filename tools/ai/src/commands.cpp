@@ -162,8 +162,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.description =
             "action \"list\" (default) shows providers and the role mapping from ~/.factoria/ai.json. action \"doctor\" "
             "also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset "
-            "(image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: "
-            "{\"action\":\"doctor\"}";
+            "(image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). The list only "
+            "reads the config; the doctor starts the CLIs to ask their version, so it needs the Process capability (a read-only "
+            "caller gets capability_denied). Example: {\"action\":\"doctor\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "action":{"type":"string","enum":["list","doctor"],"default":"list","description":"list or doctor."}},
             "additionalProperties":false})");
@@ -219,7 +220,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "is missing, \"\" when ready) and note. With test:true each enabled, ready server is contacted (initialize + "
             "tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` "
             "[{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. "
-            "Example: {\"test\":true,\"name\":\"scenario\"}";
+            "The plain list only reads the config; test:true starts programs and opens connections, so it needs the Process and "
+            "Network capabilities (a read-only caller gets capability_denied). Example: {\"test\":true,\"name\":\"scenario\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "test":{"type":"boolean","default":false,"description":"Connect to each server and list its tools."},
             "name":{"type":"string","description":"Only this server (a name from the list)."}},

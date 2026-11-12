@@ -115,7 +115,7 @@ List configured AI providers and roles, or diagnose which ones are usable (docto
 
 Capabilities: read
 
-action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: {"action":"doctor"}
+action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). The list only reads the config; the doctor starts the CLIs to ask their version, so it needs the Process capability (a read-only caller gets capability_denied). Example: {"action":"doctor"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -325,7 +325,7 @@ List the external tool servers (MCP) the user configured in ai.json, and optiona
 
 Capabilities: read
 
-The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. Example: {"test":true,"name":"scenario"}
+The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. The plain list only reads the config; test:true starts programs and opens connections, so it needs the Process and Network capabilities (a read-only caller gets capability_denied). Example: {"test":true,"name":"scenario"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

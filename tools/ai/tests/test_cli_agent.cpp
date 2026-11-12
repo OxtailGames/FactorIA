@@ -234,8 +234,20 @@ TEST_CASE("claude-code agent: when the owner-only write in the project fails, th
     // owner-only ACL).
     std::filesystem::create_directories(dir.path / ".factoria");
     std::ofstream(dir.path / ".factoria" / "ai") << "not a folder";
+    // A private folder of an earlier run that crashed (two days old) and one of a run in progress (new): the sweep takes
+    // only the old one.
+    const std::filesystem::path oldDir = fa::fs::make_temp_dir("factoria-run");
+    const std::filesystem::path newDir = fa::fs::make_temp_dir("factoria-run");
+    REQUIRE_FALSE(oldDir.empty());
+    REQUIRE_FALSE(newDir.empty());
+    std::error_code tec;
+    std::filesystem::last_write_time(oldDir, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48), tec);
+    REQUIRE_FALSE(tec);
     CliRunRequest req{"x", "", dir.str()};
     auto r = CliAgent(cfg).run(req, nullptr, nullptr);
+    CHECK_FALSE(std::filesystem::exists(oldDir));
+    CHECK(std::filesystem::exists(newDir));
+    std::filesystem::remove_all(newDir, tec);
     REQUIRE(r);
     CHECK(r->ok);
     const std::string argv = read_file(argvFile);
