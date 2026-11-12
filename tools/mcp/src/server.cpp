@@ -18,6 +18,7 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
+#include "fa/tooling/tool_groups.h"
 #include "result_shape.h"
 
 namespace fa {
@@ -338,32 +339,267 @@ void McpServer::log(const std::string& level, const std::string& logger, const J
 
 bool is_user_only_command(std::string_view commandName) { return commandName == "ai.plugin_install"; }
 
+bool McpServer::visible(const CommandInfo& c) const { return !is_user_only_command(c.name) && (!filter_ || filter_(c)); }
+
+bool McpServer::listed(const CommandInfo& c) const {
+    if (!visible(c)) return false;
+    std::lock_guard<std::mutex> lock(profileMutex_);
+    return listed_locked(c);
+}
+
+bool McpServer::listed_locked(const CommandInfo& c) const {  // profileMutex_ held; c is visible
+    if (!profile_ || is_core_command(c.name)) return true;
+    for (const std::string& g : loaded_)
+        if (command_in_tool_group(c, g)) return true;
+    return false;
+}
+
+Json McpServer::tool_json(const CommandInfo& c) const {
+    Json t = Json::object();
+    t["name"] = mcp_tool_name(c.name);
+    t["title"] = humanize(c.name);
+    std::string desc = c.summary;
+    if (!c.description.empty()) desc += "\n\n" + c.description;
+    if (!c.details.empty()) desc += "\n\n" + command_details_pointer(c);
+    const std::string since = api_since("commands", c.name);
+    if (!since.empty() && since != "0.1.0") desc += "\n\n" + api_since_label(since) + ".";
+    t["description"] = desc;
+    if (!since.empty()) t["_meta"] = Json::object({{"since", since}});
+    Json schema = c.inputSchema.is_object() ? c.inputSchema : Json::object();
+    if (!schema.contains("type")) schema["type"] = "object";
+    t["inputSchema"] = schema;
+    t["annotations"] = Json::object({{"title", humanize(c.name)},
+                                     {"readOnlyHint", c.readOnly},
+                                     {"destructiveHint", !c.readOnly},
+                                     {"openWorldHint", false}});
+    return t;
+}
+
+namespace {
+constexpr const char* kToolLoad = "tool_load";
+constexpr const char* kToolDescribe = "tool_describe";
+constexpr const char* kToolCall = "tool_call";
+bool is_loader_tool(const std::string& n) { return n == kToolLoad || n == kToolDescribe || n == kToolCall; }
+}  // namespace
+
+std::string McpServer::validate_groups(const std::vector<std::string>& groups) const {
+    std::vector<const CommandInfo*> commands;
+    for (const CommandInfo* c : host_.commands().list())
+        if (visible(*c)) commands.push_back(c);
+    for (const std::string& g : groups) {
+        bool found = false;
+        for (const CommandInfo* c : commands)
+            if (command_in_tool_group(*c, g)) {
+                found = true;
+                break;
+            }
+        if (!found) {
+            // A group that names commands this server hides (--read-only hides every command that changes state) is not a typo.
+            for (const CommandInfo* c : host_.commands().list())
+                if (!visible(*c) && command_in_tool_group(*c, g))
+                    return "Tool group '" + g + "' only has commands this server does not offer (a --read-only server hides the commands "
+                           "that change state; some commands are for the user only). Use a group that has read-only commands, or start "
+                           "the server without --read-only.";
+            return "Tool group '" + g + "' matches no command category and no command. " + tool_group_hint(g, commands);
+        }
+    }
+    return {};
+}
+
+std::string McpServer::set_tool_profile(const std::vector<std::string>& groups) {
+    if (groups.empty() || std::find(groups.begin(), groups.end(), "all") != groups.end()) {
+        std::lock_guard<std::mutex> lock(profileMutex_);
+        profile_ = false;
+        loaded_.clear();
+        return {};
+    }
+    if (std::string err = validate_groups(groups); !err.empty()) return err;
+    std::lock_guard<std::mutex> lock(profileMutex_);
+    profile_ = true;
+    loaded_ = groups;
+    return {};
+}
+
+bool McpServer::tool_profile_active() const {
+    std::lock_guard<std::mutex> lock(profileMutex_);
+    return profile_;
+}
+
+Json McpServer::loader_tools_json() const {
+    // The groups the model can ask for: command categories with their command counts, as many as the description budget
+    // (tools/cli/tests/mcp_description_budget_test.cpp: 1.5 KB) leaves room for.
+    std::map<std::string, int> counts;
+    for (const CommandInfo* c : host_.commands().list())
+        if (visible(*c)) ++counts[c->category.empty() ? "other" : c->category];
+    std::string groups;
+    std::size_t shown = 0;
+    for (const auto& [cat, n] : counts) {
+        const std::string item = (groups.empty() ? "" : ", ") + cat + " (" + std::to_string(n) + ")";
+        if (groups.size() + item.size() > 650) break;
+        groups += item;
+        ++shown;
+    }
+    if (shown < counts.size())
+        groups += ", and " + std::to_string(counts.size() - shown) + " more (tool_load with no groups lists all)";
+    // tool_call runs any command this server offers: on a server that offers only read-only commands (--read-only) it cannot
+    // change anything, so it says so; otherwise it is a write tool like the commands behind it.
+    bool callIsReadOnly = true;
+    for (const CommandInfo* c : host_.commands().list())
+        if (visible(*c) && !c->readOnly) { callIsReadOnly = false; break; }
+    auto make = [](const char* name, const char* title, const std::string& desc, const char* schema, bool readOnly) {
+        Json t = Json::object();
+        t["name"] = name;
+        t["title"] = title;
+        t["description"] = desc;
+        t["inputSchema"] = Json::parse(schema);
+        t["annotations"] = Json::object({{"title", title}, {"readOnlyHint", readOnly}, {"destructiveHint", !readOnly}, {"openWorldHint", false}});
+        return t;
+    };
+    Json out = Json::array();
+    out.push_back(make(kToolLoad, "Load tool groups",
+                       "This server lists only its core tools; the other commands are in groups. Load groups to add their tools "
+                       "to the tool list (the server sends tools/list_changed; if your tool list does not change, use "
+                       "tool_describe and tool_call instead). A group is a category, an exact command name "
+                       "(assets.slice_sheet) or all. Without groups it lists the groups. Groups (commands): " + groups + ".",
+                       R"({"type":"object","properties":{"groups":{"type":"array","items":{"type":"string"},"description":
+                       "Categories or command names to load, e.g. [\"anim\", \"physics\"]."}},"additionalProperties":false})",
+                       true));
+    out.push_back(make(kToolDescribe, "Describe commands",
+                       "Full definition (description and input schema) of any command of this server, loaded or not. Names are "
+                       "dotted (assets.slice_sheet) or tool names (assets_slice_sheet). Several at once.",
+                       R"({"type":"object","properties":{"commands":{"type":"array","items":{"type":"string"},"minItems":1,
+                       "description":"Command names."}},"required":["commands"],"additionalProperties":false})",
+                       true));
+    out.push_back(make(kToolCall, "Call a command",
+                       "Run any command of this server by name, loaded or not: same arguments and result as its own tool; wrong "
+                       "arguments come back with its input schema (see tool_describe).",
+                       R"({"type":"object","properties":{"command":{"type":"string","description":
+                       "Command name, e.g. assets.slice_sheet."},"arguments":{"type":"object","description":
+                       "The command's arguments. {} when it takes none."}},"required":["command"],"additionalProperties":false})",
+                       callIsReadOnly));
+    return out;
+}
+
+Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const Json& params, const std::atomic<bool>* cancel) {
+    auto find_command = [&](const std::string& name) -> const CommandInfo* {
+        for (const CommandInfo* c : host_.commands().list())
+            if (visible(*c) && (c->name == name || mcp_tool_name(c->name) == name)) return c;
+        return nullptr;
+    };
+    auto visible_names = [&] {
+        std::vector<std::string> names;
+        for (const CommandInfo* c : host_.commands().list())
+            if (visible(*c)) names.push_back(c->name);
+        return names;
+    };
+    if (tool == kToolCall) {
+        if (!args.contains("command") || !args["command"].is_string())
+            return text_result("invalid_params: tool_call needs `command` (string), e.g. \"assets.slice_sheet\".", true);
+        const std::string name = args["command"].get<std::string>();
+        if (args.contains("arguments") && !args["arguments"].is_null() && !args["arguments"].is_object())
+            return text_result("invalid_params: tool_call `arguments` must be an object with the command's arguments ({} when it takes none), got " +
+                                   std::string(args["arguments"].type_name()) + ".",
+                               true);
+        const CommandInfo* c = find_command(name);
+        if (!c)
+            return text_result("unknown_command: No command named '" + name + "'. " + did_you_mean(name, visible_names()) +
+                                   "\nhint: tool_load with no groups lists the groups; tool_describe shows a command.",
+                               true);
+        Json inner = Json::object({{"name", mcp_tool_name(c->name)},
+                                   {"arguments", args.contains("arguments") && !args["arguments"].is_null() ? args["arguments"] : Json::object()}});
+        if (params.contains("_meta")) inner["_meta"] = params["_meta"];
+        return run_tool(inner, cancel);
+    }
+    if (tool == kToolDescribe) {
+        if (!args.contains("commands") || !args["commands"].is_array() || args["commands"].empty())
+            return text_result("invalid_params: tool_describe needs `commands`, a non-empty array of command names.", true);
+        Json commands = Json::array(), unknown = Json::array();
+        std::set<std::string> done;
+        for (const Json& n : args["commands"]) {
+            const std::string name = n.is_string() ? n.get<std::string>() : std::string();
+            const CommandInfo* c = find_command(name);
+            if (!c) {
+                unknown.push_back(Json::object({{"name", name},
+                                                {"message", "No command named '" + name + "'"},
+                                                {"hint", did_you_mean(name, visible_names())}}));
+                continue;
+            }
+            if (!done.insert(c->name).second) continue;
+            commands.push_back(Json::object({{"name", c->name},
+                                             {"tool", mcp_tool_name(c->name)},
+                                             {"category", c->category},
+                                             {"summary", c->summary},
+                                             {"description", c->full_description()},
+                                             {"readOnly", c->readOnly},
+                                             {"inputSchema", c->inputSchema}}));
+        }
+        const bool none = commands.empty();
+        Json out = Json::object({{"commands", std::move(commands)}});
+        if (!unknown.empty()) out["unknown"] = std::move(unknown);
+        return text_result(dump_pretty(out), none);
+    }
+    // tool_load
+    std::vector<std::string> groups;
+    if (args.contains("groups")) {
+        if (!args["groups"].is_array()) return text_result("invalid_params: `groups` must be an array of strings.", true);
+        for (const Json& g : args["groups"]) {
+            if (!g.is_string()) return text_result("invalid_params: `groups` must be an array of strings.", true);
+            groups.push_back(g.get<std::string>());
+        }
+    }
+    if (groups.empty()) {
+        std::map<std::string, std::pair<int, int>> counts;  // category -> {commands, listed now}
+        for (const CommandInfo* c : host_.commands().list()) {
+            if (!visible(*c)) continue;
+            auto& e = counts[c->category.empty() ? "other" : c->category];
+            ++e.first;
+            if (listed(*c)) ++e.second;
+        }
+        Json arr = Json::array();
+        for (const auto& [cat, n] : counts) arr.push_back(Json::object({{"group", cat}, {"commands", n.first}, {"loaded", n.second}}));
+        Json out = Json::object({{"groups", std::move(arr)},
+                                 {"hint", "Call tool_load with {\"groups\": [\"<group>\", ...]} to load some."}});
+        return text_result(dump_pretty(out), false);
+    }
+    if (std::string err = validate_groups(groups); !err.empty())
+        return text_result("unknown_group: " + err + "\nhint: nothing was loaded.", true);
+    // What was listed before, the change and the recount happen under one lock: two tool_load calls at once each report their own
+    // additions, and tools/list never sees a half-changed set.
+    Json added = Json::array();
+    std::int64_t addedCount = 0, total = 0;
+    {
+        std::lock_guard<std::mutex> lock(profileMutex_);
+        std::set<std::string> before;
+        for (const CommandInfo* c : host_.commands().list())
+            if (visible(*c) && listed_locked(*c)) before.insert(c->name);
+        for (const std::string& g : groups)
+            if (std::find(loaded_.begin(), loaded_.end(), g) == loaded_.end()) loaded_.push_back(g);
+        for (const CommandInfo* c : host_.commands().list()) {
+            if (!visible(*c) || !listed_locked(*c)) continue;
+            ++total;
+            if (before.count(c->name)) continue;
+            ++addedCount;
+            if (added.size() < 40) added.push_back(mcp_tool_name(c->name));
+        }
+    }
+    if (addedCount > 0) notify_tools_changed();
+    Json out = Json::object({{"loaded", groups}, {"added", addedCount}, {"addedTools", std::move(added)}, {"toolsListed", total}});
+    out["note"] = addedCount == 0 ? "Those groups were loaded already."
+                                  : "The tool list changed (notifications/tools/list_changed). If your client keeps its old list, "
+                                    "call these through tool_call {command, arguments}.";
+    return text_result(dump_pretty(out), false);
+}
+
 Json McpServer::tools_json() const {
     Json tools = Json::array();
     std::set<std::string> seen;
     for (const CommandInfo* c : host_.commands().list()) {
-        if (is_user_only_command(c->name) || (filter_ && !filter_(*c))) continue;
-        std::string name = mcp_tool_name(c->name);
-        if (!seen.insert(name).second) continue;  // name collision after mapping: first wins
-        Json t = Json::object();
-        t["name"] = name;
-        t["title"] = humanize(c->name);
-        std::string desc = c->summary;
-        if (!c->description.empty()) desc += "\n\n" + c->description;
-        if (!c->details.empty()) desc += "\n\n" + command_details_pointer(*c);
-        const std::string since = api_since("commands", c->name);
-        if (!since.empty() && since != "0.1.0") desc += "\n\n" + api_since_label(since) + ".";
-        t["description"] = desc;
-        if (!since.empty()) t["_meta"] = Json::object({{"since", since}});
-        Json schema = c->inputSchema.is_object() ? c->inputSchema : Json::object();
-        if (!schema.contains("type")) schema["type"] = "object";
-        t["inputSchema"] = schema;
-        t["annotations"] = Json::object({{"title", humanize(c->name)},
-                                         {"readOnlyHint", c->readOnly},
-                                         {"destructiveHint", !c->readOnly},
-                                         {"openWorldHint", false}});
-        tools.push_back(std::move(t));
+        if (!listed(*c)) continue;
+        if (!seen.insert(mcp_tool_name(c->name)).second) continue;  // name collision after mapping: first wins
+        tools.push_back(tool_json(*c));
     }
+    if (tool_profile_active())
+        for (Json& t : loader_tools_json()) tools.push_back(std::move(t));
     return tools;
 }
 
@@ -426,11 +662,13 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     Json args = params.contains("arguments") && !params["arguments"].is_null() ? params["arguments"] : Json::object();
     if (!args.is_object()) throw CommandError("invalid_params", "tools/call params.arguments must be an object.");
 
+    if (is_loader_tool(toolName) && tool_profile_active()) return run_loader_tool(toolName, args, params, cancel);
+
     // Map tool name back to a command.
     std::string command;
     std::vector<std::string> toolNames;
     for (const CommandInfo* c : host_.commands().list()) {
-        if (is_user_only_command(c->name) || (filter_ && !filter_(*c))) continue;
+        if (!visible(*c)) continue;
         std::string n = mcp_tool_name(c->name);
         if (n == toolName && command.empty()) command = c->name;
         toolNames.push_back(n);

@@ -777,6 +777,38 @@ TEST_CASE("ik3d: foot placement tilts the foot to a slope and a two-bone solver 
     CHECK(issues[1].pointer.find("/1") == 0);
 }
 
+// The skeleton cache is keyed on path, size and file time. A rig baked again within the clock step of the first bake (1/64 s under
+// the Windows rules, which ctest turns on; 1 s or 2 s on some file systems) of the same size keeps both: the content decides.
+TEST_CASE("load_skeleton: a file written again with the same size and the same file time is read again, not served from the cache") {
+    const Baked& p = *person();
+    TempProject project;
+    REQUIRE(fs::write_bytes("same.rig.glb", p.glb.data(), p.glb.size()));
+    auto first = load_skeleton("same.rig.glb");
+    REQUIRE(first.ok());
+    REQUIRE(*first);
+    CHECK(load_skeleton("same.rig.glb").value() == *first);  // untouched: the same shared asset
+
+    // Rename the bone "head" to "hxad" inside the file (same length), then give the file its old time back.
+    const std::string needle = "head";
+    std::vector<std::uint8_t> edited = p.glb;
+    auto at = std::search(edited.begin(), edited.end(), needle.begin(), needle.end());
+    REQUIRE(at != edited.end());
+    *(at + 1) = 'x';
+    const std::filesystem::path onDisk = project.dir / "same.rig.glb";
+    std::error_code ec;
+    const auto oldTime = std::filesystem::last_write_time(onDisk, ec);
+    REQUIRE_FALSE(ec);
+    REQUIRE(fs::write_bytes("same.rig.glb", edited.data(), edited.size()));
+    std::filesystem::last_write_time(onDisk, oldTime, ec);
+    REQUIRE_FALSE(ec);
+    REQUIRE(fs::file_size("same.rig.glb") == std::int64_t(p.glb.size()));
+
+    auto second = load_skeleton("same.rig.glb");
+    REQUIRE(second.ok());
+    CHECK((*second)->find_node("hxad") >= 0);
+    CHECK((*second)->find_node("head") < 0);
+}
+
 // ------------------------------------------------------------------------------------------------------- runtime playback --
 TEST_CASE("anim3d: the Animator plays a 3D clip file on a skinned rig, with events, looping and a changed file") {
     const Baked& p = *person();

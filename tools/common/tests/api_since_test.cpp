@@ -186,3 +186,66 @@ TEST_CASE("api_reference: the committed docs/reference/ and docs/COMPONENTS.md m
                                       << differ << "Regenerate both the reference pages and COMPONENTS.md with (from the repository root, outside any "
                                          "game project, with the factoria you just built):\n    factoria call docs.write_reference '{\"out\":\"docs\"}'");
 }
+
+// The tools table of docs/AI_GUIDE.md section 4 is generated from the command registry (docs.write_reference).
+TEST_CASE("ai_guide_tools_table: the committed table matches the registry and every category has a purpose") {
+    std::string current;
+    std::vector<std::string> noPurpose;
+    std::string regenerated;
+    with_command_registry([&](Engine& e) {
+        noPurpose = ai_guide_categories_without_purpose(e.commands());
+        current = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
+        current.erase(std::remove(current.begin(), current.end(), '\r'), current.end());
+        regenerated = current;
+        std::string err;
+        CHECK_MESSAGE(splice_ai_guide_tools_table(regenerated, e.commands(), &err), err);
+    });
+    std::string cats;
+    for (const std::string& c : noPurpose) cats += " " + c;
+    CHECK_MESSAGE(noPurpose.empty(), "These command categories have no one-line purpose for the AI guide's tools table:" << cats
+                                         << ". Add {\"<category>\", \"<what the commands do>\"} to kPurposes in tools/common/src/ai_guide_export.cpp.");
+    CHECK_MESSAGE(current == regenerated, "The tools table in docs/AI_GUIDE.md section 4 does not match the command registry. Regenerate it (from the "
+                                          "repository root, outside any game project, with the factoria you just built):\n"
+                                          "    factoria call docs.write_reference '{\"out\":\"docs\"}'");
+}
+
+// docs.write_reference checks the AI_GUIDE.md markers BEFORE it writes anything: a guide without them (or no guide at all) is a
+// warning in the result, never a failure after half of the pages are on disk.
+TEST_CASE("docs.write_reference: an AI_GUIDE.md without markers or without a file is a warning, the pages are written, the guide is untouched") {
+    with_command_registry([&](Engine& e) {
+        {
+            testing::TempDir out;
+            testing::write_all(out.path / "AI_GUIDE.md", "# Guide\n\nNo generated block here.\n");
+            auto r = e.commands().call("docs.write_reference", {{"out", out.path.generic_string()}});
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            REQUIRE(r.result.contains("warnings"));
+            CHECK(r.result["warnings"][0].get<std::string>().find("AI_GUIDE.md") != std::string::npos);
+            CHECK(testing::read_all(out.path / "AI_GUIDE.md") == "# Guide\n\nNo generated block here.\n");  // untouched
+            CHECK(stdfs::exists(out.path / "COMPONENTS.md"));
+            CHECK(stdfs::exists(out.path / "reference" / "README.md"));
+            bool guideListed = false;
+            for (const Json& w : r.result["written"]) guideListed = guideListed || w == "AI_GUIDE.md";
+            CHECK_FALSE(guideListed);
+        }
+        {
+            testing::TempDir out;  // no AI_GUIDE.md at all
+            auto r = e.commands().call("docs.write_reference", {{"out", out.path.generic_string()}});
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            REQUIRE(r.result.contains("warnings"));
+            CHECK(r.result["warnings"][0].get<std::string>().find("No AI_GUIDE.md") != std::string::npos);
+            CHECK(stdfs::exists(out.path / "COMPONENTS.md"));
+            CHECK_FALSE(stdfs::exists(out.path / "AI_GUIDE.md"));
+        }
+        {
+            testing::TempDir out;  // markers present: the block is filled, no warning
+            testing::write_all(out.path / "AI_GUIDE.md", "# Guide\n\n<!-- generated: tools table, factoria call docs.write_reference '{\"out\":\"docs\"}' -->\nold\n<!-- end generated -->\ntail\n");
+            auto r = e.commands().call("docs.write_reference", {{"out", out.path.generic_string()}});
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            CHECK_FALSE(r.result.contains("warnings"));
+            const std::string guide = testing::read_all(out.path / "AI_GUIDE.md");
+            CHECK(guide.find("| Category | Tools") != std::string::npos);
+            CHECK(guide.find("old\n") == std::string::npos);
+            CHECK(guide.find("tail\n") != std::string::npos);
+        }
+    });
+}

@@ -106,7 +106,11 @@ the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the
 patches of the newest stay); the README's "Version x.y" line and the Spanish README's "al día en la versión x.y" note
 change to the new minor too, checked by `readme_version`), and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
-docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus
+docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; the same call also
+rewrites the tools table of docs/AI_GUIDE.md section 4, the block between `<!-- generated: tools table ... -->` and
+`<!-- end generated -->` (one row per command category: its tool names and a one-line purpose from
+`tools/common/src/ai_guide_export.cpp`, checked by the test `ai_guide_tools_table`, which also fails on a category without
+a purpose; a guide without the markers gives a `warnings` entry in the result and is left alone); plus
 `factoria api --dts --project examples/<name>` for the committed typings).
 
 ### Commands (the tool system)

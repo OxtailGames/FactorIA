@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <functional>
 #include <map>
+#include <optional>
 #include <sstream>
 
 #include "fa/core/reflect.h"
@@ -48,6 +50,23 @@ std::string since_line(const std::string& since) {
     if (since.empty() || since == "0.1.0") return {};
     return api_since_label(since) + ".";
 }
+// The explanation under "# Components reference" / "# Commands reference". The full paged docs.components / docs.commands
+// put it on their first page, so the paged text carries the same marks and conventions as the single file.
+std::string components_preamble() {
+    return "Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "
+           "\"Since 0.1.x.\" line under its heading, and a field added later than its component ends with "
+           "\"(since 0.1.x)\"; \"Not released yet\" means it is only on the main branch, in no download. Nothing is printed "
+           "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
+           "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. "
+           "In scene JSON a component is `\"Name\": { field: value, ... }` "
+           "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or `{x, y}`; "
+           "colors accept `[r, g, b, a]` (0..1) or `\"#rrggbb\"`.\n\n";
+}
+std::string commands_preamble() {
+    return "Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots become underscores) and a "
+           "script function (`fa.call(name, args)`).\n\n";
+}
+
 // One component: heading, version mark, doc and the fields table. heading is "###" in the single file reference.
 void write_component(std::ostream& o, const Json& t, const char* heading) {
     const std::string compSince = t.value("since", "");
@@ -150,15 +169,7 @@ std::string export_typescript(const ScriptSystem& scripts) {
 std::string export_components_markdown() {
     Json all = export_components_json();
     std::ostringstream o;
-    o << "# Components reference\n\n"
-      << "Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "
-         "\"Since 0.1.x.\" line under its heading, and a field added later than its component ends with "
-         "\"(since 0.1.x)\"; \"Not released yet\" means it is only on the main branch, in no download. Nothing is printed "
-         "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
-         "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. "
-         "In scene JSON a component is `\"Name\": { field: value, ... }` "
-         "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or `{x, y}`; "
-         "colors accept `[r, g, b, a]` (0..1) or `\"#rrggbb\"`.\n\n";
+    o << "# Components reference\n\n" << components_preamble();
     std::string lastCategory;
     for (const auto& t : all) {
         std::string cat = t.value("category", "");
@@ -179,9 +190,7 @@ Json export_commands_json(const CommandRegistry& registry) {
 
 std::string export_commands_markdown(const CommandRegistry& registry) {
     std::ostringstream o;
-    o << "# Commands reference\n\n"
-      << "Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots become underscores) and a "
-         "script function (`fa.call(name, args)`).\n\n";
+    o << "# Commands reference\n\n" << commands_preamble();
     std::string lastCategory = "\x01";
     for (const CommandInfo* c : registry.list()) {
         if (c->category != lastCategory) {
@@ -298,15 +307,21 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
 }
 
 namespace {
-// docs.components / docs.commands: no argument lists names with a one-line summary (the whole reference is over 200 KB, more than an
-// MCP tool result may carry); `name` gives one entry in full, `filter` narrows the list, `full` gives everything.
+// docs.components / docs.commands: no argument lists names with a one-line summary; `name` gives one entry in full, `filter`
+// narrows the list, `full` gives the entries in full. Lists and `full` come in pages of at most `maxBytes` (like docs.read), each
+// page ends at a whole entry and names the next one in `nextCursor`.
+constexpr long kDocsPageDefaultBytes = 40000;  // same as docs.read: ~10k tokens, an MCP tool result is capped near 25k tokens
+constexpr long kDocsPageMaxBytes = 90000;
+
 Json docs_filter_schema(const char* what) {
     const std::string n = what;
     return Json::object({{"type", "object"},
         {"properties", Json::object({
             {"name", Json::object({{"type", "string"}, {"description", "Exact " + n + " name (case-insensitive): returns its full reference."}})},
             {"filter", Json::object({{"type", "string"}, {"description", "Keep the " + n + "s whose name, category or summary contains this text (case-insensitive)."}})},
-            {"full", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Return every " + n + " in full (over 200 KB: too large for most MCP clients; prefer name or filter)."}})},
+            {"full", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Return the " + n + "s in full, one page at a time (see maxBytes, cursor); with filter, only the matches."}})},
+            {"cursor", Json::object({{"type", "string"}, {"description", "The nextCursor of the previous page: continues the list or the full reference from there. Use it with the same filter, full and format, and without name. It is the name of the next entry: if plugins or tools/*.js were loaded between two calls, entries can be skipped or repeated (a cursor that no longer exists is refused)."}})},
+            {"maxBytes", Json::object({{"type", "integer"}, {"minimum", 1000}, {"maximum", kDocsPageMaxBytes}, {"default", kDocsPageDefaultBytes}, {"description", "Page size in bytes of the whole result (entries, header, next and nextCursor, JSON escaping): whole entries are added until the next would not fit (a page has at least one entry, so one huge entry can pass it)."}})},
             {"format", Json::object({{"type", "string"}, {"enum", Json::array({"markdown", "json"})}, {"default", "markdown"}, {"description", "Output format."}})}})}});
 }
 
@@ -318,24 +333,104 @@ struct Entry {
     const CommandInfo* info = nullptr;  // commands
 };
 
-Json entries_json(const std::vector<Entry>& v) {
-    Json arr = Json::array();
-    for (const Entry& e : v) arr.push_back(Json::object({{"name", e.name}, {"category", e.category}, {"summary", e.summary}}));
-    return arr;
+// How a kind of entry renders in full.
+struct FullRender {
+    std::function<Json(const Entry&)> asJson;
+    std::function<std::string(const Entry&)> asMarkdown;  // starts with "### Name"
+    std::string preamble;                                  // explanation printed once, on the first full markdown page
+};
+
+// Bytes `s` takes inside a JSON string (quotes, backslashes and control characters are escaped; UTF-8 is kept as it is).
+size_t json_escaped_size(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') n += 2;
+        else if (c < 0x20) n += 6;
+        else n += 1;
+    }
+    return n;
 }
 
-std::string entries_markdown(const std::vector<Entry>& v, const std::string& title, const std::string& tool, const std::string& example,
-                             const std::string& filterNote) {
-    std::ostringstream o;
-    o << "# " << title << " (" << v.size() << ")\n\n" << filterNote
-      << "One line per entry. Read one in full: `" << tool << " {\"name\":\"" << example << "\"}`; narrow the list with `{\"filter\":\"text\"}`; "
-      << "everything at once with `{\"full\":true}` (over 200 KB).\n\n";
-    std::string last = "\x01";
-    for (const Entry& e : v) {
-        if (e.category != last) { if (last != "\x01") o << "\n"; last = e.category; o << "## " << (last.empty() ? "general" : last) << "\n\n"; }
-        o << "- `" << e.name << "`: " << e.summary << "\n";
+// Room kept for what a page carries besides its entries: total, returned, next, nextCursor, hint and the JSON punctuation.
+constexpr long kDocsEnvelopeBytes = 700;
+
+// Returns one page of the (already filtered) entries: the list of summaries, or with `full` each entry in full.
+Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool json, const char* key, const std::string& title,
+               const std::string& tool, const std::string& example, const std::string& filter, const FullRender& render) {
+    double wanted = double(kDocsPageDefaultBytes);  // clamped as a double: a huge JSON number must not wrap when narrowed
+    if (auto it = args.find("maxBytes"); it != args.end() && it->is_number()) wanted = it->get<double>();
+    if (!(wanted >= 1000.0)) wanted = 1000.0;
+    const long maxBytes = wanted > double(kDocsPageMaxBytes) ? kDocsPageMaxBytes : long(wanted);
+    // maxBytes bounds the serialized result (the entries AND the header, the next/nextCursor fields, the escaping of a markdown string
+    // inside the JSON): the envelope is reserved first, then whole entries are added, each counted as it is serialized.
+    const std::string cursor = tooling_detail::arg_string(args, "cursor", false);
+    size_t start = 0;
+    if (!cursor.empty()) {
+        while (start < v.size() && v[start].name != cursor) ++start;
+        if (start == v.size()) {
+            Json restart = Json::object();
+            if (!filter.empty()) restart["filter"] = filter;
+            if (full) restart["full"] = true;
+            throw CommandError("invalid_argument",
+                               "cursor '" + cursor + "' is not an entry of this " + title + " list" + (filter.empty() ? "" : " (filter '" + filter + "')") +
+                                   ": it was not returned by " + tool + " with these arguments, or the set of entries changed.",
+                               "Use the nextCursor of the previous page unchanged, with the same filter, full and format. To start again, call " + tool + " " +
+                                   restart.dump() + " without cursor.");
+        }
     }
-    return o.str();
+    auto page_header = [&](size_t end) {
+        std::ostringstream md;
+        if (start == 0) {
+            md << "# " << title << " (" << v.size() << ")\n\n" << (filter.empty() ? "" : "Filter: `" + filter + "`.\n\n");
+            if (full) md << "Full reference, in pages of at most " << maxBytes << " bytes: follow `nextCursor` until it is absent.\n\n" << render.preamble;
+            else md << "One line per entry. Read one in full: `" << tool << " {\"name\":\"" << example << "\"}`; narrow the list with `{\"filter\":\"text\"}`; "
+                    << "all in full, page by page, with `{\"full\":true}`.\n\n";
+        } else {
+            md << "# " << title << " (continued: entries " << start + 1 << "-" << end << " of " << v.size() << ")\n\n";
+        }
+        return md.str();
+    };
+    std::ostringstream o;
+    Json arr = Json::array();
+    long used = kDocsEnvelopeBytes + long(2 * json_escaped_size(filter)) + (json ? 0 : long(json_escaped_size(page_header(v.size()))));
+    size_t i = start;
+    std::string lastCat;
+    for (; i < v.size(); ++i) {
+        const Entry& e = v[i];
+        std::string piece;
+        Json item;
+        if (json) {
+            item = full ? render.asJson(e) : Json::object({{"name", e.name}, {"category", e.category}, {"summary", e.summary}});
+            piece = item.dump();
+            used += 1;  // the comma
+        } else {
+            if (i == start || e.category != lastCat)
+                piece += std::string(i == start ? "" : "\n") + "## " + (e.category.empty() ? "general" : e.category) + "\n\n";
+            piece += full ? render.asMarkdown(e) : "- `" + e.name + "`: " + e.summary + "\n";
+        }
+        const long cost = json ? long(piece.size()) : long(json_escaped_size(piece));
+        if (i > start && used + cost > maxBytes) break;
+        used += cost;
+        lastCat = e.category;
+        if (json) arr.push_back(std::move(item)); else o << piece;
+    }
+    Json r = Json::object({{"total", v.size()}, {"returned", i - start}});
+    if (i < v.size()) {
+        r["nextCursor"] = v[i].name;
+        Json call = Json::object();
+        if (!filter.empty()) call["filter"] = filter;
+        if (full) call["full"] = true;
+        call["cursor"] = v[i].name;
+        if (json) call["format"] = "json";
+        r["next"] = tool + " " + call.dump() + " returns the next page (" + std::to_string(v.size() - i) + " entries left).";
+    }
+    if (json) {
+        r[key] = std::move(arr);
+        if (!full) r["hint"] = tool + " {\"name\":\"<name>\"} returns one in full.";
+        return r;
+    }
+    r["markdown"] = page_header(i) + o.str();
+    return r;
 }
 
 // Picks the entries for the arguments; throws not_found (with a did-you-mean) for a `name` that does not exist.
@@ -343,6 +438,11 @@ std::vector<Entry> select_entries(const std::vector<Entry>& all, const Json& arg
     *exact = nullptr;
     const std::string name = tooling_detail::arg_string(args, "name", false);
     if (!name.empty()) {
+        if (!tooling_detail::arg_string(args, "cursor", false).empty())
+            throw CommandError("invalid_argument", std::string("'cursor' and 'name' cannot be used together: 'name' returns one ") + what +
+                                                       " in full and has no next page.",
+                               std::string("Drop 'cursor' to read '") + name + "', or drop 'name' to continue the list: " + listTool +
+                                   " {\"cursor\":\"<nextCursor>\"} (with the same filter and full as the previous page).");
         for (const Entry& e : all)
             if (to_lower(e.name) == to_lower(name)) { *exact = &e; return {e}; }
         std::vector<std::string> names;
@@ -365,17 +465,14 @@ void register_api_export_commands(CommandRegistry& registry) {
         info.category = "docs";
         info.summary = "Reference of components and fields (types, defaults, docs): a list of names, or one component in full.";
         info.description = "Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. "
-                           "With no argument it lists every component with a one-line summary (the whole reference is over 200 KB, more than "
-                           "an MCP tool result carries). {\"name\":\"Sprite\"} returns that component with all its fields, "
-                           "{\"filter\":\"physics\"} the components whose name, category or summary contains the text, "
-                           "{\"full\":true} everything.";
+                           "With no argument it lists every component with a one-line summary. {\"name\":\"Sprite\"} returns that component "
+                           "with all its fields, {\"filter\":\"physics\"} the components whose name, category or summary contains the text, "
+                           "{\"full\":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): "
+                           "pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; entries loaded "
+                           "between two pages can shift the pages).";
         info.inputSchema = docs_filter_schema("component");
         registry.add(info, [](const Json& args) {
             const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
-            if (tooling_detail::arg_bool(args, "full", false) && !args.contains("name") && !args.contains("filter")) {
-                if (json) return Json::object({{"components", export_components_json()}});
-                return Json::object({{"markdown", export_components_markdown()}});
-            }
             const Json all = export_components_json();
             std::vector<Entry> entries;
             for (const Json& t : all) entries.push_back({t.value("name", ""), t.value("category", ""), first_sentence(t.value("doc", "")), &t, nullptr});
@@ -387,10 +484,12 @@ void register_api_export_commands(CommandRegistry& registry) {
                 write_component(o, *exact->json, "##");
                 return Json::object({{"markdown", o.str()}});
             }
-            if (json) return Json::object({{"components", entries_json(picked)}, {"hint", "docs.components {\"name\":\"<name>\"} returns one in full."}});
-            const std::string f = tooling_detail::arg_string(args, "filter", false);
-            return Json::object({{"markdown", entries_markdown(picked, "Components", "docs.components", picked.empty() ? "Sprite" : picked.front().name,
-                                                                f.empty() ? "" : "Filter: `" + f + "`.\n\n")}});
+            FullRender render;
+            render.asJson = [](const Entry& e) { return *e.json; };
+            render.asMarkdown = [](const Entry& e) { std::ostringstream o; write_component(o, *e.json, "###"); return o.str(); };
+            render.preamble = components_preamble();
+            return docs_page(picked, args, tooling_detail::arg_bool(args, "full", false), json, "components", "Components", "docs.components",
+                             picked.empty() ? "Sprite" : picked.front().name, tooling_detail::arg_string(args, "filter", false), render);
         });
     }
     {
@@ -399,33 +498,38 @@ void register_api_export_commands(CommandRegistry& registry) {
         info.category = "docs";
         info.summary = "Reference of the available commands (tools) with arguments: a list of names, or one command in full.";
         info.description = "Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command "
-                           "with its summary (the whole reference is over 200 KB, more than an MCP tool result carries). "
-                           "{\"name\":\"game.click\"} returns that command with its arguments, {\"filter\":\"ui\"} the commands whose name, "
-                           "category or summary contains the text, {\"full\":true} everything.";
+                           "with its summary. {\"name\":\"game.click\"} returns that command with its arguments, {\"filter\":\"ui\"} the commands "
+                           "whose name, category or summary contains the text, {\"full\":true} every command in full (over 200 KB) in pages of at "
+                           "most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; a plugin or "
+                           "tools/*.js loaded between two pages can make a page skip or repeat commands).";
         info.inputSchema = docs_filter_schema("command");
         registry.add(info, [&registry](const Json& args) {
             const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
-            if (tooling_detail::arg_bool(args, "full", false) && !args.contains("name") && !args.contains("filter")) {
-                if (json) return Json::object({{"commands", export_commands_json(registry)}});
-                return Json::object({{"markdown", export_commands_markdown(registry)}});
-            }
             std::vector<Entry> entries;
             for (const CommandInfo* c : registry.list()) entries.push_back({c->name, c->category, c->summary, nullptr, c});
             const Entry* exact = nullptr;
             std::vector<Entry> picked = select_entries(entries, args, "command", "docs.commands", &exact);
+            const bool full = tooling_detail::arg_bool(args, "full", false);
+            Json described;
+            if (json && (exact || full)) described = export_commands_json(registry);
+            std::map<std::string, const Json*> byName;  // one pass, not a search per entry
+            for (const Json& c : described) byName.emplace(c.value("name", ""), &c);
+            auto json_of = [&byName](const std::string& name) {
+                auto it = byName.find(name);
+                return it != byName.end() ? *it->second : Json::object({{"name", name}});
+            };
             if (exact) {
-                if (json) {
-                    for (const Json& c : export_commands_json(registry))
-                        if (c.value("name", "") == exact->name) return Json::object({{"commands", Json::array({c})}});
-                }
+                if (json) return Json::object({{"commands", Json::array({json_of(exact->name)})}});
                 std::ostringstream o;
                 write_command(o, exact->info, "##");
                 return Json::object({{"markdown", o.str()}});
             }
-            if (json) return Json::object({{"commands", entries_json(picked)}, {"hint", "docs.commands {\"name\":\"<name>\"} returns one in full."}});
-            const std::string f = tooling_detail::arg_string(args, "filter", false);
-            return Json::object({{"markdown", entries_markdown(picked, "Commands", "docs.commands", picked.empty() ? "game.step" : picked.front().name,
-                                                                f.empty() ? "" : "Filter: `" + f + "`.\n\n")}});
+            FullRender render;
+            render.asJson = [&json_of](const Entry& e) { return json_of(e.name); };
+            render.asMarkdown = [](const Entry& e) { std::ostringstream o; write_command(o, e.info, "###"); return o.str(); };
+            render.preamble = commands_preamble();
+            return docs_page(picked, args, full, json, "commands", "Commands", "docs.commands", picked.empty() ? "game.step" : picked.front().name,
+                             tooling_detail::arg_string(args, "filter", false), render);
         });
     }
 }
@@ -439,16 +543,32 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
         info.summary = "Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.";
         info.description =
             "Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), "
-            "components/<category>.md and commands/<category>.md, all generated from the registries of this session. Run it outside "
-            "a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares "
-            "the committed files with this output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the "
-            "repository root.";
+            "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in "
+            "section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and "
+            "nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) "
+            "so plugin and project commands are not included; the unit test api_reference compares the committed files with this "
+            "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
             {"properties", Json::object({{"out", Json::object({{"type", "string"},
                 {"description", "Docs folder to write into (relative to the working directory), usually \"docs\"."}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
             const std::filesystem::path out = std::filesystem::absolute(tooling_detail::arg_string(args, "out", true));
             Json written = Json::array();
+            Json warnings = Json::array();
+            // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any
+            // page is written: a guide without the markers is a warning (the reference pages are still written), not a failure after
+            // half the pages are on disk; no AI_GUIDE.md in <out> is a warning too.
+            std::optional<std::string> guide = tooling_detail::read_file(out / "AI_GUIDE.md");
+            bool guideReady = false;
+            if (guide) {
+                guide->erase(std::remove(guide->begin(), guide->end(), '\r'), guide->end());
+                std::string err;
+                guideReady = splice_ai_guide_tools_table(*guide, registry, &err);
+                if (!guideReady)
+                    warnings.push_back(err + " AI_GUIDE.md was left as it is; restore the markers in section 4 and run the command again.");
+            } else {
+                warnings.push_back("No AI_GUIDE.md in " + out.generic_string() + ": the generated tools table was not written (fine outside the repository's docs folder).");
+            }
             for (const ApiReferencePage& p : export_api_reference(registry, scripts)) {
                 std::string err;
                 if (!tooling_detail::write_file(out / p.path, p.text, &err))
@@ -456,7 +576,16 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
                                        "Check that the folder exists and is writable.");
                 written.push_back(p.path);
             }
-            return Json::object({{"out", out.generic_string()}, {"written", written}});
+            if (guideReady) {
+                std::string err;
+                if (!tooling_detail::write_file(out / "AI_GUIDE.md", *guide, &err))
+                    throw CommandError("write_failed", "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
+                                       "Check that the file is writable.");
+                written.push_back("AI_GUIDE.md");
+            }
+            Json result = Json::object({{"out", out.generic_string()}, {"written", written}});
+            if (!warnings.empty()) result["warnings"] = warnings;
+            return result;
         });
     }
 }
