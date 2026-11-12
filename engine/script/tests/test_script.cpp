@@ -257,6 +257,37 @@ TEST_CASE("errors are recorded once, runaway scripts are stopped") {
     CHECK(typeErr == 1);
 }
 
+TEST_CASE("JS tools: `capabilities` is declared, defaults follow readOnly, a typo is a script error with a suggestion") {
+    TestHost h("toolcaps");
+    h.file("tools/mem.js", "export default { name: 'mem', summary: 's', capabilities: ['read', 'state'], run() { return 1; } };");
+    h.file("tools/net.js", "export default { name: 'net', summary: 's', capabilities: ['read', 'network'], run() { return 1; } };");
+    h.file("tools/ro.js", "export default { name: 'ro', summary: 's', readOnly: true, run() { return 1; } };");
+    h.file("tools/plain.js", "export default { name: 'plain', summary: 's', run() { return 1; } };");
+    h.file("tools/typo.js", "export default { name: 'typo', summary: 's', capabilities: ['read', 'writeProjct'], run() { return 1; } };");
+    REQUIRE(h.start());
+    const CommandInfo* mem = h.cmds.info("project.mem");
+    REQUIRE(mem != nullptr);
+    CHECK(mem->capabilitiesDeclared);
+    CHECK(mem->capabilities == CapabilitySet{Capability::Read, Capability::State});
+    CHECK_FALSE(mem->readOnly);
+    CHECK(h.cmds.info("project.net")->capabilities == CapabilitySet{Capability::Read, Capability::Network});
+    CHECK(h.cmds.info("project.ro")->capabilities == CapabilitySet{Capability::Read});
+    CHECK_FALSE(h.cmds.info("project.ro")->capabilitiesDeclared);
+    CHECK(h.cmds.info("project.plain")->capabilities == CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+    // A tool that needs network is refused to a game script's caller; the in-memory one is not.
+    {
+        CommandCapabilityScope scope(capability_sets::game_player());
+        CHECK(h.cmds.call("project.mem").ok);
+        CHECK(h.cmds.call("project.net").error["code"] == "capability_denied");
+    }
+    // The typo: not registered, a script error with the file, the position and the suggestion.
+    CHECK_FALSE(h.cmds.has("project.typo"));
+    bool taught = false;
+    for (auto& e : h.scripts.errors())
+        if (e.file == "tools/typo.js" && e.message.find("/capabilities/1") != std::string::npos && e.message.find("writeProject") != std::string::npos) taught = true;
+    CHECK(taught);
+}
+
 TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
     TestHost h("tools");
     h.cmds.add({"project.test", "builtin", "", Json::object({{"type", "object"}, {"properties", Json::object()}}), true, "project"},

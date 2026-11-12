@@ -595,6 +595,29 @@ TEST_CASE("capabilities: an explicit declaration is kept, flagged, and described
     CHECK(d[0]["readOnly"] == false);
 }
 
+TEST_CASE("capabilities: re-adding a copy of a derived info keeps it undeclared; declare_capabilities declares") {
+    CommandRegistry reg;
+    add_cap_command(reg, "t.reader", true);
+    add_cap_command(reg, "t.writer", false);
+    for (const char* n : {"t.reader", "t.writer"}) {
+        CommandInfo copy = *reg.info(n);  // what the editor does when it wraps a handler
+        reg.add(copy, [](const Json&) { return Json::object(); });
+        CHECK_FALSE(reg.info(n)->capabilitiesDeclared);
+        CHECK(reg.info(n)->capabilities == copy.capabilities);
+    }
+    CHECK(reg.declare_capabilities("t.writer", CapabilitySet{Capability::Read, Capability::State}));
+    CHECK(reg.info("t.writer")->capabilitiesDeclared);
+    CHECK(reg.info("t.writer")->capabilities == CapabilitySet{Capability::Read, Capability::State});
+    CHECK_FALSE(reg.declare_capabilities("t.missing", CapabilitySet{}));
+    // A declared copy stays declared, even when its set equals the derived one.
+    CommandInfo copy = *reg.info("t.writer");
+    copy.readOnly = true;
+    copy.capabilities = CapabilitySet{Capability::Read};
+    copy.capabilitiesDeclared = true;
+    reg.add(copy, [](const Json&) { return Json::object(); });
+    CHECK(reg.info("t.writer")->capabilitiesDeclared);
+}
+
 TEST_CASE("capabilities: a call needing a capability the caller lacks is denied with a teaching error") {
     CommandRegistry reg;
     add_cap_command(reg, "t.upload", false, CapabilitySet{Capability::Read, Capability::Publish});

@@ -173,6 +173,12 @@ void register_music_commands(Engine&, Engine::Impl& I) {
               if (!change.is_null()) out["change"] = std::move(change);
               return out;
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"audio.music_state", capability_sets::reads()},
+        {"audio.music", capability_sets::changes_state()},
+    });
 }
 
 }  // namespace fa

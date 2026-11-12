@@ -402,6 +402,12 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
                          "description":"With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check."}}})"),
          false, "scene"},
         [&I](const Json& a) { return scene_format(I, a); });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"prefab.save", capability_sets::writes_project()},
+        {"scene.format", capability_sets::writes_project()},
+    });
 }
 
 }  // namespace fa

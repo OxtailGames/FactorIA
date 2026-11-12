@@ -492,7 +492,7 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x, y, width, height] in design pixels; default: around the character."},
                "zoom":{"type":"number","minimum":0.25,"maximum":32,"description":"Magnification of the region (default: a sheet about 1600 px wide)."},
                "path":{"type":"string","description":"Keep the PNG here (project-relative or absolute)."}}})"),
-           true, "anim"},
+           false, "anim"},
           [&engine, &I](const Json& a) {
               const Entity e = need_entity(I.world, a, "entity");
               Animator& an = need_animator(I, e, "anim.filmstrip");
@@ -675,6 +675,14 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
               for (const Finding& f : findings) list.push_back(f.to_json());
               return Json::object({{"checked", checked}, {"findings", list}, {"ok", findings.empty()}, {"samples", root != kNullEntity ? samples : 0}, {"notes", notes}});
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"anim.list", capability_sets::reads()},
+        {"anim.pose", capability_sets::changes_state()},
+        {"anim.check", capability_sets::changes_state()},
+        {"anim.filmstrip", capability_sets::edits_project()},
+    });
 }
 
 }  // namespace fa
