@@ -597,3 +597,66 @@ TEST_CASE("ai.settings.set user: removing a tool server or a plugin switch says 
         CHECK(*fa::fs::read_text(w.ai) == before);
     }
 }
+
+TEST_CASE("ai.settings: the permission mode of each CLI agent is listed with what it allows and set only by the user") {
+    World w;
+    auto got = w.get("user");
+    REQUIRE(got.ok);
+    Json claude;
+    for (const Json& row : got.result["permissionModes"]) if (row["provider"] == "claude-code") claude = row;
+    REQUIRE(claude.is_object());
+    CHECK(claude["mode"] == "acceptEdits");
+    CHECK(claude["default"] == "acceptEdits");
+    CHECK(claude["source"] == "default");
+    CHECK(claude["pointer"] == "/providers/claude-code/permissionMode");
+    bool sawDangerous = false;
+    for (const Json& v : claude["values"]) {
+        CHECK_FALSE(v["allows"].get<std::string>().empty());
+        sawDangerous = sawDangerous || (v["value"] == "bypassPermissions" && v["dangerous"] == true);
+    }
+    CHECK(sawDangerous);
+    CHECK(w.get("resolved").result.contains("permissionModes"));
+
+    // a project file can never hold it, not even through ai.settings.set
+    auto project = w.set("project", "/providers/claude-code/permissionMode", "bypassPermissions");
+    REQUIRE_FALSE(project.ok);
+    CHECK(project.error["code"] == "rejected_key");
+    CHECK_FALSE(fsys::exists(w.settings_file()));
+    // an AI agent or MCP client cannot change it for the user
+    const std::string before = *fa::fs::read_text(w.ai);
+    for (CommandCaller who : {CommandCaller::Mcp, CommandCaller::Agent}) {
+        CommandCallerScope scope(who);
+        auto refused = w.set("user", "/providers/claude-code/permissionMode", "bypassPermissions");
+        REQUIRE_FALSE(refused.ok);
+        CHECK(refused.error["code"] == "user_only");
+    }
+    CHECK(*fa::fs::read_text(w.ai) == before);
+
+    // the user does
+    auto ok = w.set("user", "/providers/claude-code/permissionMode", "plan");
+    REQUIRE(ok.ok);
+    CHECK(ok.result["runsWith"] == "plan");
+    CHECK(ok.result["dangerous"] == false);
+    CHECK(ok.result["changed"].size() == 1);
+    CHECK(w.userChanged == 1);
+    CHECK(Json::parse(*fa::fs::read_text(w.ai))["providers"]["claude-code"]["permissionMode"] == "plan");
+    CHECK(Json::parse(*fa::fs::read_text(w.ai))["limits"]["maxTurns"] == 30);  // the rest stays
+    auto danger = w.set("user", "/providers/codex/permissionMode", "danger-full-access");
+    REQUIRE(danger.ok);
+    CHECK(danger.result["dangerous"] == true);
+    CHECK(has(danger.result["hint"], "DANGEROUS"));
+    // wrong values and providers teach
+    auto wrongKind = w.set("user", "/providers/codex/permissionMode", "acceptEdits");
+    REQUIRE_FALSE(wrongKind.ok);
+    CHECK(has(wrongKind.error["message"], "/providers/codex/permissionMode"));
+    auto unknown = w.set("user", "/providers/claud-code/permissionMode", "plan");
+    REQUIRE_FALSE(unknown.ok);
+    CHECK(has(unknown.error["hint"], "claude-code"));
+    CHECK_FALSE(w.set("user", "/providers/claude-code/permissionMode", 3).ok);
+    CHECK_FALSE(w.set("user", "/providers/openrouter/permissionMode", "plan").ok);
+    // null goes back to the default and drops the key
+    auto reset = w.set("user", "/providers/claude-code/permissionMode", nullptr);
+    REQUIRE(reset.ok);
+    CHECK(reset.result["runsWith"] == "acceptEdits");
+    CHECK_FALSE(Json::parse(*fa::fs::read_text(w.ai))["providers"].contains("claude-code"));
+}
