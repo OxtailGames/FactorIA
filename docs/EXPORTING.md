@@ -1831,14 +1831,19 @@ manifest `Publisher`.
   on Windows `signtool` has no other way to read a `.pfx` password than `/p`, so the `.pfx` is imported into your user
   certificate store (`Cert:\CurrentUser\My`) by PowerShell, which reads the password from its environment, `signtool` signs with
   `/sha1 <thumbprint> /s My`, and the imported certificate is removed again afterwards (also when signing fails or is cancelled; a
-  certificate that was in the store before, with its private key, is left alone). Three PowerShell steps: read the thumbprint of the
-  certificate that has a private key (imports nothing), import only that certificate (not the chain certificates of the file, which
-  would bring up Windows' root-store question), and remove it. Steps two and three hold a named mutex, so two `sign.windows` runs of
-  one user do not change the store at the same time; the mutex does not span the signing, so do not sign with the same `.pfx` in
-  two runs at once (the first to finish removes the certificate). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
+  certificate that was in the store before, with its private key, is left alone, and then the file is not even loaded a second
+  time; one that was there WITHOUT its private key is completed by the import and removed with it afterwards). Up to three
+  PowerShell steps: read the thumbprint of the certificate that has a private key (imports nothing and leaves no key on disk),
+  import only that certificate (not the chain certificates of the file, which would bring up Windows' root-store question; the
+  keys of the chain certificates are deleted again), skipped when the store has the certificate with its key, and remove it.
+  The import looks in the store first and loads the file only right before adding the certificate, and it deletes the key it
+  loaded when the certificate does not get into the store. Steps two and three hold a named mutex (per Windows user, shared by
+  all the user's logon sessions), so two `sign.windows` runs of one user do not change the store at the same time; the mutex
+  does not span the signing, so do not sign with the same `.pfx` in two runs at once (the first to finish removes the
+  certificate). `osslsigncode` reads the password on its standard input (`-readpass -`). The pfx can also be `FACTORIA_WINDOWS_PFX` or
   `sign.windows.pfx` of `~/.factoria/export.json`. The command checks the certificate subject (with `openssl`, when present)
   against the manifest `Publisher` and refuses when they differ. `exe: true` also signs the game's exe, for a game shared
-  as a folder or a zip. `dryRun` shows the three steps (import, sign, remove) and the NAMES of the variables each one sets, never a value.
+  as a folder or a zip. `dryRun` shows the four steps (read the thumbprint, import, sign, remove; a real run skips the import when the store has the certificate already) and the NAMES of the variables each one sets, never a value.
 - Without one, on Windows: `sign.windows {"testCertificate":true}` creates a self-signed certificate with the right subject,
   signs the package and writes its public part (`<slug>-windows-test-certificate.cer`) next to it. Install the certificate once, in an
   administrator PowerShell: `Import-Certificate -FilePath <slug>-windows-test-certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`;

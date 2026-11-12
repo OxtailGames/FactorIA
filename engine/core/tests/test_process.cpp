@@ -288,14 +288,23 @@ TEST_CASE("process: newSession gives the program a session of its own (no contro
     }
 }
 
-TEST_CASE("process: newSession program reads the stdin text and cannot open /dev/tty") {
+// (Without a terminal at all, e.g. on CI, /dev/tty cannot be opened with or without newSession: the session check is what proves it.)
+TEST_CASE("process: newSession program reads the stdin text, leads a session that is not ours, and cannot open /dev/tty") {
     ProcessOptions po;
     po.argv = {"sh", "-c", "read pw; echo \"got:$pw\"; (: < /dev/tty) 2>/dev/null && echo tty || echo notty; exit 3"};
     po.stdinText = "secret\n";
     po.newSession = true;
     po.timeoutSeconds = 30;
+    pid_t childPid = 0, childSid = -1;
+    po.onStart = [&](long long pid) {
+        childPid = static_cast<pid_t>(pid);
+        childSid = getsid(childPid);
+    };
     auto r = run_process(po);
     REQUIRE(r);
+    REQUIRE(childPid > 0);
+    CHECK(childSid == childPid);
+    CHECK(childSid != getsid(0));
     CHECK(r->exitCode == 3);
     CHECK(r->stdoutText == "got:secret\nnotty\n");
 }
