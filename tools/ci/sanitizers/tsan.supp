@@ -1,0 +1,2 @@
+# ThreadSanitizer suppressions (TSAN_OPTIONS=suppressions=tools/ci/sanitizers/tsan.supp).
+# Every entry says why it is benign or out of our control. Races in first-party code are fixed, not listed here.

@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- ThreadSanitizer over the threaded tests (M93.1): the job system, background loading, the audio mixer and its streams,
+  the MCP server, platform HTTP, scripts, services, tooling and AI test programs ran clean under TSan (macOS arm64) with
+  `halt_on_error=1`; the one race found was in a test (`process: onStart gives the pid...` read a pid written by another
+  thread without synchronization) and is fixed. `tools/ci/sanitizers/tsan.supp` is the suppressions file for races inside
+  `external/` (none needed so far).
+
 ## 0.25.0
 
 FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,
