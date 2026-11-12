@@ -166,6 +166,40 @@ rest is what a reader needs only once working with it. `details` is printed afte
 the description MCP and the built-in agent send ends with a sentence that names that section (`command_details_pointer`).
 So nothing is lost: the arguments table of the reference has always carried each argument's own description.
 
+#### Capabilities
+A command says what it can do outside the engine's memory with `CommandInfo::capabilities` (`core/capability.h`), a set of
+these (JSON names are camelCase):
+
+| Capability | Meaning |
+|---|---|
+| `read` | reads project or engine state |
+| `state` | changes the running game or the open scene in memory only, writes no file |
+| `writeProject` | writes files inside the project |
+| `writeAnywhere` | writes outside the project (absolute paths, the user's folders and settings) |
+| `network` | talks to a remote service |
+| `process` | starts an external program |
+| `spend` | can cost money (paid APIs, store fees) |
+| `publish` | makes something public or uploads a build to a store |
+
+A command that declares nothing gets a set derived from `readOnly` when it is added: `{read}` if read-only, otherwise
+`{read, state, writeProject}` (never one of the dangerous four, so a command that needs one must declare it);
+`CommandInfo::capabilitiesDeclared` tells which. `describe()` lists them under `capabilities`.
+
+What a caller may do is a `CapabilitySet` (`caller_capabilities()`). The named sets are `fa::capability_sets::`
+`cli_user` (all), `mcp` (all but `writeAnywhere`), `mcp_read_only` (`{read}`), `agent` (all but `writeAnywhere` and `publish`),
+`game_player`, `editor_play` and `test_script` (`{read, state}` each). A `CommandCaller` starts from its set (User:
+`cli_user`, Mcp: `mcp`, Agent: `agent`). **A scope only narrows**: `CommandCapabilityScope` (and `CommandCallerScope`)
+intersects with the set of the thread, so nothing nested inside a call can widen it; the consequence is that a nested
+call cannot run with "the tool's own set", a handler that needs more than its caller has is refused. Code that hops threads
+(job queues, the editor's main-thread queue) captures `command_context()` (caller and set) and installs it on the other
+thread with a `CommandContextScope`.
+
+`CommandRegistry::call` checks it right after the lookup, before the arguments are validated (a bitmask AND): a command whose
+capabilities are not all granted fails with code `capability_denied`. The message names the command, each missing capability
+with its meaning, the caller and the granted set; the hint says where each caller gets what (the CLI user has all, `factoria mcp`
+without `--read-only` all but `writeAnywhere`, a game script `{read, state}`, a test can ask for more with `capabilities` in
+its test options); `error.data` has `command`, `missing`, `needs` and `granted`.
+
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through
 `fa::fs` (`core/fs.h`), by project-relative path (forward slashes, no `..`). The paths are answered from one of three

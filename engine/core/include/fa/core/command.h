@@ -25,6 +25,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/capability.h"
 #include "fa/core/json.h"
 
 namespace fa::jobs {
@@ -59,6 +60,15 @@ struct CommandInfo {
     // (docs/reference/commands, docs.commands {"name": ...}, `factoria commands <name>`); the description MCP sends ends by
     // saying where to read it (command_details_pointer).
     std::string details;
+
+    // (After `details`, so the positional initialisers of CommandInfo{name, summary, ...} keep working.)
+    // What the command can do outside the engine's memory (capability.h). The registry refuses a call whose caller is not
+    // granted every one of them (code "capability_denied"). Set it (a non-empty set) to declare it; CommandRegistry::add
+    // fills in a command that declares nothing from readOnly: {read} when readOnly, {read, state, writeProject} otherwise
+    // (conservative: it never includes writeAnywhere, network, process, spend or publish, so a command that needs one of
+    // those must declare it) and leaves capabilitiesDeclared false.
+    CapabilitySet capabilities;
+    bool capabilitiesDeclared = false;  // true once the command declared `capabilities` itself (set by add())
 
     // description + details: what a doc-facts test looks in, and what the docs reference prints.
     std::string full_description() const { return details.empty() ? description : description + "\n\n" + details; }
@@ -131,6 +141,7 @@ public:
 
 private:
     CommandCaller previous_;
+    CapabilitySet previousGranted_;
 };
 
 // A process whose own caller is not the user: the CLI agents (Claude Code, Codex) factoria starts get FACTORIA_CALLER in their
@@ -157,6 +168,52 @@ std::optional<CommandCaller> command_caller_from_env();  // reads kCallerEnvVar
 
 CommandCaller command_caller();                         // the caller of the command running on this thread (User outside any scope)
 const char* command_caller_name(CommandCaller caller);  // "the user", "an AI agent", "an MCP client"
+
+// What the caller of the command running on this thread may do (capability.h). It is the set of the caller's kind
+// (capability_sets::cli_user for the User, mcp for Mcp, agent for Agent; command_caller() includes the process-wide floor)
+// narrowed by every CommandCapabilityScope and CommandCallerScope of this thread. CommandRegistry::call refuses a command
+// whose CommandInfo::capabilities are not all inside it (code "capability_denied").
+CapabilitySet caller_capabilities();
+// The set a CommandCaller starts from.
+CapabilitySet capabilities_for_caller(CommandCaller caller);
+
+// Narrows what the calls made on this thread inside the scope may do. Like CommandCallerScope it only ever narrows: the
+// granted set becomes the intersection of the current one and `granted`, so a nested scope cannot widen what an outer
+// one took away. That also means a nested call cannot say "this one legitimately runs with the tool's own set": a
+// handler that needs more than its caller has is refused, by design. `factoria mcp --read-only` installs
+// capability_sets::mcp_read_only(), a test run installs capability_sets::test_script() plus what the test asked for.
+// The scope is per thread; code that hops threads takes a command_context() snapshot and installs it there.
+class CommandCapabilityScope {
+public:
+    explicit CommandCapabilityScope(CapabilitySet granted);
+    ~CommandCapabilityScope();
+    CommandCapabilityScope(const CommandCapabilityScope&) = delete;
+    CommandCapabilityScope& operator=(const CommandCapabilityScope&) = delete;
+
+private:
+    CapabilitySet previous_;
+};
+
+// Who is calling and what they may do, as one value a job queue or the editor's main-thread queue captures on the calling
+// thread (command_context()) and installs again on the thread that runs the command (CommandContextScope), the way
+// command_caller() is handed over today.
+struct CommandContext {
+    CommandCaller caller = CommandCaller::User;
+    CapabilitySet capabilities = CapabilitySet::all();
+};
+
+CommandContext command_context();
+
+class CommandContextScope {
+public:
+    explicit CommandContextScope(const CommandContext& context) : caller_(context.caller), capabilities_(context.capabilities) {}
+    CommandContextScope(const CommandContextScope&) = delete;
+    CommandContextScope& operator=(const CommandContextScope&) = delete;
+
+private:
+    CommandCallerScope caller_;
+    CommandCapabilityScope capabilities_;
+};
 
 // Outcome of a call. `result` is the handler's JSON on success; on failure
 // `error` = {"code": .., "message": .., "hint": ..}.
@@ -193,10 +250,11 @@ public:
 
     // Validates `args` against inputSchema (fills defaults for missing optional
     // properties that declare "default"), runs the handler, never throws.
-    // Unknown command -> code "unknown_command" with a "did you mean" hint.
+    // Unknown command -> code "unknown_command" with a "did you mean" hint. A command whose capabilities the caller is
+    // not granted (caller_capabilities()) -> code "capability_denied", before the arguments are looked at.
     CommandResult call(std::string_view name, const Json& args = Json::object()) const;
 
-    // [{name, summary, description, inputSchema, readOnly, category}, ...]
+    // [{name, summary, description, details, inputSchema, readOnly, capabilities, category}, ...]
     Json describe() const;
 
     // Called at the start of every outermost call() (not for calls made from inside a running handler, nor from a job
