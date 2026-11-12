@@ -1049,7 +1049,7 @@ caught it, and each performance package shows its gain on M93.5's benchmarks.
 Order: M90 first (small). Then M91, M92 and M93, before any new feature. M94 and M95 before M71: M71 builds on M95's
 frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the
 small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
-when the user has the hardware and the accounts. M100 and M101 are done (0.22.0, 0.23.0) and M97.1 and M97.2 come next
+when the user has the hardware and the accounts. M100, M101, M97.1 and M97.2 are done (0.22.0, 0.23.0, 0.24.0) and M92 comes next
 ("M100-M101").
 
 ## M100-M101: the examples' feedback and a third outside review (planned 2026-11-10, both done)
@@ -1108,8 +1108,8 @@ Rules: those of every milestone, plus: each fix comes with the test that would h
 still pass under M100.2's stricter rule, and each feedback entry a package closes gets its `Fixed in` note and the game
 drops its workaround in the same package.
 
-Order (M100 and M101 are done): M100 then M101, before M92 (M100 is what the game AI meets on its first run; M101 was the backlog). M100.1
-(the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost of the first step), then M92, M93
+Order (M100, M101, M97.1 and M97.2 are done): M100 then M101, before M92 (M100 is what the game AI meets on its first run; M101 was the backlog). M100.1
+(the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost of the first step; done in 0.24.0), then M92, M93
 (its ASan+UBSan job first), M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after
 M97.2. A triage of every open entry of `examples/*` opens each milestone.
 
