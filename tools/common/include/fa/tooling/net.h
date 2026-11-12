@@ -41,10 +41,12 @@ void shutdown_socket(Socket s);
 // Writes all of `data`; false when the peer is gone or the send timeout (set_io_timeouts) ran out. A closed peer never
 // raises SIGPIPE.
 bool send_all(Socket s, std::string_view data);
-// Ends a connection after an error answer without a reset: stops sending (the client sees the end of the answer), then reads and
-// discards what the client is still sending, for at most `maxMs` and `maxBytes` (it stops earlier when nothing arrives for `idleMs`: a client that is slow to read on a loaded machine still gets the answer). Closing a socket with unread input makes the
-// system send an RST that can wipe the answer from the client's receive queue (Windows and macOS do it), so the client would
-// see "connection reset" instead of the status. The caller closes the socket afterwards.
+// Ends a connection that the server closes after an answer (an error, a 200/202/204 that ends the connection, a stream)
+// without a reset: stops sending (the client sees the end of the answer), then reads and discards what the client is still
+// sending, for at most `maxMs` and `maxBytes` (it stops earlier when nothing arrives for `idleMs`: a client that is slow
+// to read on a loaded machine still gets the answer). Closing a socket with unread input makes the system send an RST
+// that can wipe the answer from the client's receive queue (Windows and macOS do it), so the client would see "connection
+// reset" instead of the status. It blocks the calling thread for up to `maxMs`. The caller closes the socket afterwards.
 void linger_close(Socket s, int maxMs = 500, std::size_t maxBytes = 256 * 1024, int idleMs = 300);
 // Reads up to `size` bytes: the count, 0 when the peer closed, a negative number on an error or when the receive timeout ran out.
 std::ptrdiff_t recv_some(Socket s, char* buffer, std::size_t size);
