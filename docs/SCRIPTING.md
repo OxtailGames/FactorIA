@@ -1693,7 +1693,8 @@ from a project tool, with `factoria call`, or from a test that asks for them. A 
 `fa.call("project.<name>")` runs with the **game's** set (a scope only narrows), so a script cannot widen its permissions
 by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. The callbacks of
 behaviours that a test or a tool triggers (`game.step`) still run with the game's set, and so does the top level of a module
-that a test or a tool imports for the first time (only the test file's own top level is test code).
+that a test or a tool imports for the first time, including the modules a test file imports statically and what those import
+(only the test file's own top level is test code).
 
 **Promise continuations and listeners run with the set of whoever pumps the jobs.** The engine runs the pending promise jobs
 (`await` continuations, `.then` callbacks, async `world.on` listeners) in one queue, after a tool, `script.eval` or a test
