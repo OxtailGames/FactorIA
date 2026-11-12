@@ -33,7 +33,7 @@ struct TempProject {
     stdfs::path root, dir;
     std::optional<std::string> oldHome;
     explicit TempProject(const std::string& name) {
-        root = fs::make_temp_dir("fa_editor_export_" + name);
+        root = fs::make_temp_dir("fa_editor_export_" + name).value();
         // FACTORIA_HOME somewhere empty: not the players `factoria setup players` installed on this computer.
         if (const char* cur = std::getenv("FACTORIA_HOME")) oldHome = cur;
         set_env("FACTORIA_HOME", (root / "factoria-home").string().c_str());

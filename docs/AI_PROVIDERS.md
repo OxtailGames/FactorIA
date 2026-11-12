@@ -34,9 +34,9 @@ FactorIA runs: `claude -p --output-format stream-json --input-format stream-json
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
-`<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (on Linux and macOS readable by your user only; on Windows it
-has its folder's permissions) and deleted when the run ends (also
-when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
+`<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (readable by your user only: mode 0600, on Windows a protected ACL; when the project's folder refuses that, for example on a
+network share or a NAS, the file goes to a new owner-only folder `factoria-run_*` in your temporary folder instead, never to one that already existed, and the log says why; a folder of a run that crashed is removed by a later run after a day) and
+deleted when the run ends (also when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
 editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
 that cannot be deleted (on Windows, while another program holds it open) is reported in the log and removed by a later run
 once it is a day old. That sweep removes only `fa-run-*` entries of that folder, and the names FactorIA 0.19.0 gave its
@@ -146,7 +146,10 @@ The model must support tool calling.
 Location: `~/.factoria/ai.json` (Linux/macOS), `%APPDATA%\factoria\ai.json`
 (Windows). Override with the `FACTORIA_AI_CONFIG` environment variable. The
 file is optional; without it the Anthropic defaults below apply. Schema:
-`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix).
+`schemas/ai-config.schema.json` (errors name the JSON pointer and a fix). A save (the editor's AI settings, `ai.settings.set`) takes a lock file (`ai-config.lock`) next to
+`ai.json` for its read-modify-write (the trust file `ai-trust.json` too) and replaces the file atomically (a temporary file, then a rename; on Windows the rename is
+retried for about a second when another program has the file open), so two programs saving at once never mix their changes;
+a save that cannot get the lock in a second changes nothing and says to try again (a lock left by a program that crashed expires after about 10 s).
 
 ```json
 {
@@ -182,7 +185,7 @@ starts do not inherit it whole. Each gets an allow-list:
 
 | Program | Inherits |
 |---|---|
-| Command hooks ([HOOKS.md](HOOKS.md)) | the base list, the hook's own `CLAUDE_PROJECT_DIR`, `FACTORIA_*` variables, and the top-level `inheritEnv` |
+| Command hooks ([HOOKS.md](HOOKS.md)) | the base list, network and config variables (proxies, certificate files), the hook's own `CLAUDE_PROJECT_DIR`, `FACTORIA_*` variables, and the top-level `inheritEnv` |
 | CLI agents (Claude Code, Codex, `generic-cli`), model listing, plugin installs | the base list, network and config variables (`XDG_*`, `HTTP(S)_PROXY`, `NO_PROXY`, `SSL_CERT_*`, `NODE_EXTRA_CA_CERTS`), the variables of the CLI (`CLAUDE_*` and `ANTHROPIC_*` for Claude Code, `CODEX_*` and `OPENAI_*` for Codex), the provider's own API key variable, the provider's `inheritEnv` and the top-level `inheritEnv` |
 | `asset-command` providers | the same as a CLI agent of that provider |
 | Stdio tool servers (`mcpServers`) | the base list, network and config variables, the server's `apiKeyEnv`, its `inheritEnv` and the top-level `inheritEnv`; the server's `env` is always passed |
@@ -193,6 +196,18 @@ The base list is `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`/`TEMP`/`TM
 `ComSpec`, `PATHEXT`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `ProgramFiles*`, `USERNAME` and the like. Claude Code
 on macOS finds its login in the keychain through `HOME`; it needs no other variable. `env` of a provider or server is added on
 top, `unsetEnv` removes names again.
+
+Not inherited, unless listed: the signing passwords (`FACTORIA_*_PASSWORD`), the API keys of other providers, the Amazon Bedrock
+login (`AWS_PROFILE`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`),
+the Google Vertex AI login (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUD_ML_REGION`) and `SSH_AUTH_SOCK`
+(Claude Code's `CLAUDE_CODE_USE_BEDROCK` and `CLAUDE_CODE_USE_VERTEX` are inherited, the variables they need are not). A signed
+export that you run through the stdio `factoria mcp` (an agent's tool server) therefore gets no `FACTORIA_*_PASSWORD`: this is by
+design, signing passwords are set in the environment of the editor or the terminal that runs the export.
+
+This list is a floor against leaking a secret by accident, not a barrier. A program that runs with no sandbox (an agent in
+`bypassPermissions` or `danger-full-access`, a shell the agent starts) runs as you: it can read `~/.factoria/ai.json`, the
+keychain and your files, and start a program that gets the whole environment from another place. For an agent that must not reach
+a secret, use the permission modes below or keep the secret out of the files it can read.
 
 A program that needs another variable (`AWS_PROFILE`, `GIT_SSH_COMMAND`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`, a company proxy
 variable) needs its name listed. Names are exact (`"AWS_PROFILE"`) or a prefix ending in `*` (`"AWS_*"`); on Windows they ignore
@@ -464,8 +479,8 @@ CLI providers are looked up in `PATH` and then in the folders their installers u
 the npm, bun, volta and nvm bins, Homebrew, `%APPDATA%\npm`): an editor opened from Finder or the Dock gets a shorter
 `PATH` than a terminal, and the CLI would otherwise look missing.
 
-The same lists are available to tools and AIs as the read-only command `ai.models {provider?}` (a CLI call, an MCP
-tool `ai_models`):
+The same lists are available to tools and AIs as the command `ai.models {provider?}` (a CLI call, an MCP tool `ai_models`). It changes no file, but it
+starts a CLI or calls an API, so it needs the Read, Process and Network capabilities and is not offered to a read-only caller:
 
 ```json
 {"providers": [
@@ -837,8 +852,9 @@ sandbox behaviour of your version is worth a look at `codex exec --help`).
   They are not forbidden, because an agent in a throwaway folder or a container is a real use and the choice is yours alone to
   make (see above), but they are labelled dangerous everywhere they appear.
 * **A role that only reads stays read-only.** A reviewer (and any run FactorIA starts read-only) is held to read-only whatever the
-  mode is: for Codex the sandbox is `read-only`; for Claude Code `bypassPermissions` and `auto` become `acceptEdits` for that run
-  and its edit tools stay switched off (`--disallowedTools`), as they were before the setting existed.
+  setting is: for Codex the sandbox is `read-only`; for Claude Code `bypassPermissions` and `auto` become `acceptEdits` for that run
+  and its edit tools stay switched off (`--disallowedTools`), as they were before the setting existed. This is about the setting:
+  a permission or sandbox flag you wrote in your own `argv` template is kept as written (next point), for a read-only role too.
 * **A command line of your own wins.** With the built-in command line the flag is always added (the default when you set none).
   With your own `argv` template the flag is added only when the provider has a `permissionMode`, and never when the template already
   has `--permission-mode`, `--dangerously-skip-permissions`, or for Codex `--sandbox`, `-s`, `--full-auto`,

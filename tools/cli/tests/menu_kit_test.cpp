@@ -40,7 +40,7 @@ fa::Json read_json(const stdfs::path& p) {
 }
 
 std::string new_game(const char* tag) {
-    const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_menu_kit_") + tag);
+    const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_menu_kit_") + tag).value();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();

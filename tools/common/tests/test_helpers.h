@@ -24,7 +24,7 @@ inline bool shdc_required() {
 struct TempDir {
     std::filesystem::path path;
     TempDir() {
-        path = fa::fs::make_temp_dir("fa_tooling_test");
+        path = fa::fs::make_temp_dir("fa_tooling_test").value();
     }
     ~TempDir() {
         std::error_code ec;

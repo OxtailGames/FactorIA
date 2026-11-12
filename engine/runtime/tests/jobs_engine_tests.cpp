@@ -75,7 +75,7 @@ std::string project_json(const std::string& runtime) {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const std::string& runtime = {}) {
-        dir = fs::make_temp_dir("fa_jobs_engine_test_" + name);
+        dir = fs::make_temp_dir("fa_jobs_engine_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << project_json(runtime);
         std::ofstream(dir / "scenes" / "main.scene.json", std::ios::binary) << kScene;

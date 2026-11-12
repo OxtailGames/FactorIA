@@ -26,7 +26,7 @@ Image flat_picture(int w, int h, std::uint8_t grey) {
 }
 
 struct GoldenDir {
-    stdfs::path dir = fs::make_temp_dir("fa_golden_check_test");
+    stdfs::path dir = fs::make_temp_dir("fa_golden_check_test").value();
     stdfs::path golden = dir / "picture.png";
     ~GoldenDir() {
         std::error_code ec;

@@ -16,7 +16,7 @@ namespace {
 struct NetProject {
     stdfs::path dir;
     NetProject() {
-        dir = fs::make_temp_dir("fa_http_replay_test");
+        dir = fs::make_temp_dir("fa_http_replay_test").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json") << R"({
           "format": "factoria.project/1", "name": "Net", "mainScene": "scenes/main.scene.json",

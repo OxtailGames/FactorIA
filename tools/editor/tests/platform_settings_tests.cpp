@@ -36,7 +36,7 @@ void touch_later(const stdfs::path& p, int seconds = 5) {
 struct SettingsProject {
     stdfs::path root, dir, machine;
     explicit SettingsProject(const std::string& name) {
-        root = fs::make_temp_dir("fa_editor_platform_" + name);
+        root = fs::make_temp_dir("fa_editor_platform_" + name).value();
         ScaffoldOptions so;
         so.name = "Settings Test";
         so.id = "com.example.settingstest";

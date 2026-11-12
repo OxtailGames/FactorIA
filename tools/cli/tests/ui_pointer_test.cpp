@@ -102,7 +102,7 @@ test("ui.focus(null) stays empty over frames until an arrow key", () => {
 
 TEST_CASE("scripts: ui.widgetAt, ui.setPointer, the consumed wheel and ui.focus(null)") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_ui_pointer") / "proj";
+    const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_ui_pointer").value() / "proj";
     write_text(dir / "factoria.json", R"({"format":"factoria.project/1","name":"Pointer","id":"com.factoria.tests.pointer","version":"0.1.0",
         "mainScene":"scenes/main.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"confirm":["Enter"]}}})");

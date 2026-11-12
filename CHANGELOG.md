@@ -17,6 +17,11 @@ Older versions, one file per minor version with its patch releases: [0.23](chang
   writers (and their errors name the command), `scene.import_ascii` and `scene.ascii_edit` with `dryRun: true` no longer need
   `writeProject`, and two tests walk the whole command registry: every command declares its capabilities, and every schema path
   marked `"x-fa-path": "write"` refuses `..` and absolute paths for an MCP client without creating a file outside the project.
+- AI providers and settings polish (M92.POLISH-B): run files with a secret fall back to a private folder in the temporary folder
+  when the project's `.factoria/ai` refuses the owner-only write, the curl config is written private from its first byte, hooks
+  inherit proxies and certificates like every other program the AI starts, saves of `ai.json` take a file lock, `ai.providers` and
+  `ai.tool_servers` are `{read}` (only `doctor` and `test:true` need Process and Network, so critics and `factoria mcp --read-only`
+  keep the listing), and the docs say what the environment floor is not (a barrier against an unsandboxed shell).
 - Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
   refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
   generic CLI, in `tools/ai/tests/fixtures/cli/`, are replayed through `CliStreamParser`, `list_models` and `detect_providers`;

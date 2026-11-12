@@ -37,7 +37,7 @@ struct Session {
     stdfs::path dir;
     Engine engine;
     Session() {
-        dir = fs::make_temp_dir("fa_terrain_test");
+        dir = fs::make_temp_dir("fa_terrain_test").value();
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         EngineConfig c;

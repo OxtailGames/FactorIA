@@ -42,7 +42,7 @@ const char* kScene = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* scene = kScene) {
-        dir = fs::make_temp_dir("fa_shot_test_" + name);
+        dir = fs::make_temp_dir("fa_shot_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << scene;

@@ -46,9 +46,9 @@ TEST_CASE("tools/ai commands: every one declares exactly the capabilities of wha
     const CapabilitySet agentRun{C::Read, C::WriteProject, C::Process, C::Network, C::Spend};
     const CapabilitySet imageEdit{C::Read, C::State, C::WriteProject, C::Process, C::Network, C::Spend};
     const std::map<std::string, CapabilitySet> expected = {
-        {"ai.providers", {C::Read, C::Process}},
+        {"ai.providers", reads},  // doctor asks for Process in the handler
         {"ai.models", {C::Read, C::Process, C::Network}},
-        {"ai.tool_servers", {C::Read, C::Process, C::Network}},
+        {"ai.tool_servers", reads},  // test:true asks for Process and Network in the handler
         {"ai.extensions", reads},
         {"ai.hooks", reads},
         {"ai.hooks_test", {C::Read, C::Process, C::Network, C::Spend}},
@@ -119,4 +119,37 @@ TEST_CASE("tools/ai commands: a {read, state} scope is refused ai.run and ai.set
         REQUIRE_FALSE(user.ok);
         CHECK(user.error["code"] == "capability_denied");
     }
+}
+
+TEST_CASE("ai.providers and ai.tool_servers: the plain listing is read-only, doctor and test:true need Process (and Network)") {
+    World w;
+    // What a critic and `factoria mcp --read-only` hold.
+    CommandCallerScope caller(CommandCaller::Mcp);
+    CommandCapabilityScope caps(capability_sets::mcp_read_only());
+    const CommandResult listing = w.reg.call("ai.providers", Json::object());
+    CHECK(listing.ok);
+    const CommandResult doctor = w.reg.call("ai.providers", Json::object({{"action", "doctor"}}));
+    REQUIRE_FALSE(doctor.ok);
+    CHECK(doctor.error["code"] == "capability_denied");
+    CHECK(w.reg.call("ai.tool_servers", Json::object()).ok);
+    const CommandResult test = w.reg.call("ai.tool_servers", Json::object({{"test", true}}));
+    REQUIRE_FALSE(test.ok);
+    CHECK(test.error["code"] == "capability_denied");
+}
+
+TEST_CASE("ai.providers and ai.tool_servers: with Process and Network the doctor and test:true are allowed") {
+    World w;
+    CommandCallerScope caller(CommandCaller::Agent);
+    CommandCapabilityScope caps(role_capabilities(kRoleOrchestrator));
+    CHECK(w.reg.call("ai.providers", Json::object({{"action", "doctor"}})).ok);
+    CHECK(w.reg.call("ai.tool_servers", Json::object({{"test", true}})).ok);
+}
+
+TEST_CASE("ai.settings.set: scope user is refused for the user without writeAnywhere, and nothing is written") {
+    World w;
+    CommandCallerScope caller(CommandCaller::User);
+    CommandCapabilityScope caps(CapabilitySet{C::Read, C::WriteProject});
+    const CommandResult set = w.reg.call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/limits/maxTurns"}, {"value", 20}}));
+    REQUIRE_FALSE(set.ok);
+    CHECK(set.error["code"] == "capability_denied");
 }

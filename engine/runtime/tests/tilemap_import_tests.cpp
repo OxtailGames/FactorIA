@@ -63,7 +63,7 @@ const char* kLevel = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = fs::make_temp_dir("fa_import_test_" + name);
+        dir = fs::make_temp_dir("fa_import_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);

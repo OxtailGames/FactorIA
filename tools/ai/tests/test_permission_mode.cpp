@@ -1,9 +1,15 @@
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <optional>
+#include <thread>
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
+#include "fa/ai/extensions.h"
 #include "fa/core/fs.h"
+#include "fa/tooling/feedback_share.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -104,6 +110,16 @@ TEST_CASE("save_provider_permission_mode: writes one key, keeps the rest, refuse
     CHECK(badMode.error().message.find("/providers/claude-code/permissionMode") != std::string::npos);
     CHECK(read_file(path) == before);
     CHECK_FALSE(save_provider_permission_mode("anthropic", "plan", path).ok());
+    CHECK(read_file(path) == before);
+    // an empty provider name, and a provider the configuration does not have (also with the default mode), teach and change nothing
+    auto noName = save_provider_permission_mode("", "plan", path);
+    REQUIRE_FALSE(noName.ok());
+    CHECK(noName.error().message.find("empty") != std::string::npos);
+    CHECK_FALSE(noName.error().hint.empty());
+    auto noProvider = save_provider_permission_mode("claude-cod", "", path);
+    REQUIRE_FALSE(noProvider.ok());
+    CHECK(noProvider.error().message.find("claude-cod") != std::string::npos);
+    CHECK(noProvider.error().hint.find("claude-code") != std::string::npos);  // did you mean
     CHECK(read_file(path) == before);
     // an empty mode removes the key and the entry it leaves empty
     REQUIRE(save_provider_permission_mode("claude-code", "", path).ok());
@@ -228,3 +244,52 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
     CHECK(ro.find("workspace-write") == std::string::npos);
 }
 #endif
+
+TEST_CASE("saving ai.json waits for the lock of its folder and, when another program keeps it, changes nothing and says why") {
+    TempDir dir;
+    const std::string path = (dir.path / "ai.json").string();
+    REQUIRE(fs::write_text(path, R"({"defaultProvider": "claude-code"})").ok());
+    const std::string before = read_file(path);
+    {
+        ShareEnv env = share_env();
+        env.lockWaitSec = 0.05;  // a busy lock is reported after this long
+        ScopedShareEnv scoped(env);
+        // `ready` says the thread went through the lock, `held` that it got it: a thread that did not get it still ends.
+        std::atomic<bool> ready{false}, held{false}, release{false};
+        // The lock belongs to the thread that took it: this one stands for another program.
+        std::thread other([&] {
+            ShareLock lock(share_env(), dir.path, -1, "ai-config.lock");
+            held = lock.held();
+            ready = true;
+            while (held && !release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        });
+        while (!ready) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        const bool otherHolds = held;
+        std::optional<Result<void>> busy, busyRoles, busyTrust;
+        if (otherHolds) {
+            busy = save_provider_permission_mode("claude-code", "plan", path);
+            busyRoles = save_roles({}, path);
+            busyTrust = trust_project_ai_settings(extensions_trust_path(path), dir.str(), "abc");
+        }
+        release = true;
+        other.join();
+        REQUIRE(otherHolds);
+        REQUIRE_FALSE(busy->ok());
+        CHECK(busy->error().message.find("Cannot save") != std::string::npos);
+        CHECK(busy->error().message.find("ai-config.lock") != std::string::npos);
+        CHECK(busy->error().message.find("sharing files") == std::string::npos);
+        CHECK(busy->error().hint.find("Try again") != std::string::npos);
+        CHECK(busy->error().hint.find("10 s") != std::string::npos);
+        CHECK_FALSE(busyRoles->ok());
+        CHECK_FALSE(busyTrust->ok());  // the trust file is saved under the same lock
+        CHECK(read_file(path) == before);
+        CHECK_FALSE(std::filesystem::exists(dir.path / "ai-trust.json"));
+    }
+    // the lock is free again (the test's short wait is gone too): the same save works, and leaves no lock file behind
+    REQUIRE(save_provider_permission_mode("claude-code", "plan", path).ok());
+    CHECK(Json::parse(read_file(path))["providers"]["claude-code"]["permissionMode"] == "plan");
+    REQUIRE(trust_project_ai_settings(extensions_trust_path(path), dir.str(), "abc").ok());
+    CHECK(std::filesystem::exists(dir.path / "ai-trust.json"));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "ai-config.lock"));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "feedback-share.lock"));  // the feedback sharing's lock is another file
+}

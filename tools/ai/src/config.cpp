@@ -749,12 +749,16 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 }
                 std::vector<std::string> values;
                 for (const PermissionMode& m : modes) values.push_back(m.value);
-                const std::string mode = pm.is_string() ? pm.get<std::string>() : std::string();
+                std::string list;
+                for (const auto& v : values) list += (list.empty() ? "" : ", ") + v;
+                if (!pm.is_string()) {
+                    return make_error(at + ": \"permissionMode\" of provider '" + name + "' must be a string, not " +
+                                          std::string(pm.type_name()),
+                                      "Write one of: " + list + ". docs/AI_PROVIDERS.md, \"Permission mode\".");
+                }
+                const std::string mode = pm.get<std::string>();
                 if (std::find(values.begin(), values.end(), mode) == values.end()) {
-                    std::string list;
-                    for (const auto& v : values) list += (list.empty() ? "" : ", ") + v;
-                    return make_error(at + ": " + (pm.is_string() ? "'" + printable_text(mode) + "'" : std::string("a string is expected")) +
-                                          " is not a permission mode of " + provider_kind_name(c.kind),
+                    return make_error(at + ": '" + printable_text(mode) + "' is not a permission mode of " + provider_kind_name(c.kind),
                                       fa::did_you_mean(mode, values) + " Choose one of: " + list + ". docs/AI_PROVIDERS.md, \"Permission mode\".");
                 }
                 c.permissionMode = mode;  // as written: a provider with its own argv gets the flag only when the file names a mode
@@ -1068,6 +1072,8 @@ Json savers_to_json(const Savers& savers) {
 }
 
 Result<void> save_savers(const Savers& savers, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -1099,6 +1105,8 @@ Result<void> save_asset_limits(const Limits& limits, std::string_view path) {
                               "Use 0 for no limit (or for always asking, with askAboveUsd).");
         }
     }
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -1221,6 +1229,8 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
 }
 
 Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -1306,6 +1316,8 @@ std::string join_args(const std::vector<std::string>& args) {
 }
 
 Result<void> save_asset_settings(const AssetSettings& settings, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -1363,6 +1375,12 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
 }
 
 Result<void> save_provider_permission_mode(std::string_view provider, std::string_view mode, std::string_view path) {
+    if (provider.empty()) {
+        return make_error("The provider name is empty, so no permission mode was saved",
+                          "Name the provider (\"claude-code\", \"codex\"): ai.settings.get lists them under permissionModes.");
+    }
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {
@@ -1377,6 +1395,14 @@ Result<void> save_provider_permission_mode(std::string_view provider, std::strin
         j = std::move(*parsed);
     }
     const std::string name(provider);
+    // A provider the configuration does not have (a typo, a provider that was deleted since the window opened) is an error, also
+    // when the mode is the default: saving would add an entry nobody can use.
+    if (auto current = parse_config(j, path); current && !current->provider(name)) {
+        std::vector<std::string> names;
+        for (const auto& [n, p] : current->providers) names.push_back(n);
+        return make_error("No provider named '" + printable_text(name) + "' in " + std::string(path) + ", so its permission mode was not saved",
+                          fa::did_you_mean(name, names) + " Providers: " + fa::join(names, ", ") + ".");
+    }
     if (!j.contains("providers") || !j["providers"].is_object()) j["providers"] = Json::object();
     Json& provs = j["providers"];
     if (mode.empty()) {
@@ -1393,7 +1419,7 @@ Result<void> save_provider_permission_mode(std::string_view provider, std::strin
     // choices, and the file stays as it was.
     auto check = parse_config(j, path);
     if (!check) return check.error();
-    if (!mode.empty() && !check->provider(name)) {
+    if (!check->provider(name)) {
         std::vector<std::string> names;
         for (const auto& [n, p] : check->providers) names.push_back(n);
         return make_error("No provider named '" + printable_text(name) + "'", fa::did_you_mean(name, names));
@@ -1402,6 +1428,8 @@ Result<void> save_provider_permission_mode(std::string_view provider, std::strin
 }
 
 Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path) {
+    util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
+    if (!lock.held()) return lock.error();
     Json j = Json::object();
     std::error_code ec;
     if (fsys::exists(fsys::path(path), ec)) {

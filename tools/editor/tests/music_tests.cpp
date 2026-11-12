@@ -27,7 +27,7 @@ struct MusicProject {
     CommandRegistry registry;
     std::unique_ptr<MusicModel> model;
     MusicProject() {
-        dir = fs::make_temp_dir("fa_music_panel");
+        dir = fs::make_temp_dir("fa_music_panel").value();
         register_asset_commands(registry, dir.string());
         model = std::make_unique<MusicModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);

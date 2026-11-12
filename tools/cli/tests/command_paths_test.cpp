@@ -28,7 +28,7 @@ namespace {
 // A temporary folder holding the project (`game`) and nothing else: whatever else appears in it was written outside the project.
 struct Sandbox {
     stdfs::path oldRoot = fs::project_root();
-    stdfs::path root = fs::make_temp_dir("fa_command_paths");
+    stdfs::path root = fs::make_temp_dir("fa_command_paths").value();
     std::string dir;
     Sandbox() {
         ScaffoldOptions opt;

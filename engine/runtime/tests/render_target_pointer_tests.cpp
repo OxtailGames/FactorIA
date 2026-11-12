@@ -51,7 +51,7 @@ std::string scene(const std::string& mesh, const std::string& scale) {
 struct TempProject {
     stdfs::path dir;
     TempProject(const std::string& name, const std::string& mesh, const std::string& scale) {
-        dir = fs::make_temp_dir("fa_target_pointer_" + name);
+        dir = fs::make_temp_dir("fa_target_pointer_" + name).value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << scene(mesh, scale);

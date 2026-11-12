@@ -50,7 +50,7 @@ void collect(const Json& schema, const std::string& where, std::vector<std::stri
 
 TEST_CASE("command schemas: every command of the real registry is closed or explicitly open") {
     const stdfs::path oldRoot = fs::project_root();
-    const stdfs::path root = fs::make_temp_dir("fa_command_schema");
+    const stdfs::path root = fs::make_temp_dir("fa_command_schema").value();
     ScaffoldOptions opt;
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();

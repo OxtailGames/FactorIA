@@ -63,7 +63,7 @@ std::string wav() {  // 0.1 s of silence, 16-bit mono PCM
 struct TempProject {
     stdfs::path dir;
     TempProject() {
-        dir = fs::make_temp_dir("fa_vfxcmd_test");
+        dir = fs::make_temp_dir("fa_vfxcmd_test").value();
         put("factoria.json", kProject);
         put("scenes/main.scene.json", kScene);
         put("assets/vfx/hit.vfx.json", kHit);

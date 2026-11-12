@@ -5010,7 +5010,7 @@ void Editor::at_build_tools_script() {
             at_check(j.is_object() && !j.contains("providers"), "...and nothing is written yet");
         });
         click("aiset:agents:cancel");
-        step(2, [this] { at_check(aiSettings_.agents.confirm.empty() && !at_visible("aiset:agents:confirm"), "Not now closes the question"); });
+        step(2, [this] { at_check(aiSettings_.agents.confirm.empty() && !at_visible("aiset:agents:confirm"), "Cancel closes the question"); });
         click("aiset:agents:save:claude-code");
         step(3, [this] { at_check(at_visible("aiset:agents:confirm"), "Save asks again"); });
         click("aiset:agents:confirm");
@@ -5051,6 +5051,12 @@ void Editor::at_build_tools_script() {
             Json j = Json::parse(read_file(x->path), nullptr, false);
             at_check(j.is_object() && j.contains("providers") && !j["providers"].contains("claude-code") && j["providers"].contains("codex"),
                      "Use the default takes the key (and the empty provider entry) out of the file");
+            std::lock_guard<std::mutex> lock(aiMu_);
+            const auto it = aiConfig_.providers.find("claude-code");
+            at_check(it != aiConfig_.providers.end() && it->second.permissionMode.empty(),
+                     "...and the editor's config follows (Use the default reloads it like a save)");
+            at_check(aiSettings_.tools.inheritEnvGlobal == aiConfig_.inheritEnv,
+                     "...and the tools draft has ai.json's global inheritEnv again");
         });
         step(1, [this] {
             atWaitCount_ = 0;

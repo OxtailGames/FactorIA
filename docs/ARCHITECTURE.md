@@ -355,7 +355,10 @@ runs text from a prompt, a project or a stranger (hooks, AI agents, tool servers
 reach it, then `env` is added and `unsetEnv` removed. `fa::base_child_env()` is the list every child needs (`PATH`, `HOME`, the
 locale, temp folders, `SystemRoot`/`ComSpec`... on Windows) and `fa::child_env_allow(extra)` joins it with more names. tools/ai
 builds each provider's list (`tools/ai/src/ai_env.h`) and the user extends it with `inheritEnv` in ai.json
-(docs/AI_PROVIDERS.md, "Environment of the programs the AI starts"). An unset `inheritEnv` keeps the old behaviour.
+(docs/AI_PROVIDERS.md, "Environment of the programs the AI starts"). An unset `inheritEnv` keeps the old behaviour. The list is a
+floor against leaking a secret by accident, not a barrier: a child that runs with no sandbox (a shell, an agent in a permission
+mode without checks) runs as the user and can read `ai.json`, the keychain and the files itself. A signed export run through the
+stdio `factoria mcp` gets no `FACTORIA_*_PASSWORD` for the same reason: signing passwords are not in any allow-list.
 
 ### Block codecs: LZ4 and Zstandard (`core/compress.h`)
 `fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`) are the engine's own

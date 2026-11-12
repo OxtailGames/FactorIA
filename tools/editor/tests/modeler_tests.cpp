@@ -23,7 +23,7 @@ struct ModelerProject {
     CommandRegistry registry;
     std::unique_ptr<ModelerModel> model;
     ModelerProject() {
-        dir = fs::make_temp_dir("fa_modeler_panel");
+        dir = fs::make_temp_dir("fa_modeler_panel").value();
         register_asset_commands(registry, dir.string());
         model = std::make_unique<ModelerModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);

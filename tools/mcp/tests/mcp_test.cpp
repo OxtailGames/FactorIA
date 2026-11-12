@@ -33,7 +33,7 @@ namespace {
 struct TempDir {
     stdfs::path path;
     TempDir() {
-        path = fa::fs::make_temp_dir("fa_mcp_test");
+        path = fa::fs::make_temp_dir("fa_mcp_test").value();
     }
     ~TempDir() {
         std::error_code ec;
@@ -598,7 +598,7 @@ TEST_CASE("mcp: $image results add an image content block") {
 
 TEST_CASE("mcp: tool calls through the real tooling commands") {
     // feedback_report takes the lock of the user's sharing files: in a scratch folder, never the real ~/.factoria.
-    const std::filesystem::path scratch = fa::fs::make_temp_dir("fa_mcp_home");
+    const std::filesystem::path scratch = fa::fs::make_temp_dir("fa_mcp_home").value();
     fa::ShareEnv scratchEnv;
     scratchEnv.env = [h = scratch.string()](const std::string& name) -> std::string {
         return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";

@@ -111,7 +111,9 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         if (a.value("optional", true)) entry["optional"] = true;
         auto patched = patch_json_text(*original, {{{"plugins", name}, entry}}, kProjectFileName);
         if (!patched.ok()) throw CommandError("invalid_argument", patched.error().message, patched.error().hint);
-        const std::string scratch = fs::make_temp_dir("fa_new_plugin").generic_string();
+        auto scratchDir = fs::make_temp_dir("fa_new_plugin");
+        if (!scratchDir.ok()) throw CommandError("failed", scratchDir.error().message, scratchDir.error().hint);
+        const std::string scratch = scratchDir->generic_string();
         const bool scratchOk = tooling_detail::write_file(stdfs::path(scratch) / kProjectFileName, patched.value());
         auto settings = scratchOk ? load_project(scratch) : Result<ProjectSettings>(Error{"cannot write a scratch copy of factoria.json", ""});
         std::error_code rmEc;

@@ -66,7 +66,7 @@ fa::Image render_project(const std::string& dir, const stdfs::path& shot, fa::Js
 
 TEST_CASE("A mobile export ships compressed textures and still matches the render golden") {
     const stdfs::path oldRoot = fa::fs::project_root();
-    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_texture_acceptance");
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_texture_acceptance").value();
     const std::string project = (tmp / "game").string();
     fa::ScaffoldOptions opt;
     opt.writeTypings = false;

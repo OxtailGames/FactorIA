@@ -35,7 +35,7 @@ constexpr std::uint64_t B = kPackBlockSize;
 
 struct Scratch {
     stdfs::path oldRoot, dir;
-    Scratch() : oldRoot(fs::project_root()), dir(fs::make_temp_dir("fa_test_pack2")) {}
+    Scratch() : oldRoot(fs::project_root()), dir(fs::make_temp_dir("fa_test_pack2").value()) {}
     ~Scratch() {
         fs::unmount_pack();
         fs::set_project_root(oldRoot);
