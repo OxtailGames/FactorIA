@@ -101,6 +101,15 @@ routes are unaffected). For local `wrangler dev` and the tests, set the variable
 `.dev.vars`; never in production): such requests then share one strict bucket of 10 per route per day, apart from the
 real networks.
 
+An IPv6 address counts as its /64 prefix (one host owns a whole /64, so rotating inside it gives no fresh bucket) and an
+IPv4-mapped address (`::ffff:a.b.c.d`) as that IPv4 address. `ALLOW_NO_CLIENT_IP` is on only for `1` or `true` (any case);
+every other value, or none, keeps it off. An empty `CF-Connecting-IP` header counts as missing.
+
+The "whole server" counters are single rows, so one abuser (or a few networks together) can use a day's quota up and
+refuse everybody else until midnight UTC; this is the same tradeoff as the report counters, taken so the server's storage and
+cost stay bounded. If it happens, the owner can ban the abusing installation or reporter (a ban with `purge` removes what
+it sent), lower the per-network cap, or raise the whole-server cap (`DEFAULT_LIMITS` in `src/app.js`) and redeploy.
+
 Behaviours worth knowing:
 
 - A merged report only raises `occurrences`; its place in the pull order does not change, so a report already pulled is

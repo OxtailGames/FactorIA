@@ -184,8 +184,8 @@ Headers: `X-Factoria-Install: <uuid v4>` (required), `Authorization: Bearer <cre
   no character repeated more than 8 times, at least 4 words in `missing`, no URL or e-mail address.
 - The same installation reporting the same category and a similar title (normalized: lower case, punctuation and
   filler words dropped) again is merged: the stored report's `occurrences` goes up.
-- Rate limits (counted per accepted or rejected entry): 30 entries per installation per day, 100 per `ipKey` per day,
-  20 000 for the whole server per day; over a limit the answer is 429 with `Retry-After` and code `rate_limited`.
+- Rate limits (counted per accepted or rejected entry; the numbers are in the README's "Limits" section,
+  `tools/feedback-server/README.md`): per installation, per network (`ipKey`) and for the whole server, per day; over a limit the answer is 429 with `Retry-After` and code `rate_limited`.
 - A banned installation or reporter gets 403 with code `banned` and no detail; nothing it sends is stored.
 
 Answer:
@@ -249,8 +249,8 @@ base64url(HMAC(HMAC_SECRET, payload))`; the server checks it on every report. Th
 An installation asks what was decided about ITS reports. Header `X-Factoria-Install` as for reports; body `{format, shareIds: [..<=100]}`.
 Answer `{ok, verdicts: [{shareId, status: "rejected" | "received", reason?, at?}]}`: one item per shareId that is a report of the
 installation that sent the header. A shareId of another installation, or one that does not exist, gets NO item (the two cases look the same, so
-nothing about other installations leaks). `rejected` carries the reason; `received` says the report is stored with no verdict. Capped at 240
-requests per installation per day (`429` with `Retry-After`; the editor asks about every 30 minutes). An older server answers 404: the
+nothing about other installations leaks). `rejected` carries the reason; `received` says the report is stored with no verdict. Limited per
+day (README "Limits"; `429` with `Retry-After`; the editor asks about every 30 minutes). An older server answers 404: the
 client treats it as "no verdicts here" and changes nothing; an older client never calls it. The client (`share_sync_verdicts`) turns `rejected` into `shared.status: "declined"` plus the entry status
 `rejected` (`statusBy: "developer"`, `statusReason` = the reason as sanitized plain text of at most 500 characters), and a `received` for a
 declined entry (the rejection was taken back) into `sent` and open again. Do not confuse `shared.status: "rejected"` (the server refused the
