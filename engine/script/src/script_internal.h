@@ -170,7 +170,8 @@ struct ScriptSystem::Impl {
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
     // Static imports of every project module that was compiled, in source order: module name (with ?v=) -> names it imports.
     // Filled by normalize_module for every import it resolves, whether the loader then loads the target or finds it already
-    // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated.
+    // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated, and the imports of
+    // a dynamic import() that ran (it resolves its specifier the same way). bump_module_versions erases the entries it retires.
     std::map<std::string, std::vector<std::string>> moduleImports;
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;

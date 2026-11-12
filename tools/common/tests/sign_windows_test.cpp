@@ -418,7 +418,6 @@ TEST_CASE("sign.windows quotes text for PowerShell: the ASCII quote and the typo
     CHECK(powershell_quote("ni\xC3\xB1o") == "'ni\xC3\xB1o'");
 }
 
-
 TEST_CASE("sign.windows without a password: the steps set no variable and the scripts read none") {
     WinGame g;
     SignWindowsOptions o = g.options("windows", "");

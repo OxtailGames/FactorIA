@@ -528,12 +528,20 @@ bool project_extensions_trusted(std::string_view trustPath, std::string_view pro
     if (util::str(*it, "extensionsHash") == hash && util::str(*it, "claudeSettingsHash") == claudeHash) return true;
     if (dropped) *dropped = true;
     if (!dropStale) return false;
-    // a file changed since the user trusted the project: the trust is gone. Read again under the lock; without the lock the
-    // record stays (it is dropped by a later check) and the answer is the same.
+    // a file changed since the user trusted the project: the trust is gone. Read again under the lock and compare the hashes
+    // again there: another editor may have trusted the new files between the first read and the lock, and that acceptance
+    // must not be erased. Without the lock the record stays (it is dropped by a later check) and the answer is the same.
     std::optional<util::AiFileLock> lock;
     if (!lock_trust(lock, trustPath)) return false;
     root = read_trust(trustPath);
-    if (root["projects"].erase(key) != 0) (void)write_trust(trustPath, std::move(root));
+    auto again = root["projects"].find(key);
+    if (again == root["projects"].end()) return false;
+    if (util::str(*again, "extensionsHash") == hash && util::str(*again, "claudeSettingsHash") == claudeHash) {
+        if (dropped) *dropped = false;
+        return true;
+    }
+    root["projects"].erase(key);
+    (void)write_trust(trustPath, std::move(root));
     return false;
 }
 
@@ -591,12 +599,21 @@ bool project_ai_settings_trusted(std::string_view trustPath, std::string_view pr
     if (util::str(*it, "hash") == hash) return true;
     if (dropped) *dropped = true;
     if (!dropStale) return false;
-    // the file changed since the user accepted it: the acceptance is gone (read again under the lock, as above)
+    // the file changed since the user accepted it: the acceptance is gone (read again under the lock and compare again there,
+    // as above: an acceptance written in between stays)
     std::optional<util::AiFileLock> lock;
     if (!lock_trust(lock, trustPath)) return false;
     root = read_trust(trustPath);
     auto again = root.find("aiSettings");
-    if (again != root.end() && again->is_object() && again->erase(key) != 0) (void)write_trust(trustPath, std::move(root));
+    if (again == root.end() || !again->is_object()) return false;
+    auto record = again->find(key);
+    if (record == again->end()) return false;
+    if (util::str(*record, "hash") == hash) {
+        if (dropped) *dropped = false;
+        return true;
+    }
+    again->erase(key);
+    (void)write_trust(trustPath, std::move(root));
     return false;
 }
 
