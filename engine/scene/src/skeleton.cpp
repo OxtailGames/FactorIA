@@ -6,11 +6,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <map>
 #include <mutex>
 
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/log.h"
 #include "fa/scene/gltf_file.h"
 
@@ -324,26 +326,56 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
 
 namespace {
 std::mutex g_cacheMutex;
+// The cache key is the file's path, size and modification time. A file time moves in coarse steps (1/64 s on Windows, 1 s or
+// 2 s on some file systems), so a file written again within the same step keeps its time, and a re-baked rig of the same size
+// would be taken for the old one. As a version-control index does with "racily clean" entries, a file that was cached while its
+// time was still within kRacyWindowNs of the clock is not trusted by its time: its content hash decides until it is old enough.
+constexpr std::int64_t kRacyWindowNs = 2'000'000'000;
 struct CacheEntry {
     std::int64_t mtime = -1;
+    std::int64_t size = -1;
+    bool racy = false;        // cached too soon after the file was written: compare the content, not the time
+    std::string contentHash;  // sha256 of the bytes, only kept while racy
     std::shared_ptr<const SkeletonAsset> asset;
 };
 std::map<std::string, CacheEntry>& cache() {
     static std::map<std::string, CacheEntry> c;
     return c;
 }
+bool within_racy_window(std::int64_t mtime) {
+    return mtime >= 0 && fs::file_time_ns(std::filesystem::file_time_type::clock::now()) - mtime < kRacyWindowNs;
+}
 }  // namespace
 
 Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view pathView) {
     const std::string path(pathView);
     const std::int64_t mtime = fs::modified_time(path);
+    const std::int64_t size = fs::file_size(path);
+    std::shared_ptr<const SkeletonAsset> cachedRacy;
+    std::string racyHash;
     {
         std::lock_guard lock(g_cacheMutex);
         auto it = cache().find(path);
-        if (it != cache().end() && it->second.mtime == mtime) return it->second.asset;
+        if (it != cache().end() && it->second.mtime == mtime && it->second.size == size) {
+            if (!it->second.racy) return it->second.asset;
+            cachedRacy = it->second.asset;
+            racyHash = it->second.contentHash;
+        }
     }
     auto bytes = fs::read_bytes(path);
     if (!bytes) return bytes.error();
+    const bool racy = within_racy_window(mtime);
+    std::string hash = cachedRacy || racy ? sha256_hex(bytes->data(), bytes->size()) : std::string();
+    if (cachedRacy && hash == racyHash) {  // the same bytes: share the parsed asset; trusted by time once the file is old enough
+        if (!racy) {
+            std::lock_guard lock(g_cacheMutex);
+            if (auto it = cache().find(path); it != cache().end() && it->second.asset == cachedRacy) {
+                it->second.racy = false;
+                it->second.contentHash.clear();
+            }
+        }
+        return cachedRacy;
+    }
     auto parsed = parse_skeleton(*bytes, path);
     if (!parsed) return parsed.error();
     if (!parsed->clips.empty() && parsed->skinVertices.empty()) {
@@ -354,7 +386,7 @@ Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path
     }
     auto asset = std::make_shared<const SkeletonAsset>(std::move(*parsed));
     std::lock_guard lock(g_cacheMutex);
-    cache()[path] = CacheEntry{mtime, asset};
+    cache()[path] = CacheEntry{mtime, size, racy, racy ? std::move(hash) : std::string(), asset};
     return asset;
 }
 

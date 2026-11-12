@@ -297,7 +297,7 @@ same data through `docs.components`, `docs.commands` and `factoria api`.
 
 ## MCP
 
-### `factoria mcp [--project DIR] [--scene S] [--date YYYY-MM-DD] [--no-graphics] [--no-hot-reload]`
+### `factoria mcp [--project DIR] [--scene S] [--date YYYY-MM-DD] [--no-graphics] [--no-hot-reload] [--tools PROFILE]`
 Model Context Protocol server on stdio (details: [MCP.md](MCP.md)). Creates a headless engine for the project
 (GPU if available, otherwise logic-only: `game_screenshot` then reports why), registers the engine, tooling,
 project (`project.create`, `project.templates`, `project.test`) and `ai.*` commands, and serves them. `mcp`, `call`,
@@ -306,7 +306,9 @@ project (`project.create`, `project.templates`, `project.test`) and `ai.*` comma
 drawn when `game_screenshot` asks (`--render-all` draws every frame); `storage.*` is in memory (`--persist-storage`). Scripts
 and `tools/*.js` are watched; clients receive `notifications/tools/list_changed` when the tool set changes.
 stdout carries protocol messages only. Without a project it starts with documentation and project-creation
-tools so an AI can bootstrap one.
+tools so an AI can bootstrap one. `--tools all` (the default) lists every command; `--tools core` lists the core set
+plus `tool_load`, `tool_describe` and `tool_call`; `--tools core,anim,physics` adds those groups (command categories
+or exact command names) to the list. An unknown group is refused at start with suggestions (MCP.md, "Tool profiles").
 ```
 claude mcp add factoria -- factoria mcp --project .
 ```
@@ -404,6 +406,10 @@ the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
 Docs are embedded with LF line endings whatever the checkout uses, and stdout is LF on Windows too, so
 `factoria docs read x > f` and `docs.read` never carry `\r`.
 
+`factoria docs list` prints each doc with a one-sentence summary (`--json`: name, title, summary, `audience`, path, bytes;
+`audience` is a list of `gameAi`, `user` and `engineDev`). The `docs.list` command (`factoria call docs.list
+'{"audience":"gameAi"}'`) filters by audience. Pick a doc by its summary and read only the section the task needs.
+
 `factoria docs read <name>` prints the whole page (for `> file`); do not use it on a long guide. `--contents` prints only the
 page's headings with their line numbers (the `contents` of `docs.read`) and the command that reads one section. With `--heading TITLE` (a section and its subsections;
 case-insensitive, an exact title wins, else part of a title), `--start-line N`, `--max-lines N` or `--max-bytes N`
@@ -411,7 +417,7 @@ case-insensitive, an exact title wins, else part of a title), `--start-line N`, 
 so a long guide is read by section like over MCP. When the read is cut, stderr gets the exact next call and the page's
 contents (headings with line numbers); stdout stays the text. With `--json` stdout is the `docs.read` result instead
 (`content`, `startLine`, `endLine`, `totalLines`, `truncated`, `next`, `contents`).
-Read `ai-guide` this way, never whole: `factoria docs read ai-guide --contents`, then `factoria docs read ai-guide --heading "Platformer character"`.
+Read `ai-guide` this way, never whole: `factoria docs read ai-guide --heading Index`, then `factoria docs read ai-guide --heading "Platformer character"`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
 

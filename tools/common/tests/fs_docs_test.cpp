@@ -1,12 +1,16 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
+#include "fa_test_paths.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -223,6 +227,56 @@ TEST_CASE("docs: search puts each doc's best section first, so the top is not on
     for (size_t i = 1; i < docs.size(); ++i) CHECK(hits[i - 1].score >= hits[i].score);
 }
 
+TEST_CASE("docs: every embedded doc has a manifest entry (summary, audience) and every entry names a doc") {
+    // The manifest is the table in manifest(), tools/common/src/docs.cpp.
+    std::set<std::string> embedded;
+    for (const auto& d : list_docs()) {
+        embedded.insert(d.name);
+        CHECK_MESSAGE(!d.summary.empty(), "docs/" << d.path << " has no entry in the manifest of tools/common/src/docs.cpp: add {\"" << d.name
+                                                  << "\", \"<one sentence, at most 120 chars>\", {kGameAi, kUser, kEngineDev}}.");
+        CHECK_MESSAGE(!d.audience.empty(), d.name << " needs at least one audience");
+    }
+    std::set<std::string> seen;
+    for (const auto& e : doc_manifest()) {
+        CHECK_MESSAGE(embedded.count(e.name) == 1, "the manifest of tools/common/src/docs.cpp names '" << e.name
+                                                   << "' but no embedded doc has that name: remove or rename the entry.");
+        CHECK_MESSAGE(seen.insert(e.name).second, "'" << e.name << "' appears twice in the manifest");
+        CHECK_MESSAGE(e.summary.size() <= 120, e.name << ": summary is " << e.summary.size() << " chars, keep it to 120");
+        CHECK_MESSAGE((!e.summary.empty() && e.summary.back() == '.'), e.name << ": the summary is one sentence ending in a full stop");
+        for (const auto& a : e.audience) CHECK_MESSAGE((a == "gameAi" || a == "user" || a == "engineDev"), e.name << ": unknown audience " << a);
+    }
+}
+
+TEST_CASE("docs.list: summary and audience per doc, audience filter") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto all = reg.call("docs.list");
+    REQUIRE(all.ok);
+    for (const auto& d : all.result["docs"]) {
+        CHECK_MESSAGE(!d["summary"].get<std::string>().empty(), d["name"].get<std::string>());
+        CHECK(d["audience"].is_array());
+    }
+    auto game = reg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(game.ok);
+    CHECK(game.result["docs"].size() > 0);
+    CHECK(game.result["docs"].size() < all.result["docs"].size());
+    std::set<std::string> names;
+    for (const auto& d : game.result["docs"]) {
+        names.insert(d["name"].get<std::string>());
+        CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
+    }
+    CHECK(names.count("ai-guide") == 1);
+    CHECK(names.count("architecture") == 0);
+    auto dev = reg.call("docs.list", {{"audience", "engineDev"}});
+    REQUIRE(dev.ok);
+    bool arch = false;
+    for (const auto& d : dev.result["docs"]) arch = arch || d["name"] == "architecture";
+    CHECK(arch);
+    auto bad = reg.call("docs.list", {{"audience", "gameai"}});
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("gameAi") != std::string::npos);  // did you mean
+}
+
 TEST_CASE("docs: commands") {
     CommandRegistry reg;
     register_docs_commands(reg);
@@ -312,6 +366,59 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
     CHECK(none.error["message"].get<std::string>().find("Did you mean") != std::string::npos);
 }
 
+// docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
+// make-game prompt send agents there first). It must stay small and complete.
+TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ## and ### headings of the guide") {
+    std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    REQUIRE_FALSE(text.empty());
+    std::set<std::string> headings;
+    std::set<std::string> listed;
+    bool inFence = false;
+    bool inIndex = false;
+    size_t indexEnd = std::string::npos;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        const std::string line = text.substr(pos, nl - pos);
+        if (line.rfind("```", 0) == 0) inFence = !inFence;
+        if (!inFence && (line.rfind("## ", 0) == 0 || line.rfind("### ", 0) == 0)) {
+            const std::string title = line.substr(line.find(' ') + 1);
+            if (inIndex && line.rfind("## ", 0) == 0) { inIndex = false; indexEnd = pos; }
+            if (title == "Index") inIndex = true;
+            else headings.insert(title);
+        } else if (inIndex && line.rfind("- ", 0) == 0) {
+            const size_t sep = line.find(" -- ");
+            listed.insert(sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2));
+        }
+        pos = nl + 1;
+    }
+    REQUIRE_MESSAGE(indexEnd != std::string::npos, "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
+    CHECK_MESSAGE(indexEnd < 5120, "The start of docs/AI_GUIDE.md up to the end of `## Index` is " << indexEnd
+                                       << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
+    std::string problems;
+    for (const std::string& h : headings)
+        if (!listed.count(h))
+            problems += "  missing from the index: \"" + h + "\" -> add the line `- " + h + " -- <what it holds>` in heading order\n";
+    for (const std::string& l : listed)
+        if (!headings.count(l))
+            problems += "  stale index line: \"" + l + "\" is no heading of the guide -> fix or remove it (entries are `- <exact heading title> -- note`)\n";
+    CHECK_MESSAGE(problems.empty(), "The `## Index` of docs/AI_GUIDE.md does not match its ## and ### headings:\n" << problems);
+
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto r = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "Index"}});
+    REQUIRE(r.ok);
+    CHECK(r.result["heading"] == "Index");
+    CHECK(r.result["truncated"] == false);
+    const std::string content = r.result["content"].get<std::string>();
+    CHECK(content.rfind("## Index", 0) == 0);
+    CHECK(content.find("## 1. Mental model") == std::string::npos);
+    CHECK(content.find("14. Where to read more") != std::string::npos);
+    CHECK(content.size() < 5120);
+}
+
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is everything") {
     CommandRegistry reg;
     register_docs_commands(reg);
@@ -333,7 +440,8 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
     CHECK(filtered.result["markdown"].get<std::string>().size() < md.size());
     auto full = reg.call("docs.components", {{"full", true}});
     REQUIRE(full.ok);
-    CHECK(full.result["markdown"].get<std::string>().size() > 100000);
+    CHECK(full.result["markdown"].get<std::string>().size() < 45000);  // one page, not everything
+    CHECK(full.result.contains("nextCursor"));
     auto json = reg.call("docs.components", {{"format", "json"}});
     REQUIRE(json.ok);
     CHECK(json.result.dump().size() < 40000);
@@ -345,4 +453,150 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
     REQUIRE(cmd.ok);
     CHECK(cmd.result["markdown"].get<std::string>().find("| `maxBytes` |") != std::string::npos);
     CHECK_FALSE(reg.call("docs.commands", {{"name", "docs.reed"}}).ok);
+}
+
+// full:true pages: whole entries up to maxBytes, nextCursor until the last page; walking the pages returns the unpaged set once.
+TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json and markdown, with filter, and reject a stale cursor") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    struct Kind { const char* tool; const char* key; bool hasFields; };
+    for (const Kind k : {Kind{"docs.components", "components", true}, Kind{"docs.commands", "commands", false}}) {
+        // The names, from the summary list with the biggest page.
+        auto all = reg.call(k.tool, {{"format", "json"}, {"maxBytes", 90000}});
+        REQUIRE(all.ok);
+        std::vector<std::string> expected;
+        for (const Json& e : all.result[k.key]) expected.push_back(e["name"].get<std::string>());
+        REQUIRE_FALSE(all.result.contains("nextCursor"));
+        CHECK(all.result["total"].get<size_t>() == expected.size());
+
+        for (const char* format : {"json", "markdown"}) {
+            std::vector<std::string> seen;
+            size_t markdownEntries = 0;
+            std::string cursor;
+            int pages = 0;
+            do {
+                Json args = {{"full", true}, {"format", format}, {"maxBytes", 3000}};
+                if (!cursor.empty()) args["cursor"] = cursor;
+                auto r = reg.call(k.tool, args);
+                REQUIRE_MESSAGE(r.ok, r.error.dump());
+                CHECK(r.result["total"].get<size_t>() == expected.size());
+                const size_t returned = r.result["returned"].get<size_t>();
+                CHECK(returned >= 1);
+                if (std::string(format) == "json") {
+                    CHECK(r.result[k.key].size() == returned);
+                    for (const Json& e : r.result[k.key]) {
+                        seen.push_back(e["name"].get<std::string>());
+                        CHECK(e.contains("fields") == k.hasFields);
+                    }
+                } else {
+                    const std::string md = r.result["markdown"].get<std::string>();
+                    markdownEntries += returned;
+                    CHECK(md.find("### ") != std::string::npos);
+                }
+                cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+                ++pages;
+            } while (!cursor.empty() && pages < 2000);
+            CHECK(pages >= 2);
+            if (std::string(format) == "json") CHECK(seen == expected);
+            else CHECK(markdownEntries == expected.size());
+        }
+
+        // Same call, same page.
+        auto a = reg.call(k.tool, {{"full", true}, {"maxBytes", 5000}});
+        auto b = reg.call(k.tool, {{"full", true}, {"maxBytes", 5000}});
+        CHECK(a.result == b.result);
+
+        // maxBytes: the schema (1000..90000, like docs.read) rejects the rest of the range when called through the registry; the
+        // handler clamps anyway (a huge or negative number must not wrap), which a handler called directly shows.
+        for (const auto& [wanted, shown] : {std::pair<double, const char*>{1000, "1000"}, {90000, "90000"}}) {
+            auto r = reg.call(k.tool, {{"full", true}, {"maxBytes", wanted}});
+            REQUIRE(r.ok);
+            CHECK(r.result["markdown"].get<std::string>().find(std::string("at most ") + shown + " bytes") != std::string::npos);
+        }
+        CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1}}).ok);
+        CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1e30}}).ok);
+
+        // A bad cursor teaches and never restarts.
+        auto bad = reg.call(k.tool, {{"full", true}, {"cursor", "NoSuchEntry"}});
+        REQUIRE_FALSE(bad.ok);
+        CHECK(bad.error["message"].get<std::string>().find("NoSuchEntry") != std::string::npos);
+        CHECK(bad.error["hint"].get<std::string>().find("without cursor") != std::string::npos);
+    }
+
+    // filter + cursor: the cursor pages within the filtered set, and is stale outside it.
+    auto f1 = reg.call("docs.commands", {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}});
+    REQUIRE(f1.ok);
+    REQUIRE(f1.result.contains("nextCursor"));
+    const size_t total = f1.result["total"].get<size_t>();
+    size_t count = f1.result["returned"].get<size_t>();
+    std::string cursor = f1.result["nextCursor"].get<std::string>();
+    while (!cursor.empty()) {
+        auto r = reg.call("docs.commands", {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}, {"cursor", cursor}});
+        REQUIRE(r.ok);
+        count += r.result["returned"].get<size_t>();
+        cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+    }
+    CHECK(count == total);
+    CHECK_FALSE(reg.call("docs.commands", {{"filter", "docs"}, {"cursor", "game.step"}}).ok);
+}
+
+// maxBytes bounds the serialized result: entries plus the header, next/nextCursor and the JSON escaping of the markdown.
+TEST_CASE("docs.components and docs.commands: a page stays under maxBytes counted on the serialized result") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const char* tool : {"docs.components", "docs.commands"})
+        for (const char* format : {"markdown", "json"})
+            for (const bool full : {false, true})
+                for (const int maxBytes : {4000, 12000, 40000}) {
+                    std::string cursor;
+                    int pages = 0;
+                    do {
+                        Json args = {{"full", full}, {"format", format}, {"maxBytes", maxBytes}};
+                        if (!cursor.empty()) args["cursor"] = cursor;
+                        auto r = reg.call(tool, args);
+                        REQUIRE_MESSAGE(r.ok, r.error.dump());
+                        // A page may pass maxBytes only when it holds a single (huge) entry.
+                        if (r.result["returned"].get<size_t>() > 1)
+                            CHECK_MESSAGE(r.result.dump().size() <= size_t(maxBytes),
+                                          tool << " " << format << " full=" << full << " maxBytes=" << maxBytes << ": " << r.result.dump().size());
+                        cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
+                    } while (!cursor.empty() && ++pages < 3000);
+                }
+}
+
+TEST_CASE("docs.components and docs.commands: cursor with name is refused; full markdown starts with the reference's preamble") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const std::string tool : {"docs.components", "docs.commands"}) {
+        const bool commands = tool == "docs.commands";
+        auto first = reg.call(tool, {{"full", true}, {"maxBytes", 3000}});
+        REQUIRE(first.ok);
+        REQUIRE(first.result.contains("nextCursor"));
+        auto both = reg.call(tool, {{"name", commands ? "game.step" : "Sprite"}, {"cursor", first.result["nextCursor"]}});
+        REQUIRE_FALSE(both.ok);
+        CHECK(both.error["message"].get<std::string>().find("cannot be used together") != std::string::npos);
+        CHECK(both.error["hint"].get<std::string>().find("Drop 'cursor'") != std::string::npos);
+        // The preamble is on the first full page only, never on the next one or on the list.
+        auto second = reg.call(tool, {{"full", true}, {"maxBytes", 3000}, {"cursor", first.result["nextCursor"]}});
+        REQUIRE(second.ok);
+        const std::string needle = commands ? "an MCP tool (dots become underscores)" : "Version marks:";
+        CHECK(first.result["markdown"].get<std::string>().find(needle) != std::string::npos);
+        CHECK(second.result["markdown"].get<std::string>().find(needle) == std::string::npos);
+        auto list = reg.call(tool);
+        REQUIRE(list.ok);
+        CHECK(list.result.dump().find(needle) == std::string::npos);
+    }
+}
+
+TEST_CASE("docs.list: the pages FINISHING links (mcp, legal, publishing) are for the AI that makes the game too") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto game = reg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(game.ok);
+    std::set<std::string> names;
+    for (const auto& d : game.result["docs"]) names.insert(d["name"].get<std::string>());
+    for (const char* n : {"mcp", "legal", "publishing"}) CHECK_MESSAGE(names.count(n) == 1, n);
 }

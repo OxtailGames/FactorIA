@@ -2,17 +2,18 @@
 
 This is a **FactorIA** game project (engine 0.21.0, created 2026-11-04). You build the
 game by editing JSON and JavaScript, then checking the result with the engine tools. Everything
-is text; you never need a GUI. The guide (`ai-guide`) is long: run
-`factoria docs read ai-guide --contents` for its headings, then read only the sections you need with `--heading`.
+is text; you never need a GUI. The guide (`ai-guide`) is long: read its index first
+(`factoria docs read ai-guide --heading Index`), then only the sections you need with `--heading`.
 
 ## The loop (follow it for every change)
 
-1. **Read** what exists: the sections of `ai-guide` your task needs: `factoria docs read ai-guide --contents`
-   first, then `factoria docs read ai-guide --heading "..."`, never the bare command (it prints the whole 280 KB page).
-   Do the same for `scripting` and `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long
-   page comes in parts with its `contents`: read a section with
-   `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
-   gives one component in full.) Read before guessing component or API names.
+1. **Read** what exists: the index of `ai-guide` first (`factoria docs read ai-guide --heading Index`), then only
+   the sections your task needs with `--heading "..."`, never the bare command (it prints the whole 280 KB page).
+   `factoria docs list` gives every other doc a one-line summary. Components and commands one at a time:
+   `factoria call docs.components '{"name":"Sprite"}'` (or `{"filter":"physics"}`); never the `components` page whole
+   (1.8 MB). (With MCP: tools `docs_list`, `docs_read`, `docs_search`: `docs_read {"name":"ai-guide","heading":"Index"}`,
+   then `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}` gives one component in
+   full, never `docs_components` with `full`.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
    file, a JSON pointer and a hint. After the engine API changes, `factoria validate --fix-types`

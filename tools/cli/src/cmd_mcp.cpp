@@ -15,6 +15,7 @@
 #include "fa/mcp/stdio.h"
 #include "fa/mcp/update_monitor.h"
 #include "fa/tooling/self_update.h"
+#include "fa/tooling/tool_groups.h"
 #include "fa/tooling/validate.h"
 
 namespace fa::cli {
@@ -157,6 +158,10 @@ Command make_mcp_command() {
                {"read-only", "",
                 "Serve only the commands that look and play (read-only ones plus game_step/input/click, scene_load, ...): "
                 "the art critic and reviewer agents run this way."},
+               {"tools", "PROFILE",
+                "Which tools tools/list offers: all (default), core (" + std::to_string(core_command_names().size()) + " commands), or a comma list of groups "
+                "(core,anim,physics: command categories or exact command names). With a profile, tool_load adds groups "
+                "later and tool_describe / tool_call reach every command (docs/MCP.md, \"Tool profiles\")."},
                {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.", false, true}};
     c.examples = {"factoria mcp --project games/my-game",
                   "claude mcp add factoria -- factoria mcp --project .",
@@ -200,6 +205,11 @@ Command make_mcp_command() {
         McpServer server(host);
         if (ctx.args.has("read-only"))
             server.set_command_filter([](const CommandInfo& info) { return ai::is_read_only_tool(info); });
+        if (ctx.args.has("tools")) {
+            const std::string err = server.set_tool_profile(split_tool_groups(ctx.args.str("tools")));
+            if (!err.empty())
+                throw UsageError("--tools: " + err, "Use all (every tool, the default), core, or a comma list such as core,anim,physics.");
+        }
         HotReloadPoller poller(session.get(), *registry, server);
 
         // Out of date? The executable replaced on disk, or an older .mcp.json than the client started with (docs/MCP.md).
