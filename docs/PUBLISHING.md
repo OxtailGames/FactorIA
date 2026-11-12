@@ -113,7 +113,8 @@ Do these once, in this order. Each is a full section elsewhere.
   `GOGGalaxyPipelineBuilder build-game` ([GOG](EXPORTING.md#gog)). `"branch"` cannot be `master`.
 - `factoria.json`: `publish.gog.productId`, `.clientId`, `.languages`
   ([Store ids](EXPORTING.md#store-ids-publish-in-factoriajson)).
-- Environment: `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (or a cached sign-in), `FACTORIA_GOG_PIPELINE_BUILDER`
+- Environment: `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (or a cached sign-in; Pipeline Builder takes the password only as
+  an argument, visible in the process list while it runs: the cached sign-in keeps it off the command line), `FACTORIA_GOG_PIPELINE_BUILDER`
   ([Secrets](EXPORTING.md#secrets-environment-variables-and-factoria)).
 
 **What you still do by hand**

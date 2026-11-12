@@ -70,7 +70,9 @@ struct SignMacosOptions {
 
 struct SignStep {
     std::string title;
-    std::vector<std::string> command;  // the command line, secrets replaced by <redacted>
+    std::vector<std::string> command;  // the command line; a secret is never in it (it travels in `env` or on stdin)
+    std::vector<std::string> env;      // NAMES of the environment variables the step sets for the program (a secret's value is never listed)
+    bool stdinSecret = false;          // the program reads a secret (a password) on its standard input
     bool ran = false;
     int exitCode = -1;
 };
@@ -102,6 +104,11 @@ struct SignReport {
 // Signs (and, unless told otherwise, notarizes) the exported app. An Error means it stopped: the message says which step failed
 // and quotes what the tool printed; the app may be signed already (signing again is safe).
 Result<SignReport> sign_macos(const SignMacosOptions& options);
+
+// The perl program sign.macos starts notarytool through when the Apple ID password goes on its standard input (notarytool has no
+// environment-variable form for --password): `perl -e <script> -- program args...` runs the program without a controlling terminal,
+// so it reads the password from stdin instead of /dev/tty. Public so that a test can run it.
+const char* notarytool_detach_script();
 
 // Registers sign.macos (-> MCP tool sign_macos, `factoria call`, editor console, fa.call) for the project at `projectDir`.
 void register_sign_commands(CommandRegistry& registry, const std::string& projectDir);
