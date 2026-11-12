@@ -691,7 +691,9 @@ and prints the physics replay hash. `python scripts/ctest_shard.py --preset <pre
 on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
-of that ref: the event and the `perfBaselines` tick are part of the concurrency group). A `_perf` test that passes inside
+of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`
+job builds only `fa_bench` and compares the engine's microbenchmarks with `tools/bench/baselines/linux-gcc.json`
+(docs/PERFORMANCE.md, "Microbenchmarks"). A `_perf` test that passes inside
 the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
 in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
