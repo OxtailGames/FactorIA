@@ -1,0 +1,3 @@
+{"type":"object","properties":{"a":{"type":"integer","minimum":1},"b":{"enum":["x","y"]},"c":{"type":"array","items":{"$ref":"#/$defs/n"}}},"required":["a"],"additionalProperties":false,"$defs":{"n":{"oneOf":[{"type":"string","minLength":2},{"type":"number"}]}}}
+---
+{"a":0,"b":"z","c":["q",1,null],"d":1}

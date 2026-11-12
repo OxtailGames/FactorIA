@@ -357,7 +357,7 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
 // ================================================================== PackReader
 
 PackReader::~PackReader() {
-    detail::pack_unmap(map_, mapSize_, mapping_);
+    if (memory_.empty()) detail::pack_unmap(map_, mapSize_, mapping_);  // open_memory's bytes are not a mapping
     detail::pack_close(native_);
     // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
     if (!registered_.empty()) fs::detail::unregister_open_file(registered_, /*sharesDelete=*/map_ == nullptr);  // as registered
@@ -375,7 +375,6 @@ bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) co
 
 Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& file, const PackOpenOptions& options) {
     const std::string name = quoted(file);
-    const std::string again = kAgain;
     std::error_code ec;
     const auto fileSize = stdfs::file_size(fs::os_path(file), ec);
     if (ec)
@@ -387,7 +386,23 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
     if (pack->native_ == -1) return make_error("Cannot open the game pack " + name, "Check that the file can be read.");
     if (const auto t = stdfs::last_write_time(fs::os_path(file), ec); !ec) pack->mtime_ = fs::file_time_ns(t);
     if (pack->mtime_ < 0) pack->mtime_ = 0;
+    return finish_open(std::move(pack), name, fileSize, &file, options);
+}
 
+Result<std::shared_ptr<const PackReader>> PackReader::open_memory(std::vector<std::uint8_t> bytes, std::string name) {
+    std::shared_ptr<PackReader> pack(new PackReader());
+    pack->file_ = fs::path_from_utf8(name);
+    pack->memory_ = std::move(bytes);
+    pack->map_ = pack->memory_.data();
+    pack->mapSize_ = pack->memory_.size();
+    const std::uint64_t size = pack->mapSize_;
+    return finish_open(std::move(pack), "'" + name + "'", size, nullptr, {});
+}
+
+Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_ptr<PackReader> pack, const std::string& name,
+                                                                  std::uint64_t fileSize, const stdfs::path* file,
+                                                                  const PackOpenOptions& options) {
+    const std::string again = kAgain;
     std::uint8_t header[kHeaderSize];
     if (fileSize < kHeaderSize + kFooterSize || !pack->read_at(0, header, kHeaderSize))
         return make_error("The game pack " + name + " is too small to be a pack (" + std::to_string(fileSize) + " bytes)",
@@ -512,12 +527,13 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
         }
     }
 
+    if (!file) return std::shared_ptr<const PackReader>(std::move(pack));  // in memory: nothing to map or register
     if (options.map && env_allows_map() && detail::pack_map(pack->native_, fileSize, pack->map_, pack->mapping_))
         pack->mapSize_ = fileSize;
     // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with FILE_SHARE_DELETE),
     // and to delete a mapped one; an unmapped one shares delete (pack_file_win32.cpp), so a delete goes through: the
     // emulation does the same for as long as the reader lives.
-    pack->registered_ = fs::detail::register_open_file(file, /*sharesDelete=*/pack->map_ == nullptr);
+    pack->registered_ = fs::detail::register_open_file(*file, /*sharesDelete=*/pack->map_ == nullptr);
     return std::shared_ptr<const PackReader>(std::move(pack));
 }
 

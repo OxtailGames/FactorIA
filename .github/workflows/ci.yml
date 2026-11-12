@@ -1168,11 +1168,77 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # libFuzzer with AddressSanitizer and UBSan (Clang, -DFA_FUZZ=ON) on the data-format targets of tools/fuzz: each one runs
+  # for about a minute over a copy of its corpus (tools/fuzz/run.sh). A crash, a sanitizer report or a timeout fails the job
+  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/BUILDING.md,
+  # "Fuzzing"). Nothing here runs the editor, a GPU or the tests: only the fuzz programs are built.
+  linux-fuzz:
+    name: Fuzz (Clang, libFuzzer, ASan + UBSan)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90  # a cold-ccache build of the engine and the tools with sanitizers, then about a minute per target
+    env:
+      FA_FUZZ_SECONDS: '60'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      # libFuzzer's runtime is in the compiler-rt package of the compiler's version.
+      - name: Install Clang and libFuzzer
+        run: |
+          sudo apt-get install -y clang lld
+          ver=$(clang --version | sed -n 's/.*version \([0-9]*\)\..*/\1/p' | head -n 1)
+          sudo apt-get install -y "libclang-rt-${ver}-dev"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-fuzz-
+
+      - name: Configure and build the fuzz targets
+        run: |
+          ccache --zero-stats
+          cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake --build build/fuzz --target fa_fuzz_all
+          ccache --show-stats --verbose
+
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() }}
+        run: ccache --evict-older-than 7200s
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
+
+      - name: Fuzz every target
+        run: tools/fuzz/run.sh build/fuzz "$FA_FUZZ_SECONDS"
+
+      # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
+      # copy it into tools/fuzz/corpus/<target>/ (docs/BUILDING.md, "Fuzzing").
+      - name: Upload the inputs that failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: build/fuzz/fuzz-crashes
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The one check main's branch protection requires: every job that ran passed (a skipped job had nothing to check).
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, linux-sniper, windows, macos, bench, ios-build, ios, android, android-apk, android-emulator, web]
+    needs: [changes, linux, linux-fuzz, linux-sniper, windows, macos, bench, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
     permissions:
       actions: write  # gh cache delete

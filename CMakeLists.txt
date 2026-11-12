@@ -57,6 +57,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(FactoriaPlatform)   # sets FA_PLATFORM, FA_SOKOL_BACKEND, FA_DESKTOP
 include(FactoriaHelpers)    # fa_add_module(), fa_add_tests(), fa_embed_files()
+include(FactoriaFuzz)       # FA_FUZZ, fa_add_fuzz_target() (tools/fuzz)
 
 # ---- options ----------------------------------------------------------------
 option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
@@ -163,6 +164,11 @@ if(FA_BUILD_TOOLS)
     endif()
     add_subdirectory(tools/cli)     # factoria     the single developer binary
     add_subdirectory(tools/bench)   # fa_bench     microbenchmarks with a baseline per machine kind (docs/PERFORMANCE.md)
+endif()
+
+# Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/BUILDING.md, "Fuzzing").
+if(FA_DESKTOP AND (FA_BUILD_TESTS OR FA_FUZZ))
+    add_subdirectory(tools/fuzz)
 endif()
 
 # The feedback server (JavaScript, Cloudflare Worker): only its tests belong to the build, and only when Node is found.
