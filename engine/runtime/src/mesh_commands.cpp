@@ -148,6 +148,16 @@ void register_mesh_commands(Engine& engine, Engine::Impl& I) {
               if (!got.ok()) fail(got.error());
               return mesh_info_json(**got);
           });
+
+    // Capabilities (capability.h): what each command does outside the engine's memory.
+    declare_command_capabilities(I.commands, {
+        {"mesh.create", capability_sets::changes_state()},
+        {"mesh.update", capability_sets::changes_state()},
+        {"mesh.destroy", capability_sets::changes_state()},
+        {"mesh.save", capability_sets::writes_project()},
+        {"mesh.list", capability_sets::reads()},
+        {"mesh.info", capability_sets::reads()},
+    });
 }
 
 }  // namespace fa

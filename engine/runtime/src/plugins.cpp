@@ -226,6 +226,29 @@ void set_device_fact(const FaPluginApi* api, const char* name, int value) {
     refuse(*p, "set_device_fact", std::string("unknown fact '") + (name ? name : "") + "'; the only one is \"steamDeck\"");
 }
 
+int set_command_capabilities(const FaPluginApi* api, const char* command, const char* capabilities_json) {
+    Loaded* p = of(api);
+    if (!p) return 1;
+    const std::string name = command ? command : "";
+    if (!p->initializing) return refuse(*p, "set_command_capabilities", "'" + name + "': declare capabilities inside fa_plugin_init only");
+    auto it = std::find_if(p->commands.begin(), p->commands.end(), [&](const Command& c) { return c.info.name == name; });
+    if (it == p->commands.end()) {
+        std::vector<std::string> added;
+        for (const Command& c : p->commands) added.push_back(c.info.name);
+        return refuse(*p, "set_command_capabilities", "'" + name + "' is not a command of this plugin: call add_command first. " + did_you_mean(name, added));
+    }
+    auto json = parse_json(capabilities_json ? capabilities_json : "", name + " capabilities");
+    if (!json.ok())
+        return refuse(*p, "set_command_capabilities", "the capabilities of '" + name + "' are not JSON: " + json.error().message +
+                                                          ". Example: [\"read\",\"network\"]");
+    auto set = CapabilitySet::parse(*json, "/capabilities");
+    if (!set.ok()) return refuse(*p, "set_command_capabilities", "'" + name + "': " + set.error().message + " " + set.error().hint);
+    it->info.capabilities = *set;
+    it->info.capabilitiesDeclared = true;
+    it->info.readOnly = set->without(Capability::Read).empty();
+    return 0;
+}
+
 void submit_text(const FaPluginApi* api, const char* text) {
     if (!of(api)) return;
     std::lock_guard<std::mutex> lock(g_submittedMutex);
@@ -306,7 +329,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
     }
     p.api = FaPluginApi{FA_PLUGIN_API_VERSION, p.name.c_str(), runtime_platform(), &p, add_command, add_function, reply, fail,
                         plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit,
-                        add_text_input, submit_text, set_device_fact};
+                        add_text_input, submit_text, set_device_fact, set_command_capabilities};
     p.initializing = true;
     const int rc = init(&p.api);
     p.initializing = false;

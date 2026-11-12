@@ -157,12 +157,29 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // not on every call.
     for (const SchemaError& e : check_schema_patterns(info.inputSchema))
         FA_ERROR("command", "{}: inputSchema{}: {} ({})", name, e.pointer, e.message, e.hint);
-    // Declaring is setting a non-empty set; a command that declares nothing gets the conservative set its readOnly implies.
-    info.capabilitiesDeclared = info.capabilitiesDeclared || !info.capabilities.empty();
-    if (!info.capabilitiesDeclared)
-        info.capabilities = info.readOnly ? CapabilitySet{Capability::Read}
-                                          : CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+    // A command declares by setting capabilitiesDeclared (declare_capabilities does). A set that differs from the one readOnly
+    // implies counts as declared even without the flag (a hand-built info); a set equal to it is what add() derived itself
+    // (the editor re-adds copies of registered infos), so the flag alone decides and the copy stays "not declared".
+    const CapabilitySet derived = info.readOnly ? CapabilitySet{Capability::Read}
+                                                : CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+    if (!info.capabilitiesDeclared && !info.capabilities.empty() && info.capabilities != derived) info.capabilitiesDeclared = true;
+    if (!info.capabilitiesDeclared) info.capabilities = derived;
     commands_[name] = Entry{std::move(info), std::move(handler)};
+}
+
+bool CommandRegistry::declare_capabilities(std::string_view name, CapabilitySet capabilities) {
+    auto it = commands_.find(name);
+    if (it == commands_.end()) return false;
+    it->second.info.capabilities = capabilities;
+    it->second.info.capabilitiesDeclared = true;
+    it->second.info.readOnly = capabilities.without(Capability::Read).empty();
+    return true;
+}
+
+void declare_command_capabilities(CommandRegistry& registry, std::initializer_list<CommandCapabilityRow> rows) {
+    for (const CommandCapabilityRow& r : rows)
+        if (!registry.declare_capabilities(r.name, r.capabilities))
+            FA_ERROR("command", "capabilities declared for '{}', which is not a registered command (renamed? conditional?)", r.name);
 }
 
 void CommandRegistry::remove(std::string_view name) {
