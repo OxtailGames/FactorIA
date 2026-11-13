@@ -741,9 +741,9 @@ double SongAutomation::value_at(double beat, double fallback) const {
     return a.second + (b.second - a.second) * f;
 }
 
-const SongPattern* SongTrack::find_pattern(std::string_view name) const {
+const SongPattern* SongTrack::find_pattern(std::string_view patternName) const {
     for (const SongPattern& p : patterns)
-        if (p.name == name) return &p;
+        if (p.name == patternName) return &p;
     return nullptr;
 }
 

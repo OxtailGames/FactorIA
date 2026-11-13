@@ -33,6 +33,7 @@ struct PickSpec {
     std::vector<std::string> extensions;  // without the dot, lower case
 };
 
+#if defined(_WIN32) || !defined(__APPLE__)  // only the Windows and the Linux pickers build a glob list
 // "*.png;*.PNG;*.jpg;*.JPG" with the separator the platform's dialog wants (also the upper-case spelling: Linux globs care).
 std::string glob_list(const std::vector<std::string>& extensions, const char* separator) {
     std::string out;
@@ -47,6 +48,7 @@ std::string glob_list(const std::vector<std::string>& extensions, const char* se
     }
     return out;
 }
+#endif
 
 #ifdef _WIN32
 

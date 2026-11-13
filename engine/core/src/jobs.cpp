@@ -584,6 +584,7 @@ void worker_main(int index, std::uint32_t gen) {
     }
 }
 
+#if !defined(__EMSCRIPTEN__)  // the web build has its own cap (kAutoCapWebThreads)
 bool is_mobile() {
 #if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
     return true;
@@ -591,6 +592,7 @@ bool is_mobile() {
     return false;
 #endif
 }
+#endif
 
 const std::vector<std::string>& setting_words() {
     static const std::vector<std::string> words = {"auto", "inline"};

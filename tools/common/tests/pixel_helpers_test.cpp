@@ -276,13 +276,6 @@ std::string rows_of(const Json& layer) {
     return out;
 }
 
-// the "s" layer with a 4 x 4 block of skin at (4, 4)
-void block(const AssetsProject& p, int frame = -1) {
-    Json a = {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"stamp", {{"x", 4}, {"y", 4}, {"rows", Json::array({"2222", "2222", "2222", "2222"})}}}};
-    if (frame >= 0) a["frame"] = frame;
-    p.ok("image.pixel", a);
-}
-
 std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
 
 }  // namespace

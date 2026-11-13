@@ -78,9 +78,8 @@ struct Fonts::Impl {
     }
 };
 
-Fonts::Fonts(Gpu& gpu, Assets& assets)
-    : gpu_(gpu),
-      impl_(std::make_unique<Impl>([&assets](const std::string& font, const std::string& error, const std::string& hint) {
+Fonts::Fonts(Gpu& /*gpu*/, Assets& assets)
+    : impl_(std::make_unique<Impl>([&assets](const std::string& font, const std::string& error, const std::string& hint) {
           assets.note_failure("font", font, error, hint);
       })) {
     impl_->reset_atlas(1024);

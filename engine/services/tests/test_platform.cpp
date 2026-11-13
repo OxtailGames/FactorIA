@@ -222,13 +222,13 @@ TEST_CASE("platform: a mistake is an error before the backend sees anything") {
     CHECK(has(g.mistake("overlay.open", Json::parse(R"({"page": "achievments"})")), "did you mean \"achievements\"?"));
     CHECK(has(g.mistake("overlay.open", Json::parse(R"({"page": "friends", "id": "x"})")), "takes no id"));
     {  // an unknown transaction is not a mistake in the call: the Promise rejects with unknownId
-        auto r = g.ps.start("purchases.finish", Json::parse(R"({"transactionId": "t1"})"));
-        REQUIRE(r.ok());
-        REQUIRE(r->answer.has_value());
-        CHECK_FALSE(r->answer->ok);
-        CHECK(r->answer->error.code == "unknownId");
-        CHECK(has(r->answer->error.message, "is not one this game was told about"));
-        CHECK_FALSE(r->answer->error.hint.empty());
+        auto finish = g.ps.start("purchases.finish", Json::parse(R"({"transactionId": "t1"})"));
+        REQUIRE(finish.ok());
+        REQUIRE(finish->answer.has_value());
+        CHECK_FALSE(finish->answer->ok);
+        CHECK(finish->answer->error.code == "unknownId");
+        CHECK(has(finish->answer->error.message, "is not one this game was told about"));
+        CHECK_FALSE(finish->answer->error.hint.empty());
     }
     CHECK(has(g.mistake("purchases.buy", Json()), "arguments must be an object"));
     CHECK(has(g.mistake("achivements.unlock", Json::object()), "unknown platform method"));

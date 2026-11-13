@@ -37,8 +37,6 @@ namespace fa::setup_detail {
 
 namespace {
 
-std::string ffmpeg_file(const SetupContext& ctx) { return "ffmpeg" + exe_suffix(ctx.host_os()); }
-
 std::string ffmpeg_url(const FfmpegBinary& b) {
     return std::string("https://github.com/eugeneware/ffmpeg-static/releases/download/") + kSetupFfmpegRelease + "/ffmpeg-" +
            b.asset + ".gz";
