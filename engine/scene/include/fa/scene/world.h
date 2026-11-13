@@ -153,6 +153,21 @@ public:
     std::vector<const TypeInfo*> components_of(Entity e) const;     // registration order
     std::vector<Entity> entities_with(const TypeInfo* type) const;  // insertion order snapshot
 
+    // How many entities own a component of `type`, in O(1) (the pool's live count; no copy like entities_with). It is
+    // exactly entities_with(type).size(): an entity with a deferred destroy() still counts until flush() removes it.
+    // 0 for a null type. Prefer these to entities_with(...).empty() / .size().
+    std::size_t count(const TypeInfo* type) const;
+    // True when at least one entity owns `type`: count(type) > 0.
+    bool any(const TypeInfo* type) const { return count(type) > 0; }
+    template <class T>
+    std::size_t count() const {
+        return count(&type_of<T>());
+    }
+    template <class T>
+    bool any() const {
+        return count(&type_of<T>()) > 0;
+    }
+
     // ------------------------------------------------------------- hierarchy
     // keepWorldTransform: recompute the local Transform so the world pose is unchanged.
     // `index` is the place among the new parent's children (0 = first, after removing `child` from its old place when the

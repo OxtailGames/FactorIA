@@ -362,6 +362,12 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
     return p ? p->entities() : std::vector<Entity>{};
 }
 
+std::size_t World::count(const TypeInfo* type) const {
+    if (!type) return 0;
+    const ComponentPool* p = impl_->find_pool(*type);
+    return p ? p->size() : 0;
+}
+
 // ------------------------------------------------------------- hierarchy --
 Result<void> World::check_set_parent(Entity child, Entity parent) const {
     const Impl& d = *impl_;
