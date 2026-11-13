@@ -18,7 +18,7 @@ base="${1:-}"
 build="${2:-build/tidy}"
 
 tool="$(fa_lint_tool tidy)" || exit 2
-files="$(fa_lint_files "$base")" || { echo "error: could not diff against '$base'. Hint: fetch it first (git fetch origin) and pass origin/main" >&2; exit 2; }
+files="$(fa_lint_files "$([ "$base" = --all ] || echo "$base")")" || { echo "error: could not diff against '$base'. Hint: fetch it first (git fetch origin) and pass origin/main" >&2; exit 2; }
 # Windows-only and Apple-only sources do not compile on this host.
 case "$(uname -s)" in
     Darwin*) files="$(grep -Ev '_(win32|android|linux|egl|web)\.' <<< "$files")" ;;
@@ -32,6 +32,13 @@ if [ ! -f "$build/compile_commands.json" ]; then
         { echo "error: CMake configure failed, see $build.configure.log" >&2; exit 2; }
 fi
 
+# Headers that only a build writes (the build fingerprint, the embedded docs, fonts and scripts) are made now, all of
+# them (a few seconds); the sources themselves are not compiled.
+generated="$(ninja -C "$build" -t targets all 2>/dev/null | grep -E '^[^/][^ ]*\.h: CUSTOM_COMMAND' | cut -d: -f1)"
+# shellcheck disable=SC2086
+ninja -C "$build" $generated > "$build.generate.log" 2>&1 ||
+    { echo "error: could not generate the headers a build writes, see $build.generate.log" >&2; exit 2; }
+
 extra=()
 if [ "$(uname -s)" = Darwin ]; then
     # The pip clang-tidy has no Apple toolchain around it: point it at the SDK's headers.
@@ -43,15 +50,15 @@ count=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
 echo "tidy: $count files against $base"
 jobs="${FA_TIDY_JOBS:-2}"
 log="$(mktemp)"
-printf '%s\n' "$files" | xargs -P "$jobs" -n 4 "$tool" -p "$build" --quiet ${extra[@]+"${extra[@]}"} > "$log" 2>&1
+printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 -P "$jobs" -n 4 "$tool" -p "$build" --quiet ${extra[@]+"${extra[@]}"} > "$log" 2>&1
 rc=$?
-# Only the diagnostics: --quiet leaves the "N warnings generated" counters out.
-# A header that only a build writes (fa_build_fingerprint.h) is not there after a configure: that is not a finding.
-if grep -E ': (warning|error): ' "$log" | grep -qv "file not found \[clang-diagnostic-error\]"; then
-    grep -vE '^[0-9]+ (warnings?|errors?) (and [0-9]+ (warnings?|errors?) )?generated' "$log"
+# Any warning or error diagnostic is a finding (exit 1); the counters and progress lines are left out.
+if grep -qE ': (warning|error): ' "$log"; then
+    grep -vE '^[0-9]+ (warnings?|errors?) (and [0-9]+ (warnings?|errors?) )?generated|^Processing file|^Suppressed [0-9]+ warnings' "$log"
     echo "tidy: findings above (check names in [brackets]; .clang-tidy lists the checks)"
     rm -f "$log"; exit 1
 fi
+# A failure with no diagnostic is the tool or its configuration (exit 2).
 [ $rc -eq 0 ] || { cat "$log"; rm -f "$log"; echo "tidy: clang-tidy failed (see above)" >&2; exit 2; }
 rm -f "$log"
 echo "tidy: clean"

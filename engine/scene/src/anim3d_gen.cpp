@@ -318,7 +318,7 @@ Result<Anim3DClip> make_gait(const Rig3D& rig, const std::string& kind, const Js
             tg.push_back(t);
         }
         const float hipYaw = quad ? 0.0f : -twist * cos_t(phi);
-        const float swayX = sway * cos_t(quad ? phi - phiMid : phi - phiMid);
+        const float swayX = sway * cos_t(phi - phiMid);  // one phase for bipeds and quadrupeds: the sway peaks at the middle of the stance
         pose.translation[std::size_t(root)] += Vec3{swayX, 0, 0};
         set_euler(pose, root, {0, hipYaw, 0});
         // Spine, neck, head and tail.

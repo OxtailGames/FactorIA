@@ -633,6 +633,12 @@ an error. `scripts/tidy-changed.sh <base> [build-dir]` runs them over the first-
 base, with the `compile_commands.json` of a CMake configure (`build/tidy`, configured on first use: configure only,
 nothing is compiled). A false positive: rewrite the line or end it with `// NOLINT(<check>)` and a reason.
 
+Both scripts exit 0 when clean, 1 when they found something (files to format, a tidy diagnostic) and 2 when the tool
+or its setup failed (no Python, pip, git diff against an unknown base, a CMake configure, a clang crash): a 2 is never a
+finding. `scripts/tidy-changed.sh --all` checks every first-party `.cpp` (about an hour on a laptop; the CI job only
+checks what a change touches). The configure also builds the one generated header the sources need
+(`fa_build_fingerprint.h`).
+
 CI has a `lint` job (Ubuntu, cheap, part of `CI result`): `scripts/format.sh --check --changed <base>` and
 `scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push). When
 every file is formatted, set `FORMAT_SCOPE: all` in that job's `env` in `.github/workflows/ci.yml` and the check covers

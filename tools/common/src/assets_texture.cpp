@@ -283,9 +283,9 @@ Rgb hex(u32 rgb) {
 void draw_paper(Canvas& c, const Params& p, const Grid& g) {
     FibreBuffer fibres(c.w, c.h, c.tile);
     const double area = double(c.w) * c.h / (512.0 * 512.0);
-    scatter_fibres(fibres, p.seed + 11u, int(1400 * area), 9, 0.10, 1.2);
+    scatter_fibres(fibres, p.seed + 11u, int(1400 * area), 9.0, 0.10, 1.2);
     FibreBuffer light(c.w, c.h, c.tile);
-    scatter_fibres(light, p.seed + 12u, int(700 * area), 10, 0.07, 1.0);
+    scatter_fibres(light, p.seed + 12u, int(700 * area), 10.0, 0.07, 1.0);
     const Cells mottleCells = g.per_short(3.0 / p.scale), blotchCells = g.per_short(9.0 / p.scale), toothCells = g.per_px(2.2);
     const double amount = 0.35 + 0.65 * p.rough;
     for (int y = 0; y < c.h; ++y) {
@@ -308,7 +308,7 @@ void draw_paper(Canvas& c, const Params& p, const Grid& g) {
 void draw_parchment(Canvas& c, const Params& p, const Grid& g) {
     FibreBuffer fibres(c.w, c.h, c.tile);
     const double area = double(c.w) * c.h / (512.0 * 512.0);
-    scatter_fibres(fibres, p.seed + 21u, int(1000 * area), 10, 0.10, 1.4);
+    scatter_fibres(fibres, p.seed + 21u, int(1000 * area), 10.0, 0.10, 1.4);
     const Cells stainCells = g.per_short(2.4 / p.scale), mottleCells = g.per_short(10.0 / p.scale), creaseCells = g.per_short(5.0 / p.scale),
                 toothCells = g.per_px(2.0);
     const double amount = 0.4 + 0.6 * p.rough;
