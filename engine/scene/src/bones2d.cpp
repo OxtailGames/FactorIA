@@ -201,17 +201,13 @@ SkinBones skin_resolve_bones(const World& w, Entity owner, const SpriteSkin& ski
 
 std::vector<Affine2> skin_bind_matrices(const SpriteSkin& skin, std::size_t boneCount) {
     std::vector<Affine2> out;
-    if (!skin.bindPose.is_array() || boneCount == 0 || skin.bindPose.size() != boneCount * 6) return {};
+    if (boneCount == 0 || skin.bindPose.size() != boneCount * 6) return {};
+    const float* p = skin.bindPose.cdata();
     out.reserve(boneCount);
-    for (std::size_t i = 0; i < boneCount; ++i) {
-        float v[6];
-        for (int k = 0; k < 6; ++k) {
-            const Json& j = skin.bindPose[i * 6 + std::size_t(k)];
-            if (!j.is_number()) return {};
-            v[k] = float(j.get<double>());
-            if (!std::isfinite(v[k])) return {};
-        }
-        out.push_back(Affine2{v[0], v[1], v[2], v[3], v[4], v[5]});
+    for (std::size_t i = 0; i < boneCount; ++i, p += 6) {
+        for (int k = 0; k < 6; ++k)
+            if (!std::isfinite(p[k])) return {};
+        out.push_back(Affine2{p[0], p[1], p[2], p[3], p[4], p[5]});
     }
     return out;
 }
@@ -238,10 +234,10 @@ Result<void> skin_bind(World& w, Entity e) {
     if (!ok)
         return make_error("The sprite '" + label_of(w, e) + "' has a zero scale, so there is no pose to bind against.",
                           "Give the entity (and its parents) a non-zero Transform.scale before binding.");
-    Json pose = Json::array();
+    ArrayF32 pose;
     for (Entity b : bones.entities) {
         const Affine2 m = inv * world_affine(w, b);
-        for (float v : {m.a, m.b, m.c, m.d, m.tx, m.ty}) pose.push_back(double(v));
+        for (float v : {m.a, m.b, m.c, m.d, m.tx, m.ty}) pose.push_back(v);
     }
     skin->bindPose = std::move(pose);
     return {};

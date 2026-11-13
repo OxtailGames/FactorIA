@@ -301,7 +301,7 @@ components` (also `docs/COMPONENTS.md`). Vector/color fields are live views
 write.
 
 A bent or waving sprite is one `Sprite` with `meshColumns` / `meshRows` and a script that writes the whole `vertexOffsets`
-array each frame (`sprite.vertexOffsets = offsets`; `sprite.vertexOffsets[3] = 2` does not write back, because the property
+array each frame (`sprite.vertexOffsets = offsets`, a plain array or a `Float32Array`; reading it gives a `Float32Array`; `sprite.vertexOffsets[3] = 2` does not write back, because the property
 returns a copy). `Shape2D.gradientStops` is written the same way (`shape.gradientStops = [[0, "#ff0000"], [1, [0, 0, 1, 1]]]`).
 `Tint.color` is a live colour view: `menu.get("Tint").color.a = progress` fades the menu's whole subtree. See the "Tint, gradient
 stops, skew and bent sprites" recipe in `docs_read {"name":"ai-guide","heading":"9.26"}`. A script that awaits something before writing to
