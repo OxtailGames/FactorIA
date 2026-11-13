@@ -576,7 +576,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 
 | Benchmark | What one run does |
 | --- | --- |
-| `ecs.each`, `ecs.entities_with`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::entities_with`, creating and destroying 30000 entities |
+| `ecs.each`, `ecs.entities_with`, `ecs.count`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::entities_with`, `World::count` and `any`, creating and destroying 30000 entities |
 | `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep |
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |

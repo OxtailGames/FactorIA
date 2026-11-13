@@ -74,7 +74,7 @@ std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
                               &World::type_of<TextField>()})
-        any = any || !w.entities_with(t).empty();
+        any = any || w.any(t);
     if (!any) return out;
     for (Entity e : w.entities()) {
         const UiKind k = ui_kind(w, e);
@@ -95,8 +95,7 @@ std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
 void touch_controls(World& w, Input& in, Vec2 design) {
     static_assert(std::size_t(PadButton::RightThumb) + 1 == std::size_t(GamepadButton::Count),
                   "PadButton mirrors GamepadButton");
-    if (w.entities_with(&World::type_of<TouchStick>()).empty() &&
-        w.entities_with(&World::type_of<TouchButton>()).empty()) {
+    if (!w.any<TouchStick>() && !w.any<TouchButton>()) {
         if (!in.touch_controls().empty()) in.set_touch_controls({});
         return;
     }
@@ -155,7 +154,7 @@ bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& meas
 Entity ui_modal_panel(const World& w) {
     Entity best;
     int bestLayer = 0;
-    if (w.entities_with(&World::type_of<Panel>()).empty()) return best;
+    if (!w.any<Panel>()) return best;
     for (Entity e : w.entities()) {
         const Panel* p = w.get<Panel>(e);
         if (!p || !p->modal || !w.active_in_hierarchy(e)) continue;
@@ -804,7 +803,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
     // An Interactable that is not among the items this frame (inactive, or hidden from the camera at the pointer by
     // Camera.showTags / hideTags) is not hovered, pressed or focused any more: its flags would stay as the last frame left them.
-    if (!w.entities_with(&World::type_of<Interactable>()).empty())
+    if (w.any<Interactable>())
         w.each<Interactable>([&](Entity e, Interactable& ia) {
             ia.focused = e == focus_;
             ia.hovered = e == hover_;

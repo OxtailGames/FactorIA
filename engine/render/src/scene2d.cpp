@@ -549,7 +549,7 @@ void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
-    f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
+    f.anyTint = world.any<Tint>();
     f.anyFlash = world.feel().any_flash();
     if (f.wantWorld) {
         // The layers are drawn shifted for THIS camera; the caller puts the first camera's offset back after its gathers (the rule
@@ -560,7 +560,7 @@ void gather_2d(World& world, Frame& f) {
 
     // A SpriteSkin that has not recorded its bind pose yet does it now, at the pose the bones have (the engine already did it at
     // the start of the step; this covers a scene drawn without stepping, e.g. a screenshot of a freshly loaded scene).
-    if (!world.entities_with(&World::type_of<SpriteSkin>()).empty()) bind_pending_skins(world);
+    if (world.any<SpriteSkin>()) bind_pending_skins(world);
 
     // ---- sprites ----
     // On this thread, in the order of the sprites: which are drawn and what they need looked up. The quads are then made
