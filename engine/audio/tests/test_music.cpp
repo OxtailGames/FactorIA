@@ -1755,6 +1755,10 @@ TEST_CASE("music player: the callback, the game and the music service thread sha
                 std::this_thread::yield();
             }
         });
+        // The callback thread mixes before the game starts, so the two overlap even when a loaded machine is slow to start a
+        // thread (the CI's GCC job once ran all 400 frames before the first block).
+        while (blocks.load(std::memory_order_relaxed) == 0 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
         // The game: 400 frames, a jump to a section, an intensity or a stinger in most of them (a few hundred commands, 10x under the ring).
         static const char* const kSections[] = {"intro", "main", "outro", "main"};
         MusicStingerSpec spec;
