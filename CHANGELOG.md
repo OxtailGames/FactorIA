@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- `Sprite.vertexOffsets`, `Sprite.vertexColors` and `SpriteSkin.bindPose` are float arrays (`fa::ArrayF32`) instead of
+  `Json` (M94.2d): the JSON on disk is the same flat list of numbers, a script reads a `Float32Array`, and the renderer,
+  `entity.bounds()` and the skinning read floats instead of walking JSON values for every deformable sprite every frame
+  (new `fa_bench` entry `sprite.mesh_data`). One difference: an element that is not a number (`"x"`, `null`) used to count
+  as 0 (offsets), 1 (colours) or left the skin unbound; it is now a load error that names the element's index.
 - Navigation: a path query whose goal is in another connected area (a walled-in room, an island, a passage closed by a
   moving obstacle) fails at once from reachability labels instead of running A* over the whole map (M94.5a). The labels
   follow moving obstacles, walkable bodies and links, and are recomputed only after a search has failed since the last
