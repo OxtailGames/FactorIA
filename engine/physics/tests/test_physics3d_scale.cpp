@@ -146,37 +146,59 @@ std::string run_pit_hash(int threads, int n, int frames) {
 
 }  // namespace
 
-// The column of 100 and the settling pit still fail: the solver (4 sub-steps of 8 iterations) does not keep a stack of
-// 100 boxes together (a stack of 20 sleeps, one of 50 leans a few degrees). They are `may_fail` so the suite stays green;
-// the package that fixes each removes the decorator. doctest counts a may_fail test that passes as a pass, so nothing
-// breaks if one starts to work earlier. The block of 5 x 5 x 4 (contact manifolds with several persistent points) works
-// and is checked for real.
-
-// A column of 100 boxes (2 cm gap each) on a floor. The per-box checks run on a count, so a collapse prints one line.
-TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collapsing" * doctest::may_fail(true)) {
+// A column of N boxes (2 cm gap each) on a floor, run until everything sleeps. A tall column is an inverted pendulum
+// (any lean of the stack grows by a factor e every ~1.7 s), so it only stands if the solver treats the points of a contact
+// alike and its contacts are soft enough to settle without bouncing; the contacts then sag a little under the weight (about
+// 1.5 cm per joint at the bottom of 100 boxes, 0.8% of the height overall), which the checks allow for.
+struct ColumnResult {
+    int steps = 0, awake = 0, misplaced = 0;
+    float drift = 0, topY = 0;
+    double cpu = 0;
+};
+ColumnResult run_column(int count, int maxSteps) {
     Sim s;
-    const std::vector<Entity> boxes = build_column(s.world, 100);
+    const std::vector<Entity> boxes = build_column(s.world, count);
     const double t0 = process_cpu_seconds();
-    int steps = 0;
-    while (steps < 60 * 10 && (steps < 10 || s.awake_count() > 0)) {
+    ColumnResult r;
+    while (r.steps < maxSteps && (r.steps < 10 || s.awake_count() > 0)) {
         s.run(20);
-        steps += 20;
+        r.steps += 20;
     }
-    const double cpu = process_cpu_seconds() - t0;
-    int misplaced = 0;
+    r.cpu = process_cpu_seconds() - t0;
+    r.awake = s.awake_count();
+    float below = -0.5f;  // the height of the box below (the floor's top is y = 0: the first box rests at 0.5)
     for (std::size_t i = 0; i < boxes.size(); ++i) {  // none fell off, none sank into the floor or the box below
         const Vec3 p = s.world.world_position(boxes[i]);
-        if (std::fabs(p.x) > 1.0f || std::fabs(p.z) > 1.0f || p.y < 0.45f + 0.99f * float(i) ||
-            p.y > 0.5f + 1.1f * float(i))
-            ++misplaced;
+        const float gap = p.y - below - 1.0f;  // 0 for boxes in touch
+        below = p.y;
+        if (std::fabs(p.x) > 0.1f || std::fabs(p.z) > 0.1f || gap < -0.03f || gap > 0.03f) ++r.misplaced;
     }
+    r.drift = drift_xz(s.world, boxes.back(), {0, 0, 0});
+    r.topY = s.world.world_position(boxes.back()).y;
+    return r;
+}
+
+// A column of 100 boxes (2 cm gap each) on a floor. The per-box checks run on a count, so a collapse prints one line.
+// It sleeps after about 260 steps (4.3 s): the limit is 3.5 times that.
+TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collapsing") {
+    const ColumnResult r = run_column(100, 60 * 15);
     std::printf("[scale] column100: %d steps, awake %d, misplaced %d, top drift %.3f m, top y %.2f, cpu %.2f s\n",
-                steps, s.awake_count(), misplaced, double(drift_xz(s.world, boxes.back(), {0, 0, 0})),
-                double(s.world.world_position(boxes.back()).y), cpu);
-    CHECK(misplaced == 0);
-    CHECK(drift_xz(s.world, boxes.back(), {0, 0, 0}) < 0.5f);
-    CHECK(s.awake_count() == 0);
-    if (kOptimized) CHECK(cpu < 8.0 * test_speed_budget_scale());
+                r.steps, r.awake, r.misplaced, double(r.drift), double(r.topY), r.cpu);
+    CHECK(r.misplaced == 0);
+    CHECK(r.drift < 0.05f);
+    CHECK(r.topY > 98.0f);  // 99.5 without any sag; the sag is under 1.5%
+    CHECK(r.awake == 0);
+    if (kOptimized) CHECK(r.cpu < 0.6 * test_speed_budget_scale());  // 0.13 s measured: 4.6x the margin
+}
+
+// The column of 50: it used to lean a few degrees and keep moving.
+TEST_CASE("3d scale: a column of 50 boxes stands straight and falls asleep") {
+    const ColumnResult r = run_column(50, 60 * 10);  // sleeps in about 140 steps: 4x the margin
+    std::printf("[scale] column50: %d steps, awake %d, misplaced %d, top drift %.3f m, top y %.2f\n", r.steps, r.awake,
+                r.misplaced, double(r.drift), double(r.topY));
+    CHECK(r.misplaced == 0);
+    CHECK(r.drift < 0.05f);
+    CHECK(r.awake == 0);
 }
 
 // The second shape: a 5 x 5 x 4 block (100 boxes in 4 layers of 5 x 5): wide, so many contacts per box.
@@ -241,18 +263,15 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
     }
 }
 
-// Release only (a settled Debug run of 1000 bodies takes minutes today): the pit comes to rest, every body asleep, and a
-// step of sleeping bodies costs almost nothing.
-TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing" *
-          doctest::may_fail(true)) {
-    // Opt in (FA_PHYSICS_SCALE_SETTLE=1, an optimized build) until the broadphase package makes it cheap: today it runs
-    // minutes. That package removes this line.
-    if (!kOptimized || !std::getenv("FA_PHYSICS_SCALE_SETTLE")) return;
+// Release only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep, and a step of
+// sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). It is asleep after about 900 steps (15 s): the limit is 3 times that.
+TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing") {
+    if (!kOptimized) return;
     Sim s;
     build_pit(s.world, 1000);
     s.run(1);
     int steps = 1;
-    while (steps < 60 * 20 && (steps < 60 || s.awake_count() > 0)) {
+    while (steps < 60 * 45 && (steps < 60 || s.awake_count() > 0)) {
         s.run(30);
         steps += 30;
     }
@@ -270,7 +289,7 @@ TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost alm
                 outside, nextMs);
     CHECK(outside == 0);
     CHECK(awake == 0);
-    if (awake == 0) CHECK(nextMs < 1.0 * test_speed_budget_scale());
+    CHECK(nextMs < 2.0 * test_speed_budget_scale());  // 0.4 ms measured: 5x the margin
 }
 
 TEST_CASE("3d scale: a pit of 300 bodies gives the same hash inline and with 1 and 4 job threads") {

@@ -53,12 +53,24 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   capsule lying on a surface or on another capsule two (one per end). Every point carries the id of its feature (a corner of
   the clipped face, an end of a capsule), and the warm start gives each point the impulses its id carried in the previous
   sub-step, so the load stays at the right corner while a box slides or turns. The position pass is per point and also turns
-  a tilted body back flat (it only translated the pair before). Result: a block of 100 boxes (5 x 5 x 4) falls asleep after
-  40 steps (it was still moving after 600), a column of 20 sleeps, one of 50 leans a few degrees; a column of 100 still
-  collapses (that scale test stays `may_fail`). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
-  `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads); the examples'
-  graphics hashes and perf budgets did not. `physics.step3d_stack100` costs about 15% more (the column has more points), the
-  other `physics.step3d*` benchmarks the same.
+  a tilted body back flat (it only translated the pair before). A block of 100 boxes (5 x 5 x 4) falls asleep after
+  40 steps (it was still moving after 600); tall stacks are fixed by the next entry.
+- 3D physics: tall stacks and big piles stand still and fall asleep (M94.4h). The contacts are soft (Box2D v3's soft step:
+  a 60 Hz spring with damping ratio 10 per contact, push-out at up to 3 m/s before the sub-step's motion, a relax pass
+  after it), and the points of one manifold are solved together (all from the same velocities, each update scaled by the
+  manifold's coupling), so the result no longer leans a stack toward the first corner of its manifolds. A soft contact sags
+  under load by weight / stiffness (about 1.5 cm per joint at the bottom of a column of 100 boxes, 0.8% of its height). A
+  column of 100 boxes (spacing 1.02) stands and sleeps after 240 steps, one of 50 after 140 (neither leans: drift 0.000),
+  and a walled pit of 1000 spheres, capsules and boxes is asleep after about 800 steps (the scale tests no longer
+  `may_fail`). Three more changes made the pit sleep: a loaded body that is slow and rotating loses speed (`kRestDamping`),
+  so a capsule rolling on a pile stops; a pile of N bodies may fall asleep with up to N / 64 of them still creeping slower
+  than 0.3 m/s (a pile of a thousand never stops completely); and a capsule no longer wakes itself every step (the
+  signature that detects an edited collider compared its length exactly, and it wobbles in the last bits while the capsule
+  turns a hair, which reset its sleep timer). A world with nothing awake skips the sub-steps and the broad phase: a step of
+  the sleeping pit costs 0.4 ms (it cost 16 ms). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
+  `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads); the
+  examples' graphics hashes and perf budgets did not. Measured (Release, macOS, medians in ms, before / after):
+  `physics.step3d` 12.8 / 12.5, `physics.step3d_1000` 100.6 / 100.2, `physics.step3d_stack100` 52.7 / 16.8.
 - 3D physics: the solver has a broad phase. A dynamic AABB tree with fat boxes finds the candidate pairs of the
   sub-step, the first impacts, the contact events, the sleeping bodies a mover wakes, the bodies a moving platform
   carries and the movers that share a time-of-impact island, instead of testing every pair. The result of the
