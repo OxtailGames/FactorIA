@@ -2,21 +2,13 @@
 // Project panel.
 // Split from autotest_tools.cpp: each section is an Editor::at_section_<id>(AtScript&) that adds its steps to the script,
 // called by at_build_tools_script in the order of the full run (autotest_sections.h).
-#include "fa/core/engine_version.h"
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
-#include <mutex>
-#include <atomic>
-#include <thread>
 
 #include "ai_project_edit.h"
 #include "auto_play_job.h"
@@ -30,7 +22,6 @@
 #include "fa/core/jobs.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/net.h"
-#include "fa/tooling/play_auto.h"
 #include "fa/tooling/qr.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"

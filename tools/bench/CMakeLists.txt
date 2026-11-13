@@ -16,4 +16,8 @@ if(FA_BUILD_TESTS)
         target_link_libraries(fa_test_bench PRIVATE fa_bench_core fa_ext_doctest fa_warnings)
         add_test(NAME bench_compare COMMAND fa_test_bench WORKING_DIRECTORY ${FA_ROOT})
     endif()
+    # The exit status of the program itself (main.cpp): a failed comparison exits 1 with --json too.
+    add_test(NAME bench_exit_status
+        COMMAND ${CMAKE_COMMAND} -DBENCH=$<TARGET_FILE:fa_bench> -DWORK=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/exit_status.cmake)
 endif()

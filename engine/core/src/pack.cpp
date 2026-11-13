@@ -357,7 +357,7 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
 // ================================================================== PackReader
 
 PackReader::~PackReader() {
-    if (memory_.empty()) detail::pack_unmap(map_, mapSize_, mapping_);  // open_memory's bytes are not a mapping
+    if (!inMemory_) detail::pack_unmap(map_, mapSize_, mapping_);  // open_memory's bytes are not a mapping
     detail::pack_close(native_);
     // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
     if (!registered_.empty()) fs::detail::unregister_open_file(registered_, /*sharesDelete=*/map_ == nullptr);  // as registered
@@ -392,6 +392,7 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
 Result<std::shared_ptr<const PackReader>> PackReader::open_memory(std::vector<std::uint8_t> bytes, std::string name) {
     std::shared_ptr<PackReader> pack(new PackReader());
     pack->file_ = fs::path_from_utf8(name);
+    pack->inMemory_ = true;
     pack->memory_ = std::move(bytes);
     pack->map_ = pack->memory_.data();
     pack->mapSize_ = pack->memory_.size();

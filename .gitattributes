@@ -45,3 +45,6 @@ tools/fuzz/corpus/** -text
 *.ttf binary
 *.otf binary
 *.ttc binary
+
+# Game packs (game.pak): binary archives, byte for byte (the fuzz corpus holds some).
+*.pak binary

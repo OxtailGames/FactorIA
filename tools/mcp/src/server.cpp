@@ -1,6 +1,7 @@
 #include "fa/mcp/server.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
@@ -991,8 +992,17 @@ std::optional<Json> McpServer::handle_valid_one(const Json& msg) {
 
 std::optional<std::string> McpServer::handle_message(std::string_view message) {
     Json parsed;
-    if (json_nesting_overflow(message) >= 0)
-        return dump_line(error_response(nullptr, kParseError, "Parse error: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels."));
+    if (const std::ptrdiff_t deep = json_nesting_overflow(message); deep >= 0) {
+        // The bracket that crossed the limit, as line and column of the message (a client may send a pretty-printed one).
+        const std::string_view before = message.substr(0, std::size_t(deep));
+        const std::size_t line = 1 + std::size_t(std::count(before.begin(), before.end(), '\n'));
+        const std::size_t lastNewline = before.rfind('\n');
+        const std::size_t column = 1 + (lastNewline == std::string_view::npos ? before.size() : before.size() - lastNewline - 1);
+        return dump_line(error_response(nullptr, kParseError,
+                                        "Parse error: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels at line " +
+                                            std::to_string(line) + ", column " + std::to_string(column) +
+                                            ". Send flatter arguments (ids instead of nested copies)."));
+    }
     try {
         parsed = Json::parse(message.begin(), message.end());
     } catch (const std::exception& e) {

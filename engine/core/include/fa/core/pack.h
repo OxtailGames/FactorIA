@@ -250,6 +250,7 @@ private:
     std::intptr_t mapping_ = 0;    // Windows: the file mapping object
     const std::uint8_t* map_ = nullptr;  // the whole pack, when mapped (or held in memory_)
     std::vector<std::uint8_t> memory_;   // open_memory: the pack's bytes, which map_ points into
+    bool inMemory_ = false;  // open_memory: map_ points into memory_ and is not a file mapping to unmap
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
     mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};
