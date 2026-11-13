@@ -27,6 +27,7 @@
 
 #include "fa/core/capability.h"
 #include "fa/core/json.h"
+#include "fa/core/json_schema.h"
 
 namespace fa::jobs {
 class Owner;
@@ -353,6 +354,8 @@ private:
     struct Entry {
         CommandInfo info;
         CommandHandler handler;
+        CompiledSchema schema;     // info.inputSchema compiled by add(): what call() validates against
+        bool acceptsMeta = false;  // the schema declares a "_meta" property, so call() keeps that key
     };
     std::map<std::string, Entry, std::less<>> commands_;
     std::function<void(std::string_view)> beforeCall_;
